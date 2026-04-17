@@ -1,0 +1,111 @@
+{
+  "cheapest_fixed": {
+    "slo_violation_rate_1000ms": 0.0,
+    "slo_violation_rate_2000ms": 0.0,
+    "slo_violation_rate_3000ms": 0.0,
+    "slo_violation_rate_5000ms": 0.0,
+    "mean_cost_usd": 9.496004046535154e-05,
+    "p50_ms": 99.52842539060907,
+    "p99_ms": 324.41376990230134,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "B": 1.0
+    }
+  },
+  "fastest_fixed": {
+    "slo_violation_rate_1000ms": 0.0,
+    "slo_violation_rate_2000ms": 0.0,
+    "slo_violation_rate_3000ms": 0.0,
+    "slo_violation_rate_5000ms": 0.0,
+    "mean_cost_usd": 9.496004046535154e-05,
+    "p50_ms": 99.52842539060907,
+    "p99_ms": 324.41376990230134,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "B": 1.0
+    }
+  },
+  "round_robin": {
+    "slo_violation_rate_1000ms": 0.27094924970494016,
+    "slo_violation_rate_2000ms": 0.11094250547968303,
+    "slo_violation_rate_3000ms": 0.05311077389984825,
+    "slo_violation_rate_5000ms": 0.015174506828528075,
+    "mean_cost_usd": 0.0002403500252908447,
+    "p50_ms": 249.41408545069945,
+    "p99_ms": 5534.028935988953,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "A": 0.5002529084471421,
+      "B": 0.49974709155285785
+    }
+  },
+  "lp_mix": {
+    "slo_violation_rate_1000ms": 0.0067442252571235884,
+    "slo_violation_rate_2000ms": 0.002866295734277525,
+    "slo_violation_rate_3000ms": 0.0016860563142808971,
+    "slo_violation_rate_5000ms": 0.0003372112628561794,
+    "mean_cost_usd": 9.876504805260494e-05,
+    "p50_ms": 101.19956405586113,
+    "p99_ms": 591.2209332649277,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "A": 0.013657056145675266,
+      "B": 0.9863429438543246
+    }
+  },
+  "lp_hedge": {
+    "slo_violation_rate_1000ms": 0.0,
+    "slo_violation_rate_2000ms": 0.0,
+    "slo_violation_rate_3000ms": 0.0,
+    "slo_violation_rate_5000ms": 0.0,
+    "mean_cost_usd": 0.00010074287641207217,
+    "p50_ms": 100.64174208825978,
+    "p99_ms": 326.05545521229647,
+    "hedge_rate": 0.014837295565671893,
+    "provider_fractions": {
+      "A": 0.013657056145675266,
+      "B": 0.9863429438543246
+    }
+  },
+  "v2_only": {
+    "slo_violation_rate_1000ms": 0.0067442252571235884,
+    "slo_violation_rate_2000ms": 0.002866295734277525,
+    "slo_violation_rate_3000ms": 0.0016860563142808971,
+    "slo_violation_rate_5000ms": 0.0003372112628561794,
+    "mean_cost_usd": 9.876504805260494e-05,
+    "p50_ms": 101.19956405586113,
+    "p99_ms": 591.2209332649277,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "A": 0.013657056145675266,
+      "B": 0.9863429438543246
+    }
+  },
+  "v2_p50_hedge": {
+    "slo_violation_rate_1000ms": 0.0,
+    "slo_violation_rate_2000ms": 0.0,
+    "slo_violation_rate_3000ms": 0.0,
+    "slo_violation_rate_5000ms": 0.0,
+    "mean_cost_usd": 0.00010074287641207217,
+    "p50_ms": 100.64174208825978,
+    "p99_ms": 326.05545521229647,
+    "hedge_rate": 0.014837295565671893,
+    "provider_fractions": {
+      "A": 0.013657056145675266,
+      "B": 0.9863429438543246
+    }
+  },
+  "oracle_per_window": {
+    "slo_violation_rate_1000ms": 0.0,
+    "slo_violation_rate_2000ms": 0.0,
+    "slo_violation_rate_3000ms": 0.0,
+    "slo_violation_rate_5000ms": 0.0,
+    "mean_cost_usd": 9.496004046535154e-05,
+    "p50_ms": 99.52842539060907,
+    "p99_ms": 324.41376990230134,
+    "hedge_rate": 0.0,
+    "provider_fractions": {
+      "B": 1.0
+    }
+  }
+}
