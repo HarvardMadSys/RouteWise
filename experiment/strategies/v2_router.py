@@ -138,7 +138,12 @@ class V2Router:
             return False
 
         # Step 1: Get eligible providers via hard filter.
-        eligible = pre_filter(self.profiles, current_time)
+        # BUGFIX: pre_filter's L_min defaults to 1.0 s, but V2's SLO is
+        # configurable (default 2.0 s). Tying L_min to slo_sec makes the
+        # "obviously broken" filter match the SLO we actually care about,
+        # rather than a hardcoded 1 s threshold that is neither a probing
+        # signal nor aligned with routing intent.
+        eligible = pre_filter(self.profiles, current_time, L_min=self.slo_sec)
         if not eligible:
             eligible = list(self.profiles.keys())
 

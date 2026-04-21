@@ -79,8 +79,12 @@ STRATEGIES = [
     "round_robin",
     "lp_mix",
     "lp_hedge",
+    "lp_explorer",          # LP + hedge + hedge-as-probe (full probing)
+    "lp_explorer_no_probe", # LP + hedge, only hedge-as-probe (no dedicated probing)
     "v2_only",
     "v2_p50_hedge",
+    "v2_explorer",          # V2 + hedge + hedge-as-probe (full probing)
+    "v2_explorer_no_probe", # V2 + hedge, only hedge-as-probe (no dedicated probing)
     "oracle_per_window",
 ]
 
@@ -302,6 +306,12 @@ def _warm_up_router(router, scenario: ScenarioConfig, t0: float, rng: np.random.
     This simulates the baseline probing data available before the simulation
     window opens. Samples are distributed evenly so they don't all expire
     simultaneously, and use the provider's true P50 (± noise) as latency.
+
+    After seeding, force an immediate LP update so that the first `route(t0)`
+    call returns a valid primary instead of None. Without this, both V2 and
+    LP routers return None until `current_time - last_lp_update >=
+    update_interval` (default 60 s), which biases the first ~minute of
+    requests toward whichever provider the caller's fallback selects.
     """
     N_PER_PROVIDER = 50
     window = 14 * 60  # 14 minutes of history (stays within the 15-min rolling window)
@@ -314,6 +324,21 @@ def _warm_up_router(router, scenario: ScenarioConfig, t0: float, rng: np.random.
             ttft_ms = p.sample_ttft(rng, t_sample)
             router.add_sample(p.name, t_sample, ttft_ms)
 
+    # Force first ranking/LP update using the warm-up samples so the very
+    # first route(t0) call returns a real primary.
+    router.update_lp(current_time=t0, force=True)
+
+
+def _cheapest_provider_name(scenario: ScenarioConfig) -> str:
+    """Return the name of the provider with the lowest cost_per_token.
+
+    Used as the fallback when a router legitimately cannot route (e.g. no
+    profile data, filter returns empty set). Picking the cheapest is a
+    more defensible default than picking `providers[0]`, which would bias
+    toward whatever order scenarios were declared in.
+    """
+    return min(scenario.providers, key=lambda p: p.cost_per_token).name
+
 
 def _probe_providers(
     router,
@@ -321,14 +346,21 @@ def _probe_providers(
     primary_name: str,
     t: float,
     rng: np.random.Generator,
+    probe_rate: float | None = None,
 ) -> None:
     """Send lightweight probe samples to non-primary providers.
 
     Simulates production-level background probing that keeps latency profiles
     fresh for providers not currently receiving production traffic.
+
+    Setting ``probe_rate=0.0`` disables dedicated probing entirely, which is
+    used by the Explorer-only variants that rely on hedge-as-probe feedback.
     """
+    rate = _PROBE_RATE if probe_rate is None else probe_rate
+    if rate <= 0.0:
+        return
     for p in scenario.providers:
-        if p.name != primary_name and rng.random() < _PROBE_RATE:
+        if p.name != primary_name and rng.random() < rate:
             probe_ttft = p.sample_ttft(rng, t)
             router.add_sample(p.name, t, probe_ttft)
 
@@ -350,6 +382,7 @@ def _run_lp_mix(
 
     t0 = float(requests[0].timestamp) if requests else 0.0
     _warm_up_router(router, scenario, t0, rng)
+    fallback_name = _cheapest_provider_name(scenario)
 
     ttft_ms, cost_usd, provider_sel, timestamps = [], [], [], []
 
@@ -357,7 +390,7 @@ def _run_lp_mix(
         t = float(req.timestamp)
         pname = router.route(t)
         if pname is None:
-            pname = scenario.providers[0].name
+            pname = fallback_name
 
         p = pdict[pname]
         tm, _ = _sample(p, req.response_tokens, rng, t)
@@ -385,7 +418,22 @@ def _run_v2_p50_hedge(
     requests: list[Request],
     rng: np.random.Generator,
     slo_sec: float,
+    hedge_as_probe: bool = False,
+    probe_rate: float | None = None,
+    strategy_label: str = "v2_p50_hedge",
 ) -> StrategyRun:
+    """V2Router + SmartHedger.
+
+    Args:
+        hedge_as_probe: When True, feed backup latency sample back to the
+            router profile whenever the hedge fires. This is the "Explorer"
+            mechanism from Juncheng (Apr 13/17): hedging doubles as probing
+            for non-primary providers.
+        probe_rate: Override the dedicated probing rate. None keeps the
+            default 5%. Setting it to 0.0 disables dedicated probing, which
+            in combination with hedge_as_probe yields a "pure explorer"
+            variant that replaces probing with hedging.
+    """
     costs = _costs_dict(scenario)
     pdict = {p.name: p for p in scenario.providers}
 
@@ -407,6 +455,7 @@ def _run_v2_p50_hedge(
 
     t0 = float(requests[0].timestamp) if requests else 0.0
     _warm_up_router(router, scenario, t0, rng)
+    fallback_name = _cheapest_provider_name(scenario)
 
     ttft_ms, cost_usd, provider_sel, timestamps = [], [], [], []
     hedged_flags: list[bool] = []
@@ -416,7 +465,7 @@ def _run_v2_p50_hedge(
 
         primary_name = router.route(t)
         if primary_name is None:
-            primary_name = scenario.providers[0].name
+            primary_name = fallback_name
 
         backup_name = select_backup(
             BackupSelectionMethod.FASTEST,
@@ -450,9 +499,12 @@ def _run_v2_p50_hedge(
 
         final_ttft_ms = result.final_ttft_sec * 1000.0
 
-        # Feed primary sample back to router and probe non-primaries.
+        # Feed primary sample back to the router profile.
         router.add_sample(primary_name, t, T_primary_ms)
-        _probe_providers(router, scenario, primary_name, t, rng)
+        # Explorer: when hedge fires, backup's latency is a free probe.
+        if hedge_as_probe and result.hedged and backup_name != primary_name:
+            router.add_sample(backup_name, t, T_backup_ms)
+        _probe_providers(router, scenario, primary_name, t, rng, probe_rate=probe_rate)
 
         # Compute cost: both are charged if hedge triggered.
         c = p_primary.cost_per_token * req.total_tokens
@@ -466,7 +518,7 @@ def _run_v2_p50_hedge(
         hedged_flags.append(result.hedged)
 
     return StrategyRun(
-        strategy="v2_p50_hedge",
+        strategy=strategy_label,
         ttft_ms=np.array(ttft_ms),
         cost_usd=np.array(cost_usd),
         provider=provider_sel,
@@ -502,6 +554,7 @@ def _run_v2_only(
 
     t0 = float(requests[0].timestamp) if requests else 0.0
     _warm_up_router(router, scenario, t0, rng)
+    fallback_name = _cheapest_provider_name(scenario)
 
     ttft_ms, cost_usd, provider_sel, timestamps = [], [], [], []
 
@@ -509,7 +562,7 @@ def _run_v2_only(
         t = float(req.timestamp)
         pname = router.route(t)
         if pname is None:
-            pname = scenario.providers[0].name
+            pname = fallback_name
 
         p = pdict[pname]
         tm, _ = _sample(p, req.response_tokens, rng, t)
@@ -537,8 +590,18 @@ def _run_lp_hedge(
     requests: list[Request],
     rng: np.random.Generator,
     slo_sec: float,
+    hedge_as_probe: bool = False,
+    probe_rate: float | None = None,
+    strategy_label: str = "lp_hedge",
 ) -> StrategyRun:
-    """LP routing (OnlineLatencyRouter) + SmartHedger (SMART_ECONOMIC)."""
+    """LP routing (OnlineLatencyRouter) + SmartHedger (SMART_ECONOMIC).
+
+    Args:
+        hedge_as_probe: Feed backup latency back to the router profile when
+            the hedge fires (Explorer mechanism).
+        probe_rate: Override dedicated probing rate. ``0.0`` disables it
+            entirely.
+    """
     costs = _costs_dict(scenario)
     pdict = {p.name: p for p in scenario.providers}
 
@@ -547,6 +610,7 @@ def _run_lp_hedge(
 
     t0 = float(requests[0].timestamp) if requests else 0.0
     _warm_up_router(router, scenario, t0, rng)
+    fallback_name = _cheapest_provider_name(scenario)
 
     ttft_ms, cost_usd, provider_sel, timestamps = [], [], [], []
     hedged_flags: list[bool] = []
@@ -555,7 +619,7 @@ def _run_lp_hedge(
         t = float(req.timestamp)
         primary_name = router.route(t)
         if primary_name is None:
-            primary_name = scenario.providers[0].name
+            primary_name = fallback_name
 
         backup_name = select_backup(
             BackupSelectionMethod.FASTEST,
@@ -588,7 +652,10 @@ def _run_lp_hedge(
         final_ttft_ms = result.final_ttft_sec * 1000.0
 
         router.add_sample(primary_name, t, T_primary_ms)
-        _probe_providers(router, scenario, primary_name, t, rng)
+        # Explorer: when hedge fires, backup's latency is a free probe.
+        if hedge_as_probe and result.hedged and backup_name != primary_name:
+            router.add_sample(backup_name, t, T_backup_ms)
+        _probe_providers(router, scenario, primary_name, t, rng, probe_rate=probe_rate)
 
         c = p_primary.cost_per_token * req.total_tokens
         if result.hedged:
@@ -601,7 +668,7 @@ def _run_lp_hedge(
         hedged_flags.append(result.hedged)
 
     return StrategyRun(
-        strategy="lp_hedge",
+        strategy=strategy_label,
         ttft_ms=np.array(ttft_ms),
         cost_usd=np.array(cost_usd),
         provider=provider_sel,
@@ -681,10 +748,41 @@ def run_strategy(
         return _run_lp_mix(scenario, requests, rng, slo_sec)
     elif strategy == "lp_hedge":
         return _run_lp_hedge(scenario, requests, rng, slo_sec)
+    elif strategy == "lp_explorer":
+        # LP + hedge + hedge-as-probe feedback (keeps dedicated probing).
+        return _run_lp_hedge(
+            scenario, requests, rng, slo_sec,
+            hedge_as_probe=True,
+            probe_rate=None,
+            strategy_label="lp_explorer",
+        )
+    elif strategy == "lp_explorer_no_probe":
+        # LP + hedge, Explorer-only: no dedicated probing, backup samples
+        # are the only feedback source for non-primary providers.
+        return _run_lp_hedge(
+            scenario, requests, rng, slo_sec,
+            hedge_as_probe=True,
+            probe_rate=0.0,
+            strategy_label="lp_explorer_no_probe",
+        )
     elif strategy == "v2_only":
         return _run_v2_only(scenario, requests, rng, slo_sec)
     elif strategy == "v2_p50_hedge":
         return _run_v2_p50_hedge(scenario, requests, rng, slo_sec)
+    elif strategy == "v2_explorer":
+        return _run_v2_p50_hedge(
+            scenario, requests, rng, slo_sec,
+            hedge_as_probe=True,
+            probe_rate=None,
+            strategy_label="v2_explorer",
+        )
+    elif strategy == "v2_explorer_no_probe":
+        return _run_v2_p50_hedge(
+            scenario, requests, rng, slo_sec,
+            hedge_as_probe=True,
+            probe_rate=0.0,
+            strategy_label="v2_explorer_no_probe",
+        )
     elif strategy == "oracle_per_window":
         return _run_oracle_per_window(scenario, requests, rng)
     else:
