@@ -245,13 +245,21 @@ def solve_lp(
     current_time: float,
     kappa: float = 0.0,
     target_cdf: float = 0.99,
+    alpha: float = 0.0,
 ) -> dict[str, float] | None:
     """Solve the cost-minimization LP with tail constraint.
 
-    minimize:   sum_j pi_j * c_j * (1 + kappa * e_j)
+    minimize:   sum_j pi_j * (c_j * (1 + kappa * e_j) + alpha * p50_j)
     subject to: sum_j pi_j * F_j(L) >= target_cdf
                 sum_j pi_j = 1
                 pi_j >= 0
+
+    The alpha term is the "latency-weighted cost" extension proposed by
+    Juncheng on 2026-04-21: each provider's effective cost includes an
+    alpha-scaled P50 penalty, so the LP can prefer faster providers when
+    alpha > 0. This recovers V2-like behavior (prefer Friendli over Novita
+    on Llama) as alpha grows, while alpha = 0 preserves the original
+    cost-first lp_mix behavior.
 
     Args:
         providers: List of provider names to consider.
@@ -261,6 +269,8 @@ def solve_lp(
         current_time: Reference time for CDF computation.
         kappa: Error penalty coefficient (default 0).
         target_cdf: Target CDF value (default 0.99).
+        alpha: Latency weight coefficient applied to each provider's P50
+            (milliseconds). Default 0 preserves original lp_mix behavior.
 
     Returns:
         Dict of provider -> weight, or None if infeasible.
@@ -269,24 +279,32 @@ def solve_lp(
     if n == 0:
         return None
 
-    # Compute CDFs and error rates
+    # Compute CDFs, error rates, and P50s (in ms so alpha has units USD/ms)
     cdfs = []
     error_rates = []
+    p50s = []
     for p in providers:
         profile = profiles[p]
         cdfs.append(profile.get_cdf_at(slo_sec, current_time))
         error_rates.append(profile.get_error_rate_before(current_time))
+        # get_samples_before returns SECONDS; convert to ms for the P50 term
+        samples = profile.get_samples_before(current_time)
+        p50s.append(float(np.median(samples)) * 1000.0 if samples else 0.0)
 
     cdfs = np.array(cdfs)
     error_rates = np.array(error_rates)
+    p50s = np.array(p50s)
 
     # Check if any single provider can satisfy the constraint
     if np.max(cdfs) < target_cdf:
         return None  # Infeasible
 
-    # Objective: minimize sum_j pi_j * c_j * (1 + kappa * e_j)
+    # Objective: sum_j pi_j * (c_j * (1 + kappa * e_j) + alpha * p50_j)
     c = np.array(
-        [costs.get(p, 1.0) * (1 + kappa * error_rates[i]) for i, p in enumerate(providers)]
+        [
+            costs.get(p, 1.0) * (1 + kappa * error_rates[i]) + alpha * p50s[i]
+            for i, p in enumerate(providers)
+        ]
     )
 
     # Inequality constraint: -sum_j pi_j * F_j(L) <= -target_cdf
@@ -329,6 +347,7 @@ def solve_lp_with_fallback(
     current_time: float,
     relaxation_factors: list[float] | None = None,
     kappa: float = 0.0,
+    alpha: float = 0.0,
 ) -> tuple[dict[str, float], str]:
     """Solve LP with progressive relaxation fallback.
 
@@ -351,14 +370,16 @@ def solve_lp_with_fallback(
         relaxation_factors = [1.2, 1.5, 2.0]
 
     # Try original SLO
-    result = solve_lp(providers, profiles, costs, slo_sec, current_time, kappa)
+    result = solve_lp(providers, profiles, costs, slo_sec, current_time, kappa, alpha=alpha)
     if result is not None:
         return result, "optimal"
 
     # Try relaxed SLOs
     for factor in relaxation_factors:
         relaxed_slo = slo_sec * factor
-        result = solve_lp(providers, profiles, costs, relaxed_slo, current_time, kappa)
+        result = solve_lp(
+            providers, profiles, costs, relaxed_slo, current_time, kappa, alpha=alpha
+        )
         if result is not None:
             return result, f"relaxed_{factor}x"
 
@@ -475,6 +496,7 @@ class OnlineLatencyRouter:
         weight_smoothing: float = 0.3,
         lp_update_interval: float = 60.0,  # seconds
         relaxation_factors: list[float] | None = None,
+        alpha: float = 0.0,
     ):
         """Initialize the router.
 
@@ -487,6 +509,10 @@ class OnlineLatencyRouter:
             weight_smoothing: Smoothing factor for weight updates.
             lp_update_interval: Minimum seconds between LP updates.
             relaxation_factors: SLO relaxation factors for fallback. Defaults to [1.2, 1.5, 2.0].
+            alpha: Latency weight coefficient for the LP objective. Default 0
+                preserves the original cost-first lp_mix behavior; larger
+                values trade cost for lower P50 and recover V2-like behavior
+                at the limit.
         """
         self.costs = costs
         self.slo_sec = slo_sec
@@ -498,6 +524,7 @@ class OnlineLatencyRouter:
         self.relaxation_factors = (
             relaxation_factors if relaxation_factors is not None else [1.2, 1.5, 2.0]
         )
+        self.alpha = alpha
 
         # Initialize profiles for all providers
         self.profiles: dict[str, ProviderProfile] = {}
@@ -573,6 +600,7 @@ class OnlineLatencyRouter:
             current_time=current_time,
             relaxation_factors=self.relaxation_factors,
             kappa=self.kappa,
+            alpha=self.alpha,
         )
 
         # Update sampler with smoothing

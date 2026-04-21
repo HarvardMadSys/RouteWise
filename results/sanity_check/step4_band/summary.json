@@ -1,0 +1,186 @@
+{
+  "step_id": "step4_band",
+  "description": "A at V2's band boundary, cheaper than B.",
+  "is_sweep": false,
+  "scenarios": [
+    {
+      "scenario_name": "step4_band",
+      "description": "A: $0.5/M P50=110ms (edge of V2 10% band). B: $2/M P50=100ms. Both meet SLO=2s comfortably.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 110.00000000000004,
+          "p99_ms": 351.94691895107246
+        },
+        "B": {
+          "cost_per_m_tokens": 2.0,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 108.75213032602569,
+          "p99_ms": 355.09128997100174,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.0003789366053169733,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.0002334105316973415,
+          "p50_ms": 104.33973522789017,
+          "p99_ms": 342.9412414820625,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 110.26180793571564,
+          "p99_ms": 354.9908934020039,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.585071574642126e-05,
+          "p50_ms": 109.4803810510407,
+          "p99_ms": 346.99427001950903,
+          "hedge_rate": 0.003067484662576687,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.585071574642126e-05,
+          "p50_ms": 109.4803810510407,
+          "p99_ms": 346.99427001950903,
+          "hedge_rate": 0.003067484662576687,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.505930470347648e-05,
+          "p50_ms": 109.12732506691225,
+          "p99_ms": 363.7428565132779,
+          "hedge_rate": 0.0010224948875255625,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.0002585700408997955,
+          "p50_ms": 104.67123957389481,
+          "p99_ms": 332.119441824314,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.4233128834355828,
+            "B": 0.5766871165644172
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.0002796750170415815,
+          "p50_ms": 103.15605776994755,
+          "p99_ms": 333.79202608459724,
+          "hedge_rate": 0.0054533060668029995,
+          "provider_fractions": {
+            "A": 0.35480572597137017,
+            "B": 0.6451942740286299
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.00024397017723244718,
+          "p50_ms": 104.45970244838662,
+          "p99_ms": 326.39541507315954,
+          "hedge_rate": 0.004430811179277437,
+          "provider_fractions": {
+            "A": 0.4730743012951602,
+            "B": 0.5269256987048397
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.000348543796864349,
+          "p50_ms": 99.96334491082477,
+          "p99_ms": 334.70553593422443,
+          "hedge_rate": 0.00408997955010225,
+          "provider_fractions": {
+            "A": 0.10838445807770962,
+            "B": 0.8916155419222904
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 0.0003789366053169733,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    }
+  ]
+}

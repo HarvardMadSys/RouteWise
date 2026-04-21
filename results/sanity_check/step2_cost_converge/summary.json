@@ -1,0 +1,885 @@
+{
+  "step_id": "step2_cost_converge",
+  "description": "Sweep A's cost toward B's; B always faster.",
+  "is_sweep": true,
+  "scenarios": [
+    {
+      "scenario_name": "step2_cost_converge_a2.00",
+      "description": "A: $2.0/M P50=1000ms; B: $0.5/M P50=100ms. B always faster; traffic should stay on B.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 2.0,
+          "p50_ms": 999.9999999999998,
+          "p99_ms": 3199.517445009748
+        },
+        "B": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.2447171097477846,
+          "slo_violation_rate_2000ms": 0.04124062713019768,
+          "slo_violation_rate_3000ms": 0.008520790729379687,
+          "slo_violation_rate_5000ms": 0.00034083162917518747,
+          "mean_cost_usd": 0.00024026022494887523,
+          "p50_ms": 322.68114376790606,
+          "p99_ms": 2763.6698764552325,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.576209952283571e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.576209952283571e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.495092024539877e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.576209952283571e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.576209952283571e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.495092024539877e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    },
+    {
+      "scenario_name": "step2_cost_converge_a1.50",
+      "description": "A: $1.5/M P50=1000ms; B: $0.5/M P50=100ms. B always faster; traffic should stay on B.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 1.5,
+          "p50_ms": 999.9999999999998,
+          "p99_ms": 3199.517445009748
+        },
+        "B": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.2447171097477846,
+          "slo_violation_rate_2000ms": 0.04124062713019768,
+          "slo_violation_rate_3000ms": 0.008520790729379687,
+          "slo_violation_rate_5000ms": 0.00034083162917518747,
+          "mean_cost_usd": 0.00019175153374233127,
+          "p50_ms": 322.68114376790606,
+          "p99_ms": 2763.6698764552325,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.550511247443764e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.550511247443764e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.48967280163599e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.550511247443764e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.550511247443764e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.48967280163599e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    },
+    {
+      "scenario_name": "step2_cost_converge_a1.00",
+      "description": "A: $1.0/M P50=1000ms; B: $0.5/M P50=100ms. B always faster; traffic should stay on B.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 1.0,
+          "p50_ms": 999.9999999999998,
+          "p99_ms": 3199.517445009748
+        },
+        "B": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.2447171097477846,
+          "slo_violation_rate_2000ms": 0.04124062713019768,
+          "slo_violation_rate_3000ms": 0.008520790729379687,
+          "slo_violation_rate_5000ms": 0.00034083162917518747,
+          "mean_cost_usd": 0.0001432428425357873,
+          "p50_ms": 322.68114376790606,
+          "p99_ms": 2763.6698764552325,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.524812542603953e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.524812542603953e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.484253578732106e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.524812542603953e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.524812542603953e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.484253578732106e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    },
+    {
+      "scenario_name": "step2_cost_converge_a0.75",
+      "description": "A: $0.75/M P50=1000ms; B: $0.5/M P50=100ms. B always faster; traffic should stay on B.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 0.75,
+          "p50_ms": 999.9999999999998,
+          "p99_ms": 3199.517445009748
+        },
+        "B": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.2447171097477846,
+          "slo_violation_rate_2000ms": 0.04124062713019768,
+          "slo_violation_rate_3000ms": 0.008520790729379687,
+          "slo_violation_rate_5000ms": 0.00034083162917518747,
+          "mean_cost_usd": 0.00011898849693251535,
+          "p50_ms": 322.68114376790606,
+          "p99_ms": 2763.6698764552325,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.511963190184049e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.511963190184049e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.481543967280163e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.511963190184049e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.511963190184049e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.481543967280163e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    },
+    {
+      "scenario_name": "step2_cost_converge_a0.50",
+      "description": "A: $0.5/M P50=1000ms; B: $0.5/M P50=100ms. B always faster; traffic should stay on B.",
+      "providers": {
+        "A": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 999.9999999999998,
+          "p99_ms": 3199.517445009748
+        },
+        "B": {
+          "cost_per_m_tokens": 0.5,
+          "p50_ms": 100.00000000000004,
+          "p99_ms": 319.951744500975
+        }
+      },
+      "strategies": {
+        "cheapest_fixed": {
+          "slo_violation_rate_1000ms": 0.4911383776414451,
+          "slo_violation_rate_2000ms": 0.08316291751874574,
+          "slo_violation_rate_3000ms": 0.015337423312883436,
+          "slo_violation_rate_5000ms": 0.0006816632583503749,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 988.6557302365967,
+          "p99_ms": 3228.1026361000145,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 1.0
+          }
+        },
+        "fastest_fixed": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "round_robin": {
+          "slo_violation_rate_1000ms": 0.2447171097477846,
+          "slo_violation_rate_2000ms": 0.04124062713019768,
+          "slo_violation_rate_3000ms": 0.008520790729379687,
+          "slo_violation_rate_5000ms": 0.00034083162917518747,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 322.68114376790606,
+          "p99_ms": 2763.6698764552325,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.5,
+            "B": 0.5
+          }
+        },
+        "lp_mix": {
+          "slo_violation_rate_1000ms": 0.005112474437627812,
+          "slo_violation_rate_2000ms": 0.0010224948875255625,
+          "slo_violation_rate_3000ms": 0.00034083162917518747,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.67442625228728,
+          "p99_ms": 637.6214696868318,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "A": 0.028629856850715747,
+            "B": 0.9904567143830948
+          }
+        },
+        "lp_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.499113837764144e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "lp_explorer": {
+          "slo_violation_rate_1000ms": 0.0017041581458759373,
+          "slo_violation_rate_2000ms": 0.00034083162917518747,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.527368779822767e-05,
+          "p50_ms": 99.94327533263697,
+          "p99_ms": 471.2231682421518,
+          "hedge_rate": 0.0054533060668029995,
+          "provider_fractions": {
+            "A": 0.017382413087934562,
+            "B": 0.9942058623040219
+          }
+        },
+        "lp_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.004771642808452625,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.552062031356509e-05,
+          "p50_ms": 99.91895023296046,
+          "p99_ms": 526.0070849392818,
+          "hedge_rate": 0.007498295841854124,
+          "provider_fractions": {
+            "A": 0.013633265167007498,
+            "B": 0.9863667348329925
+          }
+        },
+        "v2_only": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 100.23800721428695,
+          "p99_ms": 322.71899400182156,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_p50_hedge": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.499113837764144e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.499113837764144e-05,
+          "p50_ms": 99.52761913730973,
+          "p99_ms": 315.4493363813718,
+          "hedge_rate": 0.0023858214042263124,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "v2_explorer_no_probe": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.47883435582822e-05,
+          "p50_ms": 99.2066591517384,
+          "p99_ms": 330.6753241029799,
+          "hedge_rate": 0.0006816632583503749,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        },
+        "oracle_per_window": {
+          "slo_violation_rate_1000ms": 0.0,
+          "slo_violation_rate_2000ms": 0.0,
+          "slo_violation_rate_3000ms": 0.0,
+          "slo_violation_rate_5000ms": 0.0,
+          "mean_cost_usd": 9.473415132924333e-05,
+          "p50_ms": 98.8655730236597,
+          "p99_ms": 322.8102636100016,
+          "hedge_rate": 0.0,
+          "provider_fractions": {
+            "B": 1.0
+          }
+        }
+      }
+    }
+  ]
+}

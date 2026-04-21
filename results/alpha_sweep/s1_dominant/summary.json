@@ -1,0 +1,145 @@
+{
+  "scenario": "s1_dominant",
+  "alphas": [
+    {
+      "alpha": 0.0,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 1e-08,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 1e-07,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 3e-07,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 1e-06,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 3e-06,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 1e-05,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 3e-05,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 0.0001,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    },
+    {
+      "alpha": 0.001,
+      "slo_violation_rate_1000ms": 0.0,
+      "slo_violation_rate_2000ms": 0.0,
+      "slo_violation_rate_3000ms": 0.0,
+      "slo_violation_rate_5000ms": 0.0,
+      "mean_cost_usd": 9.566953296240093e-05,
+      "p50_ms": 99.78086605123754,
+      "p99_ms": 322.870168305154,
+      "hedge_rate": 0.001180239419996628,
+      "provider_fractions": {
+        "B": 1.0
+      }
+    }
+  ]
+}
