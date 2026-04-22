@@ -1,0 +1,1431 @@
+"""Sidecar LP-budget evaluation harness for tiered synthetic scenarios.
+
+This module intentionally does not register new strategies in the shared
+registry. It reuses the merged tiered world model and implements an isolated
+evaluation path for the LP formulation pivot study.
+"""
+
+from __future__ import annotations
+
+from collections import Counter, deque
+from dataclasses import dataclass, field
+import math
+import re
+from typing import NamedTuple
+
+import numpy as np
+from scipy.optimize import linprog
+
+from experiment.data.schema import Request
+from experiment.strategies.online_latency_router import SWRRSampler
+
+from .._core.metrics import StrategyRun
+from ..workload import generate_workload
+from .providers import ProviderTier, TieredProvider
+from .scenarios import TieredScenarioConfig, make_tiered_scenarios
+from .scenarios_mm25 import make_mm25_scenarios
+from .shadow_price import calibrate_envelopes, effective_cost, quota_shadow_price
+from .strategies import (
+    _pick_cross_tier_backup,
+    _reset_all_state,
+    _sample_service_time,
+    _sample_ttft,
+)
+
+MAIN_VARIANTS = [
+    "old_body",
+    "old_body_hedge",
+    "budget_vhat_t25",
+    "budget_vhat_t50",
+    "budget_vhat_t75",
+    "budget_vhat_t25_hedge",
+    "budget_vhat_t50_hedge",
+    "budget_vhat_t75_hedge",
+]
+HEDGE_ABLATION_VARIANTS = [
+    "old_body_oldhedge",
+    "budget_vhat_t75_oldhedge",
+]
+PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
+    "budget_body_p25",
+    "budget_body_p50",
+    "budget_body_p75",
+    "budget_body_p25_hedge",
+    "budget_body_p50_hedge",
+    "budget_body_p75_hedge",
+]
+CONTROL_VARIANTS = [
+    "cheapest_available",
+    "fastest_available",
+    "quota_first",
+    "concurrency_first",
+]
+FIRST_BATCH_SCENARIOS = [
+    "s6_slow_q_trap",
+    "s7_quota_depletion",
+    "s8_concurrency_saturation",
+    "s8m_multi_sq_hierarchy",
+    "s7m_quota_depletion",
+]
+
+WINDOW_SEC = 15 * 60.0
+WARMUP_WINDOW_SEC = 14 * 60.0
+WARMUP_SAMPLES_PER_PROVIDER = 50
+BODY_MEAN_MIN_SAMPLES = 5
+OLD_TARGETS = (0.99, 0.98, 0.95, 0.90)
+LP_EPS = 1e-9
+WEIGHT_FLOOR = 1e-8
+HEDGE_COST_MULTIPLIER = 10.0
+HEDGE_SUCCESS_TARGET = 0.99
+HEDGE_DISPATCH_OVERHEAD_MS = 50.0
+HEDGE_TIME_GRID_MS = 10.0
+BACKUP_RANDOM_PROB_BASE = 0.5
+BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION = 0.05
+BACKUP_RANDOM_PROB_ZERO_POINT = 0.10
+BACKUP_VIOLATION_WINDOW = 256
+TRIVIAL_SUPPORT_THRESHOLD = 1
+PROBE_RATE = 0.05
+HEDGE_AS_PROBE = True
+
+
+def _is_budget_variant(variant: str) -> bool:
+    return variant.startswith("budget_")
+
+
+def _is_provider_percentile_variant(variant: str) -> bool:
+    return _base_variant(variant).startswith("budget_body_p")
+
+
+def _is_vhat_budget_variant(variant: str) -> bool:
+    return _base_variant(variant).startswith("budget_vhat_t")
+
+
+def _is_control_variant(variant: str) -> bool:
+    return variant in CONTROL_VARIANTS
+
+
+def _hedge_mode(variant: str) -> str:
+    if variant.endswith("_oldhedge"):
+        return "old"
+    if variant.endswith("_hedge"):
+        return "new"
+    return "none"
+
+
+def _use_hedge(variant: str) -> bool:
+    return _hedge_mode(variant) != "none"
+
+
+def _base_variant(variant: str) -> str:
+    hedge_mode = _hedge_mode(variant)
+    if hedge_mode == "old":
+        return variant[:-len("_oldhedge")]
+    if hedge_mode == "new":
+        return variant[:-len("_hedge")]
+    return variant
+
+
+def _budget_level_from_variant(variant: str) -> int:
+    match = re.search(r"_(?:p|t)(\d+)$", _base_variant(variant))
+    if match is None:
+        raise ValueError(f"Variant does not encode a budget level: {variant!r}")
+    return int(match.group(1))
+
+
+def _safe_mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(np.mean(values))
+
+
+def _safe_quantile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    return float(np.percentile(values, q))
+
+
+def _normalize_weights(
+    names: list[str],
+    vector: np.ndarray,
+    *,
+    floor: float = WEIGHT_FLOOR,
+) -> dict[str, float]:
+    weights = {
+        name: float(vector[idx])
+        for idx, name in enumerate(names)
+        if float(vector[idx]) > floor
+    }
+    total = sum(weights.values())
+    if total <= 0.0:
+        return {}
+    return {name: weight / total for name, weight in weights.items()}
+
+
+def _single_provider_weight(provider: TieredProvider) -> dict[str, float]:
+    return {provider.name: 1.0}
+
+
+def _choose_lp_provider(
+    weights: dict[str, float],
+    sampler: SWRRSampler,
+) -> str:
+    if not weights:
+        raise ValueError("Cannot choose a provider from empty weights.")
+    sampler.update_weights(weights, smoothing=1.0)
+    choice = sampler.next()
+    if choice is not None:
+        return choice
+    return max(weights, key=weights.get)
+
+
+def _mean_tier_fraction(runs: list[StrategyRun]) -> dict[str, float]:
+    fractions: dict[str, list[float]] = {}
+    for run in runs:
+        for tier_name, fraction in run.tier_fractions().items():
+            fractions.setdefault(tier_name, []).append(fraction)
+    return {name: float(np.mean(values)) for name, values in sorted(fractions.items())}
+
+
+def _mean_provider_fraction(runs: list[StrategyRun]) -> dict[str, float]:
+    fractions: dict[str, list[float]] = {}
+    for run in runs:
+        for provider_name, fraction in run.provider_fractions().items():
+            fractions.setdefault(provider_name, []).append(fraction)
+    return {name: float(np.mean(values)) for name, values in sorted(fractions.items())}
+
+
+class SelectorOutcome(NamedTuple):
+    """Selector output for one routing decision."""
+
+    weights: dict[str, float]
+    status: str
+    c_eff: dict[str, float]
+    budget_tau: float | None
+    expected_c_eff: float | None
+    budget_utilization: float | None
+    budget_slack: float | None
+    true_p50_fallbacks: int
+    feasible_count: int
+
+
+@dataclass
+class RollingLatencyProfile:
+    """Moving-window TTFT profile used by the sidecar LP selectors."""
+
+    window_sec: float = WINDOW_SEC
+    _samples: deque[tuple[float, float]] = field(default_factory=deque)
+
+    def add_sample(self, timestamp: float, ttft_ms: float) -> None:
+        self._samples.append((timestamp, ttft_ms))
+
+    def _prune(self, current_time: float) -> None:
+        cutoff = current_time - self.window_sec
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
+
+    def values(self, current_time: float) -> list[float]:
+        self._prune(current_time)
+        return [ttft_ms for _, ttft_ms in self._samples]
+
+    def sample_count(self, current_time: float) -> int:
+        return len(self.values(current_time))
+
+    def mean_ttft(self, current_time: float) -> float | None:
+        values = self.values(current_time)
+        if len(values) < BODY_MEAN_MIN_SAMPLES:
+            return None
+        return float(np.mean(values))
+
+    def median_ttft(self, current_time: float) -> float | None:
+        values = self.values(current_time)
+        if not values:
+            return None
+        return float(np.median(values))
+
+    def slo_attainment(self, current_time: float, slo_ms: float) -> float:
+        values = self.values(current_time)
+        if not values:
+            return 0.0
+        return float(np.mean(np.array(values) <= slo_ms))
+
+
+@dataclass
+class RecentViolationTracker:
+    """Tracks recent final SLO outcomes for adaptive backup selection."""
+
+    maxlen: int = BACKUP_VIOLATION_WINDOW
+    _violations: deque[bool] = field(default_factory=deque)
+
+    def add_outcome(self, violated: bool) -> None:
+        self._violations.append(bool(violated))
+        while len(self._violations) > self.maxlen:
+            self._violations.popleft()
+
+    def violation_rate(self) -> float:
+        if not self._violations:
+            return 0.0
+        return float(np.mean(np.array(self._violations, dtype=float)))
+
+
+@dataclass
+class RunDiagnostics:
+    """Aggregated diagnostics for one run of one variant on one seed."""
+
+    variant: str
+    scenario_name: str
+    seed: int
+    solver_status_counts: Counter[str] = field(default_factory=Counter)
+    fallback_counts: Counter[str] = field(default_factory=Counter)
+    budget_values: list[float] = field(default_factory=list)
+    expected_c_eff_values: list[float] = field(default_factory=list)
+    utilization_values: list[float] = field(default_factory=list)
+    slack_values: list[float] = field(default_factory=list)
+    total_decisions: int = 0
+    non_optimal_decisions: int = 0
+    single_feasible_provider_decisions: int = 0
+    trivial_single_provider_outcomes: int = 0
+    true_p50_fallback_count: int = 0
+    explorer_feedback_count: int = 0
+    backup_selection_counts: Counter[str] = field(default_factory=Counter)
+    backup_random_prob_values: list[float] = field(default_factory=list)
+
+    def record(self, outcome: SelectorOutcome) -> None:
+        self.total_decisions += 1
+        self.solver_status_counts[outcome.status] += 1
+        if outcome.feasible_count == 1:
+            self.single_feasible_provider_decisions += 1
+        if len(outcome.weights) <= TRIVIAL_SUPPORT_THRESHOLD:
+            self.trivial_single_provider_outcomes += 1
+        if outcome.status != "optimal":
+            self.non_optimal_decisions += 1
+        if "fallback" in outcome.status or outcome.status.startswith("best_effort"):
+            self.fallback_counts[outcome.status] += 1
+        self.true_p50_fallback_count += outcome.true_p50_fallbacks
+
+        if outcome.budget_tau is not None:
+            self.budget_values.append(outcome.budget_tau)
+        if outcome.expected_c_eff is not None:
+            self.expected_c_eff_values.append(outcome.expected_c_eff)
+        if outcome.budget_utilization is not None and math.isfinite(outcome.budget_utilization):
+            self.utilization_values.append(outcome.budget_utilization)
+        if outcome.budget_slack is not None and math.isfinite(outcome.budget_slack):
+            self.slack_values.append(outcome.budget_slack)
+
+    def to_summary_dict(self) -> dict[str, object]:
+        return {
+            "solver_status_counts": dict(sorted(self.solver_status_counts.items())),
+            "fallback_counts": dict(sorted(self.fallback_counts.items())),
+            "non_optimal_decisions": self.non_optimal_decisions,
+            "single_feasible_provider_decisions": self.single_feasible_provider_decisions,
+            "trivial_single_provider_outcomes": self.trivial_single_provider_outcomes,
+            "true_p50_fallback_count": self.true_p50_fallback_count,
+            "explorer_feedback_count": self.explorer_feedback_count,
+            "backup_selection_counts": dict(sorted(self.backup_selection_counts.items())),
+            "mean_backup_random_prob": _safe_mean(self.backup_random_prob_values),
+            "mean_B_tau": _safe_mean(self.budget_values),
+            "mean_E_pi_c_eff": _safe_mean(self.expected_c_eff_values),
+            "mean_budget_utilization": _safe_mean(self.utilization_values),
+            "mean_budget_slack": _safe_mean(self.slack_values),
+            "budget_utilization_p10": _safe_quantile(self.utilization_values, 10),
+            "budget_utilization_p50": _safe_quantile(self.utilization_values, 50),
+            "budget_utilization_p90": _safe_quantile(self.utilization_values, 90),
+            "budget_slack_p10": _safe_quantile(self.slack_values, 10),
+            "budget_slack_p50": _safe_quantile(self.slack_values, 50),
+            "budget_slack_p90": _safe_quantile(self.slack_values, 90),
+            "total_decisions": self.total_decisions,
+        }
+
+
+@dataclass
+class EvaluatedRun:
+    """One seed of one variant on one scenario."""
+
+    run: StrategyRun
+    diagnostics: RunDiagnostics
+
+
+def _make_profiles(providers: list[TieredProvider]) -> dict[str, RollingLatencyProfile]:
+    return {provider.name: RollingLatencyProfile() for provider in providers}
+
+
+def _warm_up_profiles(
+    profiles: dict[str, RollingLatencyProfile],
+    providers: list[TieredProvider],
+    t0: float,
+    rng: np.random.Generator,
+) -> None:
+    for provider in providers:
+        for idx in range(WARMUP_SAMPLES_PER_PROVIDER):
+            t_sample = t0 - WARMUP_WINDOW_SEC + (
+                idx / WARMUP_SAMPLES_PER_PROVIDER
+            ) * WARMUP_WINDOW_SEC
+            profiles[provider.name].add_sample(
+                t_sample,
+                provider.sample_ttft(rng, t_sample),
+            )
+
+
+def _probe_non_primary_profiles(
+    profiles: dict[str, RollingLatencyProfile],
+    providers: list[TieredProvider],
+    primary_name: str,
+    now: float,
+    rng: np.random.Generator,
+    *,
+    probe_rate: float = PROBE_RATE,
+) -> None:
+    """Reuse the existing lightweight probe policy from the latency simulator."""
+    if probe_rate <= 0.0:
+        return
+    for provider in providers:
+        if provider.name == primary_name:
+            continue
+        if rng.random() < probe_rate:
+            profiles[provider.name].add_sample(
+                now,
+                provider.sample_ttft(rng, now),
+            )
+
+
+def _adaptive_random_backup_probability(
+    violation_tracker: RecentViolationTracker,
+) -> float:
+    """Return the current random-backup fraction for explorer hedging."""
+    violation_rate = violation_tracker.violation_rate()
+    if violation_rate <= BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION:
+        return BACKUP_RANDOM_PROB_BASE
+    if violation_rate >= BACKUP_RANDOM_PROB_ZERO_POINT:
+        return 0.0
+    excess = (
+        (violation_rate - BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION)
+        / (BACKUP_RANDOM_PROB_ZERO_POINT - BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION)
+    )
+    return float(BACKUP_RANDOM_PROB_BASE * (1.0 - excess))
+
+
+def _fallback_api_provider(providers: list[TieredProvider]) -> TieredProvider:
+    api_candidates = [provider for provider in providers if provider.tier == ProviderTier.S_A]
+    if api_candidates:
+        return min(api_candidates, key=lambda provider: provider.cost_per_token)
+    return min(providers, key=lambda provider: provider.cost_per_token)
+
+
+def _predicted_api_cost_anchor(
+    providers: list[TieredProvider],
+    req: Request,
+    now: float,
+) -> float:
+    """Return the request-side API cost anchor used as v_hat_i.
+
+    In the synthetic simulator, we define v_hat_i as the billed cost of routing
+    request i to the cheapest S_A provider in the scenario.
+    """
+    api_candidates = [
+        provider for provider in providers if provider.tier == ProviderTier.S_A
+    ]
+    if api_candidates:
+        return float(
+            min(provider.marginal_cost(req.total_tokens, now) for provider in api_candidates)
+        )
+
+    positive_costs = [
+        provider.cost_per_request(req.total_tokens)
+        for provider in providers
+        if provider.cost_per_request(req.total_tokens) > 0.0
+    ]
+    if positive_costs:
+        return float(min(positive_costs))
+    return 0.0
+
+
+def _body_latency_proxy_ms(
+    provider: TieredProvider,
+    profile: RollingLatencyProfile,
+    now: float,
+) -> tuple[float, int]:
+    mean_ttft = profile.mean_ttft(now)
+    if mean_ttft is not None:
+        return mean_ttft, 0
+
+    median_ttft = profile.median_ttft(now)
+    if median_ttft is not None:
+        return median_ttft, 0
+
+    return provider.true_p50_ms(now), 1
+
+
+def _expected_weighted_value(
+    weights: dict[str, float],
+    values: dict[str, float],
+) -> float:
+    return float(sum(weights[name] * values[name] for name in weights))
+
+
+def _solve_simplex_lp(
+    objective: list[float],
+    *,
+    upper_constraint: list[float] | None = None,
+    upper_bound: float | None = None,
+) -> tuple[bool, np.ndarray | None]:
+    n = len(objective)
+    A_ub = None
+    b_ub = None
+    if upper_constraint is not None and upper_bound is not None:
+        A_ub = [upper_constraint]
+        b_ub = [upper_bound]
+    A_eq = [np.ones(n)]
+    b_eq = [1.0]
+    bounds = [(0.0, 1.0) for _ in range(n)]
+    result = linprog(
+        c=objective,
+        A_ub=A_ub,
+        b_ub=b_ub,
+        A_eq=A_eq,
+        b_eq=b_eq,
+        bounds=bounds,
+        method="highs",
+    )
+    if not result.success:
+        return False, None
+    return True, result.x
+
+
+def _select_old_body(
+    providers: list[TieredProvider],
+    req: Request,
+    now: float,
+    slo_ms: float,
+    U: float,
+    L: float,
+    profiles: dict[str, RollingLatencyProfile],
+) -> SelectorOutcome:
+    feasible = [provider for provider in providers if provider.is_available(now)]
+    if not feasible:
+        fallback = _fallback_api_provider(providers)
+        c_eff = {
+            fallback.name: effective_cost(fallback, req.total_tokens, now, U=U, L=L)
+        }
+        return SelectorOutcome(
+            weights=_single_provider_weight(fallback),
+            status="no_capacity_fallback",
+            c_eff=c_eff,
+            budget_tau=None,
+            expected_c_eff=c_eff[fallback.name],
+            budget_utilization=None,
+            budget_slack=None,
+            true_p50_fallbacks=0,
+            feasible_count=0,
+        )
+
+    names = [provider.name for provider in feasible]
+    c_eff = {
+        provider.name: effective_cost(provider, req.total_tokens, now, U=U, L=L)
+        for provider in feasible
+    }
+    slo_attainment = {
+        provider.name: profiles[provider.name].slo_attainment(now, slo_ms)
+        for provider in feasible
+    }
+
+    last_status = "solver_failure_fallback"
+    for target in OLD_TARGETS:
+        success, vector = _solve_simplex_lp(
+            objective=[c_eff[name] for name in names],
+            upper_constraint=[-slo_attainment[name] for name in names],
+            upper_bound=-target,
+        )
+        if success and vector is not None:
+            weights = _normalize_weights(names, vector)
+            if weights:
+                status = "optimal" if math.isclose(target, 0.99) else f"relaxed_{target:.2f}"
+                return SelectorOutcome(
+                    weights=weights,
+                    status=status,
+                    c_eff=c_eff,
+                    budget_tau=None,
+                    expected_c_eff=_expected_weighted_value(weights, c_eff),
+                    budget_utilization=None,
+                    budget_slack=None,
+                    true_p50_fallbacks=0,
+                    feasible_count=len(feasible),
+                )
+            last_status = "degenerate_feasible_fallback"
+
+    best_provider = min(
+        feasible,
+        key=lambda provider: (-slo_attainment[provider.name], c_eff[provider.name]),
+    )
+    return SelectorOutcome(
+        weights=_single_provider_weight(best_provider),
+        status="best_effort" if last_status != "degenerate_feasible_fallback" else last_status,
+        c_eff=c_eff,
+        budget_tau=None,
+        expected_c_eff=c_eff[best_provider.name],
+        budget_utilization=None,
+        budget_slack=None,
+        true_p50_fallbacks=0,
+        feasible_count=len(feasible),
+    )
+
+
+def _select_budget_body(
+    providers: list[TieredProvider],
+    req: Request,
+    now: float,
+    slo_ms: float,
+    U: float,
+    L: float,
+    profiles: dict[str, RollingLatencyProfile],
+    variant: str,
+) -> SelectorOutcome:
+    del slo_ms
+
+    feasible = [provider for provider in providers if provider.is_available(now)]
+    if not feasible:
+        fallback = _fallback_api_provider(providers)
+        c_eff = {
+            fallback.name: effective_cost(fallback, req.total_tokens, now, U=U, L=L)
+        }
+        return SelectorOutcome(
+            weights=_single_provider_weight(fallback),
+            status="no_capacity_fallback",
+            c_eff=c_eff,
+            budget_tau=None,
+            expected_c_eff=c_eff[fallback.name],
+            budget_utilization=None,
+            budget_slack=None,
+            true_p50_fallbacks=0,
+            feasible_count=0,
+        )
+
+    names = [provider.name for provider in feasible]
+    c_eff = {
+        provider.name: effective_cost(provider, req.total_tokens, now, U=U, L=L)
+        for provider in feasible
+    }
+
+    tbar: dict[str, float] = {}
+    true_p50_fallbacks = 0
+    for provider in feasible:
+        proxy_ms, fallback_hits = _body_latency_proxy_ms(
+            provider,
+            profiles[provider.name],
+            now,
+        )
+        tbar[provider.name] = proxy_ms
+        true_p50_fallbacks += fallback_hits
+
+    budget_level = _budget_level_from_variant(variant)
+    if _is_provider_percentile_variant(variant):
+        budget_tau = float(np.percentile(list(c_eff.values()), budget_level))
+    elif _is_vhat_budget_variant(variant):
+        tau = budget_level / 100.0
+        budget_tau = tau * _predicted_api_cost_anchor(providers, req, now)
+    else:
+        raise ValueError(f"Unknown budgeted variant family: {variant!r}")
+    success, vector = _solve_simplex_lp(
+        objective=[tbar[name] for name in names],
+        upper_constraint=[c_eff[name] for name in names],
+        upper_bound=budget_tau,
+    )
+    if success and vector is not None:
+        weights = _normalize_weights(names, vector)
+        if weights:
+            expected_c_eff = _expected_weighted_value(weights, c_eff)
+            budget_slack = float(budget_tau - expected_c_eff)
+            utilization = float(expected_c_eff / budget_tau) if budget_tau > LP_EPS else None
+            return SelectorOutcome(
+                weights=weights,
+                status="optimal",
+                c_eff=c_eff,
+                budget_tau=budget_tau,
+                expected_c_eff=expected_c_eff,
+                budget_utilization=utilization,
+                budget_slack=budget_slack,
+                true_p50_fallbacks=true_p50_fallbacks,
+                feasible_count=len(feasible),
+            )
+
+        in_budget = [
+            provider for provider in feasible
+            if c_eff[provider.name] <= budget_tau + LP_EPS
+        ]
+        if not in_budget:
+            cheapest = min(feasible, key=lambda provider: c_eff[provider.name])
+            return SelectorOutcome(
+                weights=_single_provider_weight(cheapest),
+                status="no_in_budget_fallback",
+                c_eff=c_eff,
+                budget_tau=budget_tau,
+                expected_c_eff=c_eff[cheapest.name],
+                budget_utilization=(
+                    float(c_eff[cheapest.name] / budget_tau)
+                    if budget_tau > LP_EPS else None
+                ),
+                budget_slack=float(budget_tau - c_eff[cheapest.name]),
+                true_p50_fallbacks=true_p50_fallbacks,
+                feasible_count=len(feasible),
+            )
+
+        best = min(
+            in_budget,
+            key=lambda provider: (tbar[provider.name], c_eff[provider.name]),
+        )
+        return SelectorOutcome(
+            weights=_single_provider_weight(best),
+            status="degenerate_feasible_fallback",
+            c_eff=c_eff,
+            budget_tau=budget_tau,
+            expected_c_eff=c_eff[best.name],
+            budget_utilization=(
+                float(c_eff[best.name] / budget_tau)
+                if budget_tau > LP_EPS else None
+            ),
+            budget_slack=float(budget_tau - c_eff[best.name]),
+            true_p50_fallbacks=true_p50_fallbacks,
+            feasible_count=len(feasible),
+        )
+
+    in_budget = [
+        provider for provider in feasible
+        if c_eff[provider.name] <= budget_tau + LP_EPS
+    ]
+    if in_budget:
+        best = min(
+            in_budget,
+            key=lambda provider: (tbar[provider.name], c_eff[provider.name]),
+        )
+        return SelectorOutcome(
+            weights=_single_provider_weight(best),
+            status="solver_failure_fallback",
+            c_eff=c_eff,
+            budget_tau=budget_tau,
+            expected_c_eff=c_eff[best.name],
+            budget_utilization=(
+                float(c_eff[best.name] / budget_tau)
+                if budget_tau > LP_EPS else None
+            ),
+            budget_slack=float(budget_tau - c_eff[best.name]),
+            true_p50_fallbacks=true_p50_fallbacks,
+            feasible_count=len(feasible),
+        )
+
+    cheapest = min(feasible, key=lambda provider: c_eff[provider.name])
+    return SelectorOutcome(
+        weights=_single_provider_weight(cheapest),
+        status="no_in_budget_fallback",
+        c_eff=c_eff,
+        budget_tau=budget_tau,
+        expected_c_eff=c_eff[cheapest.name],
+        budget_utilization=(
+            float(c_eff[cheapest.name] / budget_tau) if budget_tau > LP_EPS else None
+        ),
+        budget_slack=float(budget_tau - c_eff[cheapest.name]),
+        true_p50_fallbacks=true_p50_fallbacks,
+        feasible_count=len(feasible),
+    )
+
+
+def _select_control(
+    providers: list[TieredProvider],
+    req: Request,
+    now: float,
+    U: float,
+    L: float,
+    variant: str,
+) -> SelectorOutcome:
+    feasible = [provider for provider in providers if provider.is_available(now)]
+    if not feasible:
+        fallback = _fallback_api_provider(providers)
+        c_eff = {
+            fallback.name: effective_cost(fallback, req.total_tokens, now, U=U, L=L)
+        }
+        return SelectorOutcome(
+            weights=_single_provider_weight(fallback),
+            status="no_capacity_fallback",
+            c_eff=c_eff,
+            budget_tau=None,
+            expected_c_eff=c_eff[fallback.name],
+            budget_utilization=None,
+            budget_slack=None,
+            true_p50_fallbacks=0,
+            feasible_count=0,
+        )
+
+    c_eff = {
+        provider.name: effective_cost(provider, req.total_tokens, now, U=U, L=L)
+        for provider in feasible
+    }
+    if variant == "cheapest_available":
+        chosen = min(
+            feasible,
+            key=lambda provider: (
+                provider.marginal_cost(req.total_tokens, now),
+                c_eff[provider.name],
+                provider.true_p50_ms(now),
+            ),
+        )
+        status = "control_cheapest_available"
+    elif variant == "fastest_available":
+        chosen = min(
+            feasible,
+            key=lambda provider: (
+                provider.true_p50_ms(now),
+                c_eff[provider.name],
+            ),
+        )
+        status = "control_fastest_available"
+    elif variant in ("quota_first", "concurrency_first"):
+        if variant == "quota_first":
+            tier_priority = (
+                ProviderTier.S_Q,
+                ProviderTier.S_C,
+                ProviderTier.S_A,
+            )
+            status = "control_quota_first"
+        else:
+            tier_priority = (
+                ProviderTier.S_C,
+                ProviderTier.S_Q,
+                ProviderTier.S_A,
+            )
+            status = "control_concurrency_first"
+
+        tier_candidates: list[TieredProvider] = []
+        for tier in tier_priority:
+            tier_candidates = [p for p in feasible if p.tier == tier]
+            if tier_candidates:
+                break
+        if not tier_candidates:
+            tier_candidates = feasible
+
+        chosen = min(
+            tier_candidates,
+            key=lambda provider: (
+                provider.true_p50_ms(now),
+                c_eff[provider.name],
+                provider.marginal_cost(req.total_tokens, now),
+            ),
+        )
+    else:
+        raise ValueError(f"Unknown control variant: {variant!r}")
+
+    return SelectorOutcome(
+        weights=_single_provider_weight(chosen),
+        status=status,
+        c_eff=c_eff,
+        budget_tau=None,
+        expected_c_eff=c_eff[chosen.name],
+        budget_utilization=None,
+        budget_slack=None,
+        true_p50_fallbacks=0,
+        feasible_count=len(feasible),
+    )
+
+
+def _ttft_cdf_ms(
+    provider: TieredProvider,
+    now: float,
+    threshold_ms: float,
+) -> float:
+    """Return the provider TTFT CDF at `threshold_ms`."""
+    if threshold_ms <= 0.0:
+        return 0.0
+    return float(provider._active_ttft_dist(now).cdf(threshold_ms))
+
+
+def _pick_explorer_backup(
+    providers: list[TieredProvider],
+    primary: TieredProvider,
+    req: Request,
+    *,
+    now: float,
+    slo_ms: float,
+    rng: np.random.Generator,
+    violation_tracker: RecentViolationTracker,
+    target_success: float = HEDGE_SUCCESS_TARGET,
+    dispatch_overhead_ms: float = HEDGE_DISPATCH_OVERHEAD_MS,
+) -> tuple[TieredProvider | None, str, float]:
+    """Pick a backup using the meeting-style safe/random explorer mix.
+
+    The new hedge path uses two branches:
+    - exploit: choose the cheapest currently available backup that is
+      SLO-feasible on its own
+    - explore: choose a random currently available backup
+
+    The random branch probability shrinks when recent SLO violations rise.
+    """
+    others = [
+        provider for provider in providers
+        if provider.tier != primary.tier and provider.is_available(now)
+    ]
+    if not others:
+        others = [provider for provider in providers if provider.name != primary.name]
+    if not others:
+        return None, "no_backup", 0.0
+
+    random_prob = _adaptive_random_backup_probability(violation_tracker)
+    if rng.random() < random_prob:
+        index = int(rng.integers(0, len(others)))
+        return others[index], "random_explorer", random_prob
+
+    remaining_budget_ms = slo_ms - dispatch_overhead_ms
+    safe = [
+        provider for provider in others
+        if _ttft_cdf_ms(provider, now, remaining_budget_ms) >= target_success - LP_EPS
+    ]
+    if safe:
+        backup = min(
+            safe,
+            key=lambda provider: (
+                provider.marginal_cost(req.total_tokens, now),
+                provider.true_p50_ms(now),
+                provider.cost_per_token,
+            ),
+        )
+        return backup, "safe_cheapest", random_prob
+
+    fallback = min(others, key=lambda provider: provider.true_p50_ms(now))
+    return fallback, "fallback_fastest", random_prob
+
+
+def _combined_success_probability_after_hedge(
+    primary: TieredProvider,
+    backup: TieredProvider,
+    *,
+    now: float,
+    slo_ms: float,
+    hedge_time_ms: float,
+    dispatch_overhead_ms: float = HEDGE_DISPATCH_OVERHEAD_MS,
+) -> float:
+    """Return success probability if backup is dispatched at `hedge_time_ms`.
+
+    The calculation matches the meeting formula:
+
+      P(not violate | t) + P(violate | t) * P(backup succeeds)
+
+    where conditioning is on the primary still being unfinished at time `t`.
+    """
+    if hedge_time_ms < 0.0:
+        return 0.0
+
+    primary_cdf_t = _ttft_cdf_ms(primary, now, hedge_time_ms)
+    primary_cdf_slo = _ttft_cdf_ms(primary, now, slo_ms)
+    primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
+    if primary_survival_t <= LP_EPS:
+        return 0.0
+
+    p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
+    p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
+
+    remaining_budget_ms = slo_ms - hedge_time_ms - dispatch_overhead_ms
+    if remaining_budget_ms <= 0.0:
+        backup_success = 0.0
+    else:
+        backup_now = now + hedge_time_ms / 1000.0
+        backup_success = _ttft_cdf_ms(backup, backup_now, remaining_budget_ms)
+
+    combined_success = p_not_violate + p_violate * backup_success
+    return float(min(max(combined_success, 0.0), 1.0))
+
+
+def _find_latest_safe_hedge_time_ms(
+    primary: TieredProvider,
+    backup: TieredProvider,
+    *,
+    now: float,
+    slo_ms: float,
+    target_success: float = HEDGE_SUCCESS_TARGET,
+    dispatch_overhead_ms: float = HEDGE_DISPATCH_OVERHEAD_MS,
+    grid_ms: float = HEDGE_TIME_GRID_MS,
+) -> float | None:
+    """Return the latest dispatch time whose combined success meets target.
+
+    We interpret the new hedge rule as a *latest safe wait time* search rather
+    than an earliest-trigger search. Otherwise the rule often collapses to
+    immediate replication at `t = 0`.
+    """
+    max_dispatch_ms = slo_ms - dispatch_overhead_ms
+    if max_dispatch_ms < 0.0:
+        return None
+
+    latest_safe_ms: float | None = None
+    hedge_time_ms = 0.0
+    while hedge_time_ms <= max_dispatch_ms + LP_EPS:
+        combined_success = _combined_success_probability_after_hedge(
+            primary,
+            backup,
+            now=now,
+            slo_ms=slo_ms,
+            hedge_time_ms=min(hedge_time_ms, max_dispatch_ms),
+            dispatch_overhead_ms=dispatch_overhead_ms,
+        )
+        if combined_success >= target_success - LP_EPS:
+            latest_safe_ms = min(hedge_time_ms, max_dispatch_ms)
+        hedge_time_ms += grid_ms
+
+    if latest_safe_ms is not None:
+        return latest_safe_ms
+
+    immediate_success = _combined_success_probability_after_hedge(
+        primary,
+        backup,
+        now=now,
+        slo_ms=slo_ms,
+        hedge_time_ms=0.0,
+        dispatch_overhead_ms=dispatch_overhead_ms,
+    )
+    primary_only_success = _ttft_cdf_ms(primary, now, slo_ms)
+    if immediate_success > primary_only_success + LP_EPS:
+        return 0.0
+    return None
+
+
+def _apply_existing_hedge(
+    scenario: TieredScenarioConfig,
+    providers: list[TieredProvider],
+    primary: TieredProvider,
+    req: Request,
+    now: float,
+    rng: np.random.Generator,
+    c_eff: dict[str, float],
+    U: float,
+    L: float,
+) -> tuple[float, float, bool, list[tuple[str, float]], float]:
+    """Apply the current hedge rule unchanged from the tiered runner."""
+    primary_ttft_ms = _sample_ttft(primary, rng, now)
+    observed_samples = [(primary.name, primary_ttft_ms)]
+    final_ttft_ms = primary_ttft_ms
+    billed_cost = primary.marginal_cost(req.total_tokens, now)
+    hedged = False
+
+    primary.account_request(
+        req.id,
+        now,
+        _sample_service_time(primary, rng, now, req.response_tokens),
+    )
+
+    backup = _pick_cross_tier_backup(providers, primary, now)
+    if backup is None:
+        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
+    primary_p50 = primary.true_p50_ms(now)
+    wait_threshold_ms = max(primary_p50 * 1.5, scenario.primary_slo_ms * 0.5)
+    if primary_ttft_ms <= wait_threshold_ms:
+        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
+    p_viol = 0.5
+    remaining_ms = scenario.primary_slo_ms - wait_threshold_ms
+    f_backup = 1.0 if backup.true_p50_ms(now) < remaining_ms else 0.3
+    backup_c_eff = c_eff.get(
+        backup.name,
+        effective_cost(backup, req.total_tokens, now, U=U, L=L),
+    )
+    v_penalty = U * HEDGE_COST_MULTIPLIER
+    if p_viol * f_backup <= backup_c_eff / v_penalty:
+        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
+    backup_ttft_ms = _sample_ttft(backup, rng, now)
+    backup.account_request(
+        req.id + 10_000_000,
+        now,
+        _sample_service_time(backup, rng, now, req.response_tokens),
+    )
+    observed_samples.append((backup.name, backup_ttft_ms))
+    billed_cost += backup.marginal_cost(req.total_tokens, now)
+    final_ttft_ms = min(primary_ttft_ms, wait_threshold_ms + backup_ttft_ms)
+    hedged = True
+    return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
+
+def _apply_probability_target_hedge(
+    scenario: TieredScenarioConfig,
+    providers: list[TieredProvider],
+    primary: TieredProvider,
+    req: Request,
+    now: float,
+    rng: np.random.Generator,
+    violation_tracker: RecentViolationTracker,
+) -> tuple[float, float, bool, list[tuple[str, float]], float, str, float]:
+    """Apply the new probability-only hedge trigger.
+
+    A backup launched at time `t` is considered feasible if:
+
+      P(not violate | t) + P(violate | t) * P(backup succeeds) >= 0.99
+
+    The policy waits until the latest `t` that still satisfies this condition,
+    then dispatches the backup if the primary has not completed by that time.
+    """
+    primary_ttft_ms = _sample_ttft(primary, rng, now)
+    observed_samples = [(primary.name, primary_ttft_ms)]
+    final_ttft_ms = primary_ttft_ms
+    billed_cost = primary.marginal_cost(req.total_tokens, now)
+    hedged = False
+
+    primary.account_request(
+        req.id,
+        now,
+        _sample_service_time(primary, rng, now, req.response_tokens),
+    )
+
+    backup, backup_selection_mode, random_backup_prob = _pick_explorer_backup(
+        providers,
+        primary,
+        req,
+        now=now,
+        slo_ms=scenario.primary_slo_ms,
+        rng=rng,
+        violation_tracker=violation_tracker,
+    )
+    if backup is None:
+        return (
+            final_ttft_ms,
+            billed_cost,
+            hedged,
+            observed_samples,
+            primary_ttft_ms,
+            backup_selection_mode,
+            random_backup_prob,
+        )
+
+    hedge_time_ms = _find_latest_safe_hedge_time_ms(
+        primary,
+        backup,
+        now=now,
+        slo_ms=scenario.primary_slo_ms,
+    )
+    if hedge_time_ms is None or primary_ttft_ms <= hedge_time_ms:
+        return (
+            final_ttft_ms,
+            billed_cost,
+            hedged,
+            observed_samples,
+            primary_ttft_ms,
+            backup_selection_mode,
+            random_backup_prob,
+        )
+
+    dispatch_time_sec = now + hedge_time_ms / 1000.0
+    backup_ttft_ms = _sample_ttft(backup, rng, dispatch_time_sec)
+    backup.account_request(
+        req.id + 10_000_000,
+        dispatch_time_sec,
+        _sample_service_time(backup, rng, dispatch_time_sec, req.response_tokens),
+    )
+    observed_samples.append((backup.name, backup_ttft_ms))
+    billed_cost += backup.marginal_cost(req.total_tokens, dispatch_time_sec)
+    final_ttft_ms = min(
+        primary_ttft_ms,
+        hedge_time_ms + HEDGE_DISPATCH_OVERHEAD_MS + backup_ttft_ms,
+    )
+    hedged = True
+    return (
+        final_ttft_ms,
+        billed_cost,
+        hedged,
+        observed_samples,
+        primary_ttft_ms,
+        backup_selection_mode,
+        random_backup_prob,
+    )
+
+
+def run_variant(
+    scenario: TieredScenarioConfig,
+    requests: list[Request],
+    variant: str,
+    *,
+    seed: int,
+    probe_rate: float = PROBE_RATE,
+) -> EvaluatedRun:
+    """Run one sidecar variant on one scenario for one RNG seed."""
+    if (
+        variant not in MAIN_VARIANTS
+        and variant not in HEDGE_ABLATION_VARIANTS
+        and variant not in PROVIDER_PERCENTILE_ABLATION_VARIANTS
+        and variant not in CONTROL_VARIANTS
+    ):
+        raise ValueError(f"Unknown LP-budget variant: {variant!r}")
+
+    rng = np.random.default_rng(seed)
+    _reset_all_state(scenario.providers)
+    profiles = _make_profiles(scenario.providers)
+    if requests:
+        _warm_up_profiles(profiles, scenario.providers, float(requests[0].timestamp), rng)
+
+    sampler = SWRRSampler()
+    L, U = calibrate_envelopes(scenario.providers)
+    diagnostics = RunDiagnostics(
+        variant=variant,
+        scenario_name=scenario.name,
+        seed=seed,
+    )
+    violation_tracker = RecentViolationTracker()
+
+    ttft_ms: list[float] = []
+    cost_usd: list[float] = []
+    provider_sel: list[str] = []
+    tier_sel: list[str] = []
+    timestamps: list[float] = []
+    hedge_flags: list[bool] = []
+    z_series: list[float] = []
+    u_series: list[float] = []
+    psi_q_series: list[float] = []
+
+    providers_by_name = {provider.name: provider for provider in scenario.providers}
+
+    for req in requests:
+        now = float(req.timestamp)
+
+        if _is_control_variant(variant):
+            outcome = _select_control(
+                scenario.providers,
+                req,
+                now,
+                U,
+                L,
+                _base_variant(variant),
+            )
+        elif _base_variant(variant) == "old_body":
+            outcome = _select_old_body(
+                scenario.providers,
+                req,
+                now,
+                scenario.primary_slo_ms,
+                U,
+                L,
+                profiles,
+            )
+        else:
+            outcome = _select_budget_body(
+                scenario.providers,
+                req,
+                now,
+                scenario.primary_slo_ms,
+                U,
+                L,
+                profiles,
+                _base_variant(variant),
+            )
+
+        diagnostics.record(outcome)
+
+        primary_name = _choose_lp_provider(outcome.weights, sampler)
+        primary = providers_by_name[primary_name]
+
+        hedge_mode = _hedge_mode(variant)
+        if hedge_mode == "new":
+            (
+                final_ttft_ms,
+                billed_cost,
+                hedged,
+                observed_samples,
+                _,
+                backup_selection_mode,
+                random_backup_prob,
+            ) = _apply_probability_target_hedge(
+                scenario,
+                scenario.providers,
+                primary,
+                req,
+                now,
+                rng,
+                violation_tracker,
+            )
+            diagnostics.backup_selection_counts[backup_selection_mode] += 1
+            diagnostics.backup_random_prob_values.append(random_backup_prob)
+        elif hedge_mode == "old":
+            final_ttft_ms, billed_cost, hedged, observed_samples, _ = _apply_existing_hedge(
+                scenario,
+                scenario.providers,
+                primary,
+                req,
+                now,
+                rng,
+                outcome.c_eff,
+                U,
+                L,
+            )
+        else:
+            primary_ttft_ms = _sample_ttft(primary, rng, now)
+            primary.account_request(
+                req.id,
+                now,
+                _sample_service_time(primary, rng, now, req.response_tokens),
+            )
+            final_ttft_ms = primary_ttft_ms
+            billed_cost = primary.marginal_cost(req.total_tokens, now)
+            hedged = False
+            observed_samples = [(primary.name, primary_ttft_ms)]
+
+        profiles[primary.name].add_sample(now, observed_samples[0][1])
+        if HEDGE_AS_PROBE and hedged and len(observed_samples) > 1:
+            backup_name, backup_ttft_ms = observed_samples[1]
+            if backup_name != primary.name:
+                profiles[backup_name].add_sample(now, backup_ttft_ms)
+                diagnostics.explorer_feedback_count += 1
+        _probe_non_primary_profiles(
+            profiles,
+            scenario.providers,
+            primary.name,
+            now,
+            rng,
+            probe_rate=probe_rate,
+        )
+
+        q_provider = next(
+            (provider for provider in scenario.providers if provider.tier == ProviderTier.S_Q),
+            None,
+        )
+        c_provider = next(
+            (
+                provider
+                for provider in scenario.providers
+                if provider.tier == ProviderTier.S_C
+            ),
+            None,
+        )
+
+        ttft_ms.append(final_ttft_ms)
+        cost_usd.append(billed_cost)
+        provider_sel.append(primary.name)
+        tier_sel.append(primary.tier.value)
+        timestamps.append(now)
+        hedge_flags.append(hedged)
+        z_series.append(q_provider.quota.fraction_used(now) if q_provider else 0.0)
+        u_series.append(
+            c_provider.concurrency.utilization(now) if c_provider else 0.0
+        )
+        psi_q_series.append(
+            quota_shadow_price(q_provider, now, U=U, L=L) if q_provider else 0.0
+        )
+        violation_tracker.add_outcome(final_ttft_ms > scenario.primary_slo_ms)
+
+    run = StrategyRun(
+        strategy=variant,
+        ttft_ms=np.array(ttft_ms),
+        cost_usd=np.array(cost_usd),
+        provider=provider_sel,
+        tier=tier_sel,
+        timestamp=np.array(timestamps),
+        hedge_triggered=np.array(hedge_flags, dtype=bool),
+        quota_fraction_used=np.array(z_series),
+        concurrency_utilization=np.array(u_series),
+        shadow_price_q=np.array(psi_q_series),
+    )
+    return EvaluatedRun(run=run, diagnostics=diagnostics)
+
+
+def build_first_batch_scenarios() -> dict[str, TieredScenarioConfig]:
+    """Return the mandatory first-batch scenario set for the LP study."""
+    scenarios = build_all_scenarios()
+    return {name: scenarios[name] for name in FIRST_BATCH_SCENARIOS}
+
+
+def build_all_scenarios() -> dict[str, TieredScenarioConfig]:
+    """Return every registered synthetic scenario available to the sidecar."""
+    scenarios = make_tiered_scenarios()
+    scenarios.update(make_mm25_scenarios())
+    return scenarios
+
+
+def generate_scenario_workload(
+    scenario: TieredScenarioConfig,
+    *,
+    seed: int = 0,
+) -> list[Request]:
+    """Generate the shared workload for one scenario."""
+    return generate_workload(
+        n_requests=scenario.n_requests,
+        duration_seconds=scenario.duration_seconds,
+        seed=seed,
+        start_time=0.0,
+        arrival_process=scenario.arrival_process,
+    )
+
+
+def summarize_main_metrics(
+    scenario: TieredScenarioConfig,
+    evaluated_runs: list[EvaluatedRun],
+) -> dict[str, object]:
+    """Aggregate user-facing metrics across seeds for one variant."""
+    runs = [evaluated.run for evaluated in evaluated_runs]
+    return {
+        "mean_ttft_ms": float(np.mean([float(np.mean(run.ttft_ms)) for run in runs])),
+        "p50_ms": float(np.mean([run.p50_ms() for run in runs])),
+        "p90_ms": float(np.mean([float(np.percentile(run.ttft_ms, 90)) for run in runs])),
+        "p99_ms": float(np.mean([run.p99_ms() for run in runs])),
+        "slo_violation_rate": float(
+            np.mean([run.slo_violation_rate(scenario.primary_slo_ms) for run in runs])
+        ),
+        "avg_cost_usd": float(np.mean([run.mean_cost_usd() for run in runs])),
+        "hedge_rate": float(np.mean([run.hedge_rate() for run in runs])),
+        "provider_mix": _mean_provider_fraction(runs),
+        "tier_mix": _mean_tier_fraction(runs),
+    }
+
+
+def summarize_diagnostics(
+    evaluated_runs: list[EvaluatedRun],
+) -> dict[str, object]:
+    """Aggregate diagnostics across seeds for one variant."""
+    merged = RunDiagnostics(
+        variant=evaluated_runs[0].diagnostics.variant,
+        scenario_name=evaluated_runs[0].diagnostics.scenario_name,
+        seed=-1,
+    )
+    for evaluated in evaluated_runs:
+        diagnostics = evaluated.diagnostics
+        merged.solver_status_counts.update(diagnostics.solver_status_counts)
+        merged.fallback_counts.update(diagnostics.fallback_counts)
+        merged.budget_values.extend(diagnostics.budget_values)
+        merged.expected_c_eff_values.extend(diagnostics.expected_c_eff_values)
+        merged.utilization_values.extend(diagnostics.utilization_values)
+        merged.slack_values.extend(diagnostics.slack_values)
+        merged.total_decisions += diagnostics.total_decisions
+        merged.non_optimal_decisions += diagnostics.non_optimal_decisions
+        merged.single_feasible_provider_decisions += (
+            diagnostics.single_feasible_provider_decisions
+        )
+        merged.trivial_single_provider_outcomes += (
+            diagnostics.trivial_single_provider_outcomes
+        )
+        merged.true_p50_fallback_count += diagnostics.true_p50_fallback_count
+        merged.explorer_feedback_count += diagnostics.explorer_feedback_count
+        merged.backup_selection_counts.update(diagnostics.backup_selection_counts)
+        merged.backup_random_prob_values.extend(diagnostics.backup_random_prob_values)
+    return merged.to_summary_dict()
+
+
+def build_hedge_delta(
+    no_hedge: dict[str, object],
+    hedged: dict[str, object],
+) -> dict[str, float]:
+    """Compute no-hedge -> hedge deltas for one selector family."""
+    return {
+        "delta_p50_ms": float(hedged["p50_ms"] - no_hedge["p50_ms"]),
+        "delta_p90_ms": float(hedged["p90_ms"] - no_hedge["p90_ms"]),
+        "delta_p99_ms": float(hedged["p99_ms"] - no_hedge["p99_ms"]),
+        "delta_slo_violation_rate": float(
+            hedged["slo_violation_rate"] - no_hedge["slo_violation_rate"]
+        ),
+        "delta_cost_usd": float(hedged["avg_cost_usd"] - no_hedge["avg_cost_usd"]),
+    }
+
+
+__all__ = [
+    "CONTROL_VARIANTS",
+    "EvaluatedRun",
+    "FIRST_BATCH_SCENARIOS",
+    "HEDGE_ABLATION_VARIANTS",
+    "MAIN_VARIANTS",
+    "PROVIDER_PERCENTILE_ABLATION_VARIANTS",
+    "RunDiagnostics",
+    "build_all_scenarios",
+    "build_first_batch_scenarios",
+    "build_hedge_delta",
+    "generate_scenario_workload",
+    "run_variant",
+    "summarize_diagnostics",
+    "summarize_main_metrics",
+]

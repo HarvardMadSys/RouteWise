@@ -28,5 +28,19 @@ class LogNormal:
     def p99(self) -> float:
         return math.exp(self.mu + 2.326 * self.sigma)
 
+    def cdf(self, value: float) -> float:
+        """Return the CDF evaluated at `value`.
+
+        Args:
+            value: Threshold in the same unit as the distribution samples.
+
+        Returns:
+            Probability that a draw is less than or equal to `value`.
+        """
+        if value <= 0.0:
+            return 0.0
+        z = (math.log(value) - self.mu) / (self.sigma * math.sqrt(2.0))
+        return 0.5 * (1.0 + math.erf(z))
+
 
 __all__ = ["LogNormal"]
