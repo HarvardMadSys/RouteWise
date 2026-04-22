@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ..providers import LogNormal, SyntheticProvider
+from .providers import LogNormal, SyntheticProvider
 from ..scenarios import ScenarioConfig
 
 _TPS = LogNormal(mu=5.5, sigma=0.3)  # shared tokens-per-second distribution
