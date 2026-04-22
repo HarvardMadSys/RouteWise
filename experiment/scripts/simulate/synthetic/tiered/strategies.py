@@ -42,7 +42,6 @@ import importlib.util as _ilu
 import math
 import os
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +77,7 @@ BackupSelectionMethod = _hedge_mod.BackupSelectionMethod
 
 from experiment.data.schema import Request  # noqa: E402
 
+from .._core.metrics import StrategyRun  # noqa: E402
 from ..providers import LogNormal  # noqa: E402
 from .profile import ProviderProfile, delta_allocation  # noqa: E402
 from .providers import ProviderTier, TieredProvider  # noqa: E402
@@ -143,89 +143,6 @@ _PROBE_RATE_S_A = 0.05
 # benchmarking that would happen before a provider is put in rotation.
 _WARM_UP_N_PER_PROVIDER = 200
 _WARM_UP_WINDOW_SEC = 14 * 60
-
-
-# ---------------------------------------------------------------------------
-# Result container
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class StrategyRun:
-    """Per-request results for one tiered strategy on one scenario."""
-
-    strategy: str
-    ttft_ms: np.ndarray
-    cost_usd: np.ndarray
-    provider: list[str]
-    tier: list[str]
-    timestamp: np.ndarray
-    hedge_triggered: np.ndarray
-    quota_fraction_used: np.ndarray = field(
-        default_factory=lambda: np.array([])
-    )
-    concurrency_utilization: np.ndarray = field(
-        default_factory=lambda: np.array([])
-    )
-    shadow_price_q: np.ndarray = field(
-        default_factory=lambda: np.array([])
-    )
-    rejected: np.ndarray = field(
-        default_factory=lambda: np.array([])
-    )
-
-    def slo_violation_rate(self, slo_ms: float) -> float:
-        return float(np.mean(self.ttft_ms > slo_ms))
-
-    def mean_cost_usd(self) -> float:
-        return float(np.mean(self.cost_usd))
-
-    def p50_ms(self) -> float:
-        return float(np.percentile(self.ttft_ms, 50))
-
-    def p99_ms(self) -> float:
-        return float(np.percentile(self.ttft_ms, 99))
-
-    def tier_fractions(self) -> dict[str, float]:
-        total = len(self.tier)
-        if total == 0:
-            return {}
-        uniq = set(self.tier)
-        return {t: self.tier.count(t) / total for t in sorted(uniq)}
-
-    def tier_fractions_over_time(
-        self, window_sec: float = 300.0
-    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-        """Rolling fractions of each tier over simulated time.
-
-        Returns (window_midpoints, {tier: fraction_array}).
-        """
-        if len(self.timestamp) == 0:
-            return np.array([]), {}
-
-        t_min = float(self.timestamp[0])
-        t_max = float(self.timestamp[-1])
-        edges = np.arange(t_min, t_max + window_sec, window_sec)
-        mids = (edges[:-1] + edges[1:]) / 2.0
-
-        tiers_all = sorted(set(self.tier))
-        fracs: dict[str, list[float]] = {t: [] for t in tiers_all}
-
-        for lo, hi in zip(edges[:-1], edges[1:]):
-            mask = (self.timestamp >= lo) & (self.timestamp < hi)
-            window_tiers = [
-                self.tier[i] for i in range(len(self.tier)) if mask[i]
-            ]
-            n_window = len(window_tiers)
-            for t_name in tiers_all:
-                if n_window == 0:
-                    fracs[t_name].append(0.0)
-                else:
-                    fracs[t_name].append(
-                        window_tiers.count(t_name) / n_window
-                    )
-
-        return mids, {t: np.array(fracs[t]) for t in tiers_all}
 
 
 # ---------------------------------------------------------------------------

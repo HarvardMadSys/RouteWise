@@ -27,7 +27,6 @@ from __future__ import annotations
 import importlib.util as _ilu
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -66,6 +65,7 @@ select_backup = _hedge_mod.select_backup
 
 from experiment.data.schema import Request  # noqa: E402
 
+from ._core.metrics import StrategyRun  # noqa: E402
 from .providers import ShiftingProvider, SyntheticProvider  # noqa: E402
 from .scenarios import ScenarioConfig  # noqa: E402
 
@@ -95,75 +95,6 @@ _TYPICAL_TOKENS = 200
 # provider so profiles stay fresh. We simulate this at 5% of the request rate
 # per non-primary provider (one probe per 20 requests on average).
 _PROBE_RATE = 0.05
-
-
-@dataclass
-class StrategyRun:
-    """Per-request results for one strategy on one scenario."""
-
-    strategy: str
-    ttft_ms: np.ndarray        # shape (n_requests,)
-    cost_usd: np.ndarray       # shape (n_requests,)
-    provider: list[str]        # shape (n_requests,)
-    timestamp: np.ndarray      # shape (n_requests,) — simulated seconds
-    hedge_triggered: np.ndarray  # shape (n_requests,) bool
-
-    # ------------------------------------------------------------------ #
-    # Derived statistics                                                   #
-    # ------------------------------------------------------------------ #
-
-    def slo_violation_rate(self, slo_ms: float) -> float:
-        return float(np.mean(self.ttft_ms > slo_ms))
-
-    def mean_cost_usd(self) -> float:
-        return float(np.mean(self.cost_usd))
-
-    def p50_ms(self) -> float:
-        return float(np.percentile(self.ttft_ms, 50))
-
-    def p99_ms(self) -> float:
-        return float(np.percentile(self.ttft_ms, 99))
-
-    def hedge_rate(self) -> float:
-        return float(np.mean(self.hedge_triggered))
-
-    def provider_fractions(self) -> dict[str, float]:
-        total = len(self.provider)
-        if total == 0:
-            return {}
-        names = set(self.provider)
-        return {n: self.provider.count(n) / total for n in sorted(names)}
-
-    def provider_fractions_over_time(
-        self, window_sec: float = 300.0
-    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-        """Compute rolling provider selection fractions in time windows.
-
-        Returns (window_midpoints, {provider: fraction_array}).
-        """
-        if len(self.timestamp) == 0:
-            return np.array([]), {}
-
-        t_min = float(self.timestamp[0])
-        t_max = float(self.timestamp[-1])
-        edges = np.arange(t_min, t_max + window_sec, window_sec)
-        mids = (edges[:-1] + edges[1:]) / 2.0
-
-        provider_names = sorted(set(self.provider))
-        fracs: dict[str, list[float]] = {n: [] for n in provider_names}
-
-        for lo, hi in zip(edges[:-1], edges[1:]):
-            mask = (self.timestamp >= lo) & (self.timestamp < hi)
-            window_providers = [self.provider[i] for i in range(len(self.provider)) if mask[i]]
-            n_window = len(window_providers)
-            for pname in provider_names:
-                if n_window == 0:
-                    fracs[pname].append(0.0)
-                else:
-                    fracs[pname].append(window_providers.count(pname) / n_window)
-
-        return mids, {n: np.array(fracs[n]) for n in provider_names}
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers

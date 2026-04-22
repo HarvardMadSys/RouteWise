@@ -182,9 +182,11 @@ def _seed_run_payload(run: Any, slo_thresholds_ms: list[float]) -> dict[str, Any
     }
 
     if hasattr(run, "tier_fractions"):
-        payload["tier_fractions"] = _sorted_dict(
-            {name: float(frac) for name, frac in run.tier_fractions().items()}
-        )
+        tier_fractions = {
+            name: float(frac) for name, frac in run.tier_fractions().items()
+        }
+        if tier_fractions:
+            payload["tier_fractions"] = _sorted_dict(tier_fractions)
 
     for field_name in [
         "tier",
@@ -265,12 +267,13 @@ def _aggregate_seed_runs(
         for run in runs:
             for tier_name, fraction in run.tier_fractions().items():
                 tier_fraction_lists.setdefault(tier_name, []).append(float(fraction))
-        aggregate["tier_fractions"] = _sorted_dict(
-            {
-                tier_name: float(np.mean(values))
-                for tier_name, values in tier_fraction_lists.items()
-            }
-        )
+        if tier_fraction_lists:
+            aggregate["tier_fractions"] = _sorted_dict(
+                {
+                    tier_name: float(np.mean(values))
+                    for tier_name, values in tier_fraction_lists.items()
+                }
+            )
 
     return {
         "aggregate": aggregate,
@@ -534,16 +537,16 @@ def _run_family_worker(family: str, output_root: Path) -> Path:
     return output_path
 
 
-def _gather_grep_hits(root: Path, pattern: re.Pattern[str]) -> list[tuple[str, int, str]]:
-    """Collect line-level grep hits for an `isinstance(...)` regex pattern."""
-    hits: list[tuple[str, int, str]] = []
+def _gather_grep_hits(root: Path, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+    """Collect grep hits for an audit regex pattern."""
+    hits: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*.py")):
         if ".git" in path.parts:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for line_number, line in enumerate(text.splitlines(), start=1):
+        for line in text.splitlines():
             if pattern.search(line):
-                hits.append((str(path.relative_to(WORKSPACE_ROOT)), line_number, line.rstrip()))
+                hits.append((str(path.relative_to(WORKSPACE_ROOT)), line.rstrip()))
     return hits
 
 
@@ -584,15 +587,15 @@ def _write_grep_audit(output_root: Path) -> Path:
     for title, pattern in checks:
         lines.append(f"## {title}")
         lines.append("")
-        pattern_hits: list[tuple[str, int, str]] = []
+        pattern_hits: list[tuple[str, str]] = []
         for root in roots:
             pattern_hits.extend(_gather_grep_hits(root, pattern))
         if not pattern_hits:
             lines.append("- No matches found.")
             lines.append("")
             continue
-        for relpath, line_number, line in pattern_hits:
-            lines.append(f"- `{relpath}:{line_number}`: `{line}`")
+        for relpath, line in pattern_hits:
+            lines.append(f"- `{relpath}`: `{line}`")
         lines.append("")
 
     audit_path.parent.mkdir(parents=True, exist_ok=True)

@@ -12,9 +12,9 @@ Scope: repo main tree plus both simulator worktrees.
 
 ## _active_dist hasattr
 
-- `routewise-simulator/experiment/scripts/simulate/synthetic/tiered/strategies.py:275`: `    if hasattr(provider, "_active_dist"):`
-- `routewise-simulator-joint/experiment/scripts/simulate/synthetic/tiered/strategies.py:275`: `    if hasattr(provider, "_active_dist"):`
-- `routewise-simulator-joint-wt-lp-budget/experiment/scripts/simulate/synthetic/tiered/strategies.py:275`: `    if hasattr(provider, "_active_dist"):`
+- `routewise-simulator/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
+- `routewise-simulator-joint/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
+- `routewise-simulator-joint-wt-lp-budget/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
 
 ## quota hasattr
 
