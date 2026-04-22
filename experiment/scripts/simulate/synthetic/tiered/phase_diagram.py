@@ -146,9 +146,8 @@ def _evaluate_cell(
 
     for seed in seeds:
         tl = run_tiered_strategy(scenario, requests, "two_layer", seed=seed)
-        # Use the profile-based joint_ucb so the phase diagram reflects what a
-        # production router (without oracle access to true P50/P95) would see.
-        jt = run_tiered_strategy(scenario, requests, "joint_ucb", seed=seed)
+        # Use the current primary joint router for the cross-tier comparison.
+        jt = run_tiered_strategy(scenario, requests, "joint_nohedge", seed=seed)
         tl_costs.append(tl.mean_cost_usd())
         tl_viols.append(tl.slo_violation_rate(_SLO_MS))
         jt_costs.append(jt.mean_cost_usd())

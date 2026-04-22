@@ -1,6 +1,6 @@
 # Phase 0 Grep Audit
 
-Scope: repo main tree plus both simulator worktrees.
+Scope: routewise-simulator, routewise-simulator-joint.
 
 ## TieredProvider isinstance
 
@@ -14,7 +14,6 @@ Scope: repo main tree plus both simulator worktrees.
 
 - `routewise-simulator/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
 - `routewise-simulator-joint/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
-- `routewise-simulator-joint-wt-lp-budget/experiment/scripts/simulate/synthetic/tiered/strategies.py`: `    if hasattr(provider, "_active_dist"):`
 
 ## quota hasattr
 

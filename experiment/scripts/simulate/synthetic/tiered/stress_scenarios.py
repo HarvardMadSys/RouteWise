@@ -5,19 +5,19 @@ for real deployment:
 
 ST1  Multi-S_A choice
      Three S_A providers with different cost / latency profiles. Tests
-     whether joint_ucb picks correctly among multiple eligible S_A
-     providers and whether the exploration bonus unnecessarily diversifies.
+     whether the joint router picks correctly among multiple eligible S_A
+     providers under cross-tier pricing.
 
 ST2  Mid-run S_Q degradation
      S_Q starts fast (well within SLO) and abruptly slows at t=30 min.
-     Tests how quickly the Bernoulli + CP UCB filter rejects S_Q once its
-     miss rate climbs. Also compares against two_layer which has no
+     Tests whether the joint router adapts once the subscription tier is no
+     longer latency-safe. Also compares against two_layer which has no
      mechanism for reacting.
 
 ST3  Multi-day quota rollover
      Three-day simulation with the S_Q quota resetting every 24 h. Tests
      that the shadow-price schedule re-initializes cleanly at each window
-     boundary and that joint_ucb uses fresh capacity promptly.
+     boundary and that the joint router uses fresh capacity promptly.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
             name="st1_multi_s_a",
             description=(
                 "3 S_A providers + 1 S_Q. Cost vs latency tradeoff within S_A "
-                "tier. Tests whether joint_ucb picks the right S_A under "
+                "tier. Tests whether the joint router picks the right S_A under "
                 "cross-tier constraints."
             ),
             providers=[
@@ -100,8 +100,8 @@ def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
             name="st2_s_q_degradation",
             description=(
                 "S_Q starts fast (P50=200ms) then suddenly degrades to "
-                "P50=2000ms at t=1800s. Tests how quickly joint_ucb's filter "
-                "rejects S_Q once its Bernoulli miss rate climbs."
+                "P50=2000ms at t=1800s. Tests whether the joint router "
+                "stops using S_Q once it becomes unsafe."
             ),
             providers=[
                 TieredProvider(
@@ -134,7 +134,7 @@ def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
             description=(
                 "3-day simulation with S_Q quota=100 resetting every 24 h. "
                 "Tests that psi(z) re-initializes at each window boundary "
-                "and joint_ucb uses fresh capacity without hysteresis."
+                "and the joint router uses fresh capacity without hysteresis."
             ),
             providers=[
                 TieredProvider(

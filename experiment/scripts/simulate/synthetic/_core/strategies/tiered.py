@@ -65,35 +65,10 @@ def run_joint_p50band_hedge(scenario, requests, seed: int = 42):
     )
 
 
-def run_joint_ucb(scenario, requests, seed: int = 42):
-    mod = _tiered_module()
-    return mod._run_joint_ucb(
-        scenario,
-        requests,
-        np.random.default_rng(seed),
-        use_hedge=False,
-        strategy_name="joint_ucb",
-    )
-
-
-def run_joint_ucb_hedge(scenario, requests, seed: int = 42):
-    mod = _tiered_module()
-    return mod._run_joint_ucb(
-        scenario,
-        requests,
-        np.random.default_rng(seed),
-        use_hedge=True,
-        strategy_name="joint_ucb_hedge",
-    )
-
-
 TIERED_STRATEGIES = {
     "two_layer": run_two_layer,
     "joint_nohedge": run_joint_nohedge,
     "joint_hedge": run_joint_hedge,
     "joint_p50band_nohedge": run_joint_p50band_nohedge,
     "joint_p50band_hedge": run_joint_p50band_hedge,
-    "joint_ucb": run_joint_ucb,
-    "joint_ucb_hedge": run_joint_ucb_hedge,
 }
-

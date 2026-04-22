@@ -3,7 +3,7 @@
   "scenarios": {
     "st1_multi_s_a": {
       "arrival_process": "poisson",
-      "description": "3 S_A providers + 1 S_Q. Cost vs latency tradeoff within S_A tier. Tests whether joint_ucb picks the right S_A under cross-tier constraints.",
+      "description": "3 S_A providers + 1 S_Q. Cost vs latency tradeoff within S_A tier. Tests whether the joint router picks the right S_A under cross-tier constraints.",
       "duration_seconds": 3600.0,
       "n_requests": 500,
       "name": "st1_multi_s_a",
@@ -501,238 +501,6 @@
             }
           }
         },
-        "joint_ucb": {
-          "aggregate": {
-            "hedge_rate": 0.0,
-            "mean_cost_usd": 0.0001734298825256975,
-            "p50_ms": 344.89470441892416,
-            "p99_ms": 1262.6501554307854,
-            "provider_fractions": {
-              "Chutes_S_Q": 0.4236417033773862,
-              "S_A_cheap": 0.09251101321585903,
-              "S_A_medium": 0.5455212922173275
-            },
-            "slo_violation_rate_1000ms": 0.03964757709251101,
-            "slo_violation_rate_2000ms": 0.0007342143906020559,
-            "slo_violation_rate_3000ms": 0.0,
-            "slo_violation_rate_5000ms": 0.0,
-            "tier_fractions": {
-              "api": 0.5763582966226138,
-              "quota": 0.4236417033773862
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "b716392d0ff354182bf827f1eba1c7dfe977786a37c07e21f670a2010ecfe506",
-                "hedge_triggered": "31887f638809478672800789d032efb4d421c276e1d632d7488283cc039395e5",
-                "provider": "283ab1102c5250e5b4e189c1ce3256326b71a8e61f38c23404f20e296d2f9838",
-                "quota_fraction_used": "b2637490ec919adfe1827a77af52c2062d2ad6cdc26705b4fd95a648c7c70d81",
-                "shadow_price_q": "6e1661b65d56d5b9cc6813b25e3e512e861e0ee638a664b8fa87fa81d37771fe",
-                "tier": "7443ab7929cd59d61a253f2a6fcca19d931a971c959aae72dccd1a856f8463aa",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "868f1f02aeeaaeebbd20cc04d0007be43dfd0a2562eeb04a841e816429af56b6"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0001614966960352423,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.06607929515418502,
-                "slo_violation_rate_2000ms": 0.0022026431718061676,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 351.93243372450183,
-              "p99_ms": 1432.6124766701896,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.42070484581497797,
-                "S_A_cheap": 0.09251101321585903,
-                "S_A_medium": 0.486784140969163
-              },
-              "tier_fractions": {
-                "api": 0.579295154185022,
-                "quota": 0.42070484581497797
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "046e229116f5c20d211016aa9c813f3efdc37c71c475d0151b90d8be79948ac4",
-                "hedge_triggered": "31887f638809478672800789d032efb4d421c276e1d632d7488283cc039395e5",
-                "provider": "8697d6d402625983b763916b3666e955d76d6c29d122dba521f8c7e3e1ed3714",
-                "quota_fraction_used": "6b1268cfdce096e4a587bf7741d9dc597de2015bbe4720dde57e2099e9b7089b",
-                "shadow_price_q": "e6387651012ac5c55b087640845c8856755615760860edbbf0f67e2230eeec87",
-                "tier": "cc482b21d63be4ccdf5813dc9810e960b2a82463b674223353ab17364b410b3f",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "82ed7033fc746ce8ee22dfc6ed11b7b8603a00a41922112bf3f6d4a7560818bd"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.00017939647577092509,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.02643171806167401,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 345.02738465448124,
-              "p99_ms": 1137.1171739915558,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.4251101321585903,
-                "S_A_medium": 0.5748898678414097
-              },
-              "tier_fractions": {
-                "api": 0.5748898678414097,
-                "quota": 0.4251101321585903
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "046e229116f5c20d211016aa9c813f3efdc37c71c475d0151b90d8be79948ac4",
-                "hedge_triggered": "31887f638809478672800789d032efb4d421c276e1d632d7488283cc039395e5",
-                "provider": "8697d6d402625983b763916b3666e955d76d6c29d122dba521f8c7e3e1ed3714",
-                "quota_fraction_used": "6b1268cfdce096e4a587bf7741d9dc597de2015bbe4720dde57e2099e9b7089b",
-                "shadow_price_q": "e6387651012ac5c55b087640845c8856755615760860edbbf0f67e2230eeec87",
-                "tier": "cc482b21d63be4ccdf5813dc9810e960b2a82463b674223353ab17364b410b3f",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "424b9e7174f0861cbe0451c781c5a52277ec7e6eeb558381349b0b8ea1ab9b58"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.00017939647577092509,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.02643171806167401,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 337.72429487778936,
-              "p99_ms": 1218.2208156306106,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.4251101321585903,
-                "S_A_medium": 0.5748898678414097
-              },
-              "tier_fractions": {
-                "api": 0.5748898678414097,
-                "quota": 0.4251101321585903
-              }
-            }
-          }
-        },
-        "joint_ucb_hedge": {
-          "aggregate": {
-            "hedge_rate": 0.024963289280469897,
-            "mean_cost_usd": 0.000200151248164464,
-            "p50_ms": 330.5271281719661,
-            "p99_ms": 1076.0561247651951,
-            "provider_fractions": {
-              "Chutes_S_Q": 0.4243759177679882,
-              "S_A_medium": 0.5756240822320118
-            },
-            "slo_violation_rate_1000ms": 0.024963289280469897,
-            "slo_violation_rate_2000ms": 0.0,
-            "slo_violation_rate_3000ms": 0.0,
-            "slo_violation_rate_5000ms": 0.0,
-            "tier_fractions": {
-              "api": 0.5756240822320118,
-              "quota": 0.4243759177679882
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "ff792275977eabf28112fdf23a182c08502a00f10b00652402225ff67582db2e",
-                "hedge_triggered": "81c06bec6027cf2e078ea4126d2b9ce5fb966fc964a72e532d0984cb267c1ffc",
-                "provider": "8697d6d402625983b763916b3666e955d76d6c29d122dba521f8c7e3e1ed3714",
-                "quota_fraction_used": "92061f3c00464e2e4f9f86602ba28314d8d7d7368ac38935fa57bb8ccb589c5c",
-                "shadow_price_q": "9a189297c7a5b59116cccf55d811351f67546e71623973808ea47fb954cec315",
-                "tier": "cc482b21d63be4ccdf5813dc9810e960b2a82463b674223353ab17364b410b3f",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "725ad0636b3571a6b96865c31914f853c10e421460ec59771d0688d6fc6d5a88"
-              },
-              "hedge_rate": 0.028634361233480177,
-              "mean_cost_usd": 0.00020216079295154186,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.028634361233480177,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 328.81542706084815,
-              "p99_ms": 1094.2427344752941,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.4251101321585903,
-                "S_A_medium": 0.5748898678414097
-              },
-              "tier_fractions": {
-                "api": 0.5748898678414097,
-                "quota": 0.4251101321585903
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "236cdd0cbdc83d9f5b95d177b7bae0976cb825c14b1e2158d5e81e1589561e36",
-                "hedge_triggered": "5fb9f45ed7eb4ef5674b0d0d6ddcf4b10a64e54f892b37bbb6a722297c84349f",
-                "provider": "8697d6d402625983b763916b3666e955d76d6c29d122dba521f8c7e3e1ed3714",
-                "quota_fraction_used": "6b1268cfdce096e4a587bf7741d9dc597de2015bbe4720dde57e2099e9b7089b",
-                "shadow_price_q": "e6387651012ac5c55b087640845c8856755615760860edbbf0f67e2230eeec87",
-                "tier": "cc482b21d63be4ccdf5813dc9810e960b2a82463b674223353ab17364b410b3f",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "701f9bb88039a66f2c3aaf7c211081ebabdf0f17280ccd37d228aa27e49d8df6"
-              },
-              "hedge_rate": 0.02643171806167401,
-              "mean_cost_usd": 0.00020070704845814977,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.02643171806167401,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 329.52517957475766,
-              "p99_ms": 1083.4092793341058,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.4251101321585903,
-                "S_A_medium": 0.5748898678414097
-              },
-              "tier_fractions": {
-                "api": 0.5748898678414097,
-                "quota": 0.4251101321585903
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "ccebc31969ac094e6fd65e3c3e785ecb6785d680626eb20a8aee4bf455ff4e3f",
-                "cost_usd": "8a6ecb04fae0cb2de505e07be915dddae96558579cd1a48a89bcbdcb246c6d56",
-                "hedge_triggered": "5ccc8957d9eaf585503006df528b1b3016d27cb4a5d5b55f23a7a4a1b0556813",
-                "provider": "130a81a66eb24c6ce749bd8198f1fd8259fb995d3f5b720e3c9138569d4a1a13",
-                "quota_fraction_used": "bb877eee07d28ce6ac0b31a1afcdd1d1691c1fd18dc5a40409d68e570d3ef38b",
-                "shadow_price_q": "a7dc3e33aaadb7204f4108cb3dbdce9c37939151c099cbe65537f2e9c664ec3a",
-                "tier": "2184c6eb576fd4a2f2bd4b617315d766fadaddb5ab9d5174091452931e54d6a0",
-                "timestamp": "b2297312b48cc4560d4954d4843e1ea2236a55e2c22f8f567aedab581898a97d",
-                "ttft_ms": "e89bf353afd7a7e21386efc5d9d0af7258a2f8fc86a7b6605c2378da3fed6128"
-              },
-              "hedge_rate": 0.019823788546255508,
-              "mean_cost_usd": 0.00019758590308370042,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.019823788546255508,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0
-              },
-              "p50_ms": 333.2407778802926,
-              "p99_ms": 1050.516360486185,
-              "provider_fractions": {
-                "Chutes_S_Q": 0.42290748898678415,
-                "S_A_medium": 0.5770925110132159
-              },
-              "tier_fractions": {
-                "api": 0.5770925110132159,
-                "quota": 0.42290748898678415
-              }
-            }
-          }
-        },
         "two_layer": {
           "aggregate": {
             "hedge_rate": 0.0,
@@ -846,20 +614,18 @@
           }
         }
       },
-      "strategy_hash": "5c76654ac86f49442876b7033f77d8da9c6b797716120e3ee98a2754a114bd0f",
+      "strategy_hash": "dc35c1a88f6503c7644617da27e3a708c2155979b5ace5f9959dec8f6c753a5f",
       "strategy_order": [
         "two_layer",
         "joint_nohedge",
         "joint_hedge",
         "joint_p50band_nohedge",
-        "joint_p50band_hedge",
-        "joint_ucb",
-        "joint_ucb_hedge"
+        "joint_p50band_hedge"
       ]
     },
     "st2_s_q_degradation": {
       "arrival_process": "poisson",
-      "description": "S_Q starts fast (P50=200ms) then suddenly degrades to P50=2000ms at t=1800s. Tests how quickly joint_ucb's filter rejects S_Q once its Bernoulli miss rate climbs.",
+      "description": "S_Q starts fast (P50=200ms) then suddenly degrades to P50=2000ms at t=1800s. Tests whether the joint router stops using S_Q once it becomes unsafe.",
       "duration_seconds": 3600.0,
       "n_requests": 1000,
       "name": "st2_s_q_degradation",
@@ -1342,236 +1108,6 @@
             }
           }
         },
-        "joint_ucb": {
-          "aggregate": {
-            "hedge_rate": 0.0,
-            "mean_cost_usd": 0.0002861073619631902,
-            "p50_ms": 174.46073162379298,
-            "p99_ms": 1953.986510699119,
-            "provider_fractions": {
-              "Degrading_S_Q": 0.48261758691206547,
-              "Stable_S_A": 0.5173824130879345
-            },
-            "slo_violation_rate_1000ms": 0.016700749829584183,
-            "slo_violation_rate_1500ms": 0.014314928425357873,
-            "slo_violation_rate_3000ms": 0.0023858214042263124,
-            "slo_violation_rate_500ms": 0.038173142467621,
-            "tier_fractions": {
-              "api": 0.5173824130879345,
-              "quota": 0.48261758691206547
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "b5789eac0c240620d9a036c2585f165abd31e88fa10ec9698d1e04f7768c1921",
-                "hedge_triggered": "a4c3fb1fa4e49bd6a605328e45efaa42b7f312846f6108043333549a010dd3dc",
-                "provider": "f8cb2037b06b5e6b2e5fcb9a09b0f2c9f86abfa4603daecbc9e9719f2d74277b",
-                "quota_fraction_used": "9dbf627cb31fb1f53a177a1919381945344d8cb75b74b19db85c2e066ca399d0",
-                "shadow_price_q": "23e7ec7dbb24d236e075a26abcd63492a90911439ef7dee686fe221e16a01e5a",
-                "tier": "e8eb5e9134b2af666cea17cbda4a7c28117f44e6852764c6b638c21145b16709",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "3c94f407f6c9ac75196cd6c6893cfe64b9214107da6891befb3152476d0744fc"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0002861073619631902,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.017382413087934562,
-                "slo_violation_rate_1500ms": 0.014314928425357873,
-                "slo_violation_rate_3000ms": 0.003067484662576687,
-                "slo_violation_rate_500ms": 0.03578732106339468
-              },
-              "p50_ms": 174.50370157396816,
-              "p99_ms": 1985.2128071572347,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.48261758691206547,
-                "Stable_S_A": 0.5173824130879345
-              },
-              "tier_fractions": {
-                "api": 0.5173824130879345,
-                "quota": 0.48261758691206547
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "b5789eac0c240620d9a036c2585f165abd31e88fa10ec9698d1e04f7768c1921",
-                "hedge_triggered": "a4c3fb1fa4e49bd6a605328e45efaa42b7f312846f6108043333549a010dd3dc",
-                "provider": "f8cb2037b06b5e6b2e5fcb9a09b0f2c9f86abfa4603daecbc9e9719f2d74277b",
-                "quota_fraction_used": "9dbf627cb31fb1f53a177a1919381945344d8cb75b74b19db85c2e066ca399d0",
-                "shadow_price_q": "23e7ec7dbb24d236e075a26abcd63492a90911439ef7dee686fe221e16a01e5a",
-                "tier": "e8eb5e9134b2af666cea17cbda4a7c28117f44e6852764c6b638c21145b16709",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "3ee4fe6b01f85e8b49c45bbe38f1a5ccbed0f7913db296205d1a3ec7b215dceb"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0002861073619631902,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.016359918200409,
-                "slo_violation_rate_1500ms": 0.014314928425357873,
-                "slo_violation_rate_3000ms": 0.0010224948875255625,
-                "slo_violation_rate_500ms": 0.04294478527607362
-              },
-              "p50_ms": 172.9342329640413,
-              "p99_ms": 2006.9705837924607,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.48261758691206547,
-                "Stable_S_A": 0.5173824130879345
-              },
-              "tier_fractions": {
-                "api": 0.5173824130879345,
-                "quota": 0.48261758691206547
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "b5789eac0c240620d9a036c2585f165abd31e88fa10ec9698d1e04f7768c1921",
-                "hedge_triggered": "a4c3fb1fa4e49bd6a605328e45efaa42b7f312846f6108043333549a010dd3dc",
-                "provider": "f8cb2037b06b5e6b2e5fcb9a09b0f2c9f86abfa4603daecbc9e9719f2d74277b",
-                "quota_fraction_used": "9dbf627cb31fb1f53a177a1919381945344d8cb75b74b19db85c2e066ca399d0",
-                "shadow_price_q": "23e7ec7dbb24d236e075a26abcd63492a90911439ef7dee686fe221e16a01e5a",
-                "tier": "e8eb5e9134b2af666cea17cbda4a7c28117f44e6852764c6b638c21145b16709",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "a33872cb7df8fd5dc0e7b472d70288d13b2abdf7007c053a503864ebdd764ada"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0002861073619631902,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.016359918200409,
-                "slo_violation_rate_1500ms": 0.014314928425357873,
-                "slo_violation_rate_3000ms": 0.003067484662576687,
-                "slo_violation_rate_500ms": 0.03578732106339468
-              },
-              "p50_ms": 175.94426033336953,
-              "p99_ms": 1869.776141147661,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.48261758691206547,
-                "Stable_S_A": 0.5173824130879345
-              },
-              "tier_fractions": {
-                "api": 0.5173824130879345,
-                "quota": 0.48261758691206547
-              }
-            }
-          }
-        },
-        "joint_ucb_hedge": {
-          "aggregate": {
-            "hedge_rate": 0.02215405589638719,
-            "mean_cost_usd": 0.0002963108384458078,
-            "p50_ms": 174.6527261256177,
-            "p99_ms": 910.5684143741782,
-            "provider_fractions": {
-              "Degrading_S_Q": 0.48432174505794134,
-              "Stable_S_A": 0.5156782549420587
-            },
-            "slo_violation_rate_1000ms": 0.0023858214042263124,
-            "slo_violation_rate_1500ms": 0.0,
-            "slo_violation_rate_3000ms": 0.0,
-            "slo_violation_rate_500ms": 0.04021813224267212,
-            "tier_fractions": {
-              "api": 0.5156782549420587,
-              "quota": 0.48432174505794134
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "fd6c8072464b7031480367d28ccf94179d83d2da52eada4bb33f2ea0c6a6b021",
-                "hedge_triggered": "fb4cd4b6a326e9fa6a68fd60c374639494d647b91aae1ba46b4d6e312ec55b8c",
-                "provider": "dba991d481f51630825a69961936986b7faf7dc487bf4f40683720b42110ad3b",
-                "quota_fraction_used": "f06b0406448606fd3740101eaf21e4e3b09244056efc30ab5312ff4c82459abe",
-                "shadow_price_q": "68b5e841a93bde61d3583287ab56869414e7875a6d2c1ad8283f15993033c78d",
-                "tier": "c3a894ea8077e81a86fcb89229d1442ae3a61409c59ade3c12b5a4b7026ec198",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "560395f286276994a0042361d7f219f918a4629482544250cc6a27a0be76d9f8"
-              },
-              "hedge_rate": 0.02044989775051125,
-              "mean_cost_usd": 0.00029560736196319014,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.003067484662576687,
-                "slo_violation_rate_1500ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_500ms": 0.03680981595092025
-              },
-              "p50_ms": 173.81768305597205,
-              "p99_ms": 924.8705962753637,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.483640081799591,
-                "Stable_S_A": 0.516359918200409
-              },
-              "tier_fractions": {
-                "api": 0.516359918200409,
-                "quota": 0.483640081799591
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "8fb2a9faf7f35de5404a8cf20b0ac73c427bc2a439eac0ed69e770e4c9328247",
-                "hedge_triggered": "82ebe49ccbd7a7b78084e64c02d147652c167e852025990da704f5ff2e293282",
-                "provider": "9c79647d181e1b2c118757e48865550d21845ab89c9ef45415965e602bfcbf41",
-                "quota_fraction_used": "539dadc8f4bb65ccbc18c5a3bb58a9b7735ecba15639ea8c4a5a47353581c1c2",
-                "shadow_price_q": "12c4de6c7ca840fc3b61022700e25696a40c5843672e6e6991e5bdce0b873304",
-                "tier": "3adf1f468e1875c59cf27d8956695ad39121e31529d94382fbffc0394781cc14",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "b6ac3d4ecd495458bdb9673a3a7e9fc0b27555d6db1ade3d3c5b3f7f7b1672bc"
-              },
-              "hedge_rate": 0.023517382413087935,
-              "mean_cost_usd": 0.00029607668711656443,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0010224948875255625,
-                "slo_violation_rate_1500ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_500ms": 0.04703476482617587
-              },
-              "p50_ms": 172.9342329640413,
-              "p99_ms": 916.1191466987173,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.48568507157464214,
-                "Stable_S_A": 0.5143149284253579
-              },
-              "tier_fractions": {
-                "api": 0.5143149284253579,
-                "quota": 0.48568507157464214
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "0a2f26d2bd80c45e222f859da8c0255b4d3831464134da16c44064962068336c",
-                "cost_usd": "7b4ed3ad9a5097bcde6344ed076ffad3f857be3e779a023ab5181d53235fa450",
-                "hedge_triggered": "1721c72db0b06d77c142db87c8fc562b50a34a90d45e8ca8132cf9f5cec74489",
-                "provider": "dba991d481f51630825a69961936986b7faf7dc487bf4f40683720b42110ad3b",
-                "quota_fraction_used": "f06b0406448606fd3740101eaf21e4e3b09244056efc30ab5312ff4c82459abe",
-                "shadow_price_q": "68b5e841a93bde61d3583287ab56869414e7875a6d2c1ad8283f15993033c78d",
-                "tier": "c3a894ea8077e81a86fcb89229d1442ae3a61409c59ade3c12b5a4b7026ec198",
-                "timestamp": "6cd26f63bb16b99492e72defaed750d98fb439918b3328863bf223ab58565e52",
-                "ttft_ms": "ab4a52b2144b7ea8e0555d3a5c5ce735def9b70560a111d5c9cc9fd5bafbc76d"
-              },
-              "hedge_rate": 0.022494887525562373,
-              "mean_cost_usd": 0.0002972484662576687,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.003067484662576687,
-                "slo_violation_rate_1500ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_500ms": 0.03680981595092025
-              },
-              "p50_ms": 177.20626235683972,
-              "p99_ms": 890.7155001484538,
-              "provider_fractions": {
-                "Degrading_S_Q": 0.483640081799591,
-                "Stable_S_A": 0.516359918200409
-              },
-              "tier_fractions": {
-                "api": 0.516359918200409,
-                "quota": 0.483640081799591
-              }
-            }
-          }
-        },
         "two_layer": {
           "aggregate": {
             "hedge_rate": 0.0,
@@ -1685,20 +1221,18 @@
           }
         }
       },
-      "strategy_hash": "5c76654ac86f49442876b7033f77d8da9c6b797716120e3ee98a2754a114bd0f",
+      "strategy_hash": "dc35c1a88f6503c7644617da27e3a708c2155979b5ace5f9959dec8f6c753a5f",
       "strategy_order": [
         "two_layer",
         "joint_nohedge",
         "joint_hedge",
         "joint_p50band_nohedge",
-        "joint_p50band_hedge",
-        "joint_ucb",
-        "joint_ucb_hedge"
+        "joint_p50band_hedge"
       ]
     },
     "st3_multi_day_rollover": {
       "arrival_process": "poisson",
-      "description": "3-day simulation with S_Q quota=100 resetting every 24 h. Tests that psi(z) re-initializes at each window boundary and joint_ucb uses fresh capacity without hysteresis.",
+      "description": "3-day simulation with S_Q quota=100 resetting every 24 h. Tests that psi(z) re-initializes at each window boundary and the joint router uses fresh capacity without hysteresis.",
       "duration_seconds": 259200.0,
       "n_requests": 1500,
       "name": "st3_multi_day_rollover",
@@ -2161,228 +1695,6 @@
             }
           }
         },
-        "joint_ucb": {
-          "aggregate": {
-            "hedge_rate": 0.0,
-            "mean_cost_usd": 0.0004328869209809264,
-            "p50_ms": 217.99922272227013,
-            "p99_ms": 788.5104126766583,
-            "provider_fractions": {
-              "Always_S_A": 0.7956403269754769,
-              "Daily_S_Q": 0.20435967302452315
-            },
-            "slo_violation_rate_1000ms": 0.0020435967302452314,
-            "slo_violation_rate_2000ms": 0.0,
-            "slo_violation_rate_3000ms": 0.0,
-            "tier_fractions": {
-              "api": 0.7956403269754769,
-              "quota": 0.20435967302452315
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "8654f1279ac3e49a7cef36c8464f789b56404c38966a0dc7ed3762f8a7eaa362",
-                "hedge_triggered": "bed95ae176cbd1efa4cfc7f400fc1eb294bc107dabf29d77e8174471a789cca2",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "9712e86f5859dad2d9b649013cdce49183ec2bb52e5a1a803ea5dd6a2937abf0"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0004328869209809264,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0027247956403269754,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 216.5353573913706,
-              "p99_ms": 798.2396698158668,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "8654f1279ac3e49a7cef36c8464f789b56404c38966a0dc7ed3762f8a7eaa362",
-                "hedge_triggered": "bed95ae176cbd1efa4cfc7f400fc1eb294bc107dabf29d77e8174471a789cca2",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "349d6b2f51a8342d100ee529290379c7883cbf2e54507ffe12f4c746b8cc7bf5"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0004328869209809264,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0020435967302452314,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 218.74455032581216,
-              "p99_ms": 793.3646729740153,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "8654f1279ac3e49a7cef36c8464f789b56404c38966a0dc7ed3762f8a7eaa362",
-                "hedge_triggered": "bed95ae176cbd1efa4cfc7f400fc1eb294bc107dabf29d77e8174471a789cca2",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "0849e294d8386910fbfebee9834f5fedbd20dad34a92da2a008af132149433f8"
-              },
-              "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0004328869209809264,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0013623978201634877,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 218.7177604496277,
-              "p99_ms": 773.926895240093,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            }
-          }
-        },
-        "joint_ucb_hedge": {
-          "aggregate": {
-            "hedge_rate": 0.002270663033605813,
-            "mean_cost_usd": 0.0004340395095367848,
-            "p50_ms": 217.20132630275762,
-            "p99_ms": 788.5104126766583,
-            "provider_fractions": {
-              "Always_S_A": 0.7956403269754769,
-              "Daily_S_Q": 0.20435967302452315
-            },
-            "slo_violation_rate_1000ms": 0.002270663033605813,
-            "slo_violation_rate_2000ms": 0.0,
-            "slo_violation_rate_3000ms": 0.0,
-            "tier_fractions": {
-              "api": 0.7956403269754769,
-              "quota": 0.20435967302452315
-            }
-          },
-          "seed_runs": {
-            "42": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "68a00be60fa26c9fb87c25fbf2033788cc278ec56d3e5b28f52f23750cb2fd70",
-                "hedge_triggered": "b82b0f7e31f1d8407e50f1c619be2199d54e0701e4be67970c2874b3d7359fb5",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "e35baa2a29bc60b0976485b093e3c9ae4fccd172115b78523c6e030d78090cdf"
-              },
-              "hedge_rate": 0.0034059945504087193,
-              "mean_cost_usd": 0.0004348569482288829,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0034059945504087193,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 213.7097259117827,
-              "p99_ms": 798.2396698158668,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            },
-            "43": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "17e3a6607400c2f42610c048ad7df8cbfa61dd766e267f94a744d7d3e2218c29",
-                "hedge_triggered": "19cd81279598f720cc416350bc10bbfec0074e74ffa5f1e522b0560de2eae965",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "86b8e91e0c8ba8c4ce0c4e40743217558b265af81950f28288925d5dab81d6ad"
-              },
-              "hedge_rate": 0.0020435967302452314,
-              "mean_cost_usd": 0.00043369209809264307,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0020435967302452314,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 219.17649254686245,
-              "p99_ms": 793.3646729740153,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            },
-            "44": {
-              "digests": {
-                "concurrency_utilization": "d2fdb881d5ccfc6456de70388c4c2bf2a2e4f5435aae76634256da67957a325c",
-                "cost_usd": "9cf254618ec469e49c93040800ebf2931eafc943b8bf4a82a4a1b7c11156c792",
-                "hedge_triggered": "6b934ac58456994c17243008718c3389685886b59ae737cc18d41c9a25fceda8",
-                "provider": "9a7cf4b8136dcdf3fa759968ba5c5139009ec539e09ff2af48e0e0b3f471fbe0",
-                "quota_fraction_used": "f309e24dac7184cca7a27726a3e8f080953c7d74cf0e6fb8572d451a6db7488c",
-                "shadow_price_q": "64f26a530b54a0ad87186f4b876abed9bbb9484eaffc7279824eaeb8bd1f2bd5",
-                "tier": "495aeda4715f459942a58b6497bcf00b6d659a06ee96040552aab612453a0de4",
-                "timestamp": "6064fc6e23806c14dc583c6c8f48d52384966a4ea97b514ffde3bb22f421577b",
-                "ttft_ms": "65c1dba2534df76ec65447ca82ad3481528997b17f2633473a14c252672102bd"
-              },
-              "hedge_rate": 0.0013623978201634877,
-              "mean_cost_usd": 0.0004335694822888283,
-              "metrics": {
-                "slo_violation_rate_1000ms": 0.0013623978201634877,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0
-              },
-              "p50_ms": 218.7177604496277,
-              "p99_ms": 773.926895240093,
-              "provider_fractions": {
-                "Always_S_A": 0.7956403269754768,
-                "Daily_S_Q": 0.20435967302452315
-              },
-              "tier_fractions": {
-                "api": 0.7956403269754768,
-                "quota": 0.20435967302452315
-              }
-            }
-          }
-        },
         "two_layer": {
           "aggregate": {
             "hedge_rate": 0.0,
@@ -2492,15 +1804,13 @@
           }
         }
       },
-      "strategy_hash": "5c76654ac86f49442876b7033f77d8da9c6b797716120e3ee98a2754a114bd0f",
+      "strategy_hash": "dc35c1a88f6503c7644617da27e3a708c2155979b5ace5f9959dec8f6c753a5f",
       "strategy_order": [
         "two_layer",
         "joint_nohedge",
         "joint_hedge",
         "joint_p50band_nohedge",
-        "joint_p50band_hedge",
-        "joint_ucb",
-        "joint_ucb_hedge"
+        "joint_p50band_hedge"
       ]
     }
   },
@@ -2509,14 +1819,12 @@
     43,
     44
   ],
-  "strategy_hash": "5c76654ac86f49442876b7033f77d8da9c6b797716120e3ee98a2754a114bd0f",
+  "strategy_hash": "dc35c1a88f6503c7644617da27e3a708c2155979b5ace5f9959dec8f6c753a5f",
   "strategy_order": [
     "two_layer",
     "joint_nohedge",
     "joint_hedge",
     "joint_p50band_nohedge",
-    "joint_p50band_hedge",
-    "joint_ucb",
-    "joint_ucb_hedge"
+    "joint_p50band_hedge"
   ]
 }

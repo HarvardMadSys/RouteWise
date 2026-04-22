@@ -51,8 +51,8 @@ from experiment.scripts.simulate.synthetic.workload import generate_workload
 SEEDS = [42, 43, 44]
 OUTPUT_ROOT = _ROOT / "results" / "stress"
 
-# Focus: two_layer as baseline + joint_ucb as primary proposal.
-FOCUS_STRATEGIES = ["two_layer", "joint_ucb", "joint_ucb_hedge"]
+# Focus: two_layer as baseline + current joint router variants.
+FOCUS_STRATEGIES = ["two_layer", "joint_nohedge", "joint_hedge"]
 
 
 def _avg(runs: list[StrategyRun], fn) -> float:
@@ -143,7 +143,11 @@ def plot_quota_over_time(
 ) -> None:
     """Plot quota fraction used (z) over time for ST3 (multi-day rollover)."""
     fig, ax = plt.subplots(figsize=(10, 3.6))
-    colors = {"two_layer": "#1f77b4", "joint_ucb": "#2ca02c", "joint_ucb_hedge": "#17becf"}
+    colors = {
+        "two_layer": "#1f77b4",
+        "joint_nohedge": "#2ca02c",
+        "joint_hedge": "#17becf",
+    }
 
     for strat in focus_strategies:
         if strat not in results:
