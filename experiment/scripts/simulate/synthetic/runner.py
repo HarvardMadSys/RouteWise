@@ -66,6 +66,10 @@ select_backup = _hedge_mod.select_backup
 from experiment.data.schema import Request  # noqa: E402
 
 from ._core.metrics import StrategyRun  # noqa: E402
+from ._core.strategies import (  # noqa: E402
+    LATENCY_STRATEGIES,
+    run_registered_strategy,
+)
 from .providers import ShiftingProvider, SyntheticProvider  # noqa: E402
 from .scenarios import ScenarioConfig  # noqa: E402
 
@@ -73,20 +77,7 @@ from .scenarios import ScenarioConfig  # noqa: E402
 # Result container
 # ---------------------------------------------------------------------------
 
-STRATEGIES = [
-    "cheapest_fixed",
-    "fastest_fixed",
-    "round_robin",
-    "lp_mix",
-    "lp_hedge",
-    "lp_explorer",          # LP + hedge + hedge-as-probe (full probing)
-    "lp_explorer_no_probe", # LP + hedge, only hedge-as-probe (no dedicated probing)
-    "v2_only",
-    "v2_p50_hedge",
-    "v2_explorer",          # V2 + hedge + hedge-as-probe (full probing)
-    "v2_explorer_no_probe", # V2 + hedge, only hedge-as-probe (no dedicated probing)
-    "oracle_per_window",
-]
+STRATEGIES = LATENCY_STRATEGIES
 
 # Tokens assumed when computing the router's fixed cost-per-request value.
 _TYPICAL_TOKENS = 200
@@ -666,58 +657,9 @@ def run_strategy(
     Returns:
         StrategyRun with per-request results.
     """
-    rng = np.random.default_rng(seed)
-    slo_sec = scenario.primary_slo_ms / 1000.0
-
-    if strategy == "cheapest_fixed":
-        return _run_cheapest_fixed(scenario, requests, rng)
-    elif strategy == "fastest_fixed":
-        return _run_fastest_fixed(scenario, requests, rng)
-    elif strategy == "round_robin":
-        return _run_round_robin(scenario, requests, rng)
-    elif strategy == "lp_mix":
-        return _run_lp_mix(scenario, requests, rng, slo_sec)
-    elif strategy == "lp_hedge":
-        return _run_lp_hedge(scenario, requests, rng, slo_sec)
-    elif strategy == "lp_explorer":
-        # LP + hedge + hedge-as-probe feedback (keeps dedicated probing).
-        return _run_lp_hedge(
-            scenario, requests, rng, slo_sec,
-            hedge_as_probe=True,
-            probe_rate=None,
-            strategy_label="lp_explorer",
-        )
-    elif strategy == "lp_explorer_no_probe":
-        # LP + hedge, Explorer-only: no dedicated probing, backup samples
-        # are the only feedback source for non-primary providers.
-        return _run_lp_hedge(
-            scenario, requests, rng, slo_sec,
-            hedge_as_probe=True,
-            probe_rate=0.0,
-            strategy_label="lp_explorer_no_probe",
-        )
-    elif strategy == "v2_only":
-        return _run_v2_only(scenario, requests, rng, slo_sec)
-    elif strategy == "v2_p50_hedge":
-        return _run_v2_p50_hedge(scenario, requests, rng, slo_sec)
-    elif strategy == "v2_explorer":
-        return _run_v2_p50_hedge(
-            scenario, requests, rng, slo_sec,
-            hedge_as_probe=True,
-            probe_rate=None,
-            strategy_label="v2_explorer",
-        )
-    elif strategy == "v2_explorer_no_probe":
-        return _run_v2_p50_hedge(
-            scenario, requests, rng, slo_sec,
-            hedge_as_probe=True,
-            probe_rate=0.0,
-            strategy_label="v2_explorer_no_probe",
-        )
-    elif strategy == "oracle_per_window":
-        return _run_oracle_per_window(scenario, requests, rng)
-    else:
+    if strategy not in STRATEGIES:
         raise ValueError(f"Unknown strategy: {strategy!r}. Choose from {STRATEGIES}")
+    return run_registered_strategy(scenario, requests, strategy, seed=seed)
 
 
 def run_scenario(

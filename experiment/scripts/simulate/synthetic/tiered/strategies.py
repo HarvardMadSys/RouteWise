@@ -78,6 +78,10 @@ BackupSelectionMethod = _hedge_mod.BackupSelectionMethod
 from experiment.data.schema import Request  # noqa: E402
 
 from .._core.metrics import StrategyRun  # noqa: E402
+from .._core.strategies import (  # noqa: E402
+    TIERED_STRATEGIES as TIERED_STRATEGY_REGISTRY,
+    run_registered_strategy,
+)
 from ..providers import LogNormal  # noqa: E402
 from .profile import ProviderProfile, delta_allocation  # noqa: E402
 from .providers import ProviderTier, TieredProvider  # noqa: E402
@@ -94,15 +98,7 @@ from .shadow_price import (  # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 
-TIERED_STRATEGIES = [
-    "two_layer",
-    "joint_nohedge",
-    "joint_hedge",
-    "joint_p50band_nohedge",
-    "joint_p50band_hedge",
-    "joint_ucb",         # NEW: Bernoulli profile + Clopper-Pearson safety filter
-    "joint_ucb_hedge",   # NEW: joint_ucb + cross-tier hedge
-]
+TIERED_STRATEGIES = list(TIERED_STRATEGY_REGISTRY.keys())
 
 # Tokens used to convert shadow price (per request) into router "costs" dict.
 _TYPICAL_TOKENS = 200
@@ -768,55 +764,8 @@ def run_tiered_strategy(
     seed: int = 42,
 ) -> StrategyRun:
     """Dispatch to the correct strategy runner."""
-    rng = np.random.default_rng(seed)
-
-    if strategy == "two_layer":
-        return _run_two_layer(scenario, requests, rng)
-
-    # Oracle-based joint variants (use analytical P50/P95).
-    if strategy == "joint_nohedge":
-        return _run_joint(
-            scenario, requests, rng,
-            strategy_name="joint_nohedge",
-            selector=_joint_select_slo_safe,
-            use_hedge=False,
+    if strategy not in TIERED_STRATEGIES:
+        raise ValueError(
+            f"Unknown tiered strategy: {strategy!r}. Choose from {TIERED_STRATEGIES}"
         )
-    if strategy == "joint_hedge":
-        return _run_joint(
-            scenario, requests, rng,
-            strategy_name="joint_hedge",
-            selector=_joint_select_slo_safe,
-            use_hedge=True,
-        )
-    if strategy == "joint_p50band_nohedge":
-        return _run_joint(
-            scenario, requests, rng,
-            strategy_name="joint_p50band_nohedge",
-            selector=_joint_select_p50band,
-            use_hedge=False,
-        )
-    if strategy == "joint_p50band_hedge":
-        return _run_joint(
-            scenario, requests, rng,
-            strategy_name="joint_p50band_hedge",
-            selector=_joint_select_p50band,
-            use_hedge=True,
-        )
-
-    # Profile-based joint variants (Bernoulli + Clopper-Pearson UCB).
-    if strategy == "joint_ucb":
-        return _run_joint_ucb(
-            scenario, requests, rng,
-            use_hedge=False,
-            strategy_name="joint_ucb",
-        )
-    if strategy == "joint_ucb_hedge":
-        return _run_joint_ucb(
-            scenario, requests, rng,
-            use_hedge=True,
-            strategy_name="joint_ucb_hedge",
-        )
-
-    raise ValueError(
-        f"Unknown tiered strategy: {strategy!r}. Choose from {TIERED_STRATEGIES}"
-    )
+    return run_registered_strategy(scenario, requests, strategy, seed=seed)
