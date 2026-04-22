@@ -11,8 +11,8 @@ Five scenarios cover the key failure modes identified in the LP analysis:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
 
+from ._core.scenarios import ScenarioConfig
 from .providers import LogNormal, ShiftingProvider, SyntheticProvider
 
 # ---------------------------------------------------------------------------
@@ -33,39 +33,6 @@ def _ln_p50_p99(p50_ms: float, p99_ms: float) -> LogNormal:
     mu = math.log(p50_ms)
     sigma = (math.log(p99_ms) - mu) / 2.326
     return LogNormal(mu=mu, sigma=max(sigma, 0.01))
-
-
-# ---------------------------------------------------------------------------
-# ScenarioConfig
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ScenarioConfig:
-    """Configuration for one synthetic simulation scenario."""
-
-    name: str
-    description: str
-    providers: list[SyntheticProvider]
-
-    # Workload parameters.
-    n_requests: int = 2000
-    duration_seconds: float = 3600.0     # 1 hour
-    arrival_process: str = "poisson"
-
-    # SLO thresholds used for reporting (ms).
-    slo_thresholds_ms: list[float] = field(
-        default_factory=lambda: [1000.0, 2000.0, 3000.0, 5000.0]
-    )
-
-    @property
-    def primary_slo_ms(self) -> float:
-        """SLO used to configure routers (2 s)."""
-        return 2000.0
-
-    @property
-    def provider_names(self) -> list[str]:
-        return [p.name for p in self.providers]
 
 
 # ---------------------------------------------------------------------------

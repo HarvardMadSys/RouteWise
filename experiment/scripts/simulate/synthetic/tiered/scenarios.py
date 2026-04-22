@@ -17,8 +17,8 @@ S8 - Concurrency saturation spillover
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
 
+from .._core.scenarios import ScenarioConfig as TieredScenarioConfig
 from ..providers import LogNormal
 from .providers import (
     ConcurrencyState,
@@ -26,37 +26,6 @@ from .providers import (
     QuotaState,
     TieredProvider,
 )
-
-
-# ---------------------------------------------------------------------------
-# Scenario configuration
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class TieredScenarioConfig:
-    """Configuration for one tiered scenario."""
-
-    name: str
-    description: str
-    providers: list[TieredProvider]
-
-    n_requests: int = 2000
-    duration_seconds: float = 3600.0
-    arrival_process: str = "poisson"
-
-    # Router SLO used internally by V2 / LP.
-    primary_slo_ms: float = 2000.0
-
-    # Reporting SLO thresholds.
-    slo_thresholds_ms: list[float] = field(
-        default_factory=lambda: [1000.0, 2000.0, 3000.0, 5000.0]
-    )
-
-    @property
-    def provider_names(self) -> list[str]:
-        return [p.name for p in self.providers]
-
 
 # ---------------------------------------------------------------------------
 # LogNormal helpers (mirrors of the base scenarios module)
