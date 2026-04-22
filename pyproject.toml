@@ -45,6 +45,8 @@ include = [
   "docs.*",
   "experiment",
   "experiment.*",
+  "rwsim",
+  "rwsim.*",
 ]
 
 [tool.pytest.ini_options]

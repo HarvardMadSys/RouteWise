@@ -34,6 +34,11 @@ WORKSPACE_ROOT = MAIN_ROOT.parent
 JOINT_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint"
 JOINT_LP_BUDGET_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint-wt-lp-budget"
 DEFAULT_GOLDEN_ROOT = MAIN_ROOT / "tests" / "golden"
+AUDIT_ROOTS = [
+    root
+    for root in [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT]
+    if root.exists()
+]
 
 SEEDS = [42, 43, 44]
 SANITY_N_REQUESTS = 1000
@@ -575,12 +580,10 @@ def _write_grep_audit(output_root: Path) -> Path:
             re.compile(r"hasattr\([^\n]*[\"']concurrency[\"']"),
         ),
     ]
-    roots = [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT]
-
     lines = [
         "# Phase 0 Grep Audit",
         "",
-        "Scope: repo main tree plus both simulator worktrees.",
+        f"Scope: {', '.join(root.name for root in AUDIT_ROOTS)}.",
         "",
     ]
 
@@ -588,7 +591,7 @@ def _write_grep_audit(output_root: Path) -> Path:
         lines.append(f"## {title}")
         lines.append("")
         pattern_hits: list[tuple[str, str]] = []
-        for root in roots:
+        for root in AUDIT_ROOTS:
             pattern_hits.extend(_gather_grep_hits(root, pattern))
         if not pattern_hits:
             lines.append("- No matches found.")
