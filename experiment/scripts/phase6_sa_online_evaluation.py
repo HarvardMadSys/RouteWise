@@ -188,7 +188,9 @@ class BudgetedSALatencyRouter:
             return float("inf")
         return float(np.mean(samples))
 
-    def _reference_cost_usd(self, ctx: RequestPricingContext) -> float:
+    def _reference_cost_usd(
+        self, ctx: RequestPricingContext, now: float | None = None
+    ) -> float:
         costs = [
             compute_request_cost_usd(prices, ctx.prompt_tokens, ctx.completion_tokens_budget)
             for prices in self.token_pricing.values()
@@ -199,6 +201,34 @@ class BudgetedSALatencyRouter:
             return max(costs)
         if self.reference_mode == "mean_provider":
             return float(np.mean(costs))
+        if self.reference_mode == "slo_safe_cheapest":
+            # v_hat_i = billed cost of the cheapest SLO-safe provider at time `now`.
+            # A provider is SLO-safe if its empirical P99 TTFT is within the
+            # request SLO. This mirrors the simulator's _predicted_api_cost_anchor
+            # (routewise-simulator/.../tiered/lp_budget_eval.py::_predicted_api_cost_anchor).
+            # Restricting to SLO-safe providers prevents the budget from being
+            # anchored on a pathologically slow but cheap provider (the "trap").
+            anchor_now = now if now is not None else time.time()
+            slo_ms = self.slo_sec * 1000.0
+            slo_safe_providers: list[str] = []
+            for provider, profile in self.profiles.items():
+                samples = profile.get_samples_before(anchor_now)
+                if len(samples) < 3:
+                    continue
+                p99_ms = float(np.percentile(samples, 99))
+                if p99_ms <= slo_ms:
+                    slo_safe_providers.append(provider)
+            if slo_safe_providers:
+                return min(
+                    compute_request_cost_usd(
+                        self.token_pricing[p],
+                        ctx.prompt_tokens,
+                        ctx.completion_tokens_budget,
+                    )
+                    for p in slo_safe_providers
+                )
+            # Fallback: cheapest overall (mirrors simulator fallback order).
+            return min(costs)
         raise ValueError(f"Unknown reference_mode: {self.reference_mode}")
 
     def _request_costs_usd(self, ctx: RequestPricingContext) -> dict[str, float]:
@@ -215,7 +245,7 @@ class BudgetedSALatencyRouter:
         ctx: RequestPricingContext,
     ) -> str | None:
         request_costs = self._request_costs_usd(ctx)
-        reference_cost = self._reference_cost_usd(ctx)
+        reference_cost = self._reference_cost_usd(ctx, now)
         budget_usd = self.tau * reference_cost
 
         self.last_budget_usd = budget_usd
@@ -1276,9 +1306,15 @@ def main() -> None:
     parser.add_argument(
         "--reference-mode",
         type=str,
-        default="max_provider",
-        choices=("max_provider", "mean_provider"),
-        help="How to anchor v_hat_i from the provider pricing set.",
+        default="slo_safe_cheapest",
+        choices=("max_provider", "mean_provider", "slo_safe_cheapest"),
+        help=(
+            "How to anchor v_hat_i. 'slo_safe_cheapest' matches the simulator "
+            "(routewise-simulator/.../tiered/lp_budget_eval.py::"
+            "_predicted_api_cost_anchor): v_hat_i is the billed cost of the "
+            "cheapest provider whose empirical P99 TTFT is within the SLO. "
+            "'max_provider' and 'mean_provider' are legacy anchors."
+        ),
     )
     args = parser.parse_args()
 
