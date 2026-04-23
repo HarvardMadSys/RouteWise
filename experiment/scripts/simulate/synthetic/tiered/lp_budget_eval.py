@@ -9,13 +9,18 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from functools import lru_cache
+import json
 import math
+from pathlib import Path
+import pickle
 import re
 from typing import NamedTuple
 
 import numpy as np
 from scipy.optimize import linprog
 
+from experiment.data.loader import DataLoader
 from experiment.data.schema import Request
 from experiment.strategies.online_latency_router import SWRRSampler
 
@@ -33,8 +38,8 @@ from .strategies import (
 )
 
 MAIN_VARIANTS = [
-    "old_body",
-    "old_body_hedge",
+    "original_lp",
+    "original_lp_hedge",
     "budget_vhat_t25",
     "budget_vhat_t50",
     "budget_vhat_t75",
@@ -43,7 +48,7 @@ MAIN_VARIANTS = [
     "budget_vhat_t75_hedge",
 ]
 HEDGE_ABLATION_VARIANTS = [
-    "old_body_oldhedge",
+    "original_lp_oldhedge",
     "budget_vhat_t75_oldhedge",
 ]
 PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
@@ -86,6 +91,38 @@ BACKUP_VIOLATION_WINDOW = 256
 TRIVIAL_SUPPORT_THRESHOLD = 1
 PROBE_RATE = 0.05
 HEDGE_AS_PROBE = True
+TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
+
+VARIANT_ALIASES = {
+    "old_body": "original_lp",
+    "old_body_hedge": "original_lp_hedge",
+    "old_body_oldhedge": "original_lp_oldhedge",
+}
+
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[6]
+_LEGACY_EXPERIMENT_ROOT = _WORKSPACE_ROOT / "experiment"
+_LEGACY_DATA_ROOT = _LEGACY_EXPERIMENT_ROOT / "data"
+_LEGACY_DATASET_CACHE_ROOT = _LEGACY_EXPERIMENT_ROOT / "cache" / "dataset"
+_DATA_LOADER_CONFIG = {"dataset": {}}
+
+_TRACE_DATASET_PATHS = {
+    "freeinference": [
+        _LEGACY_DATA_ROOT / "freeinference_logs.csv",
+    ],
+    "rednote": [
+        _LEGACY_DATA_ROOT / "rednote_logs.csv",
+    ],
+    "sharegpt": [
+        _LEGACY_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
+        _LEGACY_DATA_ROOT / "sharegpt_burstgpt" / "sharegpt_prompts_7d.jsonl",
+        _LEGACY_DATA_ROOT / "sharegpt_burstgpt" / "converted.csv",
+    ],
+}
+
+
+def canonicalize_variant_name(variant: str) -> str:
+    """Return the canonical public name for a sidecar variant."""
+    return VARIANT_ALIASES.get(variant, variant)
 
 
 def _is_budget_variant(variant: str) -> bool:
@@ -101,10 +138,11 @@ def _is_vhat_budget_variant(variant: str) -> bool:
 
 
 def _is_control_variant(variant: str) -> bool:
-    return variant in CONTROL_VARIANTS
+    return canonicalize_variant_name(variant) in CONTROL_VARIANTS
 
 
 def _hedge_mode(variant: str) -> str:
+    variant = canonicalize_variant_name(variant)
     if variant.endswith("_oldhedge"):
         return "old"
     if variant.endswith("_hedge"):
@@ -117,6 +155,7 @@ def _use_hedge(variant: str) -> bool:
 
 
 def _base_variant(variant: str) -> str:
+    variant = canonicalize_variant_name(variant)
     hedge_mode = _hedge_mode(variant)
     if hedge_mode == "old":
         return variant[:-len("_oldhedge")]
@@ -490,7 +529,7 @@ def _solve_simplex_lp(
     return True, result.x
 
 
-def _select_old_body(
+def _select_original_lp(
     providers: list[TieredProvider],
     req: Request,
     now: float,
@@ -1139,6 +1178,7 @@ def run_variant(
     probe_rate: float = PROBE_RATE,
 ) -> EvaluatedRun:
     """Run one sidecar variant on one scenario for one RNG seed."""
+    variant = canonicalize_variant_name(variant)
     if (
         variant not in MAIN_VARIANTS
         and variant not in HEDGE_ABLATION_VARIANTS
@@ -1186,8 +1226,8 @@ def run_variant(
                 L,
                 _base_variant(variant),
             )
-        elif _base_variant(variant) == "old_body":
-            outcome = _select_old_body(
+        elif _base_variant(variant) == "original_lp":
+            outcome = _select_original_lp(
                 scenario.providers,
                 req,
                 now,
@@ -1329,12 +1369,185 @@ def build_all_scenarios() -> dict[str, TieredScenarioConfig]:
     return scenarios
 
 
+def _resolve_trace_dataset_path(dataset_name: str) -> Path | None:
+    """Return the first available canonical path for one trace dataset."""
+    for candidate in _TRACE_DATASET_PATHS.get(dataset_name, []):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _dataset_cache_path(dataset_name: str) -> Path:
+    return _LEGACY_DATASET_CACHE_ROOT / f"{dataset_name}.pkl"
+
+
+def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
+    """Load ShareGPT JSONL trace into Request objects."""
+    requests: list[Request] = []
+    first_timestamp: float | None = None
+    with filepath.open() as handle:
+        for idx, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            timestamp = float(record["arrived_at"])
+            if first_timestamp is None:
+                first_timestamp = timestamp
+            request_tokens = int(record["num_prefill_tokens"])
+            response_tokens = int(record["num_decode_tokens"])
+            total_tokens = request_tokens + response_tokens
+            if total_tokens <= 0:
+                continue
+            requests.append(
+                Request(
+                    id=idx,
+                    timestamp=int(round(timestamp - first_timestamp)),
+                    request_tokens=request_tokens,
+                    response_tokens=response_tokens,
+                    total_tokens=total_tokens,
+                    model="sharegpt",
+                )
+            )
+    return requests
+
+
+@lru_cache(maxsize=None)
+def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
+    """Load one real workload dataset for trace-driven synthetic experiments."""
+    if dataset_name not in TRACE_WORKLOAD_DATASETS:
+        raise ValueError(
+            f"Unknown trace-driven dataset: {dataset_name!r}. "
+            f"Expected one of {TRACE_WORKLOAD_DATASETS!r}."
+        )
+
+    dataset_path = _resolve_trace_dataset_path(dataset_name)
+    if dataset_path is not None:
+        if dataset_path.suffix == ".jsonl":
+            return tuple(_load_sharegpt_jsonl_requests(dataset_path))
+        loader = DataLoader(_DATA_LOADER_CONFIG)
+        return tuple(loader.load(dataset_path))
+
+    cache_path = _dataset_cache_path(dataset_name)
+    if cache_path.exists():
+        with cache_path.open("rb") as handle:
+            return tuple(pickle.load(handle))
+
+    raise FileNotFoundError(
+        "Could not locate trace data for dataset "
+        f"{dataset_name!r}. Checked {list(_TRACE_DATASET_PATHS.get(dataset_name, []))} "
+        f"and cache path {cache_path}."
+    )
+
+
+def _select_trace_slice(
+    requests: tuple[Request, ...],
+    *,
+    n_requests: int,
+    seed: int,
+) -> list[Request]:
+    """Select one contiguous slice from a real workload trace."""
+    if len(requests) < n_requests:
+        raise ValueError(
+            f"Trace only contains {len(requests)} requests, fewer than "
+            f"the requested slice size {n_requests}."
+        )
+    max_start = len(requests) - n_requests
+    if max_start <= 0:
+        return list(requests)
+
+    rng = np.random.default_rng(seed)
+    start_idx = int(rng.integers(0, max_start + 1))
+    end_idx = start_idx + n_requests
+    return list(requests[start_idx:end_idx])
+
+
+def _normalize_trace_slice(
+    requests: list[Request],
+    *,
+    duration_seconds: float,
+) -> list[Request]:
+    """Rebase and scale one trace slice into the scenario time horizon."""
+    if not requests:
+        return []
+
+    source_timestamps = np.array([float(req.timestamp) for req in requests], dtype=float)
+    rebased = source_timestamps - source_timestamps[0]
+    span = float(rebased[-1]) if len(rebased) > 1 else 0.0
+
+    if span <= 0.0:
+        normalized_timestamps = np.linspace(
+            0.0,
+            duration_seconds,
+            num=len(requests),
+            endpoint=False,
+        )
+    else:
+        normalized_timestamps = rebased * (duration_seconds / span)
+
+    normalized_requests: list[Request] = []
+    for idx, (request, timestamp) in enumerate(zip(requests, normalized_timestamps)):
+        normalized_requests.append(
+            Request(
+                id=idx,
+                timestamp=int(round(min(timestamp, duration_seconds))),
+                request_tokens=request.request_tokens,
+                response_tokens=request.response_tokens,
+                total_tokens=request.total_tokens,
+                model=request.model,
+                provider=request.provider,
+                actual_cost=request.actual_cost,
+                latency_ms=request.latency_ms,
+                ttft_ms=request.ttft_ms,
+            )
+        )
+    return normalized_requests
+
+
+def _generate_trace_driven_workload(
+    scenario: TieredScenarioConfig,
+    *,
+    dataset_name: str,
+    seed: int,
+) -> list[Request]:
+    """Build a trace-driven workload for one scenario from a real dataset.
+
+    We preserve the request size distribution and local burst structure of a
+    contiguous trace slice, then normalize the slice into the scenario's target
+    duration so every scenario still sees the intended offered load level.
+    """
+    full_trace = _load_trace_dataset_requests(dataset_name)
+    slice_requests = _select_trace_slice(
+        full_trace,
+        n_requests=scenario.n_requests,
+        seed=seed,
+    )
+    return _normalize_trace_slice(
+        slice_requests,
+        duration_seconds=scenario.duration_seconds,
+    )
+
+
 def generate_scenario_workload(
     scenario: TieredScenarioConfig,
     *,
     seed: int = 0,
+    dataset_name: str = "synthetic",
 ) -> list[Request]:
-    """Generate the shared workload for one scenario."""
+    """Generate the shared workload for one scenario.
+
+    Args:
+        scenario: Scenario configuration.
+        seed: RNG seed controlling either synthetic generation or trace slicing.
+        dataset_name: Workload source. Use "synthetic" for the legacy synthetic
+            generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
+    """
+    if dataset_name != "synthetic":
+        return _generate_trace_driven_workload(
+            scenario,
+            dataset_name=dataset_name,
+            seed=seed,
+        )
+
     return generate_workload(
         n_requests=scenario.n_requests,
         duration_seconds=scenario.duration_seconds,
@@ -1421,9 +1634,11 @@ __all__ = [
     "MAIN_VARIANTS",
     "PROVIDER_PERCENTILE_ABLATION_VARIANTS",
     "RunDiagnostics",
+    "TRACE_WORKLOAD_DATASETS",
     "build_all_scenarios",
     "build_first_batch_scenarios",
     "build_hedge_delta",
+    "canonicalize_variant_name",
     "generate_scenario_workload",
     "run_variant",
     "summarize_diagnostics",

@@ -20,9 +20,11 @@ from experiment.scripts.simulate.synthetic.tiered.lp_budget_eval import (  # noq
     HEDGE_ABLATION_VARIANTS,
     MAIN_VARIANTS,
     PROVIDER_PERCENTILE_ABLATION_VARIANTS,
+    TRACE_WORKLOAD_DATASETS,
     build_all_scenarios,
     build_first_batch_scenarios,
     build_hedge_delta,
+    canonicalize_variant_name,
     generate_scenario_workload,
     run_variant,
     summarize_diagnostics,
@@ -48,12 +50,33 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dataset",
+        action="append",
+        dest="datasets",
+        choices=["synthetic", *TRACE_WORKLOAD_DATASETS],
+        default=[],
+        help=(
+            "Workload dataset to use. May be repeated. Defaults to legacy "
+            "synthetic workload generation. Use freeinference / rednote / "
+            "sharegpt for trace-driven synthetic evaluation."
+        ),
+    )
+    parser.add_argument(
         "--seed",
         action="append",
         dest="seeds",
         type=int,
         default=[],
         help="RNG seed to run. May be repeated. Defaults to 42, 43, 44.",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=OUTPUT_ROOT,
+        help=(
+            "Directory where evaluation outputs should be written. Defaults to "
+            "results/lp_budget under the worktree root."
+        ),
     )
     parser.add_argument(
         "--variant",
@@ -119,6 +142,7 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def _build_summary_rows(
+    dataset_name: str,
     scenario_name: str,
     summary: dict[str, dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -126,6 +150,7 @@ def _build_summary_rows(
     for variant, metrics in summary.items():
         rows.append(
             {
+                "dataset": dataset_name,
                 "scenario": scenario_name,
                 "variant": variant,
                 "mean_ttft_ms": metrics["mean_ttft_ms"],
@@ -143,6 +168,7 @@ def _build_summary_rows(
 
 
 def _build_diagnostic_rows(
+    dataset_name: str,
     scenario_name: str,
     diagnostics: dict[str, dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -150,6 +176,7 @@ def _build_diagnostic_rows(
     for variant, diag in diagnostics.items():
         rows.append(
             {
+                "dataset": dataset_name,
                 "scenario": scenario_name,
                 "variant": variant,
                 "mean_B_tau": diag["mean_B_tau"],
@@ -182,13 +209,14 @@ def _build_diagnostic_rows(
 
 
 def _build_delta_rows(
+    dataset_name: str,
     scenario_name: str,
     summary: dict[str, dict[str, object]],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     pairs = [
-        ("old_body", "old_body_hedge"),
-        ("old_body", "old_body_oldhedge"),
+        ("original_lp", "original_lp_hedge"),
+        ("original_lp", "original_lp_oldhedge"),
         ("budget_body_p25", "budget_body_p25_hedge"),
         ("budget_body_p50", "budget_body_p50_hedge"),
         ("budget_body_p75", "budget_body_p75_hedge"),
@@ -203,6 +231,7 @@ def _build_delta_rows(
         delta = build_hedge_delta(summary[no_hedge], summary[hedged])
         rows.append(
             {
+                "dataset": dataset_name,
                 "scenario": scenario_name,
                 "no_hedge_variant": no_hedge,
                 "hedged_variant": hedged,
@@ -213,10 +242,11 @@ def _build_delta_rows(
 
 
 def _style_for_variant(variant: str) -> tuple[str, str]:
+    variant = canonicalize_variant_name(variant)
     colors = {
-        "old_body": "#1f1f1f",
-        "old_body_hedge": "#1f1f1f",
-        "old_body_oldhedge": "#1f1f1f",
+        "original_lp": "#1f1f1f",
+        "original_lp_hedge": "#1f1f1f",
+        "original_lp_oldhedge": "#1f1f1f",
         "budget_body_p25": "#1f77b4",
         "budget_body_p25_hedge": "#1f77b4",
         "budget_body_p50": "#2ca02c",
@@ -280,7 +310,10 @@ def _plot_tradeoff(
     plt.close(fig)
 
 
-def _metadata(probe_rate: float | None) -> dict[str, object]:
+def _metadata(
+    probe_rate: float | None,
+    datasets: list[str],
+) -> dict[str, object]:
     return {
         "implementation_root": str(_ROOT),
         "driver": str(_ROOT / "run_joint_lp_budget_eval.py"),
@@ -298,6 +331,7 @@ def _metadata(probe_rate: float | None) -> dict[str, object]:
         "provider_percentile_ablation_variants": PROVIDER_PERCENTILE_ABLATION_VARIANTS,
         "control_variants": CONTROL_VARIANTS,
         "mandatory_first_batch_scenarios": FIRST_BATCH_SCENARIOS,
+        "datasets": datasets,
         "old_selector": (
             "min sum_j pi_j * c_eff_j subject to sum_j pi_j * F_j(SLO) >= 0.99 "
             "with relaxation targets 0.98 / 0.95 / 0.90 and best-effort fallback"
@@ -319,6 +353,11 @@ def _metadata(probe_rate: float | None) -> dict[str, object]:
             "computed as request.total_tokens multiplied by the cheapest S_A "
             "provider price in the current synthetic scenario"
         ),
+        "workload_mode": (
+            "synthetic generator by default; trace-driven mode uses real request "
+            "traces and rescales contiguous slices into each scenario's target "
+            "duration while preserving token counts and local burst structure"
+        ),
         "hedge_as_probe": (
             "Enabled for all hedged variants: when a hedge fires, the backup "
             "TTFT sample is fed back into the rolling profile while keeping the "
@@ -332,111 +371,141 @@ def _metadata(probe_rate: float | None) -> dict[str, object]:
     }
 
 
+def _workload_seed(dataset_name: str, scenario_name: str) -> int:
+    """Return a stable workload-selection seed for one dataset/scenario pair."""
+    if dataset_name == "synthetic":
+        return 0
+    return sum(
+        (index + 1) * ord(ch)
+        for index, ch in enumerate(f"{dataset_name}:{scenario_name}")
+    )
+
+
 def main() -> None:
     args = _parse_args()
     scenarios = build_all_scenarios()
     selected_scenarios = args.scenarios or FIRST_BATCH_SCENARIOS
     seeds = args.seeds or DEFAULT_SEEDS
-    variants = args.variants or list(MAIN_VARIANTS)
+    datasets = args.datasets or ["synthetic"]
+    variants = [
+        canonicalize_variant_name(variant)
+        for variant in (args.variants or list(MAIN_VARIANTS))
+    ]
     if args.include_hedge_ablation:
         variants.extend(HEDGE_ABLATION_VARIANTS)
     if args.include_provider_percentile_ablation:
         variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
     if not args.skip_controls:
         variants.extend(CONTROL_VARIANTS)
+    variants = list(dict.fromkeys(canonicalize_variant_name(variant) for variant in variants))
+    output_root = args.output_root
 
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    with (OUTPUT_ROOT / "metadata.json").open("w") as handle:
-        json.dump(_metadata(args.probe_rate), handle, indent=2)
+    output_root.mkdir(parents=True, exist_ok=True)
+    with (output_root / "metadata.json").open("w") as handle:
+        json.dump(_metadata(args.probe_rate, datasets), handle, indent=2)
 
     all_summary_rows: list[dict[str, object]] = []
     all_diagnostic_rows: list[dict[str, object]] = []
     all_delta_rows: list[dict[str, object]] = []
     golden_snapshot: dict[str, object] = {}
 
-    for scenario_name in selected_scenarios:
-        scenario = scenarios[scenario_name]
-        print(f"\n=== {scenario_name} ===")
-        workload = generate_scenario_workload(scenario, seed=0)
-        scenario_dir = OUTPUT_ROOT / scenario_name
-        scenario_dir.mkdir(parents=True, exist_ok=True)
+    use_legacy_synthetic_layout = len(datasets) == 1 and datasets[0] == "synthetic"
 
-        scenario_summary: dict[str, dict[str, object]] = {}
-        scenario_diagnostics: dict[str, dict[str, object]] = {}
+    for dataset_name in datasets:
+        dataset_root = output_root if use_legacy_synthetic_layout else output_root / dataset_name
+        dataset_root.mkdir(parents=True, exist_ok=True)
 
-        for variant in variants:
-            evaluated_runs = [
-                run_variant(
-                    scenario,
-                    workload,
-                    variant,
-                    seed=seed,
-                    probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
+        for scenario_name in selected_scenarios:
+            scenario = scenarios[scenario_name]
+            print(f"\n=== {dataset_name} / {scenario_name} ===")
+            workload = generate_scenario_workload(
+                scenario,
+                seed=_workload_seed(dataset_name, scenario_name),
+                dataset_name=dataset_name,
+            )
+            scenario_dir = dataset_root / scenario_name
+            scenario_dir.mkdir(parents=True, exist_ok=True)
+
+            scenario_summary: dict[str, dict[str, object]] = {}
+            scenario_diagnostics: dict[str, dict[str, object]] = {}
+
+            for variant in variants:
+                evaluated_runs = [
+                    run_variant(
+                        scenario,
+                        workload,
+                        variant,
+                        seed=seed,
+                        probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
+                    )
+                    for seed in seeds
+                ]
+                scenario_summary[variant] = summarize_main_metrics(scenario, evaluated_runs)
+                scenario_diagnostics[variant] = summarize_diagnostics(evaluated_runs)
+                metrics = scenario_summary[variant]
+                print(
+                    f"  {variant:<24s}"
+                    f" cost={metrics['avg_cost_usd']:.2e}"
+                    f" mean={metrics['mean_ttft_ms']:.0f}ms"
+                    f" p50={metrics['p50_ms']:.0f}ms"
+                    f" p99={metrics['p99_ms']:.0f}ms"
+                    f" slo={metrics['slo_violation_rate']:.2%}"
                 )
-                for seed in seeds
-            ]
-            scenario_summary[variant] = summarize_main_metrics(scenario, evaluated_runs)
-            scenario_diagnostics[variant] = summarize_diagnostics(evaluated_runs)
-            metrics = scenario_summary[variant]
-            print(
-                f"  {variant:<24s}"
-                f" cost={metrics['avg_cost_usd']:.2e}"
-                f" mean={metrics['mean_ttft_ms']:.0f}ms"
-                f" p50={metrics['p50_ms']:.0f}ms"
-                f" p99={metrics['p99_ms']:.0f}ms"
-                f" slo={metrics['slo_violation_rate']:.2%}"
+
+            summary_rows = _build_summary_rows(dataset_name, scenario_name, scenario_summary)
+            diagnostic_rows = _build_diagnostic_rows(
+                dataset_name,
+                scenario_name,
+                scenario_diagnostics,
+            )
+            delta_rows = _build_delta_rows(dataset_name, scenario_name, scenario_summary)
+
+            with (scenario_dir / "summary.json").open("w") as handle:
+                json.dump(scenario_summary, handle, indent=2)
+            with (scenario_dir / "diagnostics.json").open("w") as handle:
+                json.dump(scenario_diagnostics, handle, indent=2)
+            with (scenario_dir / "hedge_deltas.json").open("w") as handle:
+                json.dump(delta_rows, handle, indent=2)
+
+            _write_csv(scenario_dir / "summary.csv", summary_rows)
+            _write_csv(scenario_dir / "diagnostics.csv", diagnostic_rows)
+            _write_csv(scenario_dir / "hedge_deltas.csv", delta_rows)
+
+            _plot_tradeoff(
+                scenario_summary,
+                y_key="mean_ttft_ms",
+                y_label="Mean TTFT (ms)",
+                title=f"{dataset_name} / {scenario_name}: Cost vs Mean TTFT",
+                output_path=scenario_dir / "cost_vs_mean_latency.png",
+            )
+            _plot_tradeoff(
+                scenario_summary,
+                y_key="p99_ms",
+                y_label="P99 TTFT (ms)",
+                title=f"{dataset_name} / {scenario_name}: Cost vs P99 TTFT",
+                output_path=scenario_dir / "cost_vs_p99.png",
             )
 
-        summary_rows = _build_summary_rows(scenario_name, scenario_summary)
-        diagnostic_rows = _build_diagnostic_rows(scenario_name, scenario_diagnostics)
-        delta_rows = _build_delta_rows(scenario_name, scenario_summary)
+            all_summary_rows.extend(summary_rows)
+            all_diagnostic_rows.extend(diagnostic_rows)
+            all_delta_rows.extend(delta_rows)
+            golden_snapshot[f"{dataset_name}/{scenario_name}"] = {
+                "summary": scenario_summary,
+                "diagnostics": scenario_diagnostics,
+                "hedge_deltas": delta_rows,
+            }
 
-        with (scenario_dir / "summary.json").open("w") as handle:
-            json.dump(scenario_summary, handle, indent=2)
-        with (scenario_dir / "diagnostics.json").open("w") as handle:
-            json.dump(scenario_diagnostics, handle, indent=2)
-        with (scenario_dir / "hedge_deltas.json").open("w") as handle:
-            json.dump(delta_rows, handle, indent=2)
-
-        _write_csv(scenario_dir / "summary.csv", summary_rows)
-        _write_csv(scenario_dir / "diagnostics.csv", diagnostic_rows)
-        _write_csv(scenario_dir / "hedge_deltas.csv", delta_rows)
-
-        _plot_tradeoff(
-            scenario_summary,
-            y_key="mean_ttft_ms",
-            y_label="Mean TTFT (ms)",
-            title=f"{scenario_name}: Cost vs Mean TTFT",
-            output_path=scenario_dir / "cost_vs_mean_latency.png",
-        )
-        _plot_tradeoff(
-            scenario_summary,
-            y_key="p99_ms",
-            y_label="P99 TTFT (ms)",
-            title=f"{scenario_name}: Cost vs P99 TTFT",
-            output_path=scenario_dir / "cost_vs_p99.png",
-        )
-
-        all_summary_rows.extend(summary_rows)
-        all_diagnostic_rows.extend(diagnostic_rows)
-        all_delta_rows.extend(delta_rows)
-        golden_snapshot[scenario_name] = {
-            "summary": scenario_summary,
-            "diagnostics": scenario_diagnostics,
-            "hedge_deltas": delta_rows,
-        }
-
-    _write_csv(OUTPUT_ROOT / "all_results.csv", all_summary_rows)
-    _write_csv(OUTPUT_ROOT / "all_diagnostics.csv", all_diagnostic_rows)
-    _write_csv(OUTPUT_ROOT / "all_hedge_deltas.csv", all_delta_rows)
+    _write_csv(output_root / "all_results.csv", all_summary_rows)
+    _write_csv(output_root / "all_diagnostics.csv", all_diagnostic_rows)
+    _write_csv(output_root / "all_hedge_deltas.csv", all_delta_rows)
 
     if args.freeze_golden:
-        golden_dir = OUTPUT_ROOT / "golden"
+        golden_dir = output_root / "golden"
         golden_dir.mkdir(parents=True, exist_ok=True)
         with (golden_dir / "summary_snapshot.json").open("w") as handle:
             json.dump(golden_snapshot, handle, indent=2)
 
-    print(f"\nDone. Results written to {OUTPUT_ROOT}")
+    print(f"\nDone. Results written to {output_root}")
 
 
 if __name__ == "__main__":
