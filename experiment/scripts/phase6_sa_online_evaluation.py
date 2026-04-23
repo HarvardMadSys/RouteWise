@@ -855,42 +855,53 @@ class Phase6SAEvaluator(phase5.Phase5OnlineEvaluator):
         of all real billings incurred across attempts. error_message is
         annotated with attempt count when retries occurred.
         """
-        start_wall = time.time()
         max_total_sec = 2.0 * self.config.slo_sec
+        overall_start = time.time()
         attempt = 0
+        # Track retry overhead so we can add it to the final attempt's TTFT
+        # without clobbering the correct intra-attempt TTFT (which already
+        # encodes the min of primary/backup first-token time from the hedge
+        # race inside _execute_policy_request).
+        retry_overhead_ms = 0.0
+        attempt_start = time.time()
         result = self._execute_policy_request(policy, now, req)
         attempts_log: list[str] = [f"{result.status}@{result.actual_provider}"]
 
         while attempt < max_retries and result.status != "success":
-            elapsed_sec = time.time() - start_wall
-            if elapsed_sec >= max_total_sec:
+            if (time.time() - overall_start) >= max_total_sec:
                 break
+            # Time the user waited on this failed attempt before we retry.
+            failed_attempt_ms = (time.time() - attempt_start) * 1000.0
+            retry_overhead_ms += failed_attempt_ms
             # Update router state so the next selection is informed by this
             # failure (the policy may pick a different provider).
             self._update_router_from_result(result)
             time.sleep(backoff_sec)
+            retry_overhead_ms += backoff_sec * 1000.0
             attempt += 1
-            now_retry = time.time()
+            attempt_start = time.time()
+            now_retry = attempt_start
             result = self._execute_policy_request(policy, now_retry, req)
             attempts_log.append(f"{result.status}@{result.actual_provider}")
 
-        total_elapsed_ms = (time.time() - start_wall) * 1000.0
-
-        # Report user-observable latency, not per-attempt latency.
-        if result.status == "success":
-            result.ttft_ms = total_elapsed_ms
-            # Prefer keeping the final attempt's e2e_ms if defined, otherwise
-            # approximate as total elapsed.
-            if not (result.e2e_ms and result.e2e_ms > 0):
-                result.e2e_ms = total_elapsed_ms
-        else:
-            # All attempts failed. ttft stays -1 to mark failure; record
-            # wall-clock so analysis can still see how long the user waited.
-            result.e2e_ms = total_elapsed_ms
-        result.slo_violated = (result.status != "success") or (
-            result.ttft_ms / 1000.0 > self.config.slo_sec
-        )
         if attempt > 0:
+            # Adjust reported latency to include the retry waits the user
+            # actually experienced. Keep intra-attempt TTFT (valid min of
+            # primary/backup first-token time) as the base.
+            if result.status == "success":
+                if result.ttft_ms and result.ttft_ms > 0:
+                    result.ttft_ms += retry_overhead_ms
+                else:
+                    result.ttft_ms = retry_overhead_ms
+                if result.e2e_ms and result.e2e_ms > 0:
+                    result.e2e_ms += retry_overhead_ms
+            else:
+                # All attempts failed: record the total wall-clock the user
+                # spent waiting as e2e, keep ttft=-1 to mark failure.
+                result.e2e_ms = (time.time() - overall_start) * 1000.0
+            result.slo_violated = (result.status != "success") or (
+                result.ttft_ms / 1000.0 > self.config.slo_sec
+            )
             chain = "|".join(attempts_log)
             suffix = f"[retry={attempt} chain={chain}]"
             if result.error_message:
