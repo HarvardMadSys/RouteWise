@@ -1,37 +1,15 @@
-"""Tiered scenario definitions (S6-S9, J1-J3) for joint comparison.
+"""Tiered scenario definitions for the synthetic simulator.
 
-S6 - Slow-but-free trap
-    Tests whether two-layer routing greedily fills a slow S_Q quota while
-    joint routing correctly rejects it based on the P50 band.
+The headline scenario is `unified_pool`: a single provider pool shared
+across all three tiers (S_Q, S_C, S_A) with five latency slots per tier.
+Every tier reuses the same five (P50, P99) profiles so the method
+comparison isolates tier-constraint handling from per-provider latency
+differences.
 
-S7 - Quota depletion transition
-    Tests whether the exponential shadow price produces a smooth handoff
-    from S_Q to S_A as quota approaches exhaustion, vs the cliff behavior
-    of two-layer.
-
-S8 - Concurrency saturation spillover
-    Tests whether the congestion price triggers spill to S_A before an
-    S_C bottleneck inflates the tail, vs two-layer's blocking queue.
-
-S9 - Quota-vs-concurrency priority conflict
-    Tests whether a quota-first heuristic and a concurrency-first heuristic
-    diverge when both free tiers coexist. The joint LP should route across
-    S_Q, S_C, and S_A without committing to either fixed priority.
-
-J1 - Fully-joint quota-biased market
-    Multiple providers in every tier. Fast-but-shallow S_Q competes with
-    deeper but slower S_Q and with capacity-limited S_C. A good LP should
-    use all three tiers without collapsing to a fixed heuristic priority.
-
-J2 - Fully-joint concurrency-stressed market
-    Multiple S_C providers look attractive on body latency but saturate
-    under load, forcing spillover to S_Q and S_A. This stresses whether
-    the LP reacts smoothly before tail inflation appears.
-
-J3 - Fully-joint rich convex-hull market
-    A richer provider set where every tier contains non-dominated options.
-    This is the closest synthetic approximation to the paper's general
-    tiered marketplace claim.
+S6/S7/S8/S7m/S8m remain as mechanism-isolation sanity checks exercising
+single failure modes (slow-S_Q trap, quota depletion, concurrency
+saturation, multi-S_Q quota hierarchy) and are retained for regression
+testing and appendix material.
 """
 
 from __future__ import annotations
@@ -283,209 +261,144 @@ def make_tiered_scenarios() -> dict[str, TieredScenarioConfig]:
         ),
 
         # -------------------------------------------------------------------
-        # J1: Fully-joint quota-biased market.
-        # Every tier has multiple providers. A fast but shallow S_Q competes
-        # with a slower deep-quota S_Q and two S_C providers with different
-        # latency/capacity tradeoffs. API providers offer a priced fallback.
+        # unified_pool: headline scenario for the NSDI submission.
+        #
+        # Five shared latency slots instantiated across all three tiers, so a
+        # S_Q slot-k, S_C slot-k, and S_A slot-k have identical TTFT
+        # distributions. Method-to-method differences therefore isolate
+        # tier-constraint handling (quota shadow price, concurrency shadow
+        # price, pay-per-token cost) from per-provider latency variability.
+        #
+        # Slots:
+        #   0: fast-normal    (P50=200,  P99=500)
+        #   1: tail-heavy     (P50=250,  P99=2500)   -- wide sigma; hedging bait
+        #   2: normal         (P50=700,  P99=1800)
+        #   3: trap           (P50=1000, P99=2600)   -- mid-run degradation on S_A
+        #   4: slow-deep      (P50=1500, P99=4000)   -- mid-run improvement on S_A
+        #
+        # Cost (S_A only, breaks the "fast=expensive" monotone):
+        #   slot 0: $2/M (normal)
+        #   slot 1: $2/M (normal)
+        #   slot 2: $1/M (dominant -- reproduces real WandB/Alibaba obs.)
+        #   slot 3: $3/M (trap -- slow AND expensive)
+        #   slot 4: $0.5/M (cheapest, slowest)
+        #
+        # Quota / Concurrency: monotone with latency (fast = scarce):
+        #   slot 0: S_Q quota=200,   S_C C=1
+        #   slot 1: S_Q quota=400,   S_C C=2
+        #   slot 2: S_Q quota=800,   S_C C=3
+        #   slot 3: S_Q quota=1200,  S_C C=4
+        #   slot 4: S_Q quota=2000,  S_C C=5
+        #
+        # Drift (S_A only, mirrors paper fig:latency_drift 5x drift claim):
+        #   slot 3 degrades at 50% duration  (P50 1000 -> 1800, P99 2600 -> 5000)
+        #   slot 4 improves at 30% duration  (P50 1500 -> 900,  P99 4000 -> 2400)
+        # S_Q / S_C are kept static (subscriptions are usually more stable).
         # -------------------------------------------------------------------
-        "j1_joint_quota_bias": TieredScenarioConfig(
-            name="j1_joint_quota_bias",
-            description=(
-                "Fully-joint market with 2x S_Q, 2x S_C, 3x S_A. "
-                "S_Q_fast is low-latency but quota-limited; S_Q_deep is slower "
-                "but abundant. S_C has one fast-shallow and one slower-deeper "
-                "option. S_A spans cheap / balanced / fast priced providers. "
-                "This scenario tests whether the LP forms a meaningful joint "
-                "frontier instead of committing to a single tier priority."
-            ),
-            providers=[
-                _s_q_provider(
-                    name="SQ_FastShallow",
-                    p50_ms=240,
-                    p99_ms=620,
-                    quota_size=260,
-                ),
-                _s_q_provider(
-                    name="SQ_DeepSlow",
-                    p50_ms=520,
-                    p99_ms=1350,
-                    quota_size=900,
-                ),
-                _s_c_provider(
-                    name="SC_FastTight",
-                    p50_ms=160,
-                    p99_ms=560,
-                    limit=2,
-                    service_ms=1700,
-                ),
-                _s_c_provider(
-                    name="SC_Balanced",
-                    p50_ms=250,
-                    p99_ms=820,
-                    limit=5,
-                    service_ms=2100,
-                ),
-                _s_a_provider(
-                    name="SA_Cheap",
-                    p50_ms=340,
-                    p99_ms=1200,
-                    cost_per_token=1.6e-6,
-                ),
-                _s_a_provider(
-                    name="SA_Balanced",
-                    p50_ms=190,
-                    p99_ms=760,
-                    cost_per_token=2.6e-6,
-                ),
-                _s_a_provider(
-                    name="SA_Fast",
-                    p50_ms=115,
-                    p99_ms=420,
-                    cost_per_token=4.2e-6,
-                ),
-            ],
-            n_requests=2200,
-            duration_seconds=900.0,
-            primary_slo_ms=1200.0,
-            slo_thresholds_ms=[400.0, 800.0, 1200.0, 2000.0],
-        ),
-
-        # -------------------------------------------------------------------
-        # J2: Fully-joint concurrency-stressed market.
-        # The S_C tier looks attractive on P50 but is not deep enough for the
-        # offered load. The LP should spill before the tail explodes and should
-        # not get stuck on the slower deep-quota option or overuse pricey S_A.
-        # -------------------------------------------------------------------
-        "j2_joint_concurrency_stress": TieredScenarioConfig(
-            name="j2_joint_concurrency_stress",
-            description=(
-                "Fully-joint market with 2x S_Q, 2x S_C, 3x S_A under stronger "
-                "concurrency pressure. S_C providers are attractive on body "
-                "latency but saturate under load, forcing careful spillover. "
-                "This scenario stresses the body/tail split in a general "
-                "many-provider-per-tier world."
-            ),
-            providers=[
-                _s_q_provider(
-                    name="SQ_Budget",
-                    p50_ms=500,
-                    p99_ms=1350,
-                    quota_size=850,
-                ),
-                _s_q_provider(
-                    name="SQ_SlowDeep",
-                    p50_ms=860,
-                    p99_ms=2280,
-                    quota_size=1800,
-                ),
-                _s_c_provider(
-                    name="SC_UltraFast",
-                    p50_ms=120,
-                    p99_ms=440,
-                    limit=2,
-                    service_ms=2600,
-                ),
-                _s_c_provider(
-                    name="SC_Elastic",
-                    p50_ms=250,
-                    p99_ms=840,
-                    limit=4,
-                    service_ms=2900,
-                ),
-                _s_a_provider(
-                    name="SA_Cheap",
-                    p50_ms=380,
-                    p99_ms=1420,
-                    cost_per_token=9.0e-7,
-                ),
-                _s_a_provider(
-                    name="SA_Balanced",
-                    p50_ms=145,
-                    p99_ms=500,
-                    cost_per_token=1.7e-6,
-                ),
-                _s_a_provider(
-                    name="SA_Fast",
-                    p50_ms=105,
-                    p99_ms=360,
-                    cost_per_token=4.0e-6,
-                ),
-            ],
-            n_requests=4800,
-            duration_seconds=900.0,
-            primary_slo_ms=1400.0,
-            slo_thresholds_ms=[400.0, 800.0, 1400.0, 2200.0],
-        ),
-
-        # -------------------------------------------------------------------
-        # J3: Fully-joint rich convex-hull market.
-        # This is the richest synthetic world in the suite. All tiers contain
-        # multiple non-dominated providers, so any strong result here is much
-        # harder to dismiss as a two-point or single-tier artifact.
-        # -------------------------------------------------------------------
-        "j3_joint_rich_market": TieredScenarioConfig(
-            name="j3_joint_rich_market",
-            description=(
-                "Rich fully-joint market with 3x S_Q, 2x S_C, 3x S_A. Every tier "
-                "contains non-dominated options with different cost/latency/"
-                "capacity tradeoffs. This scenario is intended as the paper's "
-                "strongest synthetic generality check."
-            ),
-            providers=[
-                _s_q_provider(
-                    name="SQ_Fast",
-                    p50_ms=260,
-                    p99_ms=620,
-                    quota_size=220,
-                ),
-                _s_q_provider(
-                    name="SQ_Mid",
-                    p50_ms=420,
-                    p99_ms=980,
-                    quota_size=700,
-                ),
-                _s_q_provider(
-                    name="SQ_Deep",
-                    p50_ms=700,
-                    p99_ms=1750,
-                    quota_size=1400,
-                ),
-                _s_c_provider(
-                    name="SC_Fast",
-                    p50_ms=135,
-                    p99_ms=500,
-                    limit=2,
-                    service_ms=2100,
-                ),
-                _s_c_provider(
-                    name="SC_Mid",
-                    p50_ms=270,
-                    p99_ms=860,
-                    limit=5,
-                    service_ms=2400,
-                ),
-                _s_a_provider(
-                    name="SA_Cheap",
-                    p50_ms=310,
-                    p99_ms=980,
-                    cost_per_token=1.0e-6,
-                ),
-                _s_a_provider(
-                    name="SA_Mid",
-                    p50_ms=160,
-                    p99_ms=620,
-                    cost_per_token=1.9e-6,
-                ),
-                _s_a_provider(
-                    name="SA_Fast",
-                    p50_ms=95,
-                    p99_ms=320,
-                    cost_per_token=4.2e-6,
-                ),
-            ],
-            n_requests=3200,
-            duration_seconds=1000.0,
-            primary_slo_ms=1600.0,
-            slo_thresholds_ms=[400.0, 900.0, 1600.0, 2400.0],
+        "unified_pool": _make_unified_pool_scenario(
+            duration_seconds=1500.0,
+            n_requests=5000,
+            primary_slo_ms=2000.0,
+            slo_thresholds_ms=[500.0, 1000.0, 2000.0, 3000.0, 5000.0],
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Unified pool builder
+# ---------------------------------------------------------------------------
+
+
+# Five shared latency profiles used across all three tiers.
+_UNIFIED_SLOTS: tuple[tuple[str, float, float], ...] = (
+    ("s0_fastnorm", 200.0, 500.0),
+    ("s1_tailhvy", 250.0, 2500.0),
+    ("s2_normal", 700.0, 1800.0),
+    ("s3_trap", 1000.0, 2600.0),
+    ("s4_slowdeep", 1500.0, 4000.0),
+)
+
+_UNIFIED_SQ_QUOTA: tuple[int, ...] = (200, 400, 800, 1200, 2000)
+_UNIFIED_SC_LIMIT: tuple[int, ...] = (1, 2, 3, 4, 5)
+_UNIFIED_SC_SERVICE_MS: float = 2000.0
+
+# S_A cost (USD per token) per slot. Intentionally breaks the monotone
+# "faster is more expensive" rule to reproduce real observations on
+# OpenRouter (e.g. WandB / Alibaba are both fast and cheap on Qwen3-235B).
+_UNIFIED_SA_COST: tuple[float, ...] = (
+    2.0e-6,  # slot 0: normal
+    2.0e-6,  # slot 1: normal
+    1.0e-6,  # slot 2: dominant (fast AND cheap)
+    3.0e-6,  # slot 3: trap (slow AND expensive)
+    0.5e-6,  # slot 4: cheapest but slowest
+)
+
+
+def _make_unified_pool_scenario(
+    *,
+    duration_seconds: float,
+    n_requests: int,
+    primary_slo_ms: float,
+    slo_thresholds_ms: list[float],
+) -> TieredScenarioConfig:
+    """Build the unified pool scenario shared by all three tiers."""
+    providers: list[TieredProvider] = []
+
+    # S_Q: free but quota-capped; fast slots get scarce quota, slow slots get
+    # deep quota. No drift on subscriptions.
+    for idx, (slot_tag, p50, p99) in enumerate(_UNIFIED_SLOTS):
+        providers.append(
+            _s_q_provider(
+                name=f"SQ_{slot_tag}",
+                p50_ms=p50,
+                p99_ms=p99,
+                quota_size=_UNIFIED_SQ_QUOTA[idx],
+            )
+        )
+
+    # S_C: free but concurrency-capped; fast slots have tight slot counts.
+    for idx, (slot_tag, p50, p99) in enumerate(_UNIFIED_SLOTS):
+        providers.append(
+            _s_c_provider(
+                name=f"SC_{slot_tag}",
+                p50_ms=p50,
+                p99_ms=p99,
+                limit=_UNIFIED_SC_LIMIT[idx],
+                service_ms=_UNIFIED_SC_SERVICE_MS,
+            )
+        )
+
+    # S_A: pay-per-token with non-monotone cost and drift on slots 3 and 4.
+    shift_degrade_sec = 0.5 * duration_seconds
+    shift_improve_sec = 0.3 * duration_seconds
+    for idx, (slot_tag, p50, p99) in enumerate(_UNIFIED_SLOTS):
+        provider = _s_a_provider(
+            name=f"SA_{slot_tag}",
+            p50_ms=p50,
+            p99_ms=p99,
+            cost_per_token=_UNIFIED_SA_COST[idx],
+        )
+        if idx == 3:
+            provider.shift_time = shift_degrade_sec
+            provider.ttft_dist_after = _ln_p50_p99(1800.0, 5000.0)
+        elif idx == 4:
+            provider.shift_time = shift_improve_sec
+            provider.ttft_dist_after = _ln_p50_p99(900.0, 2400.0)
+        providers.append(provider)
+
+    return TieredScenarioConfig(
+        name="unified_pool",
+        description=(
+            "Unified 5-slot pool shared across S_Q, S_C, and S_A. Each tier "
+            "holds five providers with the same five TTFT profiles (fast-"
+            "normal, tail-heavy, normal, trap, slow-deep). S_A cost breaks "
+            "the fast-expensive monotone to encode dominant providers and a "
+            "trap; two S_A providers drift mid-run to exercise the latency "
+            "router under non-stationary profiles."
+        ),
+        providers=providers,
+        n_requests=n_requests,
+        duration_seconds=duration_seconds,
+        primary_slo_ms=primary_slo_ms,
+        slo_thresholds_ms=slo_thresholds_ms,
+    )

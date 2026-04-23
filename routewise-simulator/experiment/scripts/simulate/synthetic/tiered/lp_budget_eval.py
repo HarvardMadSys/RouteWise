@@ -43,9 +43,15 @@ MAIN_VARIANTS = [
     "budget_vhat_t25",
     "budget_vhat_t50",
     "budget_vhat_t75",
+    "budget_vhat_t100",
+    "budget_vhat_t150",
+    "budget_vhat_t200",
     "budget_vhat_t25_hedge",
     "budget_vhat_t50_hedge",
     "budget_vhat_t75_hedge",
+    "budget_vhat_t100_hedge",
+    "budget_vhat_t150_hedge",
+    "budget_vhat_t200_hedge",
 ]
 HEDGE_ABLATION_VARIANTS = [
     "original_lp_oldhedge",
@@ -66,11 +72,7 @@ CONTROL_VARIANTS = [
     "concurrency_first",
 ]
 FIRST_BATCH_SCENARIOS = [
-    "s6_slow_q_trap",
-    "s7_quota_depletion",
-    "s8_concurrency_saturation",
-    "s8m_multi_sq_hierarchy",
-    "s7m_quota_depletion",
+    "unified_pool",
 ]
 
 WINDOW_SEC = 15 * 60.0
@@ -453,15 +455,37 @@ def _predicted_api_cost_anchor(
     providers: list[TieredProvider],
     req: Request,
     now: float,
+    slo_ms: float,
 ) -> float:
     """Return the request-side API cost anchor used as v_hat_i.
 
-    In the synthetic simulator, we define v_hat_i as the billed cost of routing
-    request i to the cheapest S_A provider in the scenario.
+    v_hat_i is the billed cost of routing request i to the cheapest SLO-safe
+    S_A provider at time `now`. A provider is SLO-safe if its analytical
+    P99 TTFT at the current time is within the request's SLO. Restricting
+    to SLO-safe providers prevents the budget from being anchored on a
+    pathologically slow but cheap S_A (the "trap" case), which would
+    starve the LP of enough budget to ever pick a fast provider.
+
+    Fallback order when no SLO-safe S_A exists:
+        1. cheapest S_A overall (preserves previous behaviour),
+        2. cheapest positive-cost provider,
+        3. 0.
     """
     api_candidates = [
         provider for provider in providers if provider.tier == ProviderTier.S_A
     ]
+    slo_safe_candidates = [
+        provider
+        for provider in api_candidates
+        if provider.true_p99_ms(now) <= slo_ms
+    ]
+    if slo_safe_candidates:
+        return float(
+            min(
+                provider.marginal_cost(req.total_tokens, now)
+                for provider in slo_safe_candidates
+            )
+        )
     if api_candidates:
         return float(
             min(provider.marginal_cost(req.total_tokens, now) for provider in api_candidates)
@@ -617,8 +641,6 @@ def _select_budget_body(
     profiles: dict[str, RollingLatencyProfile],
     variant: str,
 ) -> SelectorOutcome:
-    del slo_ms
-
     feasible = [provider for provider in providers if provider.is_available(now)]
     if not feasible:
         fallback = _fallback_api_provider(providers)
@@ -659,7 +681,7 @@ def _select_budget_body(
         budget_tau = float(np.percentile(list(c_eff.values()), budget_level))
     elif _is_vhat_budget_variant(variant):
         tau = budget_level / 100.0
-        budget_tau = tau * _predicted_api_cost_anchor(providers, req, now)
+        budget_tau = tau * _predicted_api_cost_anchor(providers, req, now, slo_ms)
     else:
         raise ValueError(f"Unknown budgeted variant family: {variant!r}")
     success, vector = _solve_simplex_lp(

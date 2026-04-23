@@ -313,7 +313,7 @@ Instead:
 4. replace only:
    - old body LP -> `budget_vhat_t75`
    - old hedge trigger -> new probability hedge
-   - old backup policy -> deterministic `safe_cheapest`
+   - old backup policy -> deterministic `safe_fastest`
 5. keep real prompt / token context, not arrival-only replay
 3. keep everything else as stable as possible
 

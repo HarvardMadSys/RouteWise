@@ -37,7 +37,7 @@ def concurrency_shadow_price(
     now: float,
     *,
     U: float,
-    alpha: float = 2.0,
+    alpha: float = 1.0,
 ) -> float:
     """Congestion price for a concurrency-limited provider."""
     if provider.tier != ProviderTier.S_C:
@@ -55,7 +55,7 @@ def effective_cost(
     *,
     U: float,
     L: float,
-    concurrency_alpha: float = 2.0,
+    concurrency_alpha: float = 1.0,
     latency_alpha: float = 0.0,
 ) -> float:
     """Unified effective cost used by the joint router."""

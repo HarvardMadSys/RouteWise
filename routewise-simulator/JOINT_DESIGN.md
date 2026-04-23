@@ -36,9 +36,10 @@ For a provider j at time t:
 - **S_A**: `c_eff = price_per_token * tokens`. Shadow prices are 0.
 - **S_Q**: `c_eff = 0 + L * (U/L)^z` where z = quota used / quota size.
   Smooth exponential ramp from L (abundant quota) to U (exhausted).
-- **S_C**: `c_eff = 0 + U * u^alpha` where u = active / limit. alpha=2 by
-  default keeps the price small until the provider is nearly full,
-  matching hard-spill production behavior.
+- **S_C**: `c_eff = 0 + U * u` where u = active / limit. The linear
+  congestion price (alpha=1 in the code) rises monotonically with
+  utilisation and was chosen over the quadratic variant for
+  interpretability; see paper sec.~3 concurrency shadow price.
 
 Envelopes L and U are calibrated from the S_A providers in the scenario:
 `U = max(api_cost_per_request)`, `L = U * 1e-3`.
