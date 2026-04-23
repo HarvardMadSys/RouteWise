@@ -67,37 +67,6 @@ DEFAULT_PHASE6_POLICIES = (
     "budget_vhat_t75_hedge_explorer",
 )
 
-# Policy classification for dispatch de-duplication (see
-# docs/algorithm/phase6_dispatch_dedup_plan.md). Server-routed policies let
-# OpenRouter pick the concrete provider, so they cannot be de-duplicated and
-# each issues its own real API call. Client-routed policies decide the
-# provider in-process and can share a single dispatch when they pick the
-# same provider for a trace request.
-SERVER_ROUTED_POLICIES = frozenset({
-    "openrouter_auto",
-    "sort_price",
-    "sort_throughput",
-    "sort_latency",
-})
-
-CLIENT_ROUTED_POLICIES = frozenset({
-    "cheapest_fixed",
-    "fastest_fixed",
-    "lp_mix",
-    "smart_hedge",
-    "budget_vhat_t75",
-    "budget_vhat_t75_hedge",
-    "budget_vhat_t75_hedge_explorer",
-})
-
-# Client-routed policies that may dispatch a backup (evaluated as a
-# counterfactual once the shared primary result is known).
-HEDGE_CAPABLE_POLICIES = frozenset({
-    "smart_hedge",
-    "budget_vhat_t75_hedge",
-    "budget_vhat_t75_hedge_explorer",
-})
-
 
 @dataclass
 class RequestPricingContext:
@@ -831,183 +800,6 @@ class Phase6SAEvaluator(phase5.Phase5OnlineEvaluator):
             cost_is_estimated=cost_is_estimated,
         )
 
-    def _execute_policy_request_with_shared_primary(
-        self,
-        policy: str,
-        now: float,
-        req: phase5.TraceRequest,
-        primary_provider: str,
-        primary_result: phase5.SingleRequestResult,
-        is_dedup_leader: bool,
-        dedup_share: int,
-    ) -> phase5.RequestResult:
-        """Build a RequestResult from a pre-dispatched (possibly shared) primary.
-
-        For non-hedge client-routed policies, the final RequestResult
-        reflects the shared primary exactly. For hedge-capable policies
-        we evaluate the hedge trigger counterfactually: if the primary's
-        observed TTFT is >= the policy's hedge threshold, a backup is
-        dispatched now and the final outcome is the earlier of the
-        primary's completion (at primary_ttft_sec) and the counterfactual
-        backup completion (at hedge_time + backup_ttft_sec). Primary is
-        not re-dispatched. See docs/algorithm/phase6_dispatch_dedup_plan.md.
-        """
-        del is_dedup_leader, dedup_share  # reserved for logging extension
-        request_id = str(req.arrival_time_sec).replace(".", "_")
-        prompt = req.prompt if req.use_real_prompt else None
-        max_tokens = req.max_tokens if req.use_real_prompt else None
-
-        actual_provider = primary_result.actual_provider
-        ttft_ms = primary_result.ttft_ms
-        e2e_ms = primary_result.e2e_ms
-        status = primary_result.status
-        error_msg = primary_result.error_message
-        prompt_tokens = primary_result.prompt_tokens
-        completion_tokens = primary_result.completion_tokens
-        cost = primary_result.cost
-        cost_is_estimated = cost <= 0
-        hedge_triggered = False
-        hedge_provider: str | None = None
-        hedge_winner: str | None = None
-
-        if policy in HEDGE_CAPABLE_POLICIES and primary_provider is not None:
-            backup: str | None = None
-            hedge_time_sec = float("inf")
-
-            if policy == "smart_hedge":
-                with self._router_lock:
-                    backup = phase5.select_backup(
-                        method=phase5.BackupSelectionMethod.FASTEST,
-                        profiles=self.router.profiles,
-                        costs=self.pricing,
-                        primary=primary_provider,
-                        slo_sec=self.config.slo_sec,
-                        now=now,
-                        lp_weights=self.router.last_lp_weights,
-                    )
-                    if backup is not None and backup != primary_provider:
-                        hedge_time_sec = self.hedger.compute_hedge_time(
-                            primary_provider,
-                            backup,
-                            self.router.profiles,
-                            now,
-                        )
-            elif policy in (
-                "budget_vhat_t75_hedge",
-                "budget_vhat_t75_hedge_explorer",
-            ):
-                backup = select_safe_fastest_backup(
-                    primary=primary_provider,
-                    profiles=self.budget_router.profiles,
-                    slo_sec=self.config.slo_sec,
-                    dispatch_overhead_sec=self.config.dispatch_overhead_sec,
-                    now=now,
-                    success_target=self.success_target,
-                )
-                if backup is not None and backup != primary_provider:
-                    with self._router_lock:
-                        hedge_time_sec = latest_safe_dispatch_time(
-                            primary_profile=self.budget_router.profiles[
-                                primary_provider
-                            ],
-                            backup_profile=self.budget_router.profiles[backup],
-                            slo_sec=self.config.slo_sec,
-                            dispatch_overhead_sec=self.config.dispatch_overhead_sec,
-                            now=now,
-                            success_target=self.success_target,
-                        )
-
-            hedge_provider = backup
-            primary_ttft_sec = (
-                primary_result.ttft_ms / 1000.0
-                if primary_result.status == "success"
-                else float("inf")
-            )
-
-            if (
-                backup is not None
-                and backup != primary_provider
-                and math.isfinite(hedge_time_sec)
-                and primary_ttft_sec >= hedge_time_sec - 1e-9
-            ):
-                # Hedge would have fired. Dispatch backup now (counterfactual).
-                backup_result = self._send_request(
-                    provider=backup,
-                    timeout=phase5.DEFAULT_TIMEOUT_SEC,
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                )
-                hedge_triggered = True
-                backup_ttft_sec = (
-                    backup_result.ttft_ms / 1000.0
-                    if backup_result.status == "success"
-                    else float("inf")
-                )
-                backup_finish_sec = hedge_time_sec + backup_ttft_sec
-
-                if (
-                    backup_result.status == "success"
-                    and backup_finish_sec < primary_ttft_sec
-                ):
-                    hedge_winner = "backup"
-                    actual_provider = backup_result.actual_provider
-                    ttft_ms = backup_finish_sec * 1000.0
-                    e2e_ms = backup_result.e2e_ms + hedge_time_sec * 1000.0
-                    status = backup_result.status
-                    error_msg = backup_result.error_message
-                else:
-                    hedge_winner = "primary"
-
-                prompt_tokens += backup_result.prompt_tokens
-                completion_tokens += backup_result.completion_tokens
-                if backup_result.cost > 0:
-                    cost += backup_result.cost
-                else:
-                    cost_is_estimated = True
-
-                if (
-                    policy == "budget_vhat_t75_hedge_explorer"
-                    and backup_result.actual_provider != primary_provider
-                ):
-                    backup_error = (
-                        None if backup_result.status == "success" else "server_error"
-                    )
-                    backup_obs_ttft = (
-                        backup_result.ttft_ms
-                        if backup_result.status == "success"
-                        else -1.0
-                    )
-                    self._record_direct_sample(
-                        provider=backup_result.actual_provider,
-                        timestamp=now,
-                        ttft_ms=backup_obs_ttft,
-                        error_type=backup_error,
-                    )
-
-        slo_violated = (status != "success") or (
-            ttft_ms / 1000.0 > self.config.slo_sec
-        )
-
-        return phase5.RequestResult(
-            request_id=request_id,
-            timestamp=now,
-            policy=policy,
-            selected_provider=primary_provider,
-            actual_provider=actual_provider,
-            ttft_ms=ttft_ms,
-            e2e_ms=e2e_ms,
-            status=status,
-            slo_violated=slo_violated,
-            cost_usd=cost,
-            hedge_triggered=hedge_triggered,
-            hedge_provider=hedge_provider,
-            hedge_winner=hedge_winner,
-            error_message=error_msg,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cost_is_estimated=cost_is_estimated,
-        )
-
     def run_trace_replay_single_policy(
         self,
         trace: list[phase5.TraceRequest],
@@ -1339,19 +1131,11 @@ def run_trace_replay_shared_probing(
     print(f"Speedup: {speedup}x")
     print(f"Providers: {prober.eval_providers}")
     print("Shared observations feed all policy-local routers.")
-    print(
-        "Dispatch: client-routed primaries are de-duplicated across policies; "
-        "server-routed policies (OpenRouter Auto, sort=*) dispatch independently."
-    )
 
-    server_policies = [p for p in policies if p in SERVER_ROUTED_POLICIES]
-    client_policies = [p for p in policies if p in CLIENT_ROUTED_POLICIES]
-
-    def _record_policy_result(
-        policy: str,
-        evaluator: Phase6SAEvaluator,
-        result: phase5.RequestResult,
-    ) -> None:
+    def dispatch(policy: str, req: phase5.TraceRequest) -> None:
+        evaluator = evaluators[policy]
+        now = time.time()
+        result = evaluator._execute_policy_request(policy, now, req)
         with evaluator._state_lock:
             evaluator.policies[policy].results.append(result)
             evaluator.policies[policy].total_cost += result.cost_usd
@@ -1360,49 +1144,6 @@ def run_trace_replay_shared_probing(
             evaluator.total_cost += result.cost_usd
         evaluator._update_router_from_result(result)
         evaluator._log_result(result)
-
-    def dispatch_server_policy(
-        policy: str, req: phase5.TraceRequest, now: float
-    ) -> None:
-        evaluator = evaluators[policy]
-        result = evaluator._execute_policy_request(policy, now, req)
-        _record_policy_result(policy, evaluator, result)
-
-    def dispatch_unique_primary(
-        provider: str,
-        leader_policy: str,
-        req: phase5.TraceRequest,
-        out_results: dict[str, phase5.SingleRequestResult],
-    ) -> None:
-        any_evaluator = evaluators[leader_policy]
-        result = any_evaluator._send_request(
-            provider=provider,
-            timeout=phase5.DEFAULT_TIMEOUT_SEC,
-            prompt=req.prompt if req.use_real_prompt else None,
-            max_tokens=req.max_tokens if req.use_real_prompt else None,
-        )
-        out_results[provider] = result
-
-    def finalize_client_policy(
-        policy: str,
-        req: phase5.TraceRequest,
-        now: float,
-        primary_provider: str,
-        primary_result: phase5.SingleRequestResult,
-        leader_policy: str,
-        dedup_share: int,
-    ) -> None:
-        evaluator = evaluators[policy]
-        result = evaluator._execute_policy_request_with_shared_primary(
-            policy=policy,
-            now=now,
-            req=req,
-            primary_provider=primary_provider,
-            primary_result=primary_result,
-            is_dedup_leader=(policy == leader_policy),
-            dedup_share=dedup_share,
-        )
-        _record_policy_result(policy, evaluator, result)
 
     for i, req in enumerate(trace):
         target_time = (req.arrival_time_sec - trace_start) / speedup
@@ -1424,82 +1165,17 @@ def run_trace_replay_shared_probing(
             )
             last_probe_time = time.time()
 
-        # Phase 1: gather client-routed primary choices (no network calls).
-        client_primary_choice: dict[str, str | None] = {}
-        for policy in client_policies:
-            evaluator = evaluators[policy]
-            ctx = infer_pricing_context(req)
-            client_primary_choice[policy] = evaluator._select_provider_for_policy(
-                policy, now, ctx
-            )
+        for policy in policies:
+            thread = threading.Thread(target=dispatch, args=(policy, req), daemon=False)
+            threads.append(thread)
+            thread.start()
 
-        # Group client policies by chosen primary provider for dispatch dedup.
-        provider_to_policies: dict[str, list[str]] = {}
-        for policy, provider in client_primary_choice.items():
-            if provider is not None:
-                provider_to_policies.setdefault(provider, []).append(policy)
-
-        # Phase 2: dispatch primaries (dedup) and server policies in parallel.
-        primary_results: dict[str, phase5.SingleRequestResult] = {}
-        primary_threads: list[threading.Thread] = []
-        for provider, pols in provider_to_policies.items():
-            leader = pols[0]
-            t = threading.Thread(
-                target=dispatch_unique_primary,
-                args=(provider, leader, req, primary_results),
-                daemon=False,
-            )
-            primary_threads.append(t)
-            t.start()
-
-        server_threads: list[threading.Thread] = []
-        for policy in server_policies:
-            t = threading.Thread(
-                target=dispatch_server_policy, args=(policy, req, now), daemon=False
-            )
-            server_threads.append(t)
-            t.start()
-
-        # Wait for primaries to complete before finalizing client policies.
-        for t in primary_threads:
-            t.join()
-
-        # Phase 3: finalize each client policy using its shared primary,
-        # running counterfactual hedge dispatches in parallel.
-        client_final_threads: list[threading.Thread] = []
-        for policy, provider in client_primary_choice.items():
-            if provider is None:
-                # Policy returned None for primary (shouldn't happen for
-                # client-routed policies but guard anyway): fall back to
-                # the non-dedup path.
-                t = threading.Thread(
-                    target=dispatch_server_policy,
-                    args=(policy, req, now),
-                    daemon=False,
-                )
-            else:
-                pols_group = provider_to_policies[provider]
-                t = threading.Thread(
-                    target=finalize_client_policy,
-                    args=(
-                        policy,
-                        req,
-                        now,
-                        provider,
-                        primary_results[provider],
-                        pols_group[0],
-                        len(pols_group),
-                    ),
-                    daemon=False,
-                )
-            client_final_threads.append(t)
-            t.start()
-
-        # Wait for all finalization + server dispatches to complete before
-        # moving on to the next trace request. This preserves paired
-        # comparison semantics per request.
-        for t in server_threads + client_final_threads:
-            t.join()
+        if len(threads) >= max(25, len(policies) * 4):
+            alive_threads = []
+            for thread in threads:
+                if thread.is_alive():
+                    alive_threads.append(thread)
+            threads = alive_threads
 
         if (i + 1) % 10 == 0:
             completed = {
@@ -1508,21 +1184,11 @@ def run_trace_replay_shared_probing(
             costs = {policy: evaluators[policy].total_cost for policy in policies}
             min_completed = min(completed.values()) if completed else 0
             max_cost = max(costs.values()) if costs else 0.0
-            dedup_share_now = (
-                max(
-                    (len(pols) for pols in provider_to_policies.values()),
-                    default=0,
-                )
-            )
             print(
                 f"[{i + 1}/{len(trace)} dispatched] "
-                f"min_completed={min_completed} max_policy_cost=${max_cost:.4f} "
-                f"primary_dedup_max_share={dedup_share_now}"
+                f"min_completed={min_completed} max_policy_cost=${max_cost:.4f}"
             )
 
-    # Threads were joined per-request; nothing left to wait on here, but
-    # we keep the empty join loop for structural parity with the earlier
-    # implementation.
     for thread in threads:
         thread.join()
 
