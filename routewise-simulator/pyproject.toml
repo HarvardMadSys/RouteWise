@@ -1,0 +1,132 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hybrid-inference"
+version = "0.1.0"
+description = "Hybrid inference server, provide local deployment and offline API to openrouter"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "HarvardSys" }]
+dependencies = [
+    "aiohttp>=3.8.0",
+    "asyncpg>=0.28.0",
+    "fastapi>=0.110.0",
+    "google-genai>=1.33.0",
+    "numpy>=1.24.0",
+    "openai>=1.0.0",
+    "prometheus-client>=0.20.0",
+    "pulp>=2.7.0",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "python-dotenv>=1.1.1",
+    "pyyaml>=6.0",
+    "requests>=2.32.5",
+    "tabulate>=0.9.0",
+    "tqdm>=4.65.0",
+    "uvicorn[standard]>=0.27.0",
+    "uvloop>=0.19.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+  "serving",
+  "serving.*",
+  "client",
+  "client.*",
+  "utils",
+  "utils.*",
+  "docs",
+  "docs.*",
+  "experiment",
+  "experiment.*",
+  "rwsim",
+  "rwsim.*",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = ["test", "tests"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov-branch",
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "integration: marks tests as integration tests",
+  "unit: marks tests as unit tests",
+  "perf: performance regression tests",
+  "external: tests that hit external/local servers",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # bugbear
+  "C4",  # flake8-comprehensions
+  "SIM", # flake8-simplify
+  "TCH", # flake8-type-checking
+  "RUF", # Ruff-specific rules
+]
+ignore = [
+  "E203",  # whitespace before ':' (black/pep8 conflict)
+  "E501",  # line too long (handled by formatter)
+  "E402",  # module import not at top of file (for now)
+  "B008",  # FastAPI Depends pattern is OK
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-single-line = false
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydocstyle]
+convention = "google"
+add-ignore = [
+  "D104",  # missing docstring in public package
+  "D105",  # magic method docstring not required
+  "D107",  # __init__ docstring not required
+  "D202",  # conflicts with ruff-format (blank line after docstring)
+]
+match = ".+\\.py"
+match-dir = "(?!tests|test|.venv|data).*"
+
+[dependency-groups]
+dev = [
+  "ruff>=0.5.0",
+  "pydocstyle>=6.3.0",
+  "pre-commit>=3.6.0",
+  "pytest>=8.0.0",
+  "pytest-cov>=5.0.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-mock>=3.14.0",
+  "sphinx>=8.1.3",
+  "myst-parser>=4.0.1",
+  "sphinx-rtd-theme>=3.0.2",
+]
