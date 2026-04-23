@@ -220,6 +220,13 @@ AGENTS.md
 # Ruff cache
 .ruff_cache/
 
+# Private notes and local-only artifacts
+MEMORY/
+routewise-simulator/MEMORY/
+2025-chutesworkload.pdf
+2025-chutesworkload.pptx
+.ruff_cache/
+
 # VS Code / Cursor
 .vscode/
 .cursor/
