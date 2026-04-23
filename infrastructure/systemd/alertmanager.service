@@ -1,0 +1,25 @@
+[Unit]
+Description=Alertmanager
+Wants=network-online.target
+After=network-online.target home.mount
+
+[Service]
+User=murphy
+Group=murphy
+Type=simple
+ExecStart=/home/murphy/hybridInference/alertmanager-0.28.1.linux-amd64/alertmanager \
+  --config.file=/home/murphy/hybridInference/infrastructure/alertmanager/alertmanager.yml \
+  --storage.path=/home/murphy/hybridInference/var/alertmanager \
+  --web.listen-address=0.0.0.0:9093 \
+  --cluster.listen-address=""
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# Experiment dependencies for HybridInference ICML 2026 submission
+# Install with: uv pip install -r experiment/requirements.txt
+
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+scipy>=1.10.0
+pulp>=2.7.0
+httpx>=0.24.0
+aiohttp>=3.8.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
+asyncio-throttle>=1.0.0

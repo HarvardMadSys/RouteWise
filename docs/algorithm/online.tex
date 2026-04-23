@@ -1,0 +1,497 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\geometry{margin=1in}
+
+\begin{document}
+
+\section{Online Algorithms for Hybrid Inference}
+\label{sec:online}
+
+This document details the online routing and scheduling algorithms for the Hybrid Inference system. The system leverages two distinct subscription services alongside a fallback API:
+
+\begin{enumerate}
+  \item \textbf{Service 1 ($S_Q$, e.g., Chutes)}: Constrained by a \textbf{Daily Quota} ($Q$).
+  \item \textbf{Service 2 ($S_C$, e.g., Featherless)}: Constrained by an \textbf{Instantaneous Concurrency Limit} ($C$).
+  \item \textbf{Fallback API ($S_A$)}: Pay-per-token service with unlimited capacity but higher cost.
+\end{enumerate}
+
+\paragraph{Unified Routing Strategy.}
+Instead of a sequential pipeline, we employ a \textbf{Unified Router} that evaluates the ``Net Value'' of routing a request to $S_Q$, $S_C$, or $S_A$ in parallel, selecting the option that maximizes expected cost savings minus opportunity costs.
+
+%==============================================================================
+\section{Part 1: Service 1 - Quota-Limited Subscription ($S_Q$)}
+\label{sec:part1}
+
+This component manages the daily quota constraint. It functions as an \textbf{autonomous agent} that tracks quota usage and provides a \textbf{Shadow Price (Threshold)} to the Unified Router.
+
+\subsection{Problem Setting ($S_Q$)}
+
+\begin{itemize}
+  \item \textbf{Input}: A stream of requests $r_1, r_2, \dots, r_T$ arriving over multiple days.
+  \item \textbf{Daily Quota}: A fixed number of requests $Q$ can be served by the Subscription per day. The quota resets at the beginning of each day (e.g., 00:00 UTC).
+  \item \textbf{Decision}: For each request $r_t$, decide $x_t \in \{ \text{Subscription}, \text{API} \}$.
+  \item \textbf{Value}: The value of routing $r_t$ to Subscription is the avoided API cost:
+  \[ v_t = \text{Cost}_{\text{API}}(r_t) \]
+  \item \textbf{Objective}: Maximize total value (savings) subject to the daily quota constraint:
+  \[ \max \sum_{t: x_t = \text{Subscription}} v_t \quad \text{s.t.} \quad \sum_{t \in \text{Day } d} \mathbb{I}(x_t = \text{Subscription}) \le Q \]
+\end{itemize}
+
+\subsection{Baseline: Greedy Strategy}
+
+The Greedy strategy is the most intuitive approach. It utilizes the subscription quota whenever available, regardless of the request's potential value.
+
+\paragraph{Algorithm Logic.}
+\begin{enumerate}
+  \item \textbf{Daily Reset}: At the start of each day, reset used quota $k = 0$.
+  \item \textbf{Routing}: If $k < Q$, route to \textbf{Subscription} and increment $k$. Otherwise, route to \textbf{API}.
+\end{enumerate}
+
+\paragraph{Analysis.}
+\begin{itemize}
+  \item \textbf{Pros}: Simple; ensures 100\% utilization if demand $\ge Q$.
+  \item \textbf{Cons}: \textbf{Ignores Opportunity Cost}. It may fill the quota with low-value requests, forcing high-value requests to the API later.
+\end{itemize}
+
+\subsection{Advanced: Threshold-based Primal-Dual Strategy}
+
+To overcome the limitations of Greedy, we employ a \textbf{Threshold-based} approach inspired by the \textbf{Primal-Dual} method for the Online Knapsack Problem.
+
+\paragraph{Core Idea: Shadow Prices.}
+We assign a dynamic \textbf{Shadow Price} or \textbf{Threshold} to the quota. This threshold represents the \emph{minimum value} a request must offer to justify consuming a unit of the scarce quota.
+
+\paragraph{Threshold Function.}
+Let:
+\begin{itemize}
+  \item $Q$: Total daily quota
+  \item $k$: Number of quota slots used today
+  \item $z = k/Q$: Fraction of quota used ($z \in [0, 1]$)
+  \item $L$: Estimated lower bound of request value (e.g., 5th percentile)
+  \item $U$: Estimated upper bound of request value (e.g., 95th percentile)
+\end{itemize}
+
+The threshold function is:
+\[ \psi(z) = L \cdot \left( \frac{U}{L} \right)^z \]
+
+\paragraph{Role in Unified Routing.}
+For a request $r_t$, this component calculates the \textbf{Opportunity Cost} of using $S_Q$:
+\[ \text{Cost}_{S_Q}(r_t) = \begin{cases} \psi(z) & \text{if } k < Q \\ \infty & \text{if } k \ge Q \end{cases} \]
+
+\paragraph{Cost Estimation Under Uncertainty.}
+In an online setting, the exact API cost $v_t$ is unknown because the output token count $n_t^{\text{out}}$ is not known until generation is complete. We use an estimated value $\hat{v}_t$:
+\[ \hat{v}_t = \frac{n_t^{\text{in}}}{1000} \cdot p^{\text{in}} + \frac{\hat{n}_t^{\text{out}}}{1000} \cdot p^{\text{out}} \]
+
+Strategies for estimating $\hat{n}_t^{\text{out}}$:
+\begin{enumerate}
+  \item \textbf{Historical Average}: Average output length of the specific model or dataset.
+  \item \textbf{Exponential Moving Average (EMA)}: $\hat{n}_{t+1}^{\text{out}} = \alpha \cdot n_t^{\text{actual}} + (1-\alpha) \cdot \hat{n}_t^{\text{out}}$
+\end{enumerate}
+
+\paragraph{Theoretical Note.}
+For the online knapsack problem with values in $[L, U]$, this algorithm achieves a competitive ratio of at most $\ln(U/L) + 1$, which is asymptotically optimal.
+
+%==============================================================================
+\section{Part 2: Service 2 - Concurrency-Limited Subscription ($S_C$)}
+\label{sec:part2}
+
+This component manages the concurrency constraint ($C$). It functions as an \textbf{autonomous agent} that manages its own internal queue and scheduling, exposing a \textbf{Congestion Price} to the Unified Router.
+
+\subsection{Problem Setting ($S_C$)}
+
+\begin{itemize}
+  \item \textbf{Input}: Requests routed to $S_C$ by the Unified Router.
+  \item \textbf{Constraint}:
+    \begin{itemize}
+      \item \textbf{Total Capacity}: $C_{\text{total}} = C_{\text{plan}} \times N_{\text{sub}}$
+      \item \textbf{Current Usage}: $W_{\text{active}} = \sum_{r \in \text{Active}} \text{weight}(r)$
+      \item \textbf{Available Capacity}: $C_{\text{avail}} = C_{\text{total}} - W_{\text{active}}$
+    \end{itemize}
+  \item \textbf{Queue Capacity}: A finite queue of size $K$ buffers requests.
+\end{itemize}
+
+\subsection{Estimation of Processing Time ($p_t$)}
+
+This section estimates the service time of running request $r_t$ on the concurrency-limited subscription $S_C$. The estimate is used by CAPQ for \textbf{feasibility checks} and \textbf{value-density computations}.
+
+\emph{Note: Processing time $p_t$ is only relevant for $S_C$ (concurrency constraint). For $S_Q$ (quota-only), routing decisions depend solely on API cost $v_t$, not on duration.}
+
+\paragraph{Decomposition.}
+We decompose service time into prefill (time-to-first-token) and decoding phases:
+\[ p_t \approx \widehat{\text{TTFT}}(m_t) + \frac{\hat{n}^{\text{out}}_t}{\widehat{\text{TPS}}(m_t)} \]
+
+Where:
+\begin{itemize}
+  \item $m_t$: The model requested by $r_t$
+  \item $\widehat{\text{TTFT}}(m)$: Estimated time-to-first-token for model $m$
+  \item $\widehat{\text{TPS}}(m)$: Estimated decode throughput (tokens per second) for model $m$
+  \item $\hat{n}^{\text{out}}_t$: Predicted output token count
+\end{itemize}
+
+\paragraph{Online Estimators.}
+Statistics are computed from recent $S_C$ request logs, bucketed by model:
+\begin{itemize}
+  \item $\hat{n}^{\text{out}}_t$: Predicted output tokens from a lightweight predictor or EMA baseline.
+  \item $\widehat{\text{TTFT}}(m)$: Robust statistic (e.g., median or P50) of observed TTFT values for model $m$.
+  \item $\widehat{\text{TPS}}(m)$: Derived from completed requests:
+  \[ \text{TPS} \triangleq \frac{n^{\text{out}}}{\max(\text{Latency} - \text{TTFT}, \epsilon)} \]
+\end{itemize}
+
+\paragraph{Risk-Aware Estimation.}
+To avoid underestimating concurrency occupancy, we use \textbf{Upper Confidence Bound (UCB)} estimates:
+\[ p_t^{\text{UCB}} = \widehat{\text{TTFT}}^{(0.9)}(m_t) + \frac{\hat{n}^{\text{out},(0.9)}_t}{\widehat{\text{TPS}}^{(0.1)}(m_t)} \]
+
+\textbf{Interpretation}:
+\begin{itemize}
+  \item Use \textbf{90th percentile} for TTFT (conservative, accounts for queue delays)
+  \item Use \textbf{90th percentile} for output length (accounts for long responses)
+  \item Use \textbf{10th percentile} for TPS (conservative, accounts for slow decoding)
+\end{itemize}
+
+\textbf{Usage in CAPQ}:
+\begin{itemize}
+  \item $p_t^{\text{UCB}}$ is used when computing opportunity cost: $\text{Cost}_{S_C}(r_t) = \lambda_t \cdot w_t \cdot p_t^{\text{UCB}}$
+  \item $p_t^{\text{UCB}}$ is used in value density: $\rho_t = v_t / (w_t \cdot p_t^{\text{UCB}})$
+\end{itemize}
+
+\subsection{Primal-Dual Cost-Aware Scheduling (CAPQ)}
+
+We formulate the concurrency management as a dynamic resource allocation problem with a \textbf{Shadow Price}.
+
+\paragraph{Core Idea: Concurrency Shadow Price.}
+We define a \textbf{Shadow Price} $\lambda_t$ for admitting a request into the subscription system using \textbf{Value Density}.
+
+\begin{itemize}
+  \item \textbf{Case 1: Capacity Available}: Resources are abundant. $\lambda_t = 0$. All requests are admitted.
+  \item \textbf{Case 2: System Saturated}: Resources are scarce. The shadow price is:
+  \[ \lambda_t = \min_{r \in \text{Queue}} \frac{v(r)}{\text{weight}(r) \cdot p(r)} \]
+\end{itemize}
+
+\paragraph{Role in Unified Routing.}
+For a request $r_t$, this component calculates the \textbf{Opportunity Cost} of using $S_C$:
+\[ \text{Cost}_{S_C}(r_t) = \lambda_t \cdot \text{weight}(r_t) \cdot p(r_t) \]
+
+%==============================================================================
+\section{Part 3: Unified Routing Strategy}
+\label{sec:part3}
+
+This section defines the master logic that coordinates $S_Q$, $S_C$, and $S_A$.
+
+\subsection{Unified Decision Logic}
+
+For each incoming request $r_t$:
+
+\paragraph{Step 1: Value Estimation.}
+\[ v_t = \text{Cost}_{\text{API}}(r_t) \]
+
+\paragraph{Step 2: Get Shadow Prices (Opportunity Costs).}
+\begin{itemize}
+  \item $S_Q$: $\theta_Q = \text{Service1.get\_threshold}()$ (returns $\infty$ if quota exhausted)
+  \item $S_C$: $\theta_C = \text{Service2.get\_congestion\_price}()$ (returns $\infty$ if model incompatible)
+\end{itemize}
+
+\paragraph{Step 3: Calculate Net Gains.}
+\begin{itemize}
+  \item \textbf{Option 1 ($S_Q$)}: $G_Q = v_t - \theta_Q$
+  \item \textbf{Option 2 ($S_C$)}: $G_C = v_t - \theta_C \cdot \text{weight}(r_t) \cdot p(r_t)$
+  \item \textbf{Option 3 ($S_A$)}: $G_A = 0$ (Baseline)
+\end{itemize}
+
+\paragraph{Step 4: Decision.}
+\[ \text{Choice} = \arg\max \{ G_Q, G_C, G_A \} \]
+
+%==============================================================================
+\section{Part 4: Evaluation Plan}
+\label{sec:part4}
+
+\subsection{Metrics}
+\begin{enumerate}
+  \item \textbf{Total Cost Savings (\$)}: The primary objective (to maximize).
+  \item \textbf{Savings Ratio}: $\frac{\text{Savings}_{\text{Online}}}{\text{Savings}_{\text{Optimal}}} \in [0, 1]$ (Target: Maximize, closer to 1 is better).
+  \item \textbf{Resource Utilization}: Quota utilization for $S_Q$, Concurrency utilization for $S_C$.
+  \item \textbf{SLO Violation Rate}: Percentage of requests that missed their deadline (for $S_C$).
+\end{enumerate}
+
+\subsection{Experimental Stages}
+
+\paragraph{Experiment 1: Daily Quota Optimization ($S_Q + S_A$).}
+Focus: Validating the Primal-Dual Threshold against Greedy for daily quota management.
+\begin{itemize}
+  \item \textbf{Baselines}: Greedy, Offline Optimal (ILP), Primal-Dual (Ours)
+\end{itemize}
+
+\paragraph{Experiment 2: Joint Optimization ($S_Q + S_C + S_A$).}
+Focus: Validating the Unified Router and CAPQ for managing both quota and concurrency.
+\begin{itemize}
+  \item \textbf{Baselines}: Greedy (Priority $S_Q \to S_C \to S_A$), Offline Optimal (Full ILP), Unified Primal-Dual (Ours)
+\end{itemize}
+
+%==============================================================================
+\section{Part 5: Learning-Augmented Online Algorithm}
+\label{sec:part5}
+
+This section extends the Primal-Dual framework with \textbf{Machine Learning predictions} to improve routing decisions under uncertainty. We formalize this as a \textbf{Learning-Augmented Online Algorithm}, which provides theoretical guarantees on both consistency (when predictions are accurate) and robustness (when predictions fail).
+
+\subsection{Motivation: The Information Gap}
+
+The fundamental challenge in online routing is the \textbf{information asymmetry} at decision time:
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Information} & \textbf{Known at Arrival} & \textbf{Impact} \\
+\hline
+Input tokens $n^{\text{in}}_t$ & Yes & Minor (20-30\% of cost) \\
+Output tokens $n^{\text{out}}_t$ & \textbf{No} & Major (70-80\% of cost) \\
+Processing time $p_t$ & \textbf{No} & Critical for $S_C$ \\
+\hline
+\end{tabular}
+\end{center}
+
+The API cost is:
+\[ v_t = \frac{n^{\text{in}}_t}{1000} \cdot p^{\text{in}} + \frac{n^{\text{out}}_t}{1000} \cdot p^{\text{out}} \]
+
+Since $p^{\text{out}} \approx 3\text{-}4 \times p^{\text{in}}$ for most providers, accurate estimation of $n^{\text{out}}_t$ is crucial.
+
+\subsection{Prediction Framework}
+
+\paragraph{Prediction Target.}
+Given request features $\mathbf{x}_t$ (input length, model, prompt characteristics), we predict:
+\begin{enumerate}
+  \item \textbf{Output Length Estimate}: $\hat{L}_t = f(\mathbf{x}_t)$
+  \item \textbf{Prediction Uncertainty}: $\sigma_t = g(\mathbf{x}_t)$
+\end{enumerate}
+
+The predicted API cost becomes:
+\[ \hat{v}_t = \frac{n^{\text{in}}_t}{1000} \cdot p^{\text{in}} + \frac{\hat{L}_t}{1000} \cdot p^{\text{out}} \]
+
+\paragraph{Uncertainty via Quantile Regression.}
+Instead of point estimates, we use \textbf{Quantile Regression} to predict multiple quantiles of the output length distribution:
+\begin{itemize}
+  \item $\hat{L}^{(10)}_t$: Lower bound prediction (10th percentile) — for conservative cost estimation
+  \item $\hat{L}^{(50)}_t$: Median prediction (50th percentile) — for point estimation
+  \item $\hat{L}^{(90)}_t$: Upper bound prediction (90th percentile) — for duration estimation on $S_C$
+\end{itemize}
+
+We define corresponding cost estimates:
+\begin{align}
+  \hat{v}^{(50)}_t &= \frac{n^{\text{in}}_t \cdot p^{\text{in}} + \hat{L}^{(50)}_t \cdot p^{\text{out}}}{1000} \quad \text{(point estimate)} \\
+  \hat{v}^{\text{LCB}}_t &= \frac{n^{\text{in}}_t \cdot p^{\text{in}} + \hat{L}^{(10)}_t \cdot p^{\text{out}}}{1000} \quad \text{(conservative lower bound)}
+\end{align}
+
+\textbf{Interpretation}: For quota routing ($S_Q$), we use the conservative $\hat{v}^{\text{LCB}}_t$ to avoid wasting quota on requests that may have low actual value.
+
+\paragraph{Feature Space.}
+We use only \textbf{observable features} available at request arrival time:
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Category} & \textbf{Features} \\
+\hline
+Request-level & Input token count $n^{\text{in}}_t$, max\_tokens setting \\
+Model-level & Model name (categorical), model family \\
+Temporal & Hour of day, day of week, time since session start \\
+Historical & Rolling average of user's recent output lengths (EMA) \\
+\hline
+\end{tabular}
+\end{center}
+\emph{Note: We do not assume access to prompt content. All features are derived from request metadata and historical statistics.}
+
+\subsection{Risk-Aware Routing Algorithm}
+
+\paragraph{Core Formulation.}
+We modify the Primal-Dual decision rule to use the \textbf{Lower Confidence Bound (LCB)} of predicted cost:
+\[
+x_t =
+\begin{cases}
+\text{SUBSCRIPTION} & \text{if } \hat{v}^{\text{LCB}}_t > \psi(z_t) \text{ and } k_t < Q \\[5pt]
+\text{API} & \text{otherwise}
+\end{cases}
+\]
+
+Where:
+\begin{itemize}
+  \item $\hat{v}^{\text{LCB}}_t$: Conservative cost estimate using $\hat{L}^{(10)}_t$ (10th percentile of output length)
+  \item $\psi(z_t) = L \cdot (U/L)^{z_t}$: Shadow price function (threshold)
+  \item $z_t = k_t / Q$: Current quota utilization
+\end{itemize}
+
+\paragraph{Interpretation.}
+By using the \textbf{10th percentile} of predicted output length, we obtain a conservative (pessimistic) estimate of the request's API cost. This ensures:
+\begin{itemize}
+  \item Requests with \textbf{confidently high value} (even P10 exceeds threshold) get quota priority
+  \item Requests with \textbf{uncertain value} (P10 is low despite high P50) are routed to API
+\end{itemize}
+
+This is more principled than the heuristic $\hat{v} - \lambda \sigma$, as it directly uses the quantile regression output without introducing an additional tuning parameter $\lambda$.
+
+\paragraph{Algorithm.}
+
+\begin{algorithm}[H]
+\caption{Learning-Augmented Primal-Dual Routing}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Request $r_t$, current quota usage $k_t$, predictor $\mathcal{M}$
+\STATE \textbf{Parameters:} Quota $Q$, value bounds $[L, U]$
+\STATE
+\STATE \COMMENT{Step 1: Quantile Prediction}
+\STATE $\hat{L}^{(10)}_t, \hat{L}^{(50)}_t, \hat{L}^{(90)}_t \gets \mathcal{M}.\text{predict\_quantiles}(r_t.\text{features})$
+\STATE
+\STATE \COMMENT{Step 2: Compute Conservative Cost Estimate (LCB)}
+\STATE $\hat{v}^{\text{LCB}}_t \gets (n^{\text{in}}_t \cdot p^{\text{in}} + \hat{L}^{(10)}_t \cdot p^{\text{out}}) / 1000$
+\STATE
+\STATE \COMMENT{Step 3: Compute Shadow Price}
+\STATE $z_t \gets k_t / Q$
+\STATE $\theta_t \gets L \cdot (U/L)^{z_t}$
+\STATE
+\STATE \COMMENT{Step 4: Risk-Aware Decision}
+\IF{$k_t < Q$ \AND $\hat{v}^{\text{LCB}}_t > \theta_t$}
+    \STATE $k_{t+1} \gets k_t + 1$
+    \RETURN SUBSCRIPTION
+\ELSE
+    \RETURN API
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Theoretical Analysis}
+
+\paragraph{Learning-Augmented Framework.}
+We analyze the algorithm using the \textbf{Consistency-Robustness} framework from learning-augmented algorithms literature.
+
+\textbf{Definition (Prediction Error):}
+\[ \eta_t = |v_t - \hat{v}^{\text{LCB}}_t| \]
+where $v_t$ is the true API cost and $\hat{v}^{\text{LCB}}_t$ is the conservative predicted cost.
+
+\textbf{Definition (Consistency):} The savings ratio when predictions are accurate (small $\eta_t$). Target: close to 1.
+
+\textbf{Definition (Robustness):} The worst-case savings ratio when predictions are arbitrarily wrong. Target: bounded away from 0.
+
+\paragraph{Analysis.}
+
+\textbf{Empirical Improvement.} When predictions are well-calibrated:
+\begin{itemize}
+  \item The LCB approach filters out low-value requests more effectively than EMA-based estimation.
+  \item Experiments show the algorithm achieves savings ratios closer to 1 compared to vanilla Primal-Dual with EMA.
+\end{itemize}
+
+\textbf{Robustness Caveat.} Unlike vanilla Primal-Dual with known values, pure quantile-based routing \textbf{lacks formal worst-case guarantees}:
+\begin{itemize}
+  \item If predictions are adversarially under-valued (e.g., $\hat{L}^{(10)} \approx 0$), the algorithm routes all requests to API, achieving zero savings.
+  \item The theoretical $O(\ln(U/L))$ bound of Primal-Dual assumes \emph{known} request values; prediction errors break this assumption.
+\end{itemize}
+
+\textbf{Practical Safeguard.} To mitigate adversarial predictions, we recommend a fallback mechanism:
+\begin{itemize}
+  \item If $\hat{v}^{\text{LCB}}_t < \epsilon$ (prediction suspiciously low), fall back to EMA-based estimation or Greedy.
+  \item This hybrid approach preserves empirical gains while avoiding catastrophic failure modes.
+\end{itemize}
+
+\textbf{Important Note.} Even with perfect \emph{current} value estimation, online algorithms cannot achieve savings ratio $\to 1$ because they lack knowledge of \emph{future} requests. The benefit of ML is reducing estimation error for current request value, not predicting future arrivals.
+
+\paragraph{Quantile Selection.}
+The choice of quantile (e.g., P10 vs P20) controls the conservativeness:
+
+\begin{center}
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Quantile} & \textbf{Behavior} & \textbf{Tradeoff} \\
+\hline
+P10 (default) & Conservative & May under-utilize quota \\
+P20-P30 & Moderate & Balanced \\
+P50 & Aggressive & May waste quota on uncertain requests \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Practical Guidance}: Use P10 as default; tune on validation set if quota utilization is too low.
+
+\subsection{Connection to Related Work}
+
+\paragraph{Ski-Rental with Predictions.}
+The quota routing problem is analogous to the \textbf{Ski-Rental Problem}:
+\begin{itemize}
+  \item Subscription = Buy (fixed cost, unlimited use within quota)
+  \item API = Rent (per-use cost)
+\end{itemize}
+
+Learning-augmented ski-rental algorithms (Purohit et al., 2018; Gollapudi \& Panigrahi, 2019) provide the theoretical foundation for our approach.
+
+\paragraph{Online Knapsack with Predictions.}
+Our problem can also be viewed as \textbf{Online Knapsack} where:
+\begin{itemize}
+  \item Capacity = Daily quota $Q$
+  \item Item value = API cost savings $v_t$
+  \item Item weight = 1 (each request consumes one quota unit)
+\end{itemize}
+
+The threshold function $\psi(z)$ corresponds to the dual variable in the knapsack LP relaxation.
+
+\subsection{Experimental Design}
+
+\paragraph{Baselines.}
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Method} & \textbf{Description} \\
+\hline
+Greedy & Use subscription if quota available (first-come-first-served) \\
+Primal-Dual (EMA) & Threshold-based with EMA output length estimation \\
+LA-PD (P50) & Learning-Augmented with median prediction (aggressive) \\
+LA-PD (P10) & Learning-Augmented with P10 prediction (conservative, default) \\
+Offline Optimal & Full information upper bound \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{Ablation Studies.}
+\begin{enumerate}
+  \item \textbf{Prediction Quality}: Inject noise into predictions to test robustness
+  \item \textbf{Quantile Sensitivity}: Compare P10, P20, P30, P50 for cost estimation
+  \item \textbf{Feature Importance}: Ablate input features to identify key predictors
+\end{enumerate}
+
+\paragraph{Metrics.}
+
+\emph{Routing Performance:}
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Metric} & \textbf{Definition} \\
+\hline
+Savings Ratio & $\text{Savings}_{\text{Online}} / \text{Savings}_{\text{Optimal}} \in [0,1]$ \\
+Total Savings & $\sum_{t: x_t = \text{Sub}} v_t$ (absolute \$) \\
+Quota Utilization & Fraction of daily quota consumed \\
+\hline
+\end{tabular}
+\end{center}
+
+\emph{Prediction Calibration:}
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Metric} & \textbf{Definition} \\
+\hline
+Quantile Coverage & \% of actual values $\leq$ predicted quantile (target: match quantile level) \\
+Pinball Loss & $\sum_t \rho_\tau (L_t - \hat{L}^{(\tau)}_t)$ where $\rho_\tau$ is the quantile loss function \\
+MAE & Mean absolute error of $\hat{L}^{(50)}_t$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\emph{Note: Calibration metrics are crucial for validating risk-aware routing. If P10 coverage is significantly $>10\%$, predictions are too conservative.}
+
+\subsection{Summary}
+
+The Learning-Augmented Primal-Dual algorithm extends the classical threshold-based approach with:
+\begin{enumerate}
+  \item \textbf{Quantile Regression}: Predict multiple quantiles (P10, P50, P90) of output length
+  \item \textbf{Conservative Estimation}: Use lower quantile (P10) for risk-aware quota allocation
+  \item \textbf{Practical Safeguard}: Fall back to EMA/Greedy when predictions are suspiciously low
+\end{enumerate}
+
+This framework bridges \textbf{online algorithms} and \textbf{machine learning}, achieving higher savings ratios than vanilla Primal-Dual in practice. Note that unlike classical online algorithms, pure ML-based routing lacks formal worst-case guarantees; the fallback mechanism provides practical robustness.
+
+\end{document}

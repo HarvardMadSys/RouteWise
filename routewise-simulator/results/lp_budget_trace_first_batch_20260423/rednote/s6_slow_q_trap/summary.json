@@ -1,0 +1,194 @@
+{
+  "original_lp": {
+    "mean_ttft_ms": 457.1356428955302,
+    "p50_ms": 121.149429185037,
+    "p90_ms": 1343.2764719244453,
+    "p99_ms": 3567.9389942683533,
+    "slo_violation_rate": 0.15733333333333333,
+    "avg_cost_usd": 0.025455164000000002,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.16066666666666665,
+      "Together_S_A": 0.8393333333333333
+    },
+    "tier_mix": {
+      "api": 0.8393333333333333,
+      "quota": 0.16066666666666665
+    }
+  },
+  "original_lp_hedge": {
+    "mean_ttft_ms": 127.76026064823218,
+    "p50_ms": 101.18437803337439,
+    "p90_ms": 225.4045427074808,
+    "p99_ms": 698.358864677041,
+    "slo_violation_rate": 0.0006666666666666666,
+    "avg_cost_usd": 0.030493991999999998,
+    "hedge_rate": 0.02,
+    "provider_mix": {
+      "Chutes_S_Q": 0.017333333333333333,
+      "Together_S_A": 0.9826666666666667
+    },
+    "tier_mix": {
+      "api": 0.9826666666666667,
+      "quota": 0.017333333333333333
+    }
+  },
+  "budget_vhat_t25": {
+    "mean_ttft_ms": 2197.243085998103,
+    "p50_ms": 2075.337662306941,
+    "p90_ms": 3327.3427640323785,
+    "p99_ms": 5053.419425866931,
+    "slo_violation_rate": 0.9666666666666667,
+    "avg_cost_usd": 0.0,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 1.0
+    },
+    "tier_mix": {
+      "quota": 1.0
+    }
+  },
+  "budget_vhat_t50": {
+    "mean_ttft_ms": 1147.032319987118,
+    "p50_ms": 691.8974689939823,
+    "p90_ms": 2738.8938714740943,
+    "p99_ms": 4437.14913970421,
+    "slo_violation_rate": 0.48133333333333334,
+    "avg_cost_usd": 0.015518844000000002,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.5,
+      "Together_S_A": 0.5
+    },
+    "tier_mix": {
+      "api": 0.5,
+      "quota": 0.5
+    }
+  },
+  "budget_vhat_t75": {
+    "mean_ttft_ms": 258.1413901771794,
+    "p50_ms": 110.8819620309206,
+    "p90_ms": 279.65866672650503,
+    "p99_ms": 3006.6582114437824,
+    "slo_violation_rate": 0.06133333333333333,
+    "avg_cost_usd": 0.029728512000000002,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.064,
+      "Together_S_A": 0.936
+    },
+    "tier_mix": {
+      "api": 0.936,
+      "quota": 0.064
+    }
+  },
+  "budget_vhat_t25_hedge": {
+    "mean_ttft_ms": 717.221921789075,
+    "p50_ms": 702.8262011315211,
+    "p90_ms": 809.2501773353257,
+    "p99_ms": 968.8103719609285,
+    "slo_violation_rate": 0.008,
+    "avg_cost_usd": 0.030489757999999995,
+    "hedge_rate": 0.9993333333333334,
+    "provider_mix": {
+      "Chutes_S_Q": 1.0
+    },
+    "tier_mix": {
+      "quota": 1.0
+    }
+  },
+  "budget_vhat_t50_hedge": {
+    "mean_ttft_ms": 421.86442243165,
+    "p50_ms": 614.6417439051291,
+    "p90_ms": 765.4416275923195,
+    "p99_ms": 938.2708132025582,
+    "slo_violation_rate": 0.006666666666666667,
+    "avg_cost_usd": 0.030493991999999998,
+    "hedge_rate": 0.5046666666666667,
+    "provider_mix": {
+      "Chutes_S_Q": 0.5,
+      "Together_S_A": 0.5
+    },
+    "tier_mix": {
+      "api": 0.5,
+      "quota": 0.5
+    }
+  },
+  "budget_vhat_t75_hedge": {
+    "mean_ttft_ms": 157.5083611668242,
+    "p50_ms": 105.32785411266418,
+    "p90_ms": 284.9810799174057,
+    "p99_ms": 787.421927725822,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.030493991999999998,
+    "hedge_rate": 0.06866666666666667,
+    "provider_mix": {
+      "Chutes_S_Q": 0.064,
+      "Together_S_A": 0.936
+    },
+    "tier_mix": {
+      "api": 0.936,
+      "quota": 0.064
+    }
+  },
+  "cheapest_available": {
+    "mean_ttft_ms": 2197.243085998103,
+    "p50_ms": 2075.337662306941,
+    "p90_ms": 3327.3427640323785,
+    "p99_ms": 5053.419425866931,
+    "slo_violation_rate": 0.9666666666666667,
+    "avg_cost_usd": 0.0,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 1.0
+    },
+    "tier_mix": {
+      "quota": 1.0
+    }
+  },
+  "fastest_available": {
+    "mean_ttft_ms": 122.16253859083692,
+    "p50_ms": 105.76821470488801,
+    "p90_ms": 216.1038096794605,
+    "p99_ms": 406.73866300108216,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.030493991999999998,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Together_S_A": 1.0
+    },
+    "tier_mix": {
+      "api": 1.0
+    }
+  },
+  "quota_first": {
+    "mean_ttft_ms": 2197.243085998103,
+    "p50_ms": 2075.337662306941,
+    "p90_ms": 3327.3427640323785,
+    "p99_ms": 5053.419425866931,
+    "slo_violation_rate": 0.9666666666666667,
+    "avg_cost_usd": 0.0,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 1.0
+    },
+    "tier_mix": {
+      "quota": 1.0
+    }
+  },
+  "concurrency_first": {
+    "mean_ttft_ms": 2197.243085998103,
+    "p50_ms": 2075.337662306941,
+    "p90_ms": 3327.3427640323785,
+    "p99_ms": 5053.419425866931,
+    "slo_violation_rate": 0.9666666666666667,
+    "avg_cost_usd": 0.0,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 1.0
+    },
+    "tier_mix": {
+      "quota": 1.0
+    }
+  }
+}

@@ -1,0 +1,30 @@
+route:
+  receiver: default
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 2m
+  repeat_interval: 2h
+
+receivers:
+  - name: default
+    # Choose one or more receivers below and fill credentials
+    # Slack Webhook example
+    slack_configs:
+      - send_resolved: true
+        api_url: https://hooks.slack.com/services/T000/B000/XXXX
+        channel: '#alerts'
+        title: '[ALERT] {{ .CommonAnnotations.summary }}'
+        text: >-
+          {{ range .Alerts }}
+          • {{ .Labels.alertname }} ({{ .Labels.severity | default "info" }})
+            {{ .Annotations.description }}
+            Labels: {{ .Labels }}
+          {{ end }}
+    # Email example
+    # email_configs:
+    #   - to: ops@example.com
+    #     from: alertmanager@example.com
+    #     smarthost: smtp.example.com:587
+    #     auth_username: alertmanager@example.com
+    #     auth_identity: alertmanager@example.com
+    #     auth_password: YOUR_SMTP_PASSWORD

@@ -1,0 +1,53 @@
+{
+  "original_lp": {
+    "solver_status_counts": {
+      "best_effort": 6,
+      "optimal": 494
+    },
+    "fallback_counts": {
+      "best_effort": 6
+    },
+    "non_optimal_decisions": 6,
+    "single_feasible_provider_decisions": 0,
+    "trivial_single_provider_outcomes": 7,
+    "true_p50_fallback_count": 0,
+    "explorer_feedback_count": 0,
+    "backup_selection_counts": {},
+    "mean_backup_random_prob": null,
+    "mean_B_tau": null,
+    "mean_E_pi_c_eff": 0.002905590640770037,
+    "mean_budget_utilization": null,
+    "mean_budget_slack": null,
+    "budget_utilization_p10": null,
+    "budget_utilization_p50": null,
+    "budget_utilization_p90": null,
+    "budget_slack_p10": null,
+    "budget_slack_p50": null,
+    "budget_slack_p90": null,
+    "total_decisions": 500
+  },
+  "budget_vhat_t75": {
+    "solver_status_counts": {
+      "optimal": 500
+    },
+    "fallback_counts": {},
+    "non_optimal_decisions": 0,
+    "single_feasible_provider_decisions": 0,
+    "trivial_single_provider_outcomes": 0,
+    "true_p50_fallback_count": 269,
+    "explorer_feedback_count": 0,
+    "backup_selection_counts": {},
+    "mean_backup_random_prob": null,
+    "mean_B_tau": 0.0022390785,
+    "mean_E_pi_c_eff": 0.0022390785,
+    "mean_budget_utilization": 1.0,
+    "mean_budget_slack": -3.382710778154774e-20,
+    "budget_utilization_p10": 1.0,
+    "budget_utilization_p50": 1.0,
+    "budget_utilization_p90": 1.0000000000000002,
+    "budget_slack_p10": -2.168404344971009e-19,
+    "budget_slack_p50": 0.0,
+    "budget_slack_p90": 0.0,
+    "total_decisions": 500
+  }
+}

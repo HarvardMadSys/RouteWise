@@ -1,0 +1,36 @@
+{
+  "original_lp": {
+    "mean_ttft_ms": 302.5222361250189,
+    "p50_ms": 260.1160378231938,
+    "p90_ms": 478.0142620631119,
+    "p99_ms": 1058.5503992646697,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.10341402000000001,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.5,
+      "Together_S_A": 0.5
+    },
+    "tier_mix": {
+      "api": 0.5,
+      "quota": 0.5
+    }
+  },
+  "budget_vhat_t75": {
+    "mean_ttft_ms": 250.81986274675194,
+    "p50_ms": 228.41748560442156,
+    "p90_ms": 440.98161478287545,
+    "p99_ms": 734.2240468519648,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.18333589500000003,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.08,
+      "Together_S_A": 0.92
+    },
+    "tier_mix": {
+      "api": 0.92,
+      "quota": 0.08
+    }
+  }
+}

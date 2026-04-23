@@ -1,0 +1,46 @@
+[
+  {
+    "dataset": "freeinference",
+    "scenario": "s8_concurrency_saturation",
+    "no_hedge_variant": "original_lp",
+    "hedged_variant": "original_lp_hedge",
+    "delta_p50_ms": -0.7122733468683009,
+    "delta_p90_ms": 7.776537482502931,
+    "delta_p99_ms": -42.74671825837572,
+    "delta_slo_violation_rate": -0.0008888888888888888,
+    "delta_cost_usd": 1.2863333333333485e-06
+  },
+  {
+    "dataset": "freeinference",
+    "scenario": "s8_concurrency_saturation",
+    "no_hedge_variant": "budget_vhat_t25",
+    "hedged_variant": "budget_vhat_t25_hedge",
+    "delta_p50_ms": -0.6094089789045256,
+    "delta_p90_ms": 12.473653873044327,
+    "delta_p99_ms": -5.038550867281401,
+    "delta_slo_violation_rate": -0.0005555555555555556,
+    "delta_cost_usd": 3.058333333333385e-06
+  },
+  {
+    "dataset": "freeinference",
+    "scenario": "s8_concurrency_saturation",
+    "no_hedge_variant": "budget_vhat_t50",
+    "hedged_variant": "budget_vhat_t50_hedge",
+    "delta_p50_ms": -1.256914931409213,
+    "delta_p90_ms": -9.31877076544987,
+    "delta_p99_ms": 79.73219982731916,
+    "delta_slo_violation_rate": -0.0004444444444444444,
+    "delta_cost_usd": -1.0079999999999334e-06
+  },
+  {
+    "dataset": "freeinference",
+    "scenario": "s8_concurrency_saturation",
+    "no_hedge_variant": "budget_vhat_t75",
+    "hedged_variant": "budget_vhat_t75_hedge",
+    "delta_p50_ms": -2.7635310844735272,
+    "delta_p90_ms": -2.417361330204699,
+    "delta_p99_ms": 44.54036010968878,
+    "delta_slo_violation_rate": -0.0003333333333333333,
+    "delta_cost_usd": 3.9133333333335116e-07
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "implementation_root": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/routewise-simulator-wt-lp-budget",
+  "driver": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/routewise-simulator-wt-lp-budget/run_joint_lp_budget_eval.py",
+  "sidecar_module": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/routewise-simulator-wt-lp-budget/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py",
+  "main_variants": [
+    "original_lp",
+    "original_lp_hedge",
+    "budget_vhat_t25",
+    "budget_vhat_t50",
+    "budget_vhat_t75",
+    "budget_vhat_t25_hedge",
+    "budget_vhat_t50_hedge",
+    "budget_vhat_t75_hedge"
+  ],
+  "hedge_ablation_variants": [
+    "original_lp_oldhedge",
+    "budget_vhat_t75_oldhedge"
+  ],
+  "provider_percentile_ablation_variants": [
+    "budget_body_p25",
+    "budget_body_p50",
+    "budget_body_p75",
+    "budget_body_p25_hedge",
+    "budget_body_p50_hedge",
+    "budget_body_p75_hedge"
+  ],
+  "control_variants": [
+    "cheapest_available",
+    "fastest_available",
+    "quota_first",
+    "concurrency_first"
+  ],
+  "mandatory_first_batch_scenarios": [
+    "s6_slow_q_trap",
+    "s7_quota_depletion",
+    "s8_concurrency_saturation",
+    "s8m_multi_sq_hierarchy",
+    "s7m_quota_depletion"
+  ],
+  "datasets": [
+    "freeinference",
+    "rednote",
+    "sharegpt"
+  ],
+  "old_selector": "min sum_j pi_j * c_eff_j subject to sum_j pi_j * F_j(SLO) >= 0.99 with relaxation targets 0.98 / 0.95 / 0.90 and best-effort fallback",
+  "new_selector": "min sum_j pi_j * Tbar_j subject to sum_j pi_j * c_eff_j <= tau * v_hat_i",
+  "hedge_rule": "Dispatch backup at the latest wait time t such that P(not violate | t) + P(violate | t) * P(backup succeeds) >= 0.99, with dispatch overhead delta = 50 ms",
+  "ablation_selector": "Comparator only: min sum_j pi_j * Tbar_j subject to sum_j pi_j * c_eff_j <= percentile_tau({c_eff_j over feasible providers})",
+  "v_hat_i_assumption": "v_hat_i is implemented as the estimated per-request API price anchor, computed as request.total_tokens multiplied by the cheapest S_A provider price in the current synthetic scenario",
+  "workload_mode": "synthetic generator by default; trace-driven mode uses real request traces and rescales contiguous slices into each scenario's target duration while preserving token counts and local burst structure",
+  "hedge_as_probe": "Enabled for all hedged variants: when a hedge fires, the backup TTFT sample is fed back into the rolling profile while keeping the 5% dedicated background probe path unchanged",
+  "probe_rate_override": null,
+  "backup_selection_policy": "New hedge variants use an adaptive safe-cheapest / random-explorer backup mix; oldhedge variants retain the legacy fastest-backup rule"
+}

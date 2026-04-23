@@ -1,0 +1,227 @@
+{
+  "original_lp": {
+    "mean_ttft_ms": 715.5977040059421,
+    "p50_ms": 630.2103745929854,
+    "p90_ms": 1126.0216340433178,
+    "p99_ms": 1884.0696233119415,
+    "slo_violation_rate": 0.005555555555555556,
+    "avg_cost_usd": 0.022405889249999995,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.33555555555555555,
+      "MiniMax_S_Q": 0.017777777777777778,
+      "Ollama_S_Q": 0.16666666666666666,
+      "Parasail_OR": 0.48
+    },
+    "tier_mix": {
+      "api": 0.48,
+      "quota": 0.52
+    }
+  },
+  "original_lp_hedge": {
+    "mean_ttft_ms": 688.802349621721,
+    "p50_ms": 637.3782090483404,
+    "p90_ms": 1123.5998434961448,
+    "p99_ms": 2009.6927103690343,
+    "slo_violation_rate": 0.0011111111111111111,
+    "avg_cost_usd": 0.022343214749999996,
+    "hedge_rate": 0.02111111111111111,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3344444444444444,
+      "MiniMax_S_Q": 0.03,
+      "Ollama_S_Q": 0.1688888888888889,
+      "Parasail_OR": 0.4666666666666666
+    },
+    "tier_mix": {
+      "api": 0.4666666666666666,
+      "quota": 0.5333333333333333
+    }
+  },
+  "budget_vhat_t25": {
+    "mean_ttft_ms": 934.6864759948681,
+    "p50_ms": 803.9752625431978,
+    "p90_ms": 1519.7031421505428,
+    "p99_ms": 4726.1864151739655,
+    "slo_violation_rate": 0.03,
+    "avg_cost_usd": 0.016157247749999996,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.16666666666666666,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.33
+    },
+    "tier_mix": {
+      "api": 0.33,
+      "quota": 0.67
+    }
+  },
+  "budget_vhat_t50": {
+    "mean_ttft_ms": 824.6575779113335,
+    "p50_ms": 713.884553242251,
+    "p90_ms": 1245.7514989193394,
+    "p99_ms": 4426.525065378181,
+    "slo_violation_rate": 0.01888888888888889,
+    "avg_cost_usd": 0.020072564999999997,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.08333333333333333,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.41333333333333333
+    },
+    "tier_mix": {
+      "api": 0.41333333333333333,
+      "quota": 0.5866666666666667
+    }
+  },
+  "budget_vhat_t75": {
+    "mean_ttft_ms": 549.5356232698917,
+    "p50_ms": 470.001780124783,
+    "p90_ms": 988.6074780149892,
+    "p99_ms": 1418.6242189620623,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.03949870199999999,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.04111111111111111,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.7888888888888889
+    },
+    "tier_mix": {
+      "api": 0.7888888888888889,
+      "quota": 0.2111111111111111
+    }
+  },
+  "budget_vhat_t25_hedge": {
+    "mean_ttft_ms": 856.3068524331944,
+    "p50_ms": 807.9191242944479,
+    "p90_ms": 1709.2912858854033,
+    "p99_ms": 2472.846130166278,
+    "slo_violation_rate": 0.0011111111111111111,
+    "avg_cost_usd": 0.020149172249999996,
+    "hedge_rate": 0.09444444444444444,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.16666666666666666,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.33
+    },
+    "tier_mix": {
+      "api": 0.33,
+      "quota": 0.67
+    }
+  },
+  "budget_vhat_t50_hedge": {
+    "mean_ttft_ms": 733.5852670810895,
+    "p50_ms": 686.7632033370672,
+    "p90_ms": 1173.3594628417347,
+    "p99_ms": 2196.8444539586694,
+    "slo_violation_rate": 0.0022222222222222222,
+    "avg_cost_usd": 0.022124531999999992,
+    "hedge_rate": 0.042222222222222223,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3322222222222222,
+      "MiniMax_S_Q": 0.08444444444444443,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.41333333333333333
+    },
+    "tier_mix": {
+      "api": 0.41333333333333333,
+      "quota": 0.5866666666666667
+    }
+  },
+  "budget_vhat_t75_hedge": {
+    "mean_ttft_ms": 543.0926638616892,
+    "p50_ms": 458.94635483852227,
+    "p90_ms": 958.0107969251658,
+    "p99_ms": 1464.1496612319645,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.03965298749999999,
+    "hedge_rate": 0.0044444444444444444,
+    "provider_mix": {
+      "Chutes_S_Q": 0.042222222222222223,
+      "MiniMax_S_Q": 0.0033333333333333335,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.7855555555555555
+    },
+    "tier_mix": {
+      "api": 0.7855555555555555,
+      "quota": 0.21444444444444447
+    }
+  },
+  "cheapest_available": {
+    "mean_ttft_ms": 955.9710361902618,
+    "p50_ms": 797.4691459035297,
+    "p90_ms": 1639.1839823957678,
+    "p99_ms": 4649.932283484296,
+    "slo_violation_rate": 0.04,
+    "avg_cost_usd": 0.016157247749999996,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.16666666666666666,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.33
+    },
+    "tier_mix": {
+      "api": 0.33,
+      "quota": 0.67
+    }
+  },
+  "fastest_available": {
+    "mean_ttft_ms": 534.7070057023399,
+    "p50_ms": 463.56243218696255,
+    "p90_ms": 918.9299236051814,
+    "p99_ms": 1431.6651279810314,
+    "slo_violation_rate": 0.0,
+    "avg_cost_usd": 0.04125098474999999,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.83
+    },
+    "tier_mix": {
+      "api": 0.83,
+      "quota": 0.17
+    }
+  },
+  "quota_first": {
+    "mean_ttft_ms": 934.4448409674229,
+    "p50_ms": 803.9752625431978,
+    "p90_ms": 1519.7031421505428,
+    "p99_ms": 4726.1864151739655,
+    "slo_violation_rate": 0.03,
+    "avg_cost_usd": 0.016157247749999996,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.16666666666666666,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.33
+    },
+    "tier_mix": {
+      "api": 0.33,
+      "quota": 0.67
+    }
+  },
+  "concurrency_first": {
+    "mean_ttft_ms": 934.4448409674229,
+    "p50_ms": 803.9752625431978,
+    "p90_ms": 1519.7031421505428,
+    "p99_ms": 4726.1864151739655,
+    "slo_violation_rate": 0.03,
+    "avg_cost_usd": 0.016157247749999996,
+    "hedge_rate": 0.0,
+    "provider_mix": {
+      "Chutes_S_Q": 0.3333333333333333,
+      "MiniMax_S_Q": 0.16666666666666666,
+      "Ollama_S_Q": 0.17,
+      "Parasail_OR": 0.33
+    },
+    "tier_mix": {
+      "api": 0.33,
+      "quota": 0.67
+    }
+  }
+}

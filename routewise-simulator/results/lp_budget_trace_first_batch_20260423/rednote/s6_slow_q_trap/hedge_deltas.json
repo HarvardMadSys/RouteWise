@@ -1,0 +1,46 @@
+[
+  {
+    "dataset": "rednote",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "original_lp",
+    "hedged_variant": "original_lp_hedge",
+    "delta_p50_ms": -19.965051151662607,
+    "delta_p90_ms": -1117.8719292169644,
+    "delta_p99_ms": -2869.5801295913125,
+    "delta_slo_violation_rate": -0.15666666666666665,
+    "delta_cost_usd": 0.005038827999999995
+  },
+  {
+    "dataset": "rednote",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t25",
+    "hedged_variant": "budget_vhat_t25_hedge",
+    "delta_p50_ms": -1372.5114611754202,
+    "delta_p90_ms": -2518.092586697053,
+    "delta_p99_ms": -4084.609053906003,
+    "delta_slo_violation_rate": -0.9586666666666667,
+    "delta_cost_usd": 0.030489757999999995
+  },
+  {
+    "dataset": "rednote",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t50",
+    "hedged_variant": "budget_vhat_t50_hedge",
+    "delta_p50_ms": -77.25572508885318,
+    "delta_p90_ms": -1973.4522438817748,
+    "delta_p99_ms": -3498.878326501652,
+    "delta_slo_violation_rate": -0.4746666666666667,
+    "delta_cost_usd": 0.014975147999999995
+  },
+  {
+    "dataset": "rednote",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t75",
+    "hedged_variant": "budget_vhat_t75_hedge",
+    "delta_p50_ms": -5.55410791825642,
+    "delta_p90_ms": 5.322413190900647,
+    "delta_p99_ms": -2219.2362837179603,
+    "delta_slo_violation_rate": -0.06133333333333333,
+    "delta_cost_usd": 0.0007654799999999955
+  }
+]

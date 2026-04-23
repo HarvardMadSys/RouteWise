@@ -1,0 +1,179 @@
+# Unified E2E Test Configuration
+# Single source of truth for all E2E test phases
+#
+# Usage:
+#   Phase 1: Direct local model testing (no gateway)
+#   Phase 2: Gateway routing to local models
+#   Phase 3: Hybrid routing (local + remote)
+
+# ============================================================================
+# Local Model Servers (Phase 1)
+# ============================================================================
+local_servers:
+  llama_3_2_3b:
+    name: "llama-3.2-3b-local"
+    url: "http://localhost:8001"
+    port: 8001
+    enabled: true
+    timeout: 30
+    expected_model_id: "/n/netscratch/juncheng_lab/yiyuliu/llm_models/Llama-3.2-3B-Instruct"
+    test_prompts:
+      simple: "Explain what is machine learning in simple terms."
+      streaming: "Tell me a short story about a robot."
+    max_tokens: 256
+    temperature: 0.7
+
+  qwen3_coder_30b:
+    name: "qwen3-coder-30b-local"
+    url: "http://localhost:8003"
+    port: 8003
+    enabled: true
+    timeout: 60
+    expected_model_id: "Qwen3-Coder-30B-A3B-Instruct"
+    test_prompts:
+      simple: "Write a Python function to calculate fibonacci numbers using recursion."
+      streaming: "Explain how binary search works and provide a Python implementation with comments."
+    max_tokens: 512
+    temperature: 0.1
+
+# ============================================================================
+# Gateway Models Configuration (Phase 2 & 3)
+# ============================================================================
+models:
+  # Phase 2: Local-only models
+  - id: llama-3.2-3b-local-test
+    name: Llama 3.2 3B (Local E2E Test)
+    phase: [2]
+    provider: openai_compat
+    quantization: "bf16"
+    input_modalities: ["text"]
+    output_modalities: ["text"]
+    context_length: 131072
+    max_output_length: 4096
+    supports_tools: false
+    supports_structured_output: false
+    supported_params: [temperature, top_p, max_tokens, stop, stream]
+    pricing:
+      prompt: "0"
+      completion: "0"
+    route:
+      - kind: openai_compat
+        weight: 1.0
+        base_url: http://localhost:8001/v1
+        provider_model_id: "/n/netscratch/juncheng_lab/yiyuliu/llm_models/Llama-3.2-3B-Instruct"
+
+  - id: qwen3-coder-30b
+    name: Qwen3 Coder 30B (Local E2E Test)
+    phase: [2]
+    provider: openai_compat
+    quantization: "a3b"
+    input_modalities: ["text"]
+    output_modalities: ["text"]
+    context_length: 32768
+    max_output_length: 8192
+    supports_tools: true
+    supports_structured_output: false
+    supported_params: [temperature, top_p, max_tokens, stop, stream]
+    pricing:
+      prompt: "0"
+      completion: "0"
+    route:
+      - kind: openai_compat
+        weight: 1.0
+        base_url: http://localhost:8003/v1
+        provider_model_id: "Qwen3-Coder-30B-A3B-Instruct"
+
+  # Phase 3: Hybrid routing models
+  - id: qwen3-coder-30b-hybrid
+    name: Qwen3 Coder 30B (Hybrid Local + Chutes)
+    phase: [3]
+    provider: openai_compat
+    quantization: "a3b"
+    input_modalities: ["text"]
+    output_modalities: ["text"]
+    context_length: 32768
+    max_output_length: 8192
+    supports_tools: true
+    supports_structured_output: false
+    supported_params: [temperature, top_p, max_tokens, stop, stream]
+    pricing:
+      prompt: "0"
+      completion: "0"
+    route:
+      # Local SGLang (40% weight)
+      - kind: openai_compat
+        weight: 0.4
+        base_url: http://localhost:8003/v1
+        provider_model_id: "Qwen3-Coder-30B-A3B-Instruct"
+      # Remote Chutes API (60% weight)
+      - kind: chutes
+        weight: 0.6
+        base_url: ${CHUTES_BASE_URL}
+        api_key: ${CHUTES_API_KEY}
+        provider_model_id: "Qwen/Qwen2.5-Coder-32B-Instruct"
+
+  - id: qwen3-coder-30b-local-only
+    name: Qwen3 Coder 30B (Local Only)
+    phase: [3]
+    provider: openai_compat
+    quantization: "a3b"
+    input_modalities: ["text"]
+    output_modalities: ["text"]
+    context_length: 32768
+    max_output_length: 8192
+    supports_tools: true
+    supports_structured_output: false
+    supported_params: [temperature, top_p, max_tokens, stop, stream]
+    pricing:
+      prompt: "0"
+      completion: "0"
+    route:
+      - kind: openai_compat
+        weight: 1.0
+        base_url: http://localhost:8003/v1
+        provider_model_id: "Qwen3-Coder-30B-A3B-Instruct"
+
+  - id: qwen3-coder-30b-remote-only
+    name: Qwen3 Coder 30B (Chutes Only)
+    phase: [3]
+    provider: chutes
+    quantization: "bf16"
+    input_modalities: ["text"]
+    output_modalities: ["text"]
+    context_length: 32768
+    max_output_length: 8192
+    supports_tools: true
+    supports_structured_output: false
+    supported_params: [temperature, top_p, max_tokens, stop, stream]
+    pricing:
+      prompt: "0"
+      completion: "0"
+    route:
+      - kind: chutes
+        weight: 1.0
+        base_url: ${CHUTES_BASE_URL}
+        api_key: ${CHUTES_API_KEY}
+        provider_model_id: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
+
+# ============================================================================
+# Test Configuration
+# ============================================================================
+test_config:
+  # Gateway settings
+  gateway:
+    default_port: 10081
+    default_host: "0.0.0.0"
+    timeout: 60
+
+  # Phase 3 routing distribution test
+  routing_distribution:
+    sample_size: 100
+    tolerance: 0.10
+    expected_local_ratio: 0.4
+    expected_remote_ratio: 0.6
+
+  # Common test parameters
+  defaults:
+    max_tokens: 256
+    temperature: 0.1
+    timeout: 30

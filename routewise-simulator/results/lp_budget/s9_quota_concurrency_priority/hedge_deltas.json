@@ -1,0 +1,42 @@
+[
+  {
+    "scenario": "s9_quota_concurrency_priority",
+    "no_hedge_variant": "old_body",
+    "hedged_variant": "old_body_hedge",
+    "delta_p50_ms": 58.5406654145265,
+    "delta_p90_ms": 151.1319606541707,
+    "delta_p99_ms": -21.359917507616615,
+    "delta_slo_violation_rate": -0.005894656778855296,
+    "delta_cost_usd": -5.9151169423844844e-05
+  },
+  {
+    "scenario": "s9_quota_concurrency_priority",
+    "no_hedge_variant": "budget_vhat_t25",
+    "hedged_variant": "budget_vhat_t25_hedge",
+    "delta_p50_ms": 6.154109388896131,
+    "delta_p90_ms": 6.509177614580494,
+    "delta_p99_ms": -169.87866592255807,
+    "delta_slo_violation_rate": -0.012169613995056094,
+    "delta_cost_usd": 4.3626354820308055e-05
+  },
+  {
+    "scenario": "s9_quota_concurrency_priority",
+    "no_hedge_variant": "budget_vhat_t50",
+    "hedged_variant": "budget_vhat_t50_hedge",
+    "delta_p50_ms": -3.3128559958427104,
+    "delta_p90_ms": 1.4795545848752454,
+    "delta_p99_ms": -151.12586826298457,
+    "delta_slo_violation_rate": -0.00893706027761932,
+    "delta_cost_usd": 2.347689674843124e-05
+  },
+  {
+    "scenario": "s9_quota_concurrency_priority",
+    "no_hedge_variant": "budget_vhat_t75",
+    "hedged_variant": "budget_vhat_t75_hedge",
+    "delta_p50_ms": 2.4619317687011915,
+    "delta_p90_ms": 0.988063719738193,
+    "delta_p99_ms": 5.938274185417754,
+    "delta_slo_violation_rate": -0.00019015021867275147,
+    "delta_cost_usd": -3.4215630347974755e-06
+  }
+]

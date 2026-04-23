@@ -1,0 +1,26 @@
+[Unit]
+Description=Prometheus
+Wants=network-online.target
+After=network-online.target home.mount
+
+[Service]
+User=murphy
+Group=murphy
+Type=simple
+ExecStart=/home/murphy/hybridInference/prometheus \
+  --config.file=/home/murphy/hybridInference/infrastructure/prometheus/prometheus.yml \
+  --storage.tsdb.path=/home/murphy/hybridInference/var/prometheus \
+  --web.listen-address=0.0.0.0:9090
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/home/murphy/hybridInference/var/prometheus /home/murphy/hybridInference/infrastructure/prometheus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+routing_strategy: fixed
+routing_parameter:
+  local_fraction: 0.7
+timeout: 2
+health_check: 0  # Disabled for testing
+logging:
+  output: test.log
+local_deployment:
+  - endpoint: ${LOCAL_BASE_URL:-http://localhost:8001}
+    models:
+      - test-model-1
+      - llama-3.2-3b-local-test  # Real local model for e2e tests
+remote_deployment:
+  - endpoint: http://remote.test
+    models:
+      - test-model-2

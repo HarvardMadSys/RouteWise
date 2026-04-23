@@ -1,0 +1,46 @@
+[
+  {
+    "dataset": "sharegpt",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "original_lp",
+    "hedged_variant": "original_lp_hedge",
+    "delta_p50_ms": -4.3535197700372805,
+    "delta_p90_ms": 5.312158079728675,
+    "delta_p99_ms": -11.059616777415442,
+    "delta_slo_violation_rate": -0.0013333333333333333,
+    "delta_cost_usd": 4.899999999999089e-07
+  },
+  {
+    "dataset": "sharegpt",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t25",
+    "hedged_variant": "budget_vhat_t25_hedge",
+    "delta_p50_ms": -1372.5114611754202,
+    "delta_p90_ms": -2518.092586697053,
+    "delta_p99_ms": -4084.609053906003,
+    "delta_slo_violation_rate": -0.9586666666666667,
+    "delta_cost_usd": 0.00083253
+  },
+  {
+    "dataset": "sharegpt",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t50",
+    "hedged_variant": "budget_vhat_t50_hedge",
+    "delta_p50_ms": -77.25572508885318,
+    "delta_p90_ms": -1973.4522438817748,
+    "delta_p99_ms": -3498.878326501652,
+    "delta_slo_violation_rate": -0.4746666666666667,
+    "delta_cost_usd": 0.00043353
+  },
+  {
+    "dataset": "sharegpt",
+    "scenario": "s6_slow_q_trap",
+    "no_hedge_variant": "budget_vhat_t75",
+    "hedged_variant": "budget_vhat_t75_hedge",
+    "delta_p50_ms": -7.049300874304166,
+    "delta_p90_ms": -84.63038939748049,
+    "delta_p99_ms": -2410.1942381661597,
+    "delta_slo_violation_rate": -0.09000000000000001,
+    "delta_cost_usd": 4.128599999999997e-05
+  }
+]
