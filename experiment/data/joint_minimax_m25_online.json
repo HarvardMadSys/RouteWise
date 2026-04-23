@@ -1,0 +1,195 @@
+{
+  "model_family": "minimax-m2.5",
+  "openrouter_model_id": "minimax/minimax-m2.5",
+  "primary_slo_ms": 2000,
+  "slo_thresholds_ms": [1000, 2000, 3000, 5000],
+  "providers": [
+    {
+      "name": "Chutes_SQ",
+      "tier": "quota",
+      "transport": "chutes",
+      "model": "MiniMaxAI/MiniMax-M2.5-TEE",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_window_sec": 3600,
+      "quota_requests": 1000,
+      "concurrency_limit": null,
+      "billing_mode": "subscription",
+      "notes": "Chutes direct subscription: 5000/day physically. Policy state uses 1000 req/hr for pilot."
+    },
+    {
+      "name": "Ollama_SQ",
+      "tier": "quota",
+      "transport": "ollama_cloud",
+      "model": "minimax-m2.5",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_window_sec": 3600,
+      "quota_requests": 2000,
+      "concurrency_limit": 3,
+      "billing_mode": "subscription",
+      "notes": "Ollama Cloud Pro: 10000/5h physically + C=3. Policy state uses 1h-scaled 2000 req/hr so pilot can exercise shadow price."
+    },
+    {
+      "name": "MiniMax_SQ",
+      "tier": "quota",
+      "transport": "minimax_native",
+      "model": "MiniMax-M2.5",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_window_sec": 3600,
+      "quota_requests": 900,
+      "concurrency_limit": null,
+      "billing_mode": "subscription",
+      "notes": "MiniMax native: estimated 4500/5h. Policy state uses 1h-scaled 900 req/hr."
+    },
+    {
+      "name": "Featherless_SC",
+      "tier": "concurrency",
+      "transport": "featherless",
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_window_sec": null,
+      "quota_requests": null,
+      "concurrency_limit": 1,
+      "billing_mode": "subscription",
+      "notes": "Featherless with hard C=1 on MiniMax-M2.5. P99 jumps to 3131ms at c>=2 per paper tab:provider_calibration."
+    },
+    {
+      "name": "OR_Chutes",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.118,
+      "output_price_per_m": 0.99,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_AkashML",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "AkashML",
+      "input_price_per_m": 0.2,
+      "output_price_per_m": 1.18,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Inceptron",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Inceptron",
+      "input_price_per_m": 0.24,
+      "output_price_per_m": 0.9,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_DeepInfra",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "DeepInfra",
+      "input_price_per_m": 0.27,
+      "output_price_per_m": 0.95,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_AtlasCloud",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "AtlasCloud",
+      "input_price_per_m": 0.295,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Mara",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Mara",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Parasail",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Parasail",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Friendli",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Friendli",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Minimax",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Minimax",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Novita",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Novita",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Together",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Together",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_SiliconFlow",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "SiliconFlow",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_SambaNova",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "SambaNova",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Nebius",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Nebius",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Venice",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Venice",
+      "input_price_per_m": 0.34,
+      "output_price_per_m": 1.19,
+      "billing_mode": "metered"
+    }
+  ]
+}
