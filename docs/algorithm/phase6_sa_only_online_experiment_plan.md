@@ -149,12 +149,24 @@ P(not violate | t) + P(violate | t) * P(backup succeeds) >= 0.99
 
 ### 6.2 Backup Selection
 
-Use deterministic `safe_cheapest` only:
+Use deterministic `safe_fastest` (aligned with the 2026-04-22 JOINT_DESIGN
+spec and the rwsim simulator; see routewise-simulator/JOINT_DESIGN.md §
+joint_hedge and routewise-simulator/experiment/scripts/simulate/synthetic/
+tiered/strategies.py::_pick_cross_tier_backup):
 
 - among available non-primary providers, keep those that can satisfy the SLO
-  on their own
-- choose the cheapest one
+  on their own (P(completes within remaining SLO budget) >= success_target)
+- choose the fastest one (lowest P50)
 - if none is individually SLO-safe, fall back to the fastest available backup
+
+Rationale: hedge is a rare SLO-rescue path, not a cost-optimization lever.
+The primary selector (budget-constrained LP) already minimizes cost; the
+backup must prioritize latency to actually save tail requests. An earlier
+draft of this plan specified `safe_cheapest`, which extended the primary's
+cost objective into the backup and empirically made hedging useless (the
+backup inherited the primary's slow-but-cheap profile; see smoke results
+on 2026-04-23). This section has been corrected to match the original
+simulator spec.
 
 ### 6.3 Explorer / Probing
 

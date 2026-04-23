@@ -1,0 +1,13 @@
+{
+  "DeepInfra": [0.071, 0.1],
+  "Novita": [0.09, 0.58],
+  "SiliconFlow": [0.09, 0.6],
+  "WandB": [0.1, 0.1],
+  "Parasail": [0.1, 0.6],
+  "Alibaba": [0.1495, 0.598],
+  "Together": [0.2, 0.6],
+  "Friendli": [0.2, 0.8],
+  "AtlasCloud": [0.2, 0.88],
+  "Google": [0.22, 0.88],
+  "Cerebras": [0.6, 1.2]
+}
