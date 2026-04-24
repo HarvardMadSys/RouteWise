@@ -285,6 +285,20 @@ Forbidden dependencies:
 
 Migration should be incremental and behavior-preserving.
 
+Current status:
+
+- `rwsim/world/` owns the leaf world primitives: distributions, capacity state,
+  providers, workload generation, scenario containers, shadow pricing, and run
+  metrics.
+- `experiment/scripts/simulate/synthetic/_core/` world modules are
+  compatibility wrappers.
+- `rwsim/strategies/registry.py` owns the canonical strategy registry surface.
+  The concrete strategy implementations still live in legacy modules until
+  each policy stage is reproduced behind `rwsim/policies/`.
+- `experiments/tiered_capacity/configs/` owns S6/S7/S8/S9/`unified_pool`
+  scenario definitions and can run one registered strategy through
+  `scripts/run_experiment.py`.
+
 Recommended order:
 
 1. Keep current golden baselines green.

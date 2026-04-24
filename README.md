@@ -41,13 +41,17 @@ pytest tests/test_golden.py -m slow
 Use `rwsim/` as the canonical package surface for new code:
 
 - `rwsim/world/`: shared world model
+- `rwsim/policies/`: target pipeline-stage policy decomposition
 - `rwsim/strategies/`: registered strategy surface
 - `rwsim/analyze/`: analysis helpers
 - `rwsim/drivers/`: canonical driver entrypoints
 - `rwsim/runner.py`: shared strategy dispatch
 
 Legacy paths under `experiment/scripts/simulate/synthetic/` still work and
-are intentionally kept for compatibility.
+are intentionally kept for compatibility. The leaf world primitives now live
+in `rwsim/world/`; legacy `_core` world modules are compatibility wrappers.
+Strategy implementations are still being migrated behind the `rwsim/strategies`
+registry surface.
 
 The target architecture and algorithm decomposition are documented in:
 
@@ -100,6 +104,7 @@ The shared world model includes:
 
 - `distributions.py`: `LogNormal`
 - `providers.py`: unified provider hierarchy
+- `capacity.py`: quota and concurrency state
 - `scenarios.py`: shared `ScenarioConfig`
 - `shadow_price.py`: quota and concurrency shadow pricing
 - `workload.py`: request generation
@@ -250,9 +255,10 @@ as a separate behavioral fix, not as part of the structural refactor.
 
 ## Notes on compatibility
 
-- `experiment/scripts/simulate/synthetic/_core/` is the implementation
-  backbone used by the legacy import path.
 - `rwsim/` is the canonical package surface for new development.
+- `experiment/scripts/simulate/synthetic/_core/` remains as a legacy import
+  path. Its world-model files now forward into `rwsim/world`; strategy
+  implementation files are still legacy until each pipeline stage is migrated.
 - Top-level `run_*.py` scripts remain the default operational entrypoints.
 
 That split is intentional: it keeps old experiments reproducible while giving
