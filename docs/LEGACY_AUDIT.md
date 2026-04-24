@@ -51,32 +51,35 @@ then golden compare stays green.
 
 ### Current Experiment Logic Not Fully Replaced Yet
 
-No current synthetic/tiered experiment module is known to live only under
+No current synthetic/tiered golden-path module is known to live only under
 `legacy/experiment/`. Remaining legacy code is either a compatibility wrapper
-for a canonical module or part of the historical offline experiment stack
+for a canonical module or part of the paper-used offline/stage experiment stack
 below.
 
-### Offline/Stage Experiment Stack Pending Migration
+### Paper-Used Offline/Stage Experiments Pending Migration
 
-These files are not on the current synthetic/tiered golden path, but that does
-not mean they are obsolete. They should stay until we decide whether the
-offline counterfactual, phase 3/4 latency experiments, and stage1/stage2
-routing workflows are still required research artifacts.
+These files are not on the current synthetic/tiered golden path, but they are
+paper-used or paper-era research artifacts. They should not be deleted just
+because the new synthetic/tiered runners no longer import them.
 
-| Legacy path | Decision needed |
+The migration rule for this section is stricter than a normal compatibility
+wrapper: each workflow needs a canonical replacement under `rwsim/` +
+`experiments/`, plus a reproduction check for the relevant paper artifact.
+
+| Legacy path | Canonical migration target |
 | --- | --- |
-| `legacy/experiment/data/schema.py` | Decide whether to fold old offline ProviderConfig/RoutingDecision models into `rwsim/schemas.py`. |
-| `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Map into `rwsim/engine`/`rwsim/schemas` if offline/stage workflows remain active. |
-| `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Stage strategy stack pending pipeline mapping. |
-| `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Online routing stack pending pipeline mapping. |
-| `legacy/experiment/scripts/simulate/{offline_counterfactual,policies,bootstrap,plot_counterfactual}.py` | Offline counterfactual workflow pending migration. |
-| `legacy/experiment/scripts/run_phase{3,4}_simulation.py` | Phase 3/4 latency experiment runners pending migration. |
-| `legacy/experiment/scripts/plot/latency/*.py` | Phase 3/4 plotters pending migration. |
+| `legacy/experiment/data/schema.py` | Fold offline `ProviderConfig` / `RoutingDecision` models into `rwsim/schemas.py` or a dedicated offline schema module. |
+| `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Map shared execution, cost, quota, and cache pieces into `rwsim/engine`, `rwsim/world`, and `rwsim/data`. |
+| `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Map stage strategies into `rwsim/policies` / `rwsim/strategies` pipeline configs. |
+| `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Map online routing stack into canonical policy stages or strategy aliases. |
+| `legacy/experiment/scripts/simulate/{offline_counterfactual,policies,bootstrap,plot_counterfactual}.py` | Move offline counterfactual workflow into an `experiments/` package with canonical policy imports. |
+| `legacy/experiment/scripts/run_phase{3,4}_simulation.py` | Move Phase 3/4 latency experiment runners into `experiments/` and keep paper-output compatibility. |
+| `legacy/experiment/scripts/plot/latency/*.py` | Move Phase 3/4 plotters into the same experiment package or a paper plotting module. |
 | `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
 
 Deletion condition: either reproduce the relevant artifact from `rwsim/` +
-`experiments/`, or explicitly declare that artifact out of scope and remove the
-corresponding runner/tests/docs together.
+`experiments/`, or explicitly replace/remove that paper artifact and update the
+paper workflow docs together.
 
 ## External Callers Still Using Legacy
 
