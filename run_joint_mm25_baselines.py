@@ -22,16 +22,11 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.tiered import (  # noqa: E402
-    TIERED_STRATEGIES,
-    run_tiered_scenario,
-)
 from experiments.tiered_capacity import (  # noqa: E402
     make_mm25_scenarios,
 )
-from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
-    generate_workload,
-)
+from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
+from rwsim.world import generate_workload  # noqa: E402
 
 
 OUTPUT_ROOT = _ROOT / "results" / "alpha_joint_mm25"
@@ -89,7 +84,10 @@ def main() -> None:
         results = {}
         for strat in TIERED_STRATEGIES:
             t0 = time.perf_counter()
-            runs = run_tiered_scenario(scenario, requests, seeds=SEEDS, strategies=[strat])[strat]
+            runs = [
+                run_registered_strategy(scenario, requests, strat, seed=seed)
+                for seed in SEEDS
+            ]
             elapsed = time.perf_counter() - t0
             s = summarize(runs, scenario)
             results[strat] = s

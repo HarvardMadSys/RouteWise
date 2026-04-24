@@ -33,11 +33,6 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.tiered import (
-    TIERED_STRATEGIES,
-    StrategyRun,
-    run_tiered_scenario,
-)
 from experiments.tiered_capacity.plots import (
     plot_provider_mix,
     plot_slo_cost_pareto,
@@ -45,7 +40,8 @@ from experiments.tiered_capacity.plots import (
 from experiments.tiered_capacity import (
     make_stress_scenarios,
 )
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
+from rwsim.runner import run_registered_strategy
+from rwsim.world import StrategyRun, generate_workload
 
 
 SEEDS = [42, 43, 44]
@@ -204,9 +200,13 @@ def main() -> None:
         print(f"  Generated {len(requests)} requests")
 
         t0 = time.perf_counter()
-        results = run_tiered_scenario(
-            scenario, requests, seeds=SEEDS, strategies=FOCUS_STRATEGIES,
-        )
+        results = {
+            strategy: [
+                run_registered_strategy(scenario, requests, strategy, seed=seed)
+                for seed in SEEDS
+            ]
+            for strategy in FOCUS_STRATEGIES
+        }
         elapsed = time.perf_counter() - t0
         print(f"  All strategies done in {elapsed:.1f}s")
 

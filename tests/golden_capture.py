@@ -420,22 +420,15 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
     """Capture one tiered-family scenario set."""
     _bootstrap_repo(repo_root)
 
-    from legacy.experiment.scripts.simulate.synthetic.tiered.runner import (  # noqa: E402
-        run_tiered_scenario,
-    )
-    from legacy.experiment.scripts.simulate.synthetic.tiered.strategies import (  # noqa: E402
-        TIERED_STRATEGIES,
-    )
-    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
-        generate_workload,
-    )
+    from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
+    from rwsim.world import generate_workload  # noqa: E402
 
     if family == "tiered":
-        from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios import (  # noqa: E402
-            make_tiered_scenarios,
-        )
+        from experiments.tiered_capacity import load_all_world_scenarios  # noqa: E402
 
-        scenario_factory = make_tiered_scenarios
+        scenario_factory = lambda: {
+            scenario.name: scenario for scenario in load_all_world_scenarios()
+        }
     elif family == "calibrated":
         from experiments.tiered_capacity import (  # noqa: E402
             make_mm25_scenarios,
@@ -461,12 +454,13 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
             start_time=0.0,
             arrival_process=scenario.arrival_process,
         )
-        results = run_tiered_scenario(
-            scenario,
-            requests,
-            seeds=SEEDS,
-            strategies=strategy_names,
-        )
+        results = {
+            strategy_name: [
+                run_registered_strategy(scenario, requests, strategy_name, seed=seed)
+                for seed in SEEDS
+            ]
+            for strategy_name in strategy_names
+        }
         scenarios_payload[scenario_id] = _scenario_payload(
             scenario,
             strategy_names,

@@ -39,17 +39,13 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.tiered import (
-    TIERED_STRATEGIES,
-    StrategyRun,
-    make_tiered_scenarios,
-    run_tiered_scenario,
-)
+from experiments.tiered_capacity import load_all_world_scenarios
 from experiments.tiered_capacity.plots import (
     make_scenario_plots,
     plot_summary_across_scenarios,
 )
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
+from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy
+from rwsim.world import StrategyRun, generate_workload
 
 SEEDS = [42, 43, 44]
 OUTPUT_ROOT = _ROOT / "results" / "joint"
@@ -84,7 +80,7 @@ def build_summary(scenario, results: dict[str, list[StrategyRun]]) -> dict:
 
 
 def main() -> None:
-    scenarios = make_tiered_scenarios()
+    scenarios = {scenario.name: scenario for scenario in load_all_world_scenarios()}
 
     all_results: dict[str, dict[str, list[StrategyRun]]] = {}
     slo_map: dict[str, float] = {}
@@ -110,7 +106,13 @@ def main() -> None:
         print(f"  Generated {len(requests)} requests")
 
         t0 = time.perf_counter()
-        results = run_tiered_scenario(scenario, requests, seeds=SEEDS)
+        results = {
+            strategy: [
+                run_registered_strategy(scenario, requests, strategy, seed=seed)
+                for seed in SEEDS
+            ]
+            for strategy in TIERED_STRATEGIES
+        }
         elapsed = time.perf_counter() - t0
         print(f"  All strategies done in {elapsed:.1f}s")
 
