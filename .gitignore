@@ -7,5 +7,6 @@ __pycache__/
 .ruff_cache/
 results/
 artifacts/
-outputs/
+outputs/*
+!outputs/.gitkeep
 *.egg-info/

@@ -13,7 +13,7 @@ world model and multiple routing algorithms:
 - Paper experiment code lives under `experiments/`; reusable simulator code
   lives under `rwsim/`.
 
-The old `experiment/` and `legacy/` package surfaces have been removed.
+The old `experiment/` package and compatibility package surfaces have been removed.
 
 ## Quick start
 
@@ -44,7 +44,6 @@ Use `rwsim/` as the canonical package surface for new code:
 - `rwsim/offline/`: paper offline/stage simulation primitives
 - `rwsim/policies/`: target pipeline-stage policy decomposition
 - `rwsim/strategies/`: registered strategy surface
-- `rwsim/drivers/`: canonical driver entrypoints
 - `rwsim/runner.py`: shared strategy dispatch
 
 Historical paper workflows have canonical homes under `experiments/`.
@@ -78,7 +77,6 @@ RouteWise/
     policies/
     metrics/
     strategies/
-    drivers/
     runner.py
     schemas.py
     scenarios.py
@@ -155,60 +153,61 @@ All golden artifacts are stored under `tests/golden/`.
 
 ## Running experiments
 
-The old top-level scripts remain valid, but their simulator-facing imports now
-prefer canonical `rwsim/` and `experiments/` modules. Prefer
-`scripts/run_experiment.py` for new config-driven runs.
+Use `scripts/run_experiment.py` for config-driven runs. Paper-era operational
+runners that still orchestrate a full sweep live under `scripts/experiments/`;
+they import canonical `rwsim/` and `experiments/` modules and write generated
+artifacts under `outputs/`.
 
 ### Latency-only synthetic scenarios
 
 ```bash
-python run_synthetic.py
+python scripts/experiments/run_synthetic.py
 ```
 
 Outputs:
 
-- `results/synthetic/<scenario>/summary.json`
+- `outputs/synthetic/<scenario>/summary.json`
 - latency and provider-selection plots for each scenario
 
 ### Sanity-check scenarios
 
 ```bash
-python run_sanity_check.py
+python scripts/experiments/run_sanity_check.py
 ```
 
 Outputs:
 
-- `results/sanity_check/<step>/summary.json`
+- `outputs/sanity_check/<step>/summary.json`
 - responsiveness plots
 - auto-generated ground-truth checks for sweep scenarios
 
 ### Tiered scenarios
 
 ```bash
-python run_joint.py
+python scripts/experiments/run_joint.py
 ```
 
 Outputs:
 
-- `results/joint/<scenario>/summary.json`
+- `outputs/joint/<scenario>/summary.json`
 - per-scenario plots
 - cross-scenario summary figure
 
 ### MM25 calibrated scenarios
 
 ```bash
-python run_joint_mm25_baselines.py
+python scripts/experiments/run_joint_mm25_baselines.py
 ```
 
 ### Stress scenarios
 
 ```bash
-python run_stress_tests.py
+python scripts/experiments/run_stress_tests.py
 ```
 
 Outputs:
 
-- `results/stress/<scenario>/summary.json`
+- `outputs/stress/<scenario>/summary.json`
 - stress-specific plots such as tier-over-time or quota-over-time
 
 ## Canonical Python entrypoints
@@ -218,13 +217,6 @@ For new code, prefer the `rwsim` namespace:
 ```python
 from rwsim import LATENCY_STRATEGIES, TIERED_STRATEGIES, run_registered_strategy
 from rwsim.world import Provider, ScenarioConfig, StrategyRun
-```
-
-Driver facades are also exposed under:
-
-```python
-from rwsim.drivers.run_latency import main as run_latency_main
-from rwsim.drivers.run_joint import main as run_joint_main
 ```
 
 ## Verification discipline
@@ -264,4 +256,5 @@ structural refactor.
   `experiments/offline_stage/strategies/`.
 - The OpenRouter latency profiling probe now lives at
   `experiments/offline_stage/latency_profiling.py`.
-- Top-level `run_*.py` scripts remain the default operational entrypoints.
+- Full-sweep runner scripts live under `scripts/experiments/`; the repository
+  root no longer contains `run_*.py` entrypoints.

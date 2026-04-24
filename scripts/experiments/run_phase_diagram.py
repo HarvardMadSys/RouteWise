@@ -2,10 +2,10 @@
 
 Usage:
     source ../.venv/bin/activate
-    python run_phase_diagram.py
+    python scripts/experiments/run_phase_diagram.py
 
 Output:
-    results/phase_diagram/
+    outputs/phase_diagram/
         cells.json            # per-cell aggregated metrics
         raw.json              # per-seed metrics
         heatmap_p99.png       # main figure: V2 advantage over LP on P99
@@ -24,7 +24,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -52,7 +52,7 @@ PRODUCTION_ANCHORS = [
 ]
 
 
-OUT = _ROOT / "results" / "phase_diagram"
+OUT = _ROOT / "outputs" / "phase_diagram"
 
 
 def plot_heatmap_p99(agg, p50_spreads, tail_ratios, out_path: Path) -> None:

@@ -1,10 +1,10 @@
 """Orchestrator for the Juncheng sanity-check scenarios.
 
 Usage (from routewise-simulator/ project root, with .venv active):
-    python run_sanity_check.py
+    python scripts/experiments/run_sanity_check.py
 
 Output layout:
-    results/sanity_check/
+    outputs/sanity_check/
         step1_clear_winner/
             summary.json           # all strategies x single scenario
         step2_cost_converge/
@@ -19,12 +19,7 @@ Output layout:
             responsiveness.png     # MAIN DELIVERABLE
             ground_truth_check.md  # auto-generated pass/fail report
 
-Placement
----------
-This file should live at the project root:
-    routewise-simulator/run_sanity_check.py
-
-It imports sanity scenario builders from `experiments.synthetic_latency`.
+This runner imports sanity scenario builders from `experiments.synthetic_latency`.
 """
 
 from __future__ import annotations
@@ -36,7 +31,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -53,7 +48,7 @@ from rwsim.world import ScenarioConfig, StrategyRun, generate_workload
 # ---------------------------------------------------------------------------
 
 SEEDS = [42, 43, 44]
-OUTPUT_ROOT = _ROOT / "results" / "sanity_check"
+OUTPUT_ROOT = _ROOT / "outputs" / "sanity_check"
 
 # Keep scenarios small so the whole sweep runs in a few minutes.
 N_REQUESTS = 1000

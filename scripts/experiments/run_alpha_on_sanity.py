@@ -14,7 +14,7 @@ validate that:
 
 Output
 ------
-results/alpha_on_sanity/step5/
+outputs/alpha_on_sanity/step5/
     summary.json
     a_share_vs_p50.png        -- one curve per alpha, x = P50(A)
     pareto_cost_vs_p99.png    -- one curve per alpha aggregating all P50 values
@@ -28,15 +28,15 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from experiments.synthetic_latency.sanity import step5_sweep  # noqa: E402
 from rwsim.world import generate_workload  # noqa: E402
 
-# Reuse the helpers we already set up in run_alpha_sweep.py
-from run_alpha_sweep import run_lp_alpha, summarize_runs  # noqa: E402
+# Reuse the helpers we already set up in the alpha sweep runner.
+from scripts.experiments.run_alpha_sweep import run_lp_alpha, summarize_runs  # noqa: E402
 
 SEEDS = [42, 43, 44]
 N_REQUESTS = 1000
@@ -45,7 +45,7 @@ SLO_SEC = 2.0
 
 ALPHAS = [0.0, 1e-7, 1e-6, 2e-6, 3e-6, 5e-6, 1e-5, 3e-5, 1e-4]
 
-OUTPUT_DIR = _ROOT / "results" / "alpha_on_sanity" / "step5"
+OUTPUT_DIR = _ROOT / "outputs" / "alpha_on_sanity" / "step5"
 
 
 def main() -> None:

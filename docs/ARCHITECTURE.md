@@ -71,6 +71,9 @@ RouteWise/
   scripts/
     run_experiment.py
     plot_experiment.py
+    experiments/
+      run_synthetic.py
+      run_joint.py
 
   tests/
     unit/
@@ -254,6 +257,11 @@ arguments and dispatch into `experiments/`. They should not contain research
 logic, simulator logic, or plotting logic beyond selecting an experiment
 command.
 
+`scripts/experiments/` contains preserved full-sweep paper runner entrypoints
+while the request-loop migration is still in progress. These files may
+orchestrate existing sweeps, but the dependency direction is still
+`scripts -> experiments -> rwsim`; `rwsim` must never import them.
+
 ### `tests/`
 
 `tests/` proves that both individual building blocks and assembled experiment
@@ -321,15 +329,13 @@ Recommended order:
 1. Keep current golden baselines green.
 2. Use this architecture document and `docs/ALGORITHMS.md` as the migration
    contract.
-3. Keep existing `rwsim/` facade working while moving implementations behind
-   it.
-4. Move leaf modules first, starting with distributions and workload.
-5. Add unit tests for each moved module.
-6. Move provider, quota, concurrency, shadow price, and metric primitives.
-7. Extract the shared simulation engine.
-8. Move policies behind stage interfaces.
-9. Convert concrete paper scenarios into config-driven experiments.
-10. Replace top-level `run_*.py` files with thin scripts.
+3. Move leaf modules first, starting with distributions and workload.
+4. Add unit tests for each moved module.
+5. Move provider, quota, concurrency, shadow price, and metric primitives.
+6. Extract the shared simulation engine.
+7. Move policies behind stage interfaces.
+8. Convert concrete paper scenarios into config-driven experiments.
+9. Convert `scripts/experiments/` full-sweep runners into thin dispatchers.
 
 Each migration step should preserve:
 

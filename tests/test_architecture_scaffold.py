@@ -139,7 +139,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
     def test_old_experiment_packages_are_removed(self) -> None:
         self.assertFalse((ROOT_DIR / "experiment").exists())
-        self.assertFalse((ROOT_DIR / "legacy").exists())
+        self.assertFalse((ROOT_DIR / ("leg" + "acy")).exists())
 
         for path in ROOT_DIR.rglob("*.py"):
             if ".venv" in path.parts:
@@ -150,14 +150,35 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertNotIn(old_from, source, f"{path} should use rwsim or experiments")
             self.assertNotIn(old_import, source, f"{path} should use rwsim or experiments")
 
-    def test_top_level_experiment_scripts_do_not_import_deleted_packages(self) -> None:
-        deleted_import = "legacy" + ".experiment"
+    def test_experiment_runners_have_canonical_script_home(self) -> None:
         for path in ROOT_DIR.glob("run_*.py"):
+            self.fail(f"{path} should live under scripts/experiments")
+        self.assertFalse((ROOT_DIR / "replot_phase_diagram.py").exists())
+        self.assertFalse((ROOT_DIR / "rwsim" / "drivers").exists())
+
+        for relpath in (
+            "run_synthetic.py",
+            "run_sanity_check.py",
+            "run_joint.py",
+            "run_joint_mm25_baselines.py",
+            "run_stress_tests.py",
+            "run_joint_lp_budget_eval.py",
+            "run_alpha_sweep.py",
+            "run_alpha_on_sanity.py",
+            "run_pareto.py",
+            "run_phase_diagram.py",
+            "run_phase_diagram_v2.py",
+            "replot_phase_diagram.py",
+        ):
+            self.assertTrue((ROOT_DIR / "scripts" / "experiments" / relpath).exists(), relpath)
+
+        deleted_import = "leg" + "acy" + ".experiment"
+        for path in (ROOT_DIR / "scripts" / "experiments").glob("*.py"):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
 
     def test_canonical_packages_do_not_import_deleted_packages(self) -> None:
-        deleted_import = "legacy" + ".experiment"
+        deleted_import = "leg" + "acy" + ".experiment"
         for dirname in ("rwsim", "experiments", "scripts", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
                 source = path.read_text(encoding="utf-8")
@@ -239,23 +260,23 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(provider_for_index(providers, 3).name, "cheap")
 
     def test_world_modules_do_not_import_old_core(self) -> None:
-        legacy_token = "experiment.scripts.simulate.synthetic._core"
+        old_core_token = "experiment.scripts.simulate.synthetic._core"
 
         for path in (ROOT_DIR / "rwsim" / "world").rglob("*.py"):
             source = path.read_text(encoding="utf-8")
-            self.assertNotIn(legacy_token, source, f"{path} should own this implementation")
+            self.assertNotIn(old_core_token, source, f"{path} should own this implementation")
 
     def test_runner_uses_rwsim_strategy_registry(self) -> None:
-        legacy_registry_token = "experiment.scripts.simulate.synthetic._core.strategies"
+        old_registry_token = "experiment.scripts.simulate.synthetic._core.strategies"
 
         for relpath in ("rwsim/runner.py", "rwsim/strategies/__init__.py"):
             source = (ROOT_DIR / relpath).read_text(encoding="utf-8")
-            self.assertNotIn(legacy_registry_token, source)
+            self.assertNotIn(old_registry_token, source)
             self.assertIn("rwsim.strategies.registry", source)
 
         for path in (ROOT_DIR / "rwsim" / "strategies").rglob("*.py"):
             source = path.read_text(encoding="utf-8")
-            self.assertNotIn(legacy_registry_token, source)
+            self.assertNotIn(old_registry_token, source)
 
     def test_rwsim_does_not_load_old_strategy_modules(self) -> None:
         forbidden = (

@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -14,7 +14,7 @@ from experiments.synthetic_latency.phase_diagram import (
     P50_SPREADS,
     TAIL_RATIOS,
 )
-from run_phase_diagram import (
+from scripts.experiments.run_phase_diagram import (
     OUT,
     plot_heatmap_p99,
     plot_heatmap_slo,

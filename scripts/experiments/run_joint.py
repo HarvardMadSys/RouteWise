@@ -1,10 +1,10 @@
 """Orchestrator: run tiered scenarios (S6-S8) for joint vs two-layer comparison.
 
 Usage (from project root, with venv active):
-    python run_joint.py
+    python scripts/experiments/run_joint.py
 
 Output layout:
-    results/joint/
+    outputs/joint/
         s6_slow_q_trap/
             summary.json
         s7_quota_depletion/
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -48,7 +48,7 @@ from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy
 from rwsim.world import StrategyRun, generate_workload
 
 SEEDS = [42, 43, 44]
-OUTPUT_ROOT = _ROOT / "results" / "joint"
+OUTPUT_ROOT = _ROOT / "outputs" / "joint"
 
 
 def _avg(runs: list[StrategyRun], fn) -> float:

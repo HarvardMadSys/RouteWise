@@ -13,10 +13,10 @@ Validation criteria:
     3. Intermediate alpha traces a continuous Pareto frontier in (cost, P99).
 
 Usage (from routewise-simulator/ root with .venv active):
-    python run_alpha_sweep.py
+    python scripts/experiments/run_alpha_sweep.py
 
 Output:
-    results/alpha_sweep/
+    outputs/alpha_sweep/
         s2_tradeoff/
             summary.json
             pareto_cost_vs_p99.png
@@ -36,7 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -84,7 +84,7 @@ SEEDS = [42, 43, 44]
 N_REQUESTS = 2000
 DURATION_SECONDS = 3600.0
 SLO_SEC = 2.0
-OUTPUT_ROOT = _ROOT / "results" / "alpha_sweep"
+OUTPUT_ROOT = _ROOT / "outputs" / "alpha_sweep"
 
 # Which synthetic scenarios to run the sweep on. S2 (cost-latency tradeoff)
 # and S3 (tail-heavy) are the most informative; S1 (clear winner) is a sanity

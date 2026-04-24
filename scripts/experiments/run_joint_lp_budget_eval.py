@@ -10,7 +10,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -31,7 +31,7 @@ from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
     summarize_main_metrics,
 )
 
-OUTPUT_ROOT = _ROOT / "results" / "lp_budget"
+OUTPUT_ROOT = _ROOT / "outputs" / "lp_budget"
 DEFAULT_SEEDS = [42, 43, 44]
 
 
@@ -56,7 +56,7 @@ def _parse_args() -> argparse.Namespace:
         choices=["synthetic", *TRACE_WORKLOAD_DATASETS],
         default=[],
         help=(
-            "Workload dataset to use. May be repeated. Defaults to legacy "
+            "Workload dataset to use. May be repeated. Defaults to built-in "
             "synthetic workload generation. Use freeinference / rednote / "
             "sharegpt for trace-driven synthetic evaluation."
         ),
@@ -75,7 +75,7 @@ def _parse_args() -> argparse.Namespace:
         default=OUTPUT_ROOT,
         help=(
             "Directory where evaluation outputs should be written. Defaults to "
-            "results/lp_budget under the worktree root."
+            "outputs/lp_budget under the worktree root."
         ),
     )
     parser.add_argument(
@@ -113,7 +113,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--freeze-golden",
         action="store_true",
-        help="Write a sidecar golden snapshot under results/lp_budget/golden/.",
+        help="Write a sidecar golden snapshot under outputs/lp_budget/golden/.",
     )
     parser.add_argument(
         "--probe-rate",
@@ -316,7 +316,7 @@ def _metadata(
 ) -> dict[str, object]:
     return {
         "implementation_root": str(_ROOT),
-        "driver": str(_ROOT / "run_joint_lp_budget_eval.py"),
+        "driver": str(Path(__file__).resolve()),
         "sidecar_module": str(
             _ROOT
             / "experiments"
@@ -363,7 +363,7 @@ def _metadata(
         "probe_rate_override": probe_rate,
         "backup_selection_policy": (
             "New hedge variants use an adaptive safe-cheapest / random-explorer "
-            "backup mix; oldhedge variants retain the legacy fastest-backup rule"
+            "backup mix; oldhedge variants retain the historical fastest-backup rule"
         ),
     }
 
@@ -406,10 +406,10 @@ def main() -> None:
     all_delta_rows: list[dict[str, object]] = []
     golden_snapshot: dict[str, object] = {}
 
-    use_legacy_synthetic_layout = len(datasets) == 1 and datasets[0] == "synthetic"
+    use_flat_synthetic_layout = len(datasets) == 1 and datasets[0] == "synthetic"
 
     for dataset_name in datasets:
-        dataset_root = output_root if use_legacy_synthetic_layout else output_root / dataset_name
+        dataset_root = output_root if use_flat_synthetic_layout else output_root / dataset_name
         dataset_root.mkdir(parents=True, exist_ok=True)
 
         for scenario_name in selected_scenarios:

@@ -2,10 +2,10 @@
 
 Usage:
     source ../.venv/bin/activate
-    python run_pareto.py
+    python scripts/experiments/run_pareto.py
 
 Output:
-    results/pareto/
+    outputs/pareto/
         {scenario}/
             points.json     # all (cost, P99, SLO, hedge_rate) points
             pareto.png      # cost vs P99 scatter with frontier
@@ -22,7 +22,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -43,7 +43,7 @@ SCENARIOS = ["s2_tradeoff", "s3_tail", "s4_shift"]
 COST_RATIOS = [0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0]
 P50_BANDS = [0.05, 0.10, 0.30]
 
-OUT = _ROOT / "results" / "pareto"
+OUT = _ROOT / "outputs" / "pareto"
 
 
 FAMILY_STYLE = {

@@ -1,10 +1,10 @@
 """Orchestrator: run all synthetic scenarios and save results.
 
 Usage (from project root, with venv active):
-    python run_synthetic.py
+    python scripts/experiments/run_synthetic.py
 
 Output layout:
-    results/synthetic/
+    outputs/synthetic/
         s1_dominant/
             summary.json
             slo_violation.png
@@ -41,7 +41,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -55,7 +55,7 @@ from rwsim.world import ScenarioConfig, StrategyRun, generate_workload
 # ---------------------------------------------------------------------------
 
 SEEDS = [42, 43, 44]          # seeds for latency sampling; averaged for summary
-OUTPUT_ROOT = _ROOT / "results" / "synthetic"
+OUTPUT_ROOT = _ROOT / "outputs" / "synthetic"
 
 
 # ---------------------------------------------------------------------------

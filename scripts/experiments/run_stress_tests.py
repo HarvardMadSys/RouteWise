@@ -1,10 +1,10 @@
 """Run stress-test scenarios (ST1-ST3) for the joint router.
 
 Usage:
-    python run_stress_tests.py
+    python scripts/experiments/run_stress_tests.py
 
 Output:
-    results/stress/
+    outputs/stress/
         st1_multi_s_a/
             summary.json
             provider_mix.png
@@ -29,7 +29,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -45,7 +45,7 @@ from rwsim.world import StrategyRun, generate_workload
 
 
 SEEDS = [42, 43, 44]
-OUTPUT_ROOT = _ROOT / "results" / "stress"
+OUTPUT_ROOT = _ROOT / "outputs" / "stress"
 
 # Focus: two_layer as baseline + current joint router variants.
 FOCUS_STRATEGIES = ["two_layer", "joint_nohedge", "joint_hedge"]

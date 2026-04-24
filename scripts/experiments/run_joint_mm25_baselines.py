@@ -3,10 +3,10 @@ MiniMax-M2.5 calibrated scenarios, so the alpha sweep has an apples-to-
 apples baseline to compare against.
 
 Usage:
-    python run_joint_mm25_baselines.py
+    python scripts/experiments/run_joint_mm25_baselines.py
 
 Output:
-    results/alpha_joint_mm25/{scenario}/baselines.json
+    outputs/alpha_joint_mm25/{scenario}/baselines.json
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -29,7 +29,7 @@ from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E40
 from rwsim.world import generate_workload  # noqa: E402
 
 
-OUTPUT_ROOT = _ROOT / "results" / "alpha_joint_mm25"
+OUTPUT_ROOT = _ROOT / "outputs" / "alpha_joint_mm25"
 SEEDS = [42, 43, 44]
 
 
