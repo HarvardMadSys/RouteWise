@@ -40,8 +40,14 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.data.schema import Request  # noqa: E402
-from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
+from experiments.synthetic_latency import load_all_world_scenarios
+from rwsim.policies.hedgers import (  # noqa: E402
+    BackupSelectionMethod,
+    select_backup,
+)
+from rwsim.policies.latency_routers import OnlineLatencyRouter  # noqa: E402
+from rwsim.schemas import Request  # noqa: E402
+from rwsim.strategies.latency_impl import (  # noqa: E402
     StrategyRun,
     _cheapest_provider_name,
     _costs_dict,
@@ -50,16 +56,7 @@ from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
     _sample,
     _warm_up_router,
 )
-from legacy.experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
-    ScenarioConfig,
-    make_scenarios,
-)
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
-from legacy.experiment.strategies.online_latency_router import OnlineLatencyRouter  # noqa: E402
-from legacy.experiment.strategies.smart_hedging import (  # noqa: E402
-    BackupSelectionMethod,
-    select_backup,
-)
+from rwsim.world import ScenarioConfig, generate_workload  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +310,7 @@ def plot_pareto(
 
 
 def main() -> None:
-    scenarios = make_scenarios()
+    scenarios = {scenario.name: scenario for scenario in load_all_world_scenarios()}
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
     for scenario_id in SCENARIO_IDS:
