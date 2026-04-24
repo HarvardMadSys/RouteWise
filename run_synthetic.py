@@ -41,15 +41,14 @@ from pathlib import Path
 
 import numpy as np
 
-# Add project root so experiment.* imports resolve.
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from experiments.synthetic_latency import load_all_world_scenarios
 from experiments.synthetic_latency.plots import make_plots
-from legacy.experiment.scripts.simulate.synthetic.runner import STRATEGIES, StrategyRun, run_strategy
-from legacy.experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig, make_scenarios
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
+from rwsim.runner import LATENCY_STRATEGIES as STRATEGIES, run_registered_strategy
+from rwsim.world import ScenarioConfig, StrategyRun, generate_workload
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -100,7 +99,7 @@ def build_summary(
 
 
 def main() -> None:
-    scenarios = make_scenarios()
+    scenarios = {scenario.name: scenario for scenario in load_all_world_scenarios()}
 
     for scenario_id, scenario in scenarios.items():
         print(f"\n{'=' * 60}")
@@ -127,7 +126,7 @@ def main() -> None:
         for strategy in STRATEGIES:
             t0 = time.perf_counter()
             for seed in SEEDS:
-                run = run_strategy(scenario, requests, strategy, seed=seed)
+                run = run_registered_strategy(scenario, requests, strategy, seed=seed)
                 results[strategy].append(run)
             elapsed = time.perf_counter() - t0
 

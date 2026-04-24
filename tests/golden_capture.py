@@ -327,20 +327,14 @@ def _capture_latency_synthetic(repo_root: Path) -> dict[str, Any]:
     """Capture S1-S5 latency scenarios."""
     _bootstrap_repo(repo_root)
 
-    from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
-        STRATEGIES,
-        run_scenario,
-    )
-    from legacy.experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
-        make_scenarios,
-    )
-    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
-        generate_workload,
-    )
+    from experiments.synthetic_latency import load_all_world_scenarios  # noqa: E402
+    from rwsim.runner import LATENCY_STRATEGIES, run_registered_strategy  # noqa: E402
+    from rwsim.world import generate_workload  # noqa: E402
 
-    strategy_names = list(STRATEGIES)
+    strategy_names = list(LATENCY_STRATEGIES)
     scenarios_payload: dict[str, Any] = {}
-    for scenario_id, scenario in make_scenarios().items():
+    scenarios = {scenario.name: scenario for scenario in load_all_world_scenarios()}
+    for scenario_id, scenario in scenarios.items():
         requests = generate_workload(
             n_requests=scenario.n_requests,
             duration_seconds=scenario.duration_seconds,
@@ -348,12 +342,13 @@ def _capture_latency_synthetic(repo_root: Path) -> dict[str, Any]:
             start_time=0.0,
             arrival_process=scenario.arrival_process,
         )
-        results = run_scenario(
-            scenario,
-            requests,
-            seeds=SEEDS,
-            strategies=strategy_names,
-        )
+        results = {
+            strategy_name: [
+                run_registered_strategy(scenario, requests, strategy_name, seed=seed)
+                for seed in SEEDS
+            ]
+            for strategy_name in strategy_names
+        }
         scenarios_payload[scenario_id] = _scenario_payload(
             scenario,
             strategy_names,
