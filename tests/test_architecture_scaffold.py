@@ -203,6 +203,30 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             (ROOT_DIR / "legacy" / "experiment" / "config.py").read_text(encoding="utf-8"),
         )
 
+    def test_offline_stage_strategies_have_canonical_home(self) -> None:
+        canonical = ROOT_DIR / "experiments" / "offline_stage" / "strategies"
+        legacy = ROOT_DIR / "legacy" / "experiment" / "strategies"
+
+        for relpath in (
+            "all_api.py",
+            "greedy.py",
+            "stage1_optimal.py",
+            "stage1_optimal_v2.py",
+            "stage1_latency.py",
+            "stage2_baselines.py",
+            "stage2_optimal.py",
+            "online/base.py",
+            "online/greedy.py",
+            "online/learning_augmented.py",
+            "online/primal_dual.py",
+        ):
+            self.assertTrue((canonical / relpath).exists(), relpath)
+            self.assertIn(
+                "experiments.offline_stage.strategies",
+                (legacy / relpath).read_text(encoding="utf-8"),
+                relpath,
+            )
+
     def test_basic_cost_routers_live_under_policy_stage(self) -> None:
         from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
 

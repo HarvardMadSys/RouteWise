@@ -1,46 +1,29 @@
-"""Online routing strategies for experiment simulation.
+"""Compatibility exports for online offline-stage strategies."""
 
-This subpackage contains online decision-making strategies that do not have
-access to future request information. They can be evaluated in offline
-simulation mode by replaying historical traces.
+_EXPORT_MODULES = {
+    "OnlineStrategy": "legacy.experiment.strategies.online.base",
+    "GreedyOnlineStrategy": "legacy.experiment.strategies.online.greedy",
+    "GreedyCostAwareStrategy": "legacy.experiment.strategies.online.greedy",
+    "PrimalDualQuotaManager": "legacy.experiment.strategies.online.primal_dual",
+    "CAPQConcurrencyManager": "legacy.experiment.strategies.online.primal_dual",
+    "PrimalDualOnlineStrategy": "legacy.experiment.strategies.online.primal_dual",
+    "LAPDConfig": "legacy.experiment.strategies.online.learning_augmented",
+    "LearningAugmentedPrimalDualStrategy": (
+        "legacy.experiment.strategies.online.learning_augmented"
+    ),
+    "LearningAugmentedUnifiedStrategy": "legacy.experiment.strategies.online.learning_augmented",
+}
 
-Strategies support both Stage1 (S_Q only) and Stage2 (S_Q + S_C) through
-configuration-based strict gating.
+__all__ = tuple(_EXPORT_MODULES)
 
-Algorithms:
-- Greedy: FCFS baseline, uses subscription whenever available
-- PrimalDual: Threshold-based with competitive ratio guarantees
-- LearningAugmented: ML-enhanced Primal-Dual with quantile prediction
-"""
 
-from legacy.experiment.strategies.online.base import OnlineStrategy
-from legacy.experiment.strategies.online.greedy import (
-    GreedyCostAwareStrategy,
-    GreedyOnlineStrategy,
-)
-from legacy.experiment.strategies.online.learning_augmented import (
-    LAPDConfig,
-    LearningAugmentedPrimalDualStrategy,
-    LearningAugmentedUnifiedStrategy,
-)
-from legacy.experiment.strategies.online.primal_dual import (
-    CAPQConcurrencyManager,
-    PrimalDualOnlineStrategy,
-    PrimalDualQuotaManager,
-)
+def __getattr__(name: str):
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(name)
 
-__all__ = [
-    # Base
-    "OnlineStrategy",
-    # Greedy strategies
-    "GreedyOnlineStrategy",
-    "GreedyCostAwareStrategy",
-    # Primal-Dual strategies
-    "PrimalDualQuotaManager",
-    "CAPQConcurrencyManager",
-    "PrimalDualOnlineStrategy",
-    # Learning-Augmented strategies
-    "LAPDConfig",
-    "LearningAugmentedPrimalDualStrategy",
-    "LearningAugmentedUnifiedStrategy",
-]
+    from importlib import import_module
+
+    module = import_module(_EXPORT_MODULES[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

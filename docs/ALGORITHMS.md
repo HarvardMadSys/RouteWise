@@ -216,6 +216,12 @@ The sidecar LP-budget experiment already contains a newer probability-targeted
 hedge variant. That should migrate as a distinct hedger stage, not be folded
 silently into legacy `lp_hedge` or `v2_p50_hedge` aliases.
 
+The paper offline/stage strategy implementations now live in
+`experiments/offline_stage/strategies/`. They are canonical for reproducing
+the existing paper artifacts, but they are still migration targets: when each
+strategy is decomposed into reusable stages, keep the old strategy name as a
+pipeline alias and remove the monolithic implementation.
+
 ## Engine Boundary
 
 The engine should be the only component that iterates over requests and

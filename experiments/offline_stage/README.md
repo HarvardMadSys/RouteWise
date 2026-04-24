@@ -7,5 +7,5 @@ This package owns the paper offline/stage experiment configuration.
 - `config/experiment.yaml` at the repository root is a compatibility symlink.
 
 Reusable offline primitives live in `rwsim/offline/`. Strategy implementations
-are being migrated next so `legacy/experiment/strategies/` can become wrappers
-only.
+live under `strategies/` so `legacy/experiment/strategies/` can remain
+compatibility wrappers only.

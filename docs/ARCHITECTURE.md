@@ -67,6 +67,7 @@ RouteWise/
     offline_stage/
       configs/
       config.py
+      strategies/
       README.md
 
   scripts/

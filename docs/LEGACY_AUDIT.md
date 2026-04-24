@@ -56,6 +56,8 @@ needed:
 | `legacy/experiment/data/schema.py` | `rwsim/offline/schemas.py` | Wrapper |
 | `legacy/experiment/{cost,quota,window_quota,cache,simulator}.py` | `rwsim/offline/` | Wrapper |
 | `legacy/experiment/strategies/base.py` | `rwsim/offline/strategy.py` | Wrapper |
+| `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | `experiments/offline_stage/strategies/` | Wrapper |
+| `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | `experiments/offline_stage/strategies/online/` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -82,8 +84,6 @@ wrapper: each workflow needs a canonical replacement under `rwsim/` +
 
 | Legacy path | Canonical migration target |
 | --- | --- |
-| `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Map stage strategies into `rwsim/policies` / `rwsim/strategies` pipeline configs. |
-| `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Map online routing stack into canonical policy stages or strategy aliases. |
 | `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
 
 Deletion condition: either reproduce the relevant artifact from `rwsim/` +
