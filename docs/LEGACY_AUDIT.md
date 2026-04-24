@@ -38,6 +38,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/plots.py` | `experiments/tiered_capacity/plots.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/stress_scenarios.py` | `experiments/tiered_capacity/stress.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_mm25.py` | `experiments/tiered_capacity/minimax_m25.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/phase_diagram.py` | `experiments/tiered_capacity/phase_diagram.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
@@ -47,18 +48,12 @@ needed:
 Deletion condition: top-level scripts and tests stop importing these paths,
 then golden compare stays green.
 
-### Useful And Not Fully Replaced Yet
+### Current Experiment Logic Not Fully Replaced Yet
 
-These modules still contain real experiment or analysis logic and should not
-be deleted until they get canonical homes:
-
-| Legacy path | Intended canonical home | Notes |
-| --- | --- | --- |
-| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Earlier calibrated tiered scenarios. |
-
-Migration condition: move the implementation to the intended home, leave a
-temporary wrapper in legacy, update top-level scripts/tests to import the
-canonical module, then rerun golden compare.
+No current synthetic/tiered experiment module is known to live only under
+`legacy/experiment/`. Remaining legacy code is either a compatibility wrapper
+for a canonical module or part of the historical offline experiment stack
+below.
 
 ### Historical Offline Experiment Stack
 

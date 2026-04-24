@@ -70,6 +70,26 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             ("estimator_ablation", "synthetic_latency", "tiered_capacity"),
         )
 
+    def test_tiered_legacy_calibrated_scenarios_have_canonical_home(self) -> None:
+        canonical = ROOT_DIR / "experiments" / "tiered_capacity" / "calibrated.py"
+        wrapper = (
+            ROOT_DIR
+            / "legacy"
+            / "experiment"
+            / "scripts"
+            / "simulate"
+            / "synthetic"
+            / "tiered"
+            / "scenarios_calibrated.py"
+        )
+
+        self.assertTrue(canonical.exists())
+        self.assertIn("make_calibrated_scenarios", canonical.read_text(encoding="utf-8"))
+        self.assertIn(
+            "experiments.tiered_capacity.calibrated",
+            wrapper.read_text(encoding="utf-8"),
+        )
+
     def test_request_schema_keeps_legacy_convenience_properties(self) -> None:
         request = Request(
             id=1,
