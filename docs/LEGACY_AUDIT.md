@@ -31,6 +31,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/strategies.py` | `rwsim/strategies/tiered_impl.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/scenarios.py` | `experiments/synthetic_latency/configs/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/_core/sanity_check.py` | `experiments/synthetic_latency/sanity.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/plots.py` | `experiments/synthetic_latency/plots.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios.py` | `experiments/tiered_capacity/configs/` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
@@ -46,7 +47,6 @@ be deleted until they get canonical homes:
 
 | Legacy path | Intended canonical home | Notes |
 | --- | --- | --- |
-| `legacy/experiment/scripts/simulate/synthetic/plots.py` | `experiments/synthetic_latency/plots.py` | Plot helpers used by `run_synthetic.py`. |
 | `legacy/experiment/scripts/simulate/synthetic/pareto.py` | `experiments/synthetic_latency/pareto.py` | Pareto sweep analysis. |
 | `legacy/experiment/scripts/simulate/synthetic/phase_diagram*.py` | `experiments/synthetic_latency/phase_diagram*.py` | LP vs V2 regime maps. |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/plots.py` | `experiments/tiered_capacity/plots.py` | Tiered summary plots. |
