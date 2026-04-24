@@ -1,3 +1,1 @@
-"""Canonical Pareto analysis exports."""
-
-from experiments.synthetic_latency.pareto import *  # noqa: F401,F403
+"""Deprecated module; Pareto analysis lives with the synthetic latency experiment."""

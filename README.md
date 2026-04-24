@@ -44,7 +44,6 @@ Use `rwsim/` as the canonical package surface for new code:
 - `rwsim/world/`: shared world model
 - `rwsim/policies/`: target pipeline-stage policy decomposition
 - `rwsim/strategies/`: registered strategy surface
-- `rwsim/analyze/`: analysis helpers
 - `rwsim/drivers/`: canonical driver entrypoints
 - `rwsim/runner.py`: shared strategy dispatch
 
@@ -80,7 +79,6 @@ RouteWise/
     policies/
     metrics/
     strategies/
-    analyze/
     drivers/
     runner.py
     schemas.py

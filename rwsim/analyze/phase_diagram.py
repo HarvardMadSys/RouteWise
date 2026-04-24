@@ -1,3 +1,1 @@
-"""Canonical latency phase diagram exports."""
-
-from experiments.synthetic_latency.phase_diagram import *  # noqa: F401,F403
+"""Deprecated module; latency phase diagrams live with their experiment."""

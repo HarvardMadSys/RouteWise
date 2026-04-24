@@ -105,6 +105,7 @@ scenario + policy + seed -> simulation result
 - Paper figure paths.
 - Experiment output directory decisions.
 - Plotting logic that is only meaningful for a specific paper experiment.
+- Experiment-specific analysis modules.
 
 ### `rwsim/scenarios.py`
 

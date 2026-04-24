@@ -11,7 +11,6 @@ from experiments.synthetic_latency.experiment import (
     run_strategy,
     summarize,
 )
-from experiments.synthetic_latency.sanity import SanityStep, make_sanity_steps
 
 __all__ = [
     "CONFIG_DIR",
@@ -26,3 +25,12 @@ __all__ = [
     "run_strategy",
     "summarize",
 ]
+
+
+def __getattr__(name: str):
+    """Resolve optional experiment helpers lazily."""
+    if name in {"SanityStep", "make_sanity_steps"}:
+        from experiments.synthetic_latency import sanity
+
+        return getattr(sanity, name)
+    raise AttributeError(f"module 'experiments.synthetic_latency' has no attribute {name!r}")

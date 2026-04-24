@@ -1,5 +1,4 @@
-"""Canonical analysis exports."""
+"""Deprecated analysis namespace.
 
-from .pareto import *  # noqa: F401,F403
-from .phase_diagram import *  # noqa: F401,F403
-from .phase_diagram_tiered import *  # noqa: F401,F403
+Experiment-specific analysis now lives with the owning experiment package.
+"""

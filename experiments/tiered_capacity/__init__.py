@@ -11,8 +11,6 @@ from experiments.tiered_capacity.experiment import (
     run_strategy,
     summarize,
 )
-from experiments.tiered_capacity.minimax_m25 import make_mm25_scenarios
-from experiments.tiered_capacity.stress import make_stress_scenarios
 
 __all__ = [
     "CONFIG_DIR",
@@ -27,3 +25,16 @@ __all__ = [
     "run_strategy",
     "summarize",
 ]
+
+
+def __getattr__(name: str):
+    """Resolve optional experiment helpers lazily."""
+    if name == "make_mm25_scenarios":
+        from experiments.tiered_capacity import minimax_m25
+
+        return minimax_m25.make_mm25_scenarios
+    if name == "make_stress_scenarios":
+        from experiments.tiered_capacity import stress
+
+        return stress.make_stress_scenarios
+    raise AttributeError(f"module 'experiments.tiered_capacity' has no attribute {name!r}")
