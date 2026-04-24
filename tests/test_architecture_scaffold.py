@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from experiments import available_experiments, get_experiment
 from experiments._configs import summarize_scenario
 from rwsim.policies import available_aliases, get_pipeline_alias
 from rwsim.scenarios import build_scenario
 from rwsim.schemas import ProviderTier
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureScaffoldTest(unittest.TestCase):
@@ -64,6 +68,34 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             available_experiments(),
             ("estimator_ablation", "synthetic_latency", "tiered_capacity"),
         )
+
+    def test_rwsim_does_not_depend_on_experiments_or_scripts(self) -> None:
+        forbidden = ("from experiments", "import experiments", "from scripts", "import scripts")
+
+        for path in (ROOT_DIR / "rwsim").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{path} must not import {token!r}")
+
+    def test_rwsim_scenarios_has_no_concrete_paper_factories(self) -> None:
+        source = (ROOT_DIR / "rwsim" / "scenarios.py").read_text(encoding="utf-8")
+
+        forbidden = (
+            "make_s6",
+            "make_s7",
+            "make_s8",
+            "make_s9",
+            "make_unified_pool",
+            "s6_slow_q_trap",
+            "s7_quota_depletion",
+            "unified_pool",
+        )
+        for token in forbidden:
+            self.assertNotIn(token, source)
+
+    def test_policy_stage_directories_exist(self) -> None:
+        for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
+            self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
 
 if __name__ == "__main__":
