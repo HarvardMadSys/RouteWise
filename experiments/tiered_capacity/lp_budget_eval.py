@@ -20,10 +20,9 @@ from typing import NamedTuple
 import numpy as np
 from scipy.optimize import linprog
 
-from legacy.experiment.data.loader import DataLoader
-
 from experiments.tiered_capacity import list_scenarios, load_world_scenario
 from experiments.tiered_capacity.minimax_m25 import make_mm25_scenarios
+from rwsim.data import DataLoader
 from rwsim.policies.latency_routers.online_lp import SWRRSampler
 from rwsim.schemas import Request
 from rwsim.strategies.tiered_impl import (

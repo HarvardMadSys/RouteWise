@@ -42,6 +42,7 @@ pytest tests/test_golden.py -m slow
 Use `rwsim/` as the canonical package surface for new code:
 
 - `rwsim/world/`: shared world model
+- `rwsim/data/`: reusable trace dataset loaders
 - `rwsim/policies/`: target pipeline-stage policy decomposition
 - `rwsim/strategies/`: registered strategy surface
 - `rwsim/drivers/`: canonical driver entrypoints
@@ -75,6 +76,7 @@ RouteWise/
     ALGORITHMS.md
   rwsim/
     world/
+    data/
     engine/
     policies/
     metrics/
@@ -239,26 +241,31 @@ Any structural change to the simulator should satisfy all of the following:
 3. Top-level scripts remain functional while `legacy/experiment/` is
    kill-on-reproduce.
 
-## Known caveat
+## Known Algorithm Caveats
 
-There is one documented pre-existing latent bug that was intentionally not
-mixed into the refactor:
+These pre-existing behavioral issues were intentionally not mixed into the
+structural refactor:
 
+- `two_layer` can select a provider that is unavailable if another provider in
+  the same tier is available. Golden baselines preserve the old behavior.
 - In `rwsim/policies/latency_routers/tiered_filters.py`, `provider_p95_at()` checks
   `hasattr(provider, "_active_dist")`.
 - Stress scenario `st2_s_q_degradation` uses `TieredProvider` with
   `shift_time` and `ttft_dist_after`, not `ShiftingProvider`.
 - As a result, request sampling can observe degradation while the
   strategy-side P95 filter still sees the pre-shift profile.
+- EMA, histogram, and oracle value estimators assume completed requests have
+  non-empty `response_tokens`, even though `Request.response_tokens` is typed
+  as optional.
 
-This issue is documented in the simulator merge plan and should be handled
-as a separate behavioral fix, not as part of the structural refactor.
+These should be handled as separate behavioral fixes, not as part of the
+structural refactor.
 
 ## Notes on compatibility
 
 - `rwsim/` is the canonical package surface for new development.
-- `legacy/experiment/` contains historical compatibility code and some
-  still-useful experiment/analysis logic that has not been fully migrated.
+- `legacy/experiment/` contains historical compatibility wrappers plus the
+  old offline/stage experiment stack tracked in `docs/LEGACY_AUDIT.md`.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
   strategy files now forward into `rwsim/`.
 - `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`

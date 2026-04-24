@@ -41,6 +41,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/phase_diagram.py` | `experiments/tiered_capacity/phase_diagram.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` | Wrapper |
+| `legacy/experiment/data/loader.py` | `rwsim/data/loader.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -62,7 +63,7 @@ counterfactual or phase 3/4 latency experiments:
 
 | Legacy path | Decision needed |
 | --- | --- |
-| `legacy/experiment/data/{schema,loader}.py` | Migrate only if old CSV/data-loader workflow is still active. |
+| `legacy/experiment/data/schema.py` | Migrate only if old offline ProviderConfig/RoutingDecision models are still active. |
 | `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Either map into `rwsim/engine`/`rwsim/schemas` or retire with offline stack. |
 | `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Historical stage strategy stack; not represented by current pipeline config. |
 | `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Historical online routing stack; not part of current synthetic golden path. |
@@ -81,10 +82,8 @@ The main synthetic/tiered runners and `tests/golden_capture.py` now import
 canonical `rwsim/` and `experiments/` paths.
 
 There are no known root-level script callers of `legacy.experiment.*` now.
-`experiments/tiered_capacity/lp_budget_eval.py` still imports the historical
-`legacy.experiment.data` loader for trace-driven datasets. That is an explicit
-remaining data/offline-stack dependency, not a top-level experiment entrypoint
-dependency.
+There are also no known canonical `rwsim/` or `experiments/` modules importing
+`legacy.experiment.*`.
 
 `tests/test_architecture_scaffold.py` intentionally imports one legacy
 predictor wrapper to verify backward compatibility.

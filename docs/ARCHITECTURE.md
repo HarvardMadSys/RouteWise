@@ -16,6 +16,8 @@ truth.
 ```text
 RouteWise/
   rwsim/
+    data/
+      loader.py
     world/
       distributions.py
       providers.py
@@ -92,6 +94,7 @@ scenario + policy + seed -> simulation result
 `rwsim/` should contain:
 
 - Provider, quota, concurrency, workload, and latency distribution models.
+- Trace data loaders used by experiments.
 - A shared simulation engine and execution state.
 - Policy stage interfaces and reusable policy implementations.
 - Metric streams, aggregation, and standard result schemas.
@@ -233,9 +236,9 @@ command.
 architecture is being reproduced.
 
 It exists to preserve baseline comparability during the migration. Some code
-inside `legacy/experiment/` is already a wrapper over `rwsim/`; some is still
-real experiment or analysis logic that needs a canonical home before deletion.
-The detailed inventory lives in `docs/LEGACY_AUDIT.md`.
+inside `legacy/experiment/` is already a wrapper over `rwsim/` or
+`experiments/`; the rest is historical offline/stage experiment code. The
+detailed inventory lives in `docs/LEGACY_AUDIT.md`.
 
 `legacy/` should be removed once the new architecture reproduces the required
 golden baselines and paper experiments.
@@ -298,6 +301,7 @@ Current status:
 - `rwsim/world/` owns the leaf world primitives: distributions, capacity state,
   providers, workload generation, scenario containers, shadow pricing, and run
   metrics.
+- `rwsim/data/` owns reusable trace-data loading helpers used by experiments.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world modules are
   compatibility wrappers.
 - `rwsim/strategies/registry.py` owns the canonical strategy registry surface.

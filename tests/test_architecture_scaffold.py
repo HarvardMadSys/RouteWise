@@ -149,6 +149,12 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("legacy.experiment", source, f"{path} should use canonical imports")
 
+    def test_canonical_packages_do_not_import_legacy(self) -> None:
+        for dirname in ("rwsim", "experiments"):
+            for path in (ROOT_DIR / dirname).rglob("*.py"):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("legacy.experiment", source, f"{path} should not import legacy")
+
     def test_value_estimators_live_under_policy_stage(self) -> None:
         from legacy.experiment.predictors import EMAOutputPredictor as LegacyEMAOutputPredictor
         from rwsim.policies.value_estimators import (
