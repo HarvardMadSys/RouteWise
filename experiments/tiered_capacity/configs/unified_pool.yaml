@@ -1,0 +1,104 @@
+name: unified_pool
+description: >
+  Unified 5-slot provider pool shared across S_Q, S_C, and S_A. Each tier has
+  the same five TTFT profiles so method differences isolate tier-constraint
+  handling from provider latency variability.
+primary_slo_ms: 2000.0
+slo_thresholds_ms: [500.0, 1000.0, 2000.0, 3000.0, 5000.0]
+workload:
+  source: synthetic
+  n_requests: 5000
+  duration_seconds: 1500.0
+  arrival_process: poisson
+  seed: 0
+  input_tokens: 100
+  output_token_distribution:
+    name: lognormal
+    mu: 4.0
+    sigma: 1.0
+metadata:
+  slot_profiles:
+    - [s0_fastnorm, 200.0, 500.0]
+    - [s1_tailhvy, 250.0, 2500.0]
+    - [s2_normal, 700.0, 1800.0]
+    - [s3_trap, 1000.0, 2600.0]
+    - [s4_slowdeep, 1500.0, 4000.0]
+providers:
+  - &sq0
+    name: SQ_s0_fastnorm
+    tier: quota
+    cost_per_token: 0.0
+    quota_size: 200
+    quota_window_sec: 86400.0
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 200.0, p99_ms: 500.0}
+    tps_distribution: &default_tps {name: lognormal, mu: 5.5, sigma: 0.3}
+  - <<: *sq0
+    name: SQ_s1_tailhvy
+    quota_size: 400
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 250.0, p99_ms: 2500.0}
+  - <<: *sq0
+    name: SQ_s2_normal
+    quota_size: 800
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 700.0, p99_ms: 1800.0}
+  - <<: *sq0
+    name: SQ_s3_trap
+    quota_size: 1200
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1000.0, p99_ms: 2600.0}
+  - <<: *sq0
+    name: SQ_s4_slowdeep
+    quota_size: 2000
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1500.0, p99_ms: 4000.0}
+
+  - &sc0
+    name: SC_s0_fastnorm
+    tier: concurrency
+    cost_per_token: 0.0
+    concurrency_limit: 1
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 200.0, p99_ms: 500.0}
+    service_time_distribution: {name: lognormal_p50_sigma, p50_ms: 2000.0, sigma: 0.5}
+    tps_distribution: *default_tps
+  - <<: *sc0
+    name: SC_s1_tailhvy
+    concurrency_limit: 2
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 250.0, p99_ms: 2500.0}
+  - <<: *sc0
+    name: SC_s2_normal
+    concurrency_limit: 3
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 700.0, p99_ms: 1800.0}
+  - <<: *sc0
+    name: SC_s3_trap
+    concurrency_limit: 4
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1000.0, p99_ms: 2600.0}
+  - <<: *sc0
+    name: SC_s4_slowdeep
+    concurrency_limit: 5
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1500.0, p99_ms: 4000.0}
+
+  - &sa0
+    name: SA_s0_fastnorm
+    tier: api
+    cost_per_token: 0.000002
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 200.0, p99_ms: 500.0}
+    tps_distribution: *default_tps
+  - <<: *sa0
+    name: SA_s1_tailhvy
+    cost_per_token: 0.000002
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 250.0, p99_ms: 2500.0}
+  - <<: *sa0
+    name: SA_s2_normal
+    cost_per_token: 0.000001
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 700.0, p99_ms: 1800.0}
+  - <<: *sa0
+    name: SA_s3_trap
+    cost_per_token: 0.000003
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1000.0, p99_ms: 2600.0}
+    shift_events:
+      - time_sec: 750.0
+        ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1800.0, p99_ms: 5000.0}
+  - <<: *sa0
+    name: SA_s4_slowdeep
+    cost_per_token: 0.0000005
+    ttft_distribution: {name: lognormal_p50_p99, p50_ms: 1500.0, p99_ms: 4000.0}
+    shift_events:
+      - time_sec: 450.0
+        ttft_distribution: {name: lognormal_p50_p99, p50_ms: 900.0, p99_ms: 2400.0}

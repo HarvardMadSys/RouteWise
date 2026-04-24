@@ -59,25 +59,32 @@ The target architecture and algorithm decomposition are documented in:
 ```text
 RouteWise/
   README.md
+  docs/
+    ARCHITECTURE.md
+    ALGORITHMS.md
   rwsim/
     world/
+    engine/
+    policies/
+    metrics/
     strategies/
     analyze/
     drivers/
     runner.py
-  experiment/scripts/simulate/synthetic/
-    _core/
-    tiered/
-    providers.py
+    schemas.py
     scenarios.py
-    runner.py
-    workload.py
-    sanity_check.py
+    registry.py
+  experiments/
+    synthetic_latency/
+    tiered_capacity/
+    estimator_ablation/
+  legacy/
+  scripts/
   tests/
     golden/
     golden_capture.py
     test_golden.py
-  results/
+  outputs/
 ```
 
 ### `rwsim/world`

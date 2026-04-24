@@ -190,6 +190,8 @@ switch. When a current strategy has a legacy implementation detail, the alias
 should preserve that behavior until a separate research change intentionally
 changes the algorithm.
 
+The code-level alias table lives in `rwsim/policies/composer.py`.
+
 | Current strategy | Value estimator | Cost router | Latency router | Hedger |
 | --- | --- | --- | --- | --- |
 | `cheapest_fixed` | fixed or none | fixed cheapest | none | none |

@@ -1,0 +1,42 @@
+name: s8_concurrency_saturation
+description: >
+  S_C is free but concurrency-limited. Arrival rate exceeds slot capacity, so
+  the router must spill to S_A when concurrency saturates.
+primary_slo_ms: 2000.0
+slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
+workload:
+  source: synthetic
+  n_requests: 3000
+  duration_seconds: 1000.0
+  arrival_process: poisson
+  seed: 0
+  input_tokens: 100
+  output_token_distribution:
+    name: lognormal
+    mu: 4.0
+    sigma: 1.0
+providers:
+  - name: Featherless_S_C
+    tier: concurrency
+    cost_per_token: 0.0
+    concurrency_limit: 4
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 500.0
+      sigma: 0.5
+    service_time_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 2000.0
+      sigma: 0.5
+    tps_distribution: &default_tps
+      name: lognormal
+      mu: 5.5
+      sigma: 0.3
+  - name: Together_S_A
+    tier: api
+    cost_per_token: 0.000003
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 100.0
+      sigma: 0.5
+    tps_distribution: *default_tps

@@ -1,0 +1,39 @@
+name: s7_quota_depletion
+description: >
+  S_Q is free and SLO-safe but has limited quota. S_A is faster and paid. The
+  experiment tests smooth shadow-price handoff from quota to API.
+primary_slo_ms: 2000.0
+slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
+workload:
+  source: synthetic
+  n_requests: 200
+  duration_seconds: 3600.0
+  arrival_process: poisson
+  seed: 0
+  input_tokens: 100
+  output_token_distribution:
+    name: lognormal
+    mu: 4.0
+    sigma: 1.0
+providers:
+  - name: Chutes_S_Q
+    tier: quota
+    cost_per_token: 0.0
+    quota_size: 100
+    quota_window_sec: 86400.0
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 300.0
+      sigma: 0.5
+    tps_distribution: &default_tps
+      name: lognormal
+      mu: 5.5
+      sigma: 0.3
+  - name: Together_S_A
+    tier: api
+    cost_per_token: 0.000003
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 200.0
+      sigma: 0.5
+    tps_distribution: *default_tps
