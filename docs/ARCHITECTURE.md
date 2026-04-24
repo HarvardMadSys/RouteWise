@@ -293,8 +293,12 @@ Current status:
 - `experiment/scripts/simulate/synthetic/_core/` world modules are
   compatibility wrappers.
 - `rwsim/strategies/registry.py` owns the canonical strategy registry surface.
-  The concrete strategy implementations still live in legacy modules until
-  each policy stage is reproduced behind `rwsim/policies/`.
+- `rwsim/strategies/latency_impl.py` and `rwsim/strategies/tiered_impl.py`
+  own the reproduced strategy loops; legacy synthetic runner modules are
+  wrappers.
+- `rwsim/policies/` now owns the migrated latency routers, hedgers, value
+  estimators, and initial cost-router selectors. Remaining work is to move
+  full request-loop execution into `rwsim/engine/` behind the composer.
 - `experiments/tiered_capacity/configs/` owns S6/S7/S8/S9/`unified_pool`
   scenario definitions and can run one registered strategy through
   `scripts/run_experiment.py`.

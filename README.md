@@ -243,7 +243,7 @@ Any structural change to the simulator should satisfy all of the following:
 There is one documented pre-existing latent bug that was intentionally not
 mixed into the refactor:
 
-- In `rwsim/strategies/tiered_impl.py`, `_provider_p95_at()` checks
+- In `rwsim/policies/latency_routers/tiered_filters.py`, `provider_p95_at()` checks
   `hasattr(provider, "_active_dist")`.
 - Stress scenario `st2_s_q_degradation` uses `TieredProvider` with
   `shift_time` and `ttft_dist_after`, not `ShiftingProvider`.
@@ -257,8 +257,10 @@ as a separate behavioral fix, not as part of the structural refactor.
 
 - `rwsim/` is the canonical package surface for new development.
 - `experiment/scripts/simulate/synthetic/_core/` remains as a legacy import
-  path. Its world-model files now forward into `rwsim/world`; strategy
-  implementation files are still legacy until each pipeline stage is migrated.
+  path. Its world-model and strategy files now forward into `rwsim/`.
+- `experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
+  and `experiment/strategies/online/predictors/` are compatibility wrappers
+  around `rwsim/policies/`.
 - Top-level `run_*.py` scripts remain the default operational entrypoints.
 
 That split is intentional: it keeps old experiments reproducible while giving
