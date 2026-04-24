@@ -44,6 +44,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/phase_diagram.py` | `experiments/tiered_capacity/phase_diagram.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/{offline_counterfactual,policies,bootstrap,plot_counterfactual}.py` | `experiments/offline_counterfactual/` | Wrapper |
 | `legacy/experiment/data/loader.py` | `rwsim/data/loader.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
@@ -76,7 +77,6 @@ wrapper: each workflow needs a canonical replacement under `rwsim/` +
 | `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Map shared execution, cost, quota, and cache pieces into `rwsim/engine`, `rwsim/world`, and `rwsim/data`. |
 | `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Map stage strategies into `rwsim/policies` / `rwsim/strategies` pipeline configs. |
 | `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Map online routing stack into canonical policy stages or strategy aliases. |
-| `legacy/experiment/scripts/simulate/{offline_counterfactual,policies,bootstrap,plot_counterfactual}.py` | Move offline counterfactual workflow into an `experiments/` package with canonical policy imports. |
 | `legacy/experiment/scripts/run_phase{3,4}_simulation.py` | Move Phase 3/4 latency experiment runners into `experiments/` and keep paper-output compatibility. |
 | `legacy/experiment/scripts/plot/{common.py,latency/*.py}` | Move Phase 3/4 plotters and paper style helpers into the same experiment package or a paper plotting module. |
 | `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
