@@ -9,7 +9,7 @@ from experiments import available_experiments, get_experiment
 from experiments._configs import summarize_scenario
 from rwsim.policies import available_aliases, get_pipeline_alias
 from rwsim.scenarios import build_scenario
-from rwsim.schemas import ProviderTier
+from rwsim.schemas import ProviderTier, Request
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -69,6 +69,19 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             ("estimator_ablation", "synthetic_latency", "tiered_capacity"),
         )
 
+    def test_request_schema_keeps_legacy_convenience_properties(self) -> None:
+        request = Request(
+            id=1,
+            timestamp=90000.0,
+            request_tokens=100,
+            response_tokens=50,
+            total_tokens=150,
+        )
+
+        self.assertEqual(request.day, 1)
+        self.assertEqual(request.time_of_day, 3600)
+        self.assertEqual(request.latency_seconds, 0.075)
+
     def test_rwsim_does_not_depend_on_experiments_or_scripts(self) -> None:
         forbidden = ("from experiments", "import experiments", "from scripts", "import scripts")
 
@@ -96,6 +109,13 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_policy_stage_directories_exist(self) -> None:
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
+
+    def test_world_modules_do_not_import_legacy_core(self) -> None:
+        legacy_token = "experiment.scripts.simulate.synthetic._core"
+
+        for path in (ROOT_DIR / "rwsim" / "world").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn(legacy_token, source, f"{path} should own this implementation")
 
 
 if __name__ == "__main__":

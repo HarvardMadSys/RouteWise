@@ -96,8 +96,31 @@ class Request:
     response_tokens: int | None = None
     total_tokens: int | None = None
     model: str | None = None
+    provider: str | None = None
+    actual_cost: float | None = None
+    latency_ms: int | None = None
+    ttft_ms: int | None = None
     slo_ms: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def day(self) -> int:
+        """Return the day index for second-based timestamps."""
+        return int(self.timestamp) // 86400
+
+    @property
+    def time_of_day(self) -> int:
+        """Return seconds within the current day."""
+        return int(self.timestamp) % 86400
+
+    @property
+    def latency_seconds(self) -> float:
+        """Return observed or token-estimated latency in seconds."""
+        if self.latency_ms is not None:
+            return self.latency_ms / 1000.0
+        if self.total_tokens is None:
+            return 0.0
+        return self.total_tokens / 2000.0
 
 
 @dataclass(frozen=True)

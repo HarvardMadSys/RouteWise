@@ -1,39 +1,42 @@
-"""Canonical world-model exports for the synthetic simulator."""
+"""Canonical world-model exports for the synthetic simulator.
 
-from .distributions import LogNormal
-from .metrics import StrategyRun
-from .providers import (
-    ConcurrencyState,
-    Provider,
-    ProviderTier,
-    QuotaState,
-    ShiftingProvider,
-    SyntheticProvider,
-    TieredProvider,
-)
-from .scenarios import ScenarioConfig
-from .shadow_price import (
-    calibrate_envelopes,
-    concurrency_shadow_price,
-    effective_cost,
-    quota_shadow_price,
-)
-from .workload import generate_workload
+Exports are resolved lazily so dependency-light modules such as
+``rwsim.world.capacity`` can be imported before the scientific stack is
+installed.
+"""
 
-__all__ = [
-    "ConcurrencyState",
-    "LogNormal",
-    "Provider",
-    "ProviderTier",
-    "QuotaState",
-    "ScenarioConfig",
-    "ShiftingProvider",
-    "StrategyRun",
-    "SyntheticProvider",
-    "TieredProvider",
-    "calibrate_envelopes",
-    "concurrency_shadow_price",
-    "effective_cost",
-    "generate_workload",
-    "quota_shadow_price",
-]
+from __future__ import annotations
+
+
+_EXPORT_MODULES = {
+    "ConcurrencyState": "rwsim.world.capacity",
+    "ProviderTier": "rwsim.world.capacity",
+    "QuotaState": "rwsim.world.capacity",
+    "LogNormal": "rwsim.world.distributions",
+    "StrategyRun": "rwsim.world.metrics",
+    "Provider": "rwsim.world.providers",
+    "ShiftingProvider": "rwsim.world.providers",
+    "SyntheticProvider": "rwsim.world.providers",
+    "TieredProvider": "rwsim.world.providers",
+    "ScenarioConfig": "rwsim.world.scenarios",
+    "calibrate_envelopes": "rwsim.world.shadow_price",
+    "concurrency_shadow_price": "rwsim.world.shadow_price",
+    "effective_cost": "rwsim.world.shadow_price",
+    "quota_shadow_price": "rwsim.world.shadow_price",
+    "generate_workload": "rwsim.world.workload",
+}
+
+__all__ = sorted(_EXPORT_MODULES)
+
+
+def __getattr__(name: str):
+    """Resolve public world-model exports lazily."""
+    try:
+        module_name = _EXPORT_MODULES[name]
+    except KeyError as exc:
+        raise AttributeError(f"module 'rwsim.world' has no attribute {name!r}") from exc
+
+    from importlib import import_module
+
+    module = import_module(module_name)
+    return getattr(module, name)
