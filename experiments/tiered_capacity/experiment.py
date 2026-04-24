@@ -33,6 +33,20 @@ def load_all_scenarios() -> tuple[ScenarioConfig, ...]:
     return load_all_named_scenarios(CONFIG_DIR)
 
 
+def load_world_scenario(name: str):
+    """Load one tiered capacity scenario as runnable world objects."""
+    from experiments.tiered_capacity.materialize import scenario as materialize_scenario
+
+    return materialize_scenario(load_scenario(name))
+
+
+def load_all_world_scenarios() -> tuple[object, ...]:
+    """Load all tiered capacity scenarios as runnable world objects."""
+    from experiments.tiered_capacity.materialize import scenario as materialize_scenario
+
+    return tuple(materialize_scenario(item) for item in load_all_scenarios())
+
+
 def summarize(name: str) -> dict[str, Any]:
     """Load and summarize one tiered capacity scenario."""
     return summarize_scenario(load_scenario(name))
@@ -43,6 +57,8 @@ __all__ = [
     "EXPERIMENT_NAME",
     "list_scenarios",
     "load_all_scenarios",
+    "load_all_world_scenarios",
     "load_scenario",
+    "load_world_scenario",
     "summarize",
 ]
