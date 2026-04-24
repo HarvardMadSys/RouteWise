@@ -43,6 +43,7 @@ Use `rwsim/` as the canonical package surface for new code:
 
 - `rwsim/world/`: shared world model
 - `rwsim/data/`: reusable trace dataset loaders
+- `rwsim/offline/`: paper offline/stage simulation primitives
 - `rwsim/policies/`: target pipeline-stage policy decomposition
 - `rwsim/strategies/`: registered strategy surface
 - `rwsim/drivers/`: canonical driver entrypoints
@@ -78,6 +79,7 @@ RouteWise/
     world/
     data/
     engine/
+    offline/
     policies/
     metrics/
     strategies/
@@ -90,6 +92,7 @@ RouteWise/
     synthetic_latency/
     tiered_capacity/
     estimator_ablation/
+    offline_stage/
   legacy/
     experiment/
   scripts/
@@ -265,7 +268,9 @@ structural refactor.
 
 - `rwsim/` is the canonical package surface for new development.
 - `legacy/experiment/` contains compatibility wrappers plus paper-used
-  offline/stage workflows that are pending canonical migration.
+  offline/stage strategy workflows that are pending canonical migration.
+- Offline/stage core types, config loading, quota/cost/cache, and simulator
+  code now live in `rwsim/offline/` and `experiments/offline_stage/`.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
   strategy files now forward into `rwsim/`.
 - `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`

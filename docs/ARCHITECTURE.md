@@ -28,6 +28,14 @@ RouteWise/
       simulator.py
       state.py
       events.py
+    offline/
+      schemas.py
+      cost.py
+      quota.py
+      window_quota.py
+      cache.py
+      simulator.py
+      strategy.py
     policies/
       value_estimators/
       cost_routers/
@@ -55,6 +63,10 @@ RouteWise/
     estimator_ablation/
       configs/
       experiment.py
+      README.md
+    offline_stage/
+      configs/
+      config.py
       README.md
 
   scripts/
@@ -154,6 +166,23 @@ class Simulator:
 
 This should replace the current pattern where many `_run_*` functions each
 implement their own loop, state updates, and metrics collection.
+
+### `rwsim/offline/`
+
+`rwsim/offline/` owns the paper-used offline/stage primitives that predate the
+new streaming engine:
+
+- Offline request, provider, and routing-decision schemas.
+- Cost calculation for subscription and API baselines.
+- Daily and fixed-window quota managers.
+- Dataset and ILP result cache helpers.
+- The historical offline replay simulator and routing-strategy base class.
+
+This package is canonical for reproducibility, but it is still an intermediate
+migration layer. New policy work should prefer the staged pipeline under
+`rwsim/policies/`; existing offline/stage strategies should be moved here or
+into `experiments/offline_stage/` only until they are decomposed into policy
+stages.
 
 ### `rwsim/policies/`
 

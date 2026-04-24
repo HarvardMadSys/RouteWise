@@ -180,6 +180,29 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
         self.assertIs(LegacyEMAOutputPredictor, EMAOutputPredictor)
 
+    def test_offline_stage_core_has_canonical_home(self) -> None:
+        from experiments.offline_stage import DEFAULT_CONFIG_PATH
+        from legacy.experiment.cost import CostCalculator as LegacyCostCalculator
+        from legacy.experiment.data.schema import Request as LegacyOfflineRequest
+        from rwsim.offline import CostCalculator, Request
+
+        self.assertTrue((ROOT_DIR / "rwsim" / "offline" / "schemas.py").exists())
+        self.assertTrue((ROOT_DIR / "rwsim" / "offline" / "simulator.py").exists())
+        self.assertTrue(
+            (ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml").exists()
+        )
+        self.assertTrue((ROOT_DIR / "config" / "experiment.yaml").is_symlink())
+        self.assertIs(LegacyCostCalculator, CostCalculator)
+        self.assertIs(LegacyOfflineRequest, Request)
+        self.assertEqual(
+            DEFAULT_CONFIG_PATH,
+            ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml",
+        )
+        self.assertIn(
+            "experiments.offline_stage.config",
+            (ROOT_DIR / "legacy" / "experiment" / "config.py").read_text(encoding="utf-8"),
+        )
+
     def test_basic_cost_routers_live_under_policy_stage(self) -> None:
         from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
 

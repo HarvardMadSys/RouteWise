@@ -51,6 +51,11 @@ needed:
 | `legacy/experiment/scripts/plot/latency/phase3_simulation.py` | `experiments/latency_phase3/plots.py` | Wrapper |
 | `legacy/experiment/scripts/plot/latency/phase4_hedging.py` | `experiments/latency_phase4/plots.py` | Wrapper |
 | `legacy/experiment/data/loader.py` | `rwsim/data/loader.py` | Wrapper |
+| `config/experiment.yaml` | `experiments/offline_stage/configs/experiment.yaml` | Compatibility symlink |
+| `legacy/experiment/config.py` | `experiments/offline_stage/config.py` | Wrapper |
+| `legacy/experiment/data/schema.py` | `rwsim/offline/schemas.py` | Wrapper |
+| `legacy/experiment/{cost,quota,window_quota,cache,simulator}.py` | `rwsim/offline/` | Wrapper |
+| `legacy/experiment/strategies/base.py` | `rwsim/offline/strategy.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -77,9 +82,6 @@ wrapper: each workflow needs a canonical replacement under `rwsim/` +
 
 | Legacy path | Canonical migration target |
 | --- | --- |
-| `config/experiment.yaml` | Move offline/stage experiment config into the owning `experiments/` package or split shared model/provider config from paper-run config. |
-| `legacy/experiment/data/schema.py` | Fold offline `ProviderConfig` / `RoutingDecision` models into `rwsim/schemas.py` or a dedicated offline schema module. |
-| `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Map shared execution, cost, quota, and cache pieces into `rwsim/engine`, `rwsim/world`, and `rwsim/data`. |
 | `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Map stage strategies into `rwsim/policies` / `rwsim/strategies` pipeline configs. |
 | `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Map online routing stack into canonical policy stages or strategy aliases. |
 | `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
