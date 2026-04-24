@@ -36,22 +36,16 @@ from pathlib import Path
 
 import numpy as np
 
-# Add project root so experiment.* imports resolve.
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
-    STRATEGIES,
-    StrategyRun,
-    run_strategy,
-)
 from experiments.synthetic_latency import (  # noqa: E402
     SanityStep,
     make_sanity_steps,
 )
-from legacy.experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig  # noqa: E402
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
+from rwsim.runner import LATENCY_STRATEGIES as STRATEGIES, run_registered_strategy
+from rwsim.world import ScenarioConfig, StrategyRun, generate_workload
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +141,7 @@ def run_one_scenario(scenario: ScenarioConfig) -> dict[str, list[StrategyRun]]:
     results: dict[str, list[StrategyRun]] = {s: [] for s in STRATEGIES}
     for strategy in STRATEGIES:
         for seed in SEEDS:
-            run = run_strategy(scenario, requests, strategy, seed=seed)
+            run = run_registered_strategy(scenario, requests, strategy, seed=seed)
             results[strategy].append(run)
     return results
 

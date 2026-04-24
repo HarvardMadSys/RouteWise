@@ -368,18 +368,13 @@ def _capture_latency_sanity(repo_root: Path) -> dict[str, Any]:
     """Capture Step 1-Step 5 sanity scenarios."""
     _bootstrap_repo(repo_root)
 
-    from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
-        STRATEGIES,
-        run_strategy,
-    )
     from experiments.synthetic_latency import (  # noqa: E402
         make_sanity_steps,
     )
-    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
-        generate_workload,
-    )
+    from rwsim.runner import LATENCY_STRATEGIES, run_registered_strategy  # noqa: E402
+    from rwsim.world import generate_workload  # noqa: E402
 
-    strategy_names = list(STRATEGIES)
+    strategy_names = list(LATENCY_STRATEGIES)
     steps_payload: dict[str, Any] = {}
     for step in make_sanity_steps():
         scenario_payloads: dict[str, Any] = {}
@@ -393,7 +388,7 @@ def _capture_latency_sanity(repo_root: Path) -> dict[str, Any]:
             )
             results = {
                 strategy_name: [
-                    run_strategy(scenario, requests, strategy_name, seed=seed)
+                    run_registered_strategy(scenario, requests, strategy_name, seed=seed)
                     for seed in SEEDS
                 ]
                 for strategy_name in strategy_names
