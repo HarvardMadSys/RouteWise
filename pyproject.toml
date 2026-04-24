@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "routewise-simulator"
+version = "0.1.0"
+description = "RouteWise synthetic simulator and experiment harness"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "RouteWise Authors" }]
+dependencies = [
+    "matplotlib>=3.8.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "pulp>=2.7.0",
+    "pyyaml>=6.0",
+    "scipy>=1.11.0",
+    "tabulate>=0.9.0",
+    "tqdm>=4.65.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+  "experiment",
+  "experiment.*",
+  "rwsim",
+  "rwsim.*",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "integration: marks tests as integration tests",
+  "unit: marks tests as unit tests",
+  "perf: performance regression tests",
+  "external: tests that hit external/local servers",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # bugbear
+  "C4",  # flake8-comprehensions
+  "SIM", # flake8-simplify
+  "TCH", # flake8-type-checking
+  "RUF", # Ruff-specific rules
+]
+ignore = [
+  "E203",  # whitespace before ':' (black/pep8 conflict)
+  "E501",  # line too long (handled by formatter)
+  "E402",  # module import not at top of file (for now)
+  "B008",  # FastAPI Depends pattern is OK
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-single-line = false
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydocstyle]
+convention = "google"
+add-ignore = [
+  "D104",  # missing docstring in public package
+  "D105",  # magic method docstring not required
+  "D107",  # __init__ docstring not required
+  "D202",  # conflicts with ruff-format (blank line after docstring)
+]
+match = ".+\\.py"
+match-dir = "(?!tests|test|.venv|data).*"
+
+[dependency-groups]
+dev = [
+  "ruff>=0.5.0",
+  "pydocstyle>=6.3.0",
+  "pre-commit>=3.6.0",
+  "pytest>=8.0.0",
+]
