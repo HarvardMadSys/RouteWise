@@ -31,13 +31,13 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/strategies.py` | `rwsim/strategies/tiered_impl.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/{providers,workload}.py` | `rwsim/world/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/{providers,shadow_price}.py` | `rwsim/world/` | Wrapper |
-| `legacy/experiment/scripts/simulate/synthetic/tiered/runner.py` | `rwsim/runner.py` / `run_joint.py` | Compatibility orchestration |
-| `legacy/experiment/scripts/simulate/synthetic/scenarios.py` | `experiments/synthetic_latency/configs/` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/runner.py` | `experiments/tiered_capacity/runner.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/scenarios.py` | `experiments/synthetic_latency/scenarios.py` / `configs/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/_core/sanity_check.py` | `experiments/synthetic_latency/sanity.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/plots.py` | `experiments/synthetic_latency/plots.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/pareto.py` | `experiments/synthetic_latency/pareto.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/phase_diagram*.py` | `experiments/synthetic_latency/phase_diagram*.py` | Wrapper |
-| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios.py` | `experiments/tiered_capacity/configs/` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios.py` | `experiments/tiered_capacity/scenarios.py` / `configs/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/plots.py` | `experiments/tiered_capacity/plots.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/stress_scenarios.py` | `experiments/tiered_capacity/stress.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_mm25.py` | `experiments/tiered_capacity/minimax_m25.py` | Wrapper |

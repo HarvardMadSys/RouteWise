@@ -238,6 +238,18 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             wrapper.read_text(encoding="utf-8"),
         )
 
+    def test_legacy_experiment_code_is_wrapper_only(self) -> None:
+        for path in (ROOT_DIR / "legacy" / "experiment").rglob("*.py"):
+            if "tests" in path.parts:
+                continue
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if line.startswith("class "):
+                    self.fail(f"{path}:{lineno} defines a class outside canonical packages")
+                if line.startswith("async def "):
+                    self.fail(f"{path}:{lineno} defines an async function outside canonical packages")
+                if line.startswith("def ") and not line.startswith("def __getattr__("):
+                    self.fail(f"{path}:{lineno} defines a function outside canonical packages")
+
     def test_basic_cost_routers_live_under_policy_stage(self) -> None:
         from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
 
