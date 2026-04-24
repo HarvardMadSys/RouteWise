@@ -3142,107 +3142,155 @@
         "two_layer": {
           "aggregate": {
             "hedge_rate": 0.0,
-            "mean_cost_usd": 0.0,
-            "p50_ms": 199.6670991580429,
-            "p99_ms": 504.03732254150947,
+            "mean_cost_usd": 6.44819865662528e-07,
+            "p50_ms": 1022.9087962237572,
+            "p99_ms": 3536.9412279653966,
             "provider_fractions": {
-              "SQ_s0_fastnorm": 1.0
+              "SA_s0_fastnorm": 0.0013569441617477442,
+              "SC_s0_fastnorm": 0.0073274984734378185,
+              "SC_s1_tailhvy": 0.014180066490263925,
+              "SC_s2_normal": 0.017775968518895447,
+              "SC_s3_trap": 0.016419024357147705,
+              "SC_s4_slowdeep": 0.006649026392563946,
+              "SQ_s0_fastnorm": 0.04070832485243232,
+              "SQ_s1_tailhvy": 0.08141664970486465,
+              "SQ_s2_normal": 0.1628332994097293,
+              "SQ_s3_trap": 0.24424994911459394,
+              "SQ_s4_slowdeep": 0.4070832485243232
             },
-            "slo_violation_rate_1000ms": 0.0,
-            "slo_violation_rate_2000ms": 0.0,
-            "slo_violation_rate_3000ms": 0.0,
-            "slo_violation_rate_5000ms": 0.0,
-            "slo_violation_rate_500ms": 0.010312775629282855,
+            "slo_violation_rate_1000ms": 0.5143496845104824,
+            "slo_violation_rate_2000ms": 0.11941108623380148,
+            "slo_violation_rate_3000ms": 0.02300020354162426,
+            "slo_violation_rate_5000ms": 0.0012212497455729697,
+            "slo_violation_rate_500ms": 0.8276680914580364,
             "tier_fractions": {
-              "quota": 1.0
+              "api": 0.0013569441617477442,
+              "concurrency": 0.06235158423230883,
+              "quota": 0.9362914716059434
             }
           },
           "seed_runs": {
             "42": {
               "digests": {
-                "concurrency_utilization": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
-                "cost_usd": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
+                "concurrency_utilization": "c0965653fff0760200ead27b8ea822867c234b940a7d7086d621bd0cc1d58473",
+                "cost_usd": "881d3c24f1c60ac13d86595f6dce7ebf5a1c0c9ad2fff74bc03facb962850ab7",
                 "hedge_triggered": "b2b10084ea8d496783ab8790227a24676256e66f0207b1a03fead7d16c19430f",
-                "provider": "285c2795e5f86767c182833d96a70c2318e9364ec8c84c87b016a244633ed4ef",
+                "provider": "3c6c4ca463c74112707673a4ae8c4e5a7687ccf2a9c46805ca52a10be47774dc",
                 "quota_fraction_used": "897a2ad764199bfb278f0c943746f02587f9687ced8d4717ca059d04a22dcdf7",
-                "tier": "3bf96774783cd60fc7261f55d312eabd6b916a26f769ac3b1031c40d02dcef10",
+                "tier": "aebee8343b448c58124eb746dc80346612a19ef0f4ebe1f3882dab44026dbb5b",
                 "timestamp": "fdeace0e5a8a0b2e3a6a8e69f2731804d47cdbb256c039c4665b89a2a83659e7",
-                "ttft_ms": "e26031c5eaca5df240ecb63e2ca6bafec2e71f3ff02ca88d779b441198325d2e"
+                "ttft_ms": "d9d07acd73faed43f2ccb31395398ab1faf530e4cbce9024e64e3bd06d5baa51"
               },
               "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0,
+              "mean_cost_usd": 5.568898839812741e-07,
               "metrics": {
-                "slo_violation_rate_1000ms": 0.0,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0,
-                "slo_violation_rate_500ms": 0.011398330958681051
+                "slo_violation_rate_1000ms": 0.5165886423773661,
+                "slo_violation_rate_2000ms": 0.1156116425809078,
+                "slo_violation_rate_3000ms": 0.023000203541624263,
+                "slo_violation_rate_5000ms": 0.0012212497455729697,
+                "slo_violation_rate_500ms": 0.8204762874007735
               },
-              "p50_ms": 199.59687123071976,
-              "p99_ms": 511.08106445945185,
+              "p50_ms": 1024.786174731767,
+              "p99_ms": 3475.932268502817,
               "provider_fractions": {
-                "SQ_s0_fastnorm": 1.0
+                "SA_s0_fastnorm": 0.0012212497455729697,
+                "SC_s0_fastnorm": 0.007734581721962141,
+                "SC_s1_tailhvy": 0.014858538571137798,
+                "SC_s2_normal": 0.016893954813759413,
+                "SC_s3_trap": 0.016690413189497252,
+                "SC_s4_slowdeep": 0.00630979035212701,
+                "SQ_s0_fastnorm": 0.04070832485243232,
+                "SQ_s1_tailhvy": 0.08141664970486465,
+                "SQ_s2_normal": 0.1628332994097293,
+                "SQ_s3_trap": 0.24424994911459394,
+                "SQ_s4_slowdeep": 0.4070832485243232
               },
               "tier_fractions": {
-                "quota": 1.0
+                "api": 0.0012212497455729697,
+                "concurrency": 0.062487278648483614,
+                "quota": 0.9362914716059434
               }
             },
             "43": {
               "digests": {
-                "concurrency_utilization": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
-                "cost_usd": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
+                "concurrency_utilization": "c0965653fff0760200ead27b8ea822867c234b940a7d7086d621bd0cc1d58473",
+                "cost_usd": "8285131d39edc146c7164fbdbff1b64d1ef843778d9809fe3c856fe495c04794",
                 "hedge_triggered": "b2b10084ea8d496783ab8790227a24676256e66f0207b1a03fead7d16c19430f",
-                "provider": "285c2795e5f86767c182833d96a70c2318e9364ec8c84c87b016a244633ed4ef",
+                "provider": "5fc448815f3ac7e38087a1a48618cb0909c5d733a8aae8cb6c632b678affac75",
                 "quota_fraction_used": "897a2ad764199bfb278f0c943746f02587f9687ced8d4717ca059d04a22dcdf7",
-                "tier": "3bf96774783cd60fc7261f55d312eabd6b916a26f769ac3b1031c40d02dcef10",
+                "tier": "26ac61178043b65c17c216a2f505a221f8a98a801d3c9aa29df2f7d90e13a594",
                 "timestamp": "fdeace0e5a8a0b2e3a6a8e69f2731804d47cdbb256c039c4665b89a2a83659e7",
-                "ttft_ms": "8a7599fbdc23c9e8642c54f6d142eb0c7f3966e2bf678b7775177e114ac99e7a"
+                "ttft_ms": "d54e3e5a40188119eca39d78bd6246a3387cf6694879f7e1a630d956aa55255e"
               },
               "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0,
+              "mean_cost_usd": 6.908202727457765e-07,
               "metrics": {
-                "slo_violation_rate_1000ms": 0.0,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0,
-                "slo_violation_rate_500ms": 0.009362914716059434
+                "slo_violation_rate_1000ms": 0.5180134337472013,
+                "slo_violation_rate_2000ms": 0.11886830856910238,
+                "slo_violation_rate_3000ms": 0.020964787299002648,
+                "slo_violation_rate_5000ms": 0.0010177081213108082,
+                "slo_violation_rate_500ms": 0.8276002442499492
               },
-              "p50_ms": 199.63195021113538,
-              "p99_ms": 496.3765028061639,
+              "p50_ms": 1028.19574449726,
+              "p99_ms": 3458.2961328111787,
               "provider_fractions": {
-                "SQ_s0_fastnorm": 1.0
+                "SA_s0_fastnorm": 0.0014247913698351314,
+                "SC_s0_fastnorm": 0.0073274984734378185,
+                "SC_s1_tailhvy": 0.014044372074089151,
+                "SC_s2_normal": 0.0175045796865459,
+                "SC_s3_trap": 0.016079788316710766,
+                "SC_s4_slowdeep": 0.0073274984734378185,
+                "SQ_s0_fastnorm": 0.04070832485243232,
+                "SQ_s1_tailhvy": 0.08141664970486465,
+                "SQ_s2_normal": 0.1628332994097293,
+                "SQ_s3_trap": 0.24424994911459394,
+                "SQ_s4_slowdeep": 0.4070832485243232
               },
               "tier_fractions": {
-                "quota": 1.0
+                "api": 0.0014247913698351314,
+                "concurrency": 0.06228373702422145,
+                "quota": 0.9362914716059434
               }
             },
             "44": {
               "digests": {
-                "concurrency_utilization": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
-                "cost_usd": "8f228f19bcdfefeb78d67993b7489359fd0f64baa6dfdcc225510ffb60a97d82",
+                "concurrency_utilization": "c0965653fff0760200ead27b8ea822867c234b940a7d7086d621bd0cc1d58473",
+                "cost_usd": "3d66be696a146630501f54aa30c307381bfc4279dd6db99394912952a7f860d7",
                 "hedge_triggered": "b2b10084ea8d496783ab8790227a24676256e66f0207b1a03fead7d16c19430f",
-                "provider": "285c2795e5f86767c182833d96a70c2318e9364ec8c84c87b016a244633ed4ef",
+                "provider": "8a93955d4c19e71cb55a0de1d55345799a52a3585d06b17768ae36950ba4eb07",
                 "quota_fraction_used": "897a2ad764199bfb278f0c943746f02587f9687ced8d4717ca059d04a22dcdf7",
-                "tier": "3bf96774783cd60fc7261f55d312eabd6b916a26f769ac3b1031c40d02dcef10",
+                "tier": "ec370283fea2465fef863ae60f7578ae18cf031c41db57a29bc5f3271f0f7d3b",
                 "timestamp": "fdeace0e5a8a0b2e3a6a8e69f2731804d47cdbb256c039c4665b89a2a83659e7",
-                "ttft_ms": "fcd09bb5aceab0d2085d88a5e2344023397f3281c570b481b20882807c8a27e2"
+                "ttft_ms": "c3cf921f6f9094b6606cb8838ae8435a450d5392645047623b7aaadf8248457b"
               },
               "hedge_rate": 0.0,
-              "mean_cost_usd": 0.0,
+              "mean_cost_usd": 6.867494402605334e-07,
               "metrics": {
-                "slo_violation_rate_1000ms": 0.0,
-                "slo_violation_rate_2000ms": 0.0,
-                "slo_violation_rate_3000ms": 0.0,
-                "slo_violation_rate_5000ms": 0.0,
-                "slo_violation_rate_500ms": 0.01017708121310808
+                "slo_violation_rate_1000ms": 0.5084469774068797,
+                "slo_violation_rate_2000ms": 0.12375330755139426,
+                "slo_violation_rate_3000ms": 0.02503561978424588,
+                "slo_violation_rate_5000ms": 0.0014247913698351314,
+                "slo_violation_rate_500ms": 0.8349277427233869
               },
-              "p50_ms": 199.77247603227352,
-              "p99_ms": 504.65440035891277,
+              "p50_ms": 1015.744469442245,
+              "p99_ms": 3676.5952825821923,
               "provider_fractions": {
-                "SQ_s0_fastnorm": 1.0
+                "SA_s0_fastnorm": 0.0014247913698351314,
+                "SC_s0_fastnorm": 0.006920415224913495,
+                "SC_s1_tailhvy": 0.013637288825564827,
+                "SC_s2_normal": 0.01892937105638103,
+                "SC_s3_trap": 0.01648687156523509,
+                "SC_s4_slowdeep": 0.00630979035212701,
+                "SQ_s0_fastnorm": 0.04070832485243232,
+                "SQ_s1_tailhvy": 0.08141664970486465,
+                "SQ_s2_normal": 0.1628332994097293,
+                "SQ_s3_trap": 0.24424994911459394,
+                "SQ_s4_slowdeep": 0.4070832485243232
               },
               "tier_fractions": {
-                "quota": 1.0
+                "api": 0.0014247913698351314,
+                "concurrency": 0.06228373702422145,
+                "quota": 0.9362914716059434
               }
             }
           }

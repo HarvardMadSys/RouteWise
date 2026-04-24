@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
+import math
 
-from rwsim.policies.cost_routers.tiered import cheapest_effective_provider
+from rwsim.policies.cost_routers.tiered import (
+    cheapest_effective_provider,
+    pick_available_tier,
+    pick_two_layer_provider,
+)
 from rwsim.schemas import Request
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
 from rwsim.world.distributions import LogNormal
@@ -34,11 +39,17 @@ def _api_provider(name: str, cost_per_token: float) -> TieredProvider:
     )
 
 
-def _quota_provider(name: str, *, used: int = 0, size: int = 10) -> TieredProvider:
+def _quota_provider(
+    name: str,
+    *,
+    used: int = 0,
+    size: int = 10,
+    ttft_dist: LogNormal = TTFT,
+) -> TieredProvider:
     return TieredProvider(
         name=name,
         cost_per_token=0.0,
-        ttft_dist=TTFT,
+        ttft_dist=ttft_dist,
         tps_dist=TPS,
         tier=ProviderTier.S_Q,
         quota=QuotaState(size=size, used=used),
@@ -137,3 +148,24 @@ def test_cheapest_effective_provider_filters_infeasible_capacity() -> None:
 
     assert selected.name == "api"
     assert costs == {"api": pytest.approx(api.marginal_cost(REQUEST.total_tokens, NOW))}
+
+
+def test_two_layer_filters_unavailable_providers_inside_selected_tier() -> None:
+    unavailable_fast_quota = _quota_provider(
+        "unavailable-fast-quota",
+        used=1,
+        size=1,
+        ttft_dist=LogNormal(math.log(50.0), 0.1),
+    )
+    available_slow_quota = _quota_provider(
+        "available-slow-quota",
+        used=0,
+        size=1,
+        ttft_dist=LogNormal(math.log(200.0), 0.1),
+    )
+    api = _api_provider("api", 0.01)
+
+    providers = [unavailable_fast_quota, available_slow_quota, api]
+
+    assert pick_available_tier(providers, NOW) == ProviderTier.S_Q
+    assert pick_two_layer_provider(providers, NOW).name == "available-slow-quota"

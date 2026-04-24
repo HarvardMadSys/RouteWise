@@ -33,9 +33,15 @@ def pick_two_layer_provider(
         raise ValueError("No providers available")
 
     tier = pick_available_tier(providers, now)
-    tier_providers = [provider for provider in providers if provider.tier == tier]
+    tier_providers = [
+        provider for provider in providers
+        if provider.tier == tier and provider.is_available(now)
+    ]
     if not tier_providers:
-        tier_providers = [provider for provider in providers if provider.tier == ProviderTier.S_A]
+        tier_providers = [
+            provider for provider in providers
+            if provider.tier == ProviderTier.S_A and provider.is_available(now)
+        ]
     if not tier_providers:
         raise ValueError("No API providers available for fallback")
     return min(tier_providers, key=lambda provider: provider.true_p50_ms(now))

@@ -217,7 +217,7 @@ performed by the latency router or by a trivial selector such as
 | `lat_term` in `c_eff` | Not present | Optional `latency_alpha * true_p50_ms(now)` | Remove from cost router | Latency belongs in the latency-router objective |
 | Envelope `(L, U)` | Assumed given | `U = max api_cost_at(typical_tokens=200)`, `L = U * 1e-3` | Code calibration | Paper does not specify calibration; current rule is reproducible |
 | `v_hat` anchor | Minimum API request cost | Sidecar LP-budget uses cheapest SLO-safe `S_A` anchor | SLO-safe `S_A` anchor | Prevents a pathologically slow cheap API from starving latency budget |
-| Infeasibility | Exhausted capacity excluded | Some selectors filter `is_available`; `two_layer` currently has a same-tier availability bug | Infeasible means `+inf` and cannot be selected | Selection safety should be uniform across routers |
+| Infeasibility | Exhausted capacity excluded | Selectors filter `is_available`; `two_layer` filters within the selected tier before P50 ranking | Infeasible means `+inf` and cannot be selected | Selection safety should be uniform across routers |
 
 #### Stage Interface
 
@@ -267,10 +267,8 @@ Each cost router must pass the following in `tests/unit/policies/cost_routers/`:
 #### Known Divergence to Resolve
 
 The current `lat_term` parameter in `rwsim/world/shadow_price.py` is not
-canonical. The latency router should own that trade-off. The current
-`two_layer` selector can also choose an unavailable provider in a tier where a
-different provider is available. Track both as behavior-change commits with
-golden updates or explicit golden-preservation notes.
+canonical. The latency router should own that trade-off. Track its removal as a
+behavior-change commit with golden updates or explicit golden-preservation notes.
 
 ### Latency Router
 

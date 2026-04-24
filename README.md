@@ -229,11 +229,9 @@ Any structural change to the simulator should satisfy all of the following:
 
 ## Known Algorithm Caveats
 
-These pre-existing behavioral issues were intentionally not mixed into the
+These remaining behavioral issues were intentionally not mixed into the
 structural refactor:
 
-- `two_layer` can select a provider that is unavailable if another provider in
-  the same tier is available. Golden baselines preserve the old behavior.
 - In `rwsim/policies/latency_routers/tiered_filters.py`, `provider_p95_at()` checks
   `hasattr(provider, "_active_dist")`.
 - Stress scenario `st2_s_q_degradation` uses `TieredProvider` with
