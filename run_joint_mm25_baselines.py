@@ -26,7 +26,7 @@ from legacy.experiment.scripts.simulate.synthetic.tiered import (  # noqa: E402
     TIERED_STRATEGIES,
     run_tiered_scenario,
 )
-from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
+from experiments.tiered_capacity import (  # noqa: E402
     make_mm25_scenarios,
 )
 from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402

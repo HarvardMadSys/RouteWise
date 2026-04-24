@@ -447,7 +447,7 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
 
         scenario_factory = make_tiered_scenarios
     elif family == "calibrated":
-        from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
+        from experiments.tiered_capacity import (  # noqa: E402
             make_mm25_scenarios,
         )
 

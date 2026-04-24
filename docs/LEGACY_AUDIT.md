@@ -35,6 +35,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios.py` | `experiments/tiered_capacity/configs/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/plots.py` | `experiments/tiered_capacity/plots.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/stress_scenarios.py` | `experiments/tiered_capacity/stress.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_mm25.py` | `experiments/tiered_capacity/minimax_m25.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -51,7 +52,6 @@ be deleted until they get canonical homes:
 | --- | --- | --- |
 | `legacy/experiment/scripts/simulate/synthetic/pareto.py` | `experiments/synthetic_latency/pareto.py` | Pareto sweep analysis. |
 | `legacy/experiment/scripts/simulate/synthetic/phase_diagram*.py` | `experiments/synthetic_latency/phase_diagram*.py` | LP vs V2 regime maps. |
-| `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_mm25.py` | `experiments/tiered_capacity/minimax_m25.py` | MiniMax M2.5 calibrated scenarios. |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Earlier calibrated tiered scenarios. |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/phase_diagram.py` | `experiments/tiered_capacity/phase_diagram.py` | Joint-vs-two-layer regime map. |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` or delete after reproduce | Large standalone LP budget evaluation. |
