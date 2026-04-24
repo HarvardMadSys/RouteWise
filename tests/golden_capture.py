@@ -377,7 +377,7 @@ def _capture_latency_sanity(repo_root: Path) -> dict[str, Any]:
         STRATEGIES,
         run_strategy,
     )
-    from legacy.experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
+    from experiments.synthetic_latency import (  # noqa: E402
         make_sanity_steps,
     )
     from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402

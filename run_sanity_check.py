@@ -24,9 +24,7 @@ Placement
 This file should live at the project root:
     routewise-simulator/run_sanity_check.py
 
-It imports sanity_check from legacy.experiment.scripts.simulate.synthetic, so
-sanity_check.py must already exist at
-    routewise-simulator/experiment/scripts/simulate/synthetic/sanity_check.py
+It imports sanity scenario builders from `experiments.synthetic_latency`.
 """
 
 from __future__ import annotations
@@ -48,7 +46,7 @@ from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
     StrategyRun,
     run_strategy,
 )
-from legacy.experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
+from experiments.synthetic_latency import (  # noqa: E402
     SanityStep,
     make_sanity_steps,
 )

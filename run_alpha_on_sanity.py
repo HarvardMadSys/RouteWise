@@ -32,7 +32,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.sanity_check import step5_sweep  # noqa: E402
+from experiments.synthetic_latency.sanity import step5_sweep  # noqa: E402
 from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
 
 # Reuse the helpers we already set up in run_alpha_sweep.py
