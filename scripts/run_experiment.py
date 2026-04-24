@@ -44,6 +44,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Load scenario configs without running simulation.",
     )
+    parser.add_argument(
+        "--run",
+        action="store_true",
+        help="Run one strategy on one config-driven scenario.",
+    )
+    parser.add_argument("--strategy", help="Registered strategy name for --run.")
+    parser.add_argument("--seed", type=int, default=42, help="Simulation RNG seed for --run.")
     return parser
 
 
@@ -73,6 +80,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 scenarios = experiment.load_all_scenarios()
                 payload = {"experiment": args.experiment, "validated": [item.name for item in scenarios]}
+        except RuntimeError as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        print(_json_dump(payload))
+        return 0
+
+    if args.run:
+        if not args.scenario:
+            raise SystemExit("--run requires --scenario")
+        if not args.strategy:
+            raise SystemExit("--run requires --strategy")
+        if not hasattr(experiment, "run_strategy"):
+            raise SystemExit(f"experiment {args.experiment!r} does not support --run yet")
+        try:
+            payload = experiment.run_strategy(args.scenario, args.strategy, seed=args.seed)
         except RuntimeError as exc:
             raise SystemExit(f"error: {exc}") from exc
         print(_json_dump(payload))

@@ -8,6 +8,7 @@ from experiments.tiered_capacity.experiment import (
     load_all_world_scenarios,
     load_scenario,
     load_world_scenario,
+    run_strategy,
     summarize,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "load_all_world_scenarios",
     "load_scenario",
     "load_world_scenario",
+    "run_strategy",
     "summarize",
 ]

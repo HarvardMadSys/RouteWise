@@ -47,9 +47,50 @@ def load_all_world_scenarios() -> tuple[object, ...]:
     return tuple(materialize_scenario(item) for item in load_all_scenarios())
 
 
+def run_strategy(scenario_name: str, strategy: str, seed: int = 42) -> dict[str, Any]:
+    """Run one registered strategy on one config-driven tiered scenario."""
+    from rwsim.runner import run_registered_strategy
+    from rwsim.world import generate_workload
+
+    scenario = load_world_scenario(scenario_name)
+    requests = generate_workload(
+        scenario.n_requests,
+        scenario.duration_seconds,
+        seed=seed,
+        arrival_process=scenario.arrival_process,
+    )
+    for provider in scenario.providers:
+        provider.reset_state()
+
+    run = run_registered_strategy(scenario, requests, strategy, seed=seed)
+    return _summarize_run(scenario_name, strategy, seed, run, scenario.primary_slo_ms)
+
+
 def summarize(name: str) -> dict[str, Any]:
     """Load and summarize one tiered capacity scenario."""
     return summarize_scenario(load_scenario(name))
+
+
+def _summarize_run(
+    scenario_name: str,
+    strategy: str,
+    seed: int,
+    run,
+    primary_slo_ms: float,
+) -> dict[str, Any]:
+    return {
+        "scenario": scenario_name,
+        "strategy": strategy,
+        "seed": seed,
+        "n_requests": len(run.provider),
+        "slo_violation_rate": run.slo_violation_rate(primary_slo_ms),
+        "mean_cost_usd": run.mean_cost_usd(),
+        "p50_ms": run.p50_ms(),
+        "p99_ms": run.p99_ms(),
+        "hedge_rate": run.hedge_rate(),
+        "provider_fractions": run.provider_fractions(),
+        "tier_fractions": run.tier_fractions() if hasattr(run, "tier_fractions") else {},
+    }
 
 
 __all__ = [
@@ -60,5 +101,6 @@ __all__ = [
     "load_all_world_scenarios",
     "load_scenario",
     "load_world_scenario",
+    "run_strategy",
     "summarize",
 ]
