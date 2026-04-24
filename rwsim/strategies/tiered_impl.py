@@ -38,19 +38,26 @@ Each strategy returns a StrategyRun with per-request results.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
+from rwsim.policies.cost_routers.tiered import (
+    pick_available_tier as _pick_tier,
+    pick_two_layer_provider,
+)
 from rwsim.policies.hedgers import (
     BackupSelectionMethod,
     HedgingParams,
     HedgingStrategy,
     SmartHedger,
 )
+from rwsim.policies.latency_routers.tiered_filters import (
+    lognormal_p95 as _lognormal_p95,
+    provider_p95_at as _provider_p95_at,
+    select_p50_band,
+    select_slo_safe,
+)
 from rwsim.policies.latency_routers import V2Router
 from rwsim.schemas import Request
-from rwsim.world.distributions import LogNormal
 from rwsim.world.metrics import StrategyRun
 from rwsim.world.providers import ProviderTier, TieredProvider
 from rwsim.world.scenarios import ScenarioConfig as TieredScenarioConfig
@@ -112,35 +119,9 @@ def _reset_all_state(providers: list[TieredProvider]) -> None:
         p.reset_state()
 
 
-def _lognormal_p95(dist: LogNormal) -> float:
-    """Analytical P95 of a LogNormal. Phi^{-1}(0.95) = 1.645."""
-    return math.exp(dist.mu + 1.645 * dist.sigma)
-
-
-def _provider_p95_at(provider: TieredProvider, now: float) -> float:
-    """P95 TTFT for a provider at simulated time `now`.
-
-    Supports both stationary SyntheticProvider and ShiftingProvider. Falls
-    back to the base `ttft_dist` if no shift mechanism is present.
-    """
-    if hasattr(provider, "_active_dist"):
-        dist = provider._active_dist(now)  # noqa: SLF001 — shift helper
-    else:
-        dist = provider.ttft_dist
-    return _lognormal_p95(dist)
-
-
 # ---------------------------------------------------------------------------
 # Strategy: two_layer (current RouteWise design)
 # ---------------------------------------------------------------------------
-
-
-def _pick_tier(providers: list[TieredProvider], now: float) -> ProviderTier:
-    """Layer-1 tier selection: subscription priority S_Q > S_C > S_A."""
-    for tier in (ProviderTier.S_Q, ProviderTier.S_C, ProviderTier.S_A):
-        if any(p.tier == tier and p.is_available(now) for p in providers):
-            return tier
-    return ProviderTier.S_A
 
 
 def _run_two_layer(
@@ -162,14 +143,7 @@ def _run_two_layer(
     for req in requests:
         t = float(req.timestamp)
 
-        tier = _pick_tier(scenario.providers, t)
-        tier_providers = [p for p in scenario.providers if p.tier == tier]
-        if not tier_providers:
-            tier_providers = [
-                p for p in scenario.providers if p.tier == ProviderTier.S_A
-            ]
-
-        primary = min(tier_providers, key=lambda p: p.true_p50_ms(t))
+        primary = pick_two_layer_provider(scenario.providers, t)
 
         tm = _sample_ttft(primary, rng, t)
         service_time = _sample_service_time(primary, rng, t, req.response_tokens)
@@ -224,29 +198,7 @@ def _joint_select_p50band(
     where the subscription tier has moderately higher P50 but is comfortably
     within the SLO — the band excludes it and forces 100% S_A.
     """
-    del slo_ms  # P50-band is not SLO-aware
-    candidates = [p for p in providers if p.is_available(now)]
-    if not candidates:
-        s_a = [p for p in providers if p.tier == ProviderTier.S_A]
-        return (min(s_a, key=lambda p: p.cost_per_token), {})
-
-    c_eff = {
-        p.name: effective_cost(p, req.total_tokens, now, U=U, L=L)
-        for p in candidates
-    }
-
-    sorted_by_p50 = sorted(candidates, key=lambda p: p.true_p50_ms(now))
-    best_p50 = sorted_by_p50[0].true_p50_ms(now)
-
-    band = [
-        p for p in candidates
-        if p.true_p50_ms(now) <= best_p50 * (1.0 + band_margin)
-    ]
-    if not band:
-        band = [sorted_by_p50[0]]
-
-    primary = min(band, key=lambda p: c_eff[p.name])
-    return primary, c_eff
+    return select_p50_band(providers, req, now, slo_ms, U, L, band_margin)
 
 
 def _joint_select_slo_safe(
@@ -267,26 +219,7 @@ def _joint_select_slo_safe(
     subscriptions are preferred while capacity is cheap and S_A naturally
     takes over as shadow prices rise.
     """
-    candidates = [p for p in providers if p.is_available(now)]
-    if not candidates:
-        s_a = [p for p in providers if p.tier == ProviderTier.S_A]
-        return (min(s_a, key=lambda p: p.cost_per_token), {})
-
-    threshold_ms = slo_ms * safety_margin
-    safe = [p for p in candidates if _provider_p95_at(p, now) <= threshold_ms]
-    if not safe:
-        # No provider passes the safety filter — this is a problem case,
-        # but we still have to route somewhere. Pick the provider with the
-        # lowest P95 (best shot at meeting SLO) and let the hedger decide
-        # whether to back it up.
-        safe = [min(candidates, key=lambda p: _provider_p95_at(p, now))]
-
-    c_eff = {
-        p.name: effective_cost(p, req.total_tokens, now, U=U, L=L)
-        for p in candidates
-    }
-    primary = min(safe, key=lambda p: c_eff[p.name])
-    return primary, c_eff
+    return select_slo_safe(providers, req, now, slo_ms, U, L, safety_margin)
 
 
 # ---------------------------------------------------------------------------

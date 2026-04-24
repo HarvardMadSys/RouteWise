@@ -12,7 +12,7 @@ Scope: RouteWise.
 
 ## _active_dist hasattr
 
-- `RouteWise/rwsim/strategies/tiered_impl.py`: `    if hasattr(provider, "_active_dist"):`
+- `RouteWise/rwsim/policies/latency_routers/tiered_filters.py`: `    if hasattr(provider, "_active_dist"):`
 
 ## quota hasattr
 
