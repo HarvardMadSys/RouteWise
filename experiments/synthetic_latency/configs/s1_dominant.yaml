@@ -1,5 +1,5 @@
 name: s1_dominant
-description: >
+description: >-
   B dominates: P50=100 ms ($0.5/M). A is slow (P50=1100 ms) and expensive
   ($2/M).
 primary_slo_ms: 2000.0

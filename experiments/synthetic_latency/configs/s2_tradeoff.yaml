@@ -1,7 +1,7 @@
 name: s2_tradeoff
-description: >
-  A is cheap ($0.5/M) and slower (P50=500 ms, P99=1600 ms). B is expensive
-  ($2/M) and fast (P50=100 ms).
+description: >-
+  A: cheap ($0.5/M) + slow (P50=500 ms, P99=1600 ms). B: expensive ($2/M) +
+  fast (P50=100 ms).
 primary_slo_ms: 2000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:

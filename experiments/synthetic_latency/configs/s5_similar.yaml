@@ -1,7 +1,7 @@
 name: s5_similar
-description: >
-  A: P50=200 ms $1/M. B: P50=207 ms $0.8/M. C: P50=215 ms $0.5/M. All are
-  within V2's 10% near-best band; C is cheapest.
+description: >-
+  A: P50=200 ms $1/M. B: P50=207 ms $0.8/M. C: P50=215 ms $0.5/M. All within
+  V2's 10 % near-best band; C is cheapest.
 primary_slo_ms: 2000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:
