@@ -129,6 +129,18 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(legacy_registry_token, source)
 
+    def test_rwsim_does_not_load_legacy_strategy_modules(self) -> None:
+        forbidden = (
+            "experiment.strategies",
+            "experiment/strategies",
+            "spec_from_file_location",
+        )
+
+        for path in (ROOT_DIR / "rwsim").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{path} should use rwsim policies")
+
 
 if __name__ == "__main__":
     unittest.main()

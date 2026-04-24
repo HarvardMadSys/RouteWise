@@ -24,50 +24,20 @@ they accumulate realistic latency profiles over simulated time.
 
 from __future__ import annotations
 
-import importlib.util as _ilu
-import os
-import sys
-from pathlib import Path
-
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Project path setup — load strategy modules without triggering __init__.py
-# ---------------------------------------------------------------------------
-
-_project_root = str(Path(__file__).resolve().parents[2])
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
-
-_strategies_dir = os.path.join(_project_root, "experiment", "strategies")
-
-
-def _load_mod(name: str, filename: str):
-    path = os.path.join(_strategies_dir, filename)
-    spec = _ilu.spec_from_file_location(name, path)
-    mod = _ilu.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_olr_mod = _load_mod("_synth_olr", "online_latency_router.py")
-_v2_mod = _load_mod("_synth_v2", "v2_router.py")
-_hedge_mod = _load_mod("_synth_hedge", "smart_hedging.py")
-
-OnlineLatencyRouter = _olr_mod.OnlineLatencyRouter
-V2Router = _v2_mod.V2Router
-SmartHedger = _hedge_mod.SmartHedger
-HedgingParams = _hedge_mod.HedgingParams
-HedgingStrategy = _hedge_mod.HedgingStrategy
-BackupSelectionMethod = _hedge_mod.BackupSelectionMethod
-select_backup = _hedge_mod.select_backup
-
-from rwsim.schemas import Request  # noqa: E402
-
-from rwsim.world.metrics import StrategyRun  # noqa: E402
-from rwsim.world.providers import ShiftingProvider, SyntheticProvider  # noqa: E402
-from rwsim.world.scenarios import ScenarioConfig  # noqa: E402
+from rwsim.policies.hedgers import (
+    BackupSelectionMethod,
+    HedgingParams,
+    HedgingStrategy,
+    SmartHedger,
+    select_backup,
+)
+from rwsim.policies.latency_routers import OnlineLatencyRouter, V2Router
+from rwsim.schemas import Request
+from rwsim.world.metrics import StrategyRun
+from rwsim.world.providers import ShiftingProvider, SyntheticProvider
+from rwsim.world.scenarios import ScenarioConfig
 
 # ---------------------------------------------------------------------------
 # Result container

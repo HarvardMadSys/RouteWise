@@ -38,51 +38,23 @@ Each strategy returns a StrategyRun with per-request results.
 
 from __future__ import annotations
 
-import importlib.util as _ilu
 import math
-import os
-import sys
-from pathlib import Path
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Module loading (mirrors the pattern in ../runner.py)
-# ---------------------------------------------------------------------------
-
-_PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
-
-_STRATEGIES_DIR = os.path.join(_PROJECT_ROOT, "experiment", "strategies")
-
-
-def _load_mod(name: str, filename: str):
-    path = os.path.join(_STRATEGIES_DIR, filename)
-    spec = _ilu.spec_from_file_location(name, path)
-    mod = _ilu.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_v2_mod = _load_mod("_tiered_v2", "v2_router.py")
-_hedge_mod = _load_mod("_tiered_hedge", "smart_hedging.py")
-
-V2Router = _v2_mod.V2Router
-SmartHedger = _hedge_mod.SmartHedger
-HedgingParams = _hedge_mod.HedgingParams
-HedgingStrategy = _hedge_mod.HedgingStrategy
-BackupSelectionMethod = _hedge_mod.BackupSelectionMethod
-
-from rwsim.schemas import Request  # noqa: E402
-
-from rwsim.world.metrics import StrategyRun  # noqa: E402
-
-from rwsim.world.distributions import LogNormal  # noqa: E402
-from rwsim.world.providers import ProviderTier, TieredProvider  # noqa: E402
-from rwsim.world.scenarios import ScenarioConfig as TieredScenarioConfig  # noqa: E402
-from rwsim.world.shadow_price import (  # noqa: E402
+from rwsim.policies.hedgers import (
+    BackupSelectionMethod,
+    HedgingParams,
+    HedgingStrategy,
+    SmartHedger,
+)
+from rwsim.policies.latency_routers import V2Router
+from rwsim.schemas import Request
+from rwsim.world.distributions import LogNormal
+from rwsim.world.metrics import StrategyRun
+from rwsim.world.providers import ProviderTier, TieredProvider
+from rwsim.world.scenarios import ScenarioConfig as TieredScenarioConfig
+from rwsim.world.shadow_price import (
     calibrate_envelopes,
     concurrency_shadow_price,
     effective_cost,
