@@ -28,7 +28,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.phase_diagram import (
+from experiments.synthetic_latency.phase_diagram import (
     P50_SPREADS,
     TAIL_RATIOS,
     aggregate_cells,

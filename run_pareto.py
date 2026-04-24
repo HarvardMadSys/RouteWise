@@ -26,13 +26,13 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.pareto import (
+from experiments.synthetic_latency.pareto import (
     sweep_scenario,
     pareto_front,
     ParetoPoint,
 )
-from legacy.experiment.scripts.simulate.synthetic.scenarios import make_scenarios
-from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
+from experiments.synthetic_latency import load_all_world_scenarios
+from rwsim.world import generate_workload
 
 
 # Focus on scenarios where Pareto trade-off is meaningful.
@@ -120,7 +120,9 @@ def plot_pareto(points: list[ParetoPoint], scenario_name: str, out_dir: Path) ->
 
 
 def main() -> None:
-    all_scenarios = make_scenarios()
+    all_scenarios = {
+        scenario.name: scenario for scenario in load_all_world_scenarios()
+    }
     scenarios = {k: all_scenarios[k] for k in SCENARIOS if k in all_scenarios}
 
     for sc_id, sc in scenarios.items():
