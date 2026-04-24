@@ -5,7 +5,10 @@ from experiments.synthetic_latency.experiment import (
     EXPERIMENT_NAME,
     list_scenarios,
     load_all_scenarios,
+    load_all_world_scenarios,
     load_scenario,
+    load_world_scenario,
+    run_strategy,
     summarize,
 )
 
@@ -14,6 +17,9 @@ __all__ = [
     "EXPERIMENT_NAME",
     "list_scenarios",
     "load_all_scenarios",
+    "load_all_world_scenarios",
     "load_scenario",
+    "load_world_scenario",
+    "run_strategy",
     "summarize",
 ]

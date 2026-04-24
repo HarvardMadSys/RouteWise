@@ -1,0 +1,43 @@
+name: s4_shift
+description: >
+  A is fast (P50=100 ms) until t=30 min, then slows to P50=1000 ms. B is
+  constant at P50=300 ms. Both cost $1/M.
+primary_slo_ms: 2000.0
+slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
+workload:
+  source: synthetic
+  n_requests: 2000
+  duration_seconds: 3600.0
+  arrival_process: poisson
+  seed: 0
+  input_tokens: 100
+  output_token_distribution:
+    name: lognormal
+    mu: 4.0
+    sigma: 1.0
+providers:
+  - name: A
+    tier: api
+    cost_per_token: 0.000001
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 100.0
+      sigma: 0.5
+    shift_events:
+      - time_sec: 1800.0
+        ttft_distribution:
+          name: lognormal_p50_sigma
+          p50_ms: 1000.0
+          sigma: 0.5
+    tps_distribution: &default_tps
+      name: lognormal
+      mu: 5.5
+      sigma: 0.3
+  - name: B
+    tier: api
+    cost_per_token: 0.000001
+    ttft_distribution:
+      name: lognormal_p50_sigma
+      p50_ms: 300.0
+      sigma: 0.5
+    tps_distribution: *default_tps
