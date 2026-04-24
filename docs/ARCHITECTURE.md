@@ -237,8 +237,9 @@ architecture is being reproduced.
 
 It exists to preserve baseline comparability during the migration. Some code
 inside `legacy/experiment/` is already a wrapper over `rwsim/` or
-`experiments/`; the rest is historical offline/stage experiment code. The
-detailed inventory lives in `docs/LEGACY_AUDIT.md`.
+`experiments/`; the rest is offline/stage experiment code pending migration or
+an explicit scope decision. The detailed inventory lives in
+`docs/LEGACY_AUDIT.md`.
 
 `legacy/` should be removed once the new architecture reproduces the required
 golden baselines and paper experiments.

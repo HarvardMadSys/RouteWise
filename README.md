@@ -264,8 +264,8 @@ structural refactor.
 ## Notes on compatibility
 
 - `rwsim/` is the canonical package surface for new development.
-- `legacy/experiment/` contains historical compatibility wrappers plus the
-  old offline/stage experiment stack tracked in `docs/LEGACY_AUDIT.md`.
+- `legacy/experiment/` contains compatibility wrappers plus offline/stage
+  workflows that are pending migration or an explicit scope decision.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
   strategy files now forward into `rwsim/`.
 - `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
