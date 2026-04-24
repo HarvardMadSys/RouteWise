@@ -110,6 +110,31 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
+    def test_value_estimators_live_under_policy_stage(self) -> None:
+        from experiment.predictors import EMAOutputPredictor as LegacyEMAOutputPredictor
+        from rwsim.policies.value_estimators import (
+            EMAOutputPredictor,
+            HistogramOutputPredictor,
+            OracleOutputPredictor,
+        )
+
+        request = Request(
+            id=1,
+            timestamp=0,
+            request_tokens=128,
+            response_tokens=64,
+            total_tokens=192,
+            model="unit-model",
+        )
+
+        ema = EMAOutputPredictor(min_samples_warmup=1)
+        ema.update(request)
+
+        self.assertEqual(type(ema.predict(request)).__name__, "QuantilePrediction")
+        self.assertEqual(OracleOutputPredictor().predict(request).q50, 64.0)
+        self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
+        self.assertIs(LegacyEMAOutputPredictor, EMAOutputPredictor)
+
     def test_world_modules_do_not_import_legacy_core(self) -> None:
         legacy_token = "experiment.scripts.simulate.synthetic._core"
 
