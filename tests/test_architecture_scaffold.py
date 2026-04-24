@@ -117,6 +117,26 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
+    def test_algorithm_document_has_stage_level_correctness_contracts(self) -> None:
+        source = (ROOT_DIR / "docs" / "ALGORITHMS.md").read_text(encoding="utf-8")
+
+        for stage in ("Value Estimator", "Cost Router", "Latency Router", "Hedger"):
+            self.assertIn(f"### {stage}", source)
+            section = source.split(f"### {stage}", 1)[1].split("\n### ", 1)[0]
+            for token in (
+                "Canonical Definition (authoritative)",
+                "Pipeline Role",
+                "Three-Column Reconciliation",
+                "Stage Interface",
+                "Unit-Test Contract",
+                "Known Divergence to Resolve",
+                "[eq. 1]",
+            ):
+                self.assertIn(token, section, f"{stage} is missing {token}")
+
+        self.assertIn("P_viol(t) * F_b(R_b(t)) > C_b / V", source)
+        self.assertIn("max(1.5 * P50, 0.5 * SLO)", source)
+
     def test_old_experiment_packages_are_removed(self) -> None:
         self.assertFalse((ROOT_DIR / "experiment").exists())
         self.assertFalse((ROOT_DIR / "legacy").exists())
