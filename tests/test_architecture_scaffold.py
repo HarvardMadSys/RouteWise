@@ -117,6 +117,14 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(legacy_token, source, f"{path} should own this implementation")
 
+    def test_runner_uses_rwsim_strategy_registry(self) -> None:
+        legacy_registry_token = "experiment.scripts.simulate.synthetic._core.strategies"
+
+        for relpath in ("rwsim/runner.py", "rwsim/strategies/__init__.py"):
+            source = (ROOT_DIR / relpath).read_text(encoding="utf-8")
+            self.assertNotIn(legacy_registry_token, source)
+            self.assertIn("rwsim.strategies.registry", source)
+
 
 if __name__ == "__main__":
     unittest.main()

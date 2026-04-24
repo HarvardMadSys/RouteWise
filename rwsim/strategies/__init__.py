@@ -1,6 +1,6 @@
 """Canonical strategy registry exports."""
 
-from experiment.scripts.simulate.synthetic._core.strategies import (
+from rwsim.strategies.registry import (
     LATENCY_STRATEGIES,
     STRATEGY_REGISTRY,
     TIERED_STRATEGIES,
