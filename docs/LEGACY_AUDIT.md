@@ -82,10 +82,20 @@ scope and remove the corresponding runner/tests/docs together.
 
 ## External Callers Still Using Legacy
 
-The root `run_*.py` scripts and `tests/golden_capture.py` still import
-`legacy.experiment...` for several paths. That is the next cleanup target.
+The main synthetic/tiered runners and `tests/golden_capture.py` now import
+canonical `rwsim/` and `experiments/` paths.
 
-Until those imports are gone, `legacy/experiment/` cannot be deleted.
+Known remaining root-level legacy caller:
+
+- `run_joint_lp_budget_eval.py` imports
+  `legacy.experiment.scripts.simulate.synthetic.tiered.lp_budget_eval`.
+
+That LP-budget sidecar also depends on the historical `legacy.experiment.data`
+loader stack, so it should move only together with a clear decision on whether
+trace-data/offline workflows are still supported.
+
+`tests/test_architecture_scaffold.py` intentionally imports one legacy
+predictor wrapper to verify backward compatibility.
 
 ## Naming Notes
 
