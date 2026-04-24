@@ -6,7 +6,7 @@ import numpy as np
 
 
 def _runner_module():
-    from experiment.scripts.simulate.synthetic import runner as latency_runner
+    from rwsim.strategies import latency_impl as latency_runner
 
     return latency_runner
 
