@@ -54,6 +54,13 @@ The target architecture and algorithm decomposition are documented in:
 - `docs/ARCHITECTURE.md`
 - `docs/ALGORITHMS.md`
 
+Config-driven experiment recipes now live under `experiments/`. The thin
+inspection entrypoint is:
+
+```bash
+python scripts/run_experiment.py --experiment tiered_capacity --list
+```
+
 ## Repository layout
 
 ```text
@@ -111,6 +118,25 @@ Strategies are registered through a shared registry. The current families are:
 
 New strategies should be added through the shared registry instead of adding
 new ad hoc dispatch logic.
+
+### `rwsim/policies`
+
+The migration target splits routing policy code by pipeline stage:
+
+- `value_estimators/`
+- `cost_routers/`
+- `latency_routers/`
+- `hedgers/`
+- `composer.py`
+
+Current strategy aliases are mapped to these stages in
+`rwsim/policies/composer.py` and documented in `docs/ALGORITHMS.md`.
+
+### `rwsim/scenarios.py`
+
+`rwsim/scenarios.py` is reserved for generic scenario builders. Concrete S6,
+S7, S8, S9, and `unified_pool` definitions live as YAML configs under
+`experiments/tiered_capacity/configs/`.
 
 ## Supported scenario families
 

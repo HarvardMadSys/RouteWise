@@ -107,12 +107,11 @@ scenario + policy + seed -> simulation result
 
 `rwsim/scenarios.py` may define generic scenario types and config builders:
 
-- `Scenario`
-- `ScenarioConfig`
-- `ProviderConfig`
-- `WorkloadConfig`
-- `ShiftEvent`
 - `build_scenario(config)`
+- `load_scenario_config(path)`
+
+Shared schema objects such as `ScenarioConfig`, `ProviderConfig`,
+`WorkloadConfig`, and `ShiftEvent` live in `rwsim/schemas.py`.
 
 It must not define concrete paper scenarios such as:
 
