@@ -52,10 +52,12 @@ RouteWise/
   experiments/
     synthetic_latency/
       configs/
+      suites/
       experiment.py
       README.md
     tiered_capacity/
       configs/
+      suites/
       experiment.py
       README.md
     estimator_ablation/
@@ -68,12 +70,8 @@ RouteWise/
       strategies/
       README.md
 
-  scripts/
-    run_experiment.py
-    plot_experiment.py
-    experiments/
-      run_synthetic.py
-      run_joint.py
+  routewise_cli/
+    main.py
 
   tests/
     unit/
@@ -250,17 +248,34 @@ If an experiment becomes large, it may split into `run.py`, `analyze.py`, and
 
 Experiment code may write outputs, but only under `outputs/`.
 
-### `scripts/`
+### `experiments/*/suites/`
 
-`scripts/` contains thin command-line entrypoints. Scripts should parse
-arguments and dispatch into `experiments/`. They should not contain research
-logic, simulator logic, or plotting logic beyond selecting an experiment
-command.
+`experiments/*/suites/` contains full-sweep paper runners that are still larger
+than a single config-driven `experiment.run(...)` call. These modules are
+experiment-layer code, not simulator core.
 
-`scripts/experiments/` contains preserved full-sweep paper runner entrypoints
-while the request-loop migration is still in progress. These files may
-orchestrate existing sweeps, but the dependency direction is still
-`scripts -> experiments -> rwsim`; `rwsim` must never import them.
+Suites may orchestrate grids, plots, cached result reuse, and output paths.
+They may import `rwsim/`, but `rwsim/` must never import them. A suite should
+be deleted or collapsed into `experiment.py` once the corresponding workflow is
+fully config-driven.
+
+### `routewise_cli/`
+
+`routewise_cli/` is the application entrypoint. It intentionally sits outside
+`rwsim/` because it connects the simulator library to experiment recipes.
+
+Allowed responsibilities:
+
+- Listing config-driven experiments and full-sweep suites.
+- Loading and validating experiment configs.
+- Dispatching one scenario/strategy run.
+- Dispatching a full-sweep suite.
+
+Forbidden responsibilities:
+
+- Owning routing algorithms.
+- Owning simulator state or request loops.
+- Encoding paper scenario definitions directly in CLI parsing.
 
 ### `tests/`
 
@@ -292,14 +307,15 @@ Typical contents include:
 Dependencies must flow downward:
 
 ```text
-scripts -> experiments -> rwsim
-tests   -> rwsim / experiments
+routewise_cli -> experiments -> rwsim
+tests         -> rwsim / experiments / routewise_cli
 ```
 
 Forbidden dependencies:
 
 - `rwsim` must not import `experiments`.
-- `rwsim` must not import `scripts`.
+- `rwsim` must not import `routewise_cli`.
+- `experiments` must not import `routewise_cli`.
 - `rwsim` must not depend on generated files in `outputs/`.
 - `experiments` must not depend on generated files in `outputs/` as source
   inputs unless the dependency is explicit and documented.
@@ -322,7 +338,11 @@ Current status:
   full request-loop execution into `rwsim/engine/` behind the composer.
 - `experiments/tiered_capacity/configs/` owns S6/S7/S8/S9/`unified_pool`
   scenario definitions and can run one registered strategy through
-  `scripts/run_experiment.py`.
+  `routewise run ...`.
+- `experiments/*/suites/` owns full-sweep paper runners that have not yet been
+  collapsed into config-driven `experiment.run(...)` calls.
+- `routewise_cli/` owns the installable `routewise` console entrypoint and is
+  the only layer that should dispatch across both experiments and suites.
 
 Recommended order:
 
@@ -335,7 +355,8 @@ Recommended order:
 6. Extract the shared simulation engine.
 7. Move policies behind stage interfaces.
 8. Convert concrete paper scenarios into config-driven experiments.
-9. Convert `scripts/experiments/` full-sweep runners into thin dispatchers.
+9. Convert `experiments/*/suites/` full-sweep runners into config-driven
+   experiment entrypoints, then delete the suite modules that become redundant.
 
 Each migration step should preserve:
 

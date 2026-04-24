@@ -2,7 +2,7 @@
 
 Usage:
     source ../.venv/bin/activate
-    python scripts/experiments/run_phase_diagram.py
+    routewise suite phase_diagram
 
 Output:
     outputs/phase_diagram/
@@ -24,7 +24,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

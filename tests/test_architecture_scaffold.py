@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from experiments import available_experiments, get_experiment
 from experiments._configs import summarize_scenario
+from experiments.suites import available_suites, get_suite
 from rwsim.policies import available_aliases, get_pipeline_alias
 from rwsim.scenarios import build_scenario
 from rwsim.schemas import ProviderTier, Request
@@ -89,13 +90,36 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(request.time_of_day, 3600)
         self.assertEqual(request.latency_seconds, 0.075)
 
-    def test_rwsim_does_not_depend_on_experiments_or_scripts(self) -> None:
-        forbidden = ("from experiments", "import experiments", "from scripts", "import scripts")
+    def test_rwsim_does_not_depend_on_application_layers(self) -> None:
+        forbidden = (
+            "from experiments",
+            "import experiments",
+            "from routewise_cli",
+            "import routewise_cli",
+        )
 
         for path in (ROOT_DIR / "rwsim").rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             for token in forbidden:
                 self.assertNotIn(token, source, f"{path} must not import {token!r}")
+
+    def test_experiments_do_not_depend_on_cli(self) -> None:
+        forbidden = ("from routewise_cli", "import routewise_cli")
+
+        for path in (ROOT_DIR / "experiments").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{path} must not import {token!r}")
+
+    def test_routewise_cli_is_application_layer(self) -> None:
+        cli = ROOT_DIR / "routewise_cli" / "main.py"
+        pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+        source = cli.read_text(encoding="utf-8")
+
+        self.assertTrue(cli.exists())
+        self.assertIn('routewise = "routewise_cli.main:main"', pyproject)
+        self.assertIn("from experiments", source)
+        self.assertNotIn("from routewise_cli", (ROOT_DIR / "rwsim" / "__init__.py").read_text())
 
     def test_rwsim_scenarios_has_no_concrete_paper_factories(self) -> None:
         source = (ROOT_DIR / "rwsim" / "scenarios.py").read_text(encoding="utf-8")
@@ -150,36 +174,73 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertNotIn(old_from, source, f"{path} should use rwsim or experiments")
             self.assertNotIn(old_import, source, f"{path} should use rwsim or experiments")
 
-    def test_experiment_runners_have_canonical_script_home(self) -> None:
+    def test_experiment_runners_have_canonical_suite_home(self) -> None:
         for path in ROOT_DIR.glob("run_*.py"):
-            self.fail(f"{path} should live under scripts/experiments")
+            self.fail(f"{path} should live under experiments/*/suites")
         self.assertFalse((ROOT_DIR / "replot_phase_diagram.py").exists())
         self.assertFalse((ROOT_DIR / "rwsim" / "drivers").exists())
+        self.assertFalse((ROOT_DIR / "scripts").exists())
 
-        for relpath in (
+        synthetic_suites = (
             "run_synthetic.py",
             "run_sanity_check.py",
-            "run_joint.py",
-            "run_joint_mm25_baselines.py",
-            "run_stress_tests.py",
-            "run_joint_lp_budget_eval.py",
             "run_alpha_sweep.py",
             "run_alpha_on_sanity.py",
             "run_pareto.py",
             "run_phase_diagram.py",
             "run_phase_diagram_v2.py",
             "replot_phase_diagram.py",
-        ):
-            self.assertTrue((ROOT_DIR / "scripts" / "experiments" / relpath).exists(), relpath)
+        )
+        tiered_suites = (
+            "run_joint.py",
+            "run_joint_mm25_baselines.py",
+            "run_stress_tests.py",
+            "run_joint_lp_budget_eval.py",
+        )
+
+        for relpath in synthetic_suites:
+            path = ROOT_DIR / "experiments" / "synthetic_latency" / "suites" / relpath
+            self.assertTrue(path.exists(), relpath)
+
+        for relpath in tiered_suites:
+            path = ROOT_DIR / "experiments" / "tiered_capacity" / "suites" / relpath
+            self.assertTrue(path.exists(), relpath)
 
         deleted_import = "leg" + "acy" + ".experiment"
-        for path in (ROOT_DIR / "scripts" / "experiments").glob("*.py"):
+        for path in (
+            ROOT_DIR / "experiments" / "synthetic_latency" / "suites"
+        ).glob("*.py"):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
+            self.assertNotIn("scripts.experiments", source, f"{path} should use experiment suites")
+        for path in (ROOT_DIR / "experiments" / "tiered_capacity" / "suites").glob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
+            self.assertNotIn("scripts.experiments", source, f"{path} should use experiment suites")
+
+    def test_full_sweep_suites_are_registered(self) -> None:
+        expected = (
+            "alpha_on_sanity",
+            "alpha_sweep",
+            "joint",
+            "joint_lp_budget_eval",
+            "joint_mm25_baselines",
+            "pareto",
+            "phase_diagram",
+            "phase_diagram_v2",
+            "replot_phase_diagram",
+            "sanity",
+            "stress",
+            "synthetic",
+        )
+
+        self.assertEqual(available_suites(), expected)
+        for name in expected:
+            self.assertTrue(get_suite(name).module.startswith("experiments."))
 
     def test_canonical_packages_do_not_import_deleted_packages(self) -> None:
         deleted_import = "leg" + "acy" + ".experiment"
-        for dirname in ("rwsim", "experiments", "scripts", "tests"):
+        for dirname in ("rwsim", "experiments", "routewise_cli", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
                 source = path.read_text(encoding="utf-8")
                 self.assertNotIn(deleted_import, source, f"{path} should not import deleted packages")

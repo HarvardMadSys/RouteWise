@@ -53,12 +53,13 @@ The target architecture and algorithm decomposition are documented in:
 
 - `docs/ARCHITECTURE.md`
 - `docs/ALGORITHMS.md`
+- `docs/REPRODUCIBILITY.md`
 
-Config-driven experiment recipes now live under `experiments/`. The thin
-inspection entrypoint is:
+Config-driven experiment recipes now live under `experiments/`. The official
+application entrypoint is outside `rwsim/`:
 
 ```bash
-python scripts/run_experiment.py --experiment tiered_capacity --list
+python -m routewise_cli.main list --experiment tiered_capacity
 ```
 
 ## Repository layout
@@ -86,7 +87,7 @@ RouteWise/
     tiered_capacity/
     estimator_ablation/
     offline_stage/
-  scripts/
+  routewise_cli/
   tests/
     golden/
     golden_capture.py
@@ -153,15 +154,22 @@ All golden artifacts are stored under `tests/golden/`.
 
 ## Running experiments
 
-Use `scripts/run_experiment.py` for config-driven runs. Paper-era operational
-runners that still orchestrate a full sweep live under `scripts/experiments/`;
-they import canonical `rwsim/` and `experiments/` modules and write generated
-artifacts under `outputs/`.
+Use `routewise run` for one config-driven scenario/strategy and
+`routewise suite` for full paper sweeps. If the package is not installed in
+editable mode, use `python -m routewise_cli.main ...` with the same arguments.
+
+```bash
+routewise list
+routewise list --experiment tiered_capacity
+routewise validate tiered_capacity --scenario s6_slow_q_trap
+routewise run tiered_capacity --scenario s6_slow_q_trap --strategy joint_hedge
+routewise list --suites
+```
 
 ### Latency-only synthetic scenarios
 
 ```bash
-python scripts/experiments/run_synthetic.py
+routewise suite synthetic
 ```
 
 Outputs:
@@ -172,7 +180,7 @@ Outputs:
 ### Sanity-check scenarios
 
 ```bash
-python scripts/experiments/run_sanity_check.py
+routewise suite sanity
 ```
 
 Outputs:
@@ -184,7 +192,7 @@ Outputs:
 ### Tiered scenarios
 
 ```bash
-python scripts/experiments/run_joint.py
+routewise suite joint
 ```
 
 Outputs:
@@ -196,13 +204,13 @@ Outputs:
 ### MM25 calibrated scenarios
 
 ```bash
-python scripts/experiments/run_joint_mm25_baselines.py
+routewise suite joint_mm25_baselines
 ```
 
 ### Stress scenarios
 
 ```bash
-python scripts/experiments/run_stress_tests.py
+routewise suite stress
 ```
 
 Outputs:
@@ -254,5 +262,5 @@ structural refactor.
   `experiments/offline_stage/strategies/`.
 - The OpenRouter latency profiling probe now lives at
   `experiments/offline_stage/latency_profiling.py`.
-- Full-sweep runner scripts live under `scripts/experiments/`; the repository
-  root no longer contains `run_*.py` entrypoints.
+- Full-sweep runner modules live under `experiments/*/suites/`; the repository
+  root and `scripts/` no longer contain experiment entrypoints.

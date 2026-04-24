@@ -1,7 +1,7 @@
 """Orchestrator: run tiered scenarios (S6-S8) for joint vs two-layer comparison.
 
 Usage (from project root, with venv active):
-    python scripts/experiments/run_joint.py
+    routewise suite joint
 
 Output layout:
     outputs/joint/
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

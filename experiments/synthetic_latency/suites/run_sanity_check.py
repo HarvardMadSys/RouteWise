@@ -1,7 +1,7 @@
 """Orchestrator for the Juncheng sanity-check scenarios.
 
 Usage (from routewise-simulator/ project root, with .venv active):
-    python scripts/experiments/run_sanity_check.py
+    routewise suite sanity
 
 Output layout:
     outputs/sanity_check/
@@ -31,7 +31,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

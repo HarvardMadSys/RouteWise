@@ -3,7 +3,7 @@ MiniMax-M2.5 calibrated scenarios, so the alpha sweep has an apples-to-
 apples baseline to compare against.
 
 Usage:
-    python scripts/experiments/run_joint_mm25_baselines.py
+    routewise suite joint_mm25_baselines
 
 Output:
     outputs/alpha_joint_mm25/{scenario}/baselines.json
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

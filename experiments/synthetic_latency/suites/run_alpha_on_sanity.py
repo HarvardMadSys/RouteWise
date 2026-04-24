@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -36,7 +36,7 @@ from experiments.synthetic_latency.sanity import step5_sweep  # noqa: E402
 from rwsim.world import generate_workload  # noqa: E402
 
 # Reuse the helpers we already set up in the alpha sweep runner.
-from scripts.experiments.run_alpha_sweep import run_lp_alpha, summarize_runs  # noqa: E402
+from experiments.synthetic_latency.suites.run_alpha_sweep import run_lp_alpha, summarize_runs  # noqa: E402
 
 SEEDS = [42, 43, 44]
 N_REQUESTS = 1000

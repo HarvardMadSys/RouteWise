@@ -8,6 +8,8 @@ should live in `rwsim/`.
 Smoke example:
 
 ```bash
-python scripts/run_experiment.py --experiment synthetic_latency \
-  --scenario s1_dominant --strategy v2_only --run
+routewise run synthetic_latency --scenario s1_dominant --strategy v2_only
 ```
+
+Full-sweep synthetic latency runners live under `suites/` and are exposed as
+`routewise suite synthetic`, `routewise suite sanity`, and related suite names.

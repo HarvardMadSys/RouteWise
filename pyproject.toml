@@ -21,11 +21,16 @@ dependencies = [
     "tqdm>=4.65.0",
 ]
 
+[project.scripts]
+routewise = "routewise_cli.main:main"
+
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 include = [
+  "routewise_cli",
+  "routewise_cli.*",
   "experiments",
   "experiments.*",
   "rwsim",

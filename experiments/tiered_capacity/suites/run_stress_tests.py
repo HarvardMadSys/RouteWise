@@ -1,7 +1,7 @@
 """Run stress-test scenarios (ST1-ST3) for the joint router.
 
 Usage:
-    python scripts/experiments/run_stress_tests.py
+    routewise suite stress
 
 Output:
     outputs/stress/
@@ -29,7 +29,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

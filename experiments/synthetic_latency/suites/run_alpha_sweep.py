@@ -13,7 +13,7 @@ Validation criteria:
     3. Intermediate alpha traces a continuous Pareto frontier in (cost, P99).
 
 Usage (from routewise-simulator/ root with .venv active):
-    python scripts/experiments/run_alpha_sweep.py
+    routewise suite alpha_sweep
 
 Output:
     outputs/alpha_sweep/
@@ -36,7 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
