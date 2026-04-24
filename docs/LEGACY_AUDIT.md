@@ -58,6 +58,7 @@ needed:
 | `legacy/experiment/strategies/base.py` | `rwsim/offline/strategy.py` | Wrapper |
 | `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | `experiments/offline_stage/strategies/` | Wrapper |
 | `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | `experiments/offline_stage/strategies/online/` | Wrapper |
+| `legacy/experiment/latency_profiling.py` | `experiments/offline_stage/latency_profiling.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -68,23 +69,18 @@ then golden compare stays green.
 ### Current Experiment Logic Not Fully Replaced Yet
 
 No current synthetic/tiered golden-path module is known to live only under
-`legacy/experiment/`. Remaining legacy code is either a compatibility wrapper
-for a canonical module or part of the paper-used offline/stage experiment stack
-below.
+`legacy/experiment/`. The paper-used offline/stage stack now has canonical
+homes under `rwsim/offline/` and `experiments/offline_stage/`.
 
-### Paper-Used Offline/Stage Experiments Pending Migration
+### Paper-Used Offline/Stage Migration Status
 
-These files are not on the current synthetic/tiered golden path, but they are
-paper-used or paper-era research artifacts. They should not be deleted just
-because the new synthetic/tiered runners no longer import them.
+The offline/stage files are not on the current synthetic/tiered golden path,
+but they are paper-used or paper-era research artifacts. They should not be
+deleted just because the new synthetic/tiered runners no longer import them.
 
-The migration rule for this section is stricter than a normal compatibility
-wrapper: each workflow needs a canonical replacement under `rwsim/` +
-`experiments/`, plus a reproduction check for the relevant paper artifact.
-
-| Legacy path | Canonical migration target |
-| --- | --- |
-| `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
+The code has been canonicalized, but wrapper deletion is still stricter than a
+normal cleanup: each paper workflow needs a reproduction check for the
+relevant artifact before the old import path can be removed.
 
 Deletion condition: either reproduce the relevant artifact from `rwsim/` +
 `experiments/`, or explicitly replace/remove that paper artifact and update the

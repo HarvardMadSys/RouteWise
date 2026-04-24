@@ -227,6 +227,17 @@ class ArchitectureScaffoldTest(unittest.TestCase):
                 relpath,
             )
 
+    def test_latency_profiling_probe_has_canonical_home(self) -> None:
+        canonical = ROOT_DIR / "experiments" / "offline_stage" / "latency_profiling.py"
+        wrapper = ROOT_DIR / "legacy" / "experiment" / "latency_profiling.py"
+
+        self.assertTrue(canonical.exists())
+        self.assertIn("PROJECT_ROOT", canonical.read_text(encoding="utf-8"))
+        self.assertIn(
+            "experiments.offline_stage.latency_profiling",
+            wrapper.read_text(encoding="utf-8"),
+        )
+
     def test_basic_cost_routers_live_under_policy_stage(self) -> None:
         from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
 

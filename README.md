@@ -273,6 +273,8 @@ structural refactor.
   code now live in `rwsim/offline/` and `experiments/offline_stage/`.
 - Offline/stage paper strategies now live in
   `experiments/offline_stage/strategies/`; old strategy paths are wrappers.
+- The OpenRouter latency profiling probe now lives at
+  `experiments/offline_stage/latency_profiling.py`.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
   strategy files now forward into `rwsim/`.
 - `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
