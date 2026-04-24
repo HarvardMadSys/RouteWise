@@ -16,4 +16,5 @@ Use `scripts/run_experiment.py --experiment tiered_capacity --list` to inspect
 the config-driven entry points.
 
 Paper-used workflows that are not yet config-driven also live here during the
-migration, including `offline_counterfactual/`.
+migration, including `offline_counterfactual/`, `latency_phase3/`, and
+`latency_phase4/`.
