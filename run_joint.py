@@ -45,7 +45,7 @@ from legacy.experiment.scripts.simulate.synthetic.tiered import (
     make_tiered_scenarios,
     run_tiered_scenario,
 )
-from legacy.experiment.scripts.simulate.synthetic.tiered.plots import (
+from experiments.tiered_capacity.plots import (
     make_scenario_plots,
     plot_summary_across_scenarios,
 )

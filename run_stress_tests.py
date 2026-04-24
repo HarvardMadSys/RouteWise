@@ -38,7 +38,7 @@ from legacy.experiment.scripts.simulate.synthetic.tiered import (
     StrategyRun,
     run_tiered_scenario,
 )
-from legacy.experiment.scripts.simulate.synthetic.tiered.plots import (
+from experiments.tiered_capacity.plots import (
     plot_provider_mix,
     plot_slo_cost_pareto,
 )
