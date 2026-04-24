@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.tiered.lp_budget_eval import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.tiered.lp_budget_eval import (  # noqa: E402
     CONTROL_VARIANTS,
     FIRST_BATCH_SCENARIOS,
     HEDGE_ABLATION_VARIANTS,

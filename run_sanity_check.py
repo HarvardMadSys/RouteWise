@@ -24,7 +24,7 @@ Placement
 This file should live at the project root:
     routewise-simulator/run_sanity_check.py
 
-It imports sanity_check from experiment.scripts.simulate.synthetic, so
+It imports sanity_check from legacy.experiment.scripts.simulate.synthetic, so
 sanity_check.py must already exist at
     routewise-simulator/experiment/scripts/simulate/synthetic/sanity_check.py
 """
@@ -43,17 +43,17 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
     STRATEGIES,
     StrategyRun,
     run_strategy,
 )
-from experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
     SanityStep,
     make_sanity_steps,
 )
-from experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig  # noqa: E402
-from experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

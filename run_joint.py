@@ -39,17 +39,17 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.tiered import (
+from legacy.experiment.scripts.simulate.synthetic.tiered import (
     TIERED_STRATEGIES,
     StrategyRun,
     make_tiered_scenarios,
     run_tiered_scenario,
 )
-from experiment.scripts.simulate.synthetic.tiered.plots import (
+from legacy.experiment.scripts.simulate.synthetic.tiered.plots import (
     make_scenario_plots,
     plot_summary_across_scenarios,
 )
-from experiment.scripts.simulate.synthetic.workload import generate_workload
+from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
 
 SEEDS = [42, 43, 44]
 OUTPUT_ROOT = _ROOT / "results" / "joint"

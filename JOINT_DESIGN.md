@@ -15,7 +15,7 @@ providers across all tiers in one step — dominates the two-layer design.
 ## Files
 
 ```
-experiment/scripts/simulate/synthetic/tiered/
+legacy/experiment/scripts/simulate/synthetic/tiered/
     providers.py       TieredProvider + QuotaState + ConcurrencyState
     shadow_price.py    psi(z), lambda(u), effective_cost, calibrate_envelopes
     scenarios.py       S6, S7, S8 tiered scenarios

@@ -15,7 +15,7 @@ This document describes the design of the synthetic simulation built to satisfy 
 ## File Structure
 
 ```
-experiment/scripts/simulate/synthetic/
+legacy/experiment/scripts/simulate/synthetic/
     providers.py    — SyntheticProvider, ShiftingProvider, LogNormal distribution
     workload.py     — Request stream generator (Poisson / bursty)
     scenarios.py    — S1–S5 scenario configurations

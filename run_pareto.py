@@ -26,13 +26,13 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.pareto import (
+from legacy.experiment.scripts.simulate.synthetic.pareto import (
     sweep_scenario,
     pareto_front,
     ParetoPoint,
 )
-from experiment.scripts.simulate.synthetic.scenarios import make_scenarios
-from experiment.scripts.simulate.synthetic.workload import generate_workload
+from legacy.experiment.scripts.simulate.synthetic.scenarios import make_scenarios
+from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
 
 
 # Focus on scenarios where Pareto trade-off is meaningful.

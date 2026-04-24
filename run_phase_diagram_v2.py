@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.phase_diagram_v2 import (
+from legacy.experiment.scripts.simulate.synthetic.phase_diagram_v2 import (
     P50_SPREAD_AB,
     TAIL_RATIO_A,
     aggregate_cells,

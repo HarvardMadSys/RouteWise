@@ -46,10 +46,10 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.plots import make_plots
-from experiment.scripts.simulate.synthetic.runner import STRATEGIES, StrategyRun, run_strategy
-from experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig, make_scenarios
-from experiment.scripts.simulate.synthetic.workload import generate_workload
+from legacy.experiment.scripts.simulate.synthetic.plots import make_plots
+from legacy.experiment.scripts.simulate.synthetic.runner import STRATEGIES, StrategyRun, run_strategy
+from legacy.experiment.scripts.simulate.synthetic.scenarios import ScenarioConfig, make_scenarios
+from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload
 
 # ---------------------------------------------------------------------------
 # Configuration

@@ -2,6 +2,10 @@
 
 Temporary compatibility area for old implementations during migration.
 
+`legacy/experiment/` contains the former root-level `experiment/` package.
+It exists only to keep historical scripts reproducible while the `rwsim/` and
+`experiments/` paths replace it.
+
 Rule:
 
 ```text

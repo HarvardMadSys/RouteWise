@@ -40,8 +40,8 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.data.schema import Request  # noqa: E402
-from experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
+from legacy.experiment.data.schema import Request  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
     StrategyRun,
     _cheapest_provider_name,
     _costs_dict,
@@ -50,13 +50,13 @@ from experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
     _sample,
     _warm_up_router,
 )
-from experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
     ScenarioConfig,
     make_scenarios,
 )
-from experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
-from experiment.strategies.online_latency_router import OnlineLatencyRouter  # noqa: E402
-from experiment.strategies.smart_hedging import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload  # noqa: E402
+from legacy.experiment.strategies.online_latency_router import OnlineLatencyRouter  # noqa: E402
+from legacy.experiment.strategies.smart_hedging import (  # noqa: E402
     BackupSelectionMethod,
     select_backup,
 )

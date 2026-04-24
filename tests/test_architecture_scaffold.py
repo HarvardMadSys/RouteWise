@@ -111,8 +111,21 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
+    def test_legacy_experiment_package_is_quarantined(self) -> None:
+        self.assertFalse((ROOT_DIR / "experiment").exists())
+        self.assertTrue((ROOT_DIR / "legacy" / "experiment").is_dir())
+
+        for path in ROOT_DIR.rglob("*.py"):
+            if ".venv" in path.parts:
+                continue
+            source = path.read_text(encoding="utf-8")
+            old_from = "from " + "experiment."
+            old_import = "import " + "experiment."
+            self.assertNotIn(old_from, source, f"{path} should use rwsim or legacy")
+            self.assertNotIn(old_import, source, f"{path} should use rwsim or legacy")
+
     def test_value_estimators_live_under_policy_stage(self) -> None:
-        from experiment.predictors import EMAOutputPredictor as LegacyEMAOutputPredictor
+        from legacy.experiment.predictors import EMAOutputPredictor as LegacyEMAOutputPredictor
         from rwsim.policies.value_estimators import (
             EMAOutputPredictor,
             HistogramOutputPredictor,

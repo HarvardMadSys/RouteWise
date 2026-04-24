@@ -5,10 +5,11 @@ simulation and paper experiments. The goal is to make the codebase composable:
 each module should behave like a small, testable building block with a clear
 contract.
 
-The current repository is still in migration. `rwsim/` exists today, but much
-of it is a compatibility facade over legacy code under
-`experiment/scripts/simulate/synthetic/`. The target is to make `rwsim/` the
-single source of truth.
+The current repository is still in migration, but the root package boundary is
+now explicit: `rwsim/` is the simulator package, `experiments/` contains
+config-driven experiment recipes, and historical code is quarantined under
+`legacy/experiment/`. The target is to make `rwsim/` the single source of
+truth.
 
 ## Target Layout
 
@@ -59,6 +60,7 @@ RouteWise/
     plot_experiment.py
 
   legacy/
+    experiment/
 
   tests/
     unit/
@@ -290,12 +292,12 @@ Current status:
 - `rwsim/world/` owns the leaf world primitives: distributions, capacity state,
   providers, workload generation, scenario containers, shadow pricing, and run
   metrics.
-- `experiment/scripts/simulate/synthetic/_core/` world modules are
+- `legacy/experiment/scripts/simulate/synthetic/_core/` world modules are
   compatibility wrappers.
 - `rwsim/strategies/registry.py` owns the canonical strategy registry surface.
 - `rwsim/strategies/latency_impl.py` and `rwsim/strategies/tiered_impl.py`
-  own the reproduced strategy loops; legacy synthetic runner modules are
-  wrappers.
+  own the reproduced strategy loops; legacy synthetic runner modules under
+  `legacy/experiment/` are wrappers.
 - `rwsim/policies/` now owns the migrated latency routers, hedgers, value
   estimators, and initial cost-router selectors. Remaining work is to move
   full request-loop execution into `rwsim/engine/` behind the composer.
@@ -316,7 +318,7 @@ Recommended order:
 7. Extract the shared simulation engine.
 8. Move policies behind stage interfaces.
 9. Convert concrete paper scenarios into config-driven experiments.
-10. Move legacy code into `legacy/` only after the new path can reproduce the
+10. Delete legacy code once the corresponding new path has reproduced the
     same behavior.
 11. Replace top-level `run_*.py` files with thin scripts.
 

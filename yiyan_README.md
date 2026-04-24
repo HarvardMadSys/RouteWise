@@ -8,9 +8,9 @@ Build a synthetic simulation environment with mock providers to verify routing a
 
 RouteWise routes LLM requests across multiple providers that serve the same model. The latency router picks which provider gets each request. We have two routing approaches:
 
-1. **LP Mix** (`experiment/strategies/online_latency_router.py`): Solves an LP to find provider weights that minimize cost subject to `sum(pi_j * F_j(SLO)) >= 0.99`. Updates weights every 60s based on rolling latency profiles.
-2. **V2 P50 Router** (`experiment/strategies/v2_router.py`): Ranks providers by P50 latency, picks cheapest in near-best band. Simpler, no LP.
-3. **Smart Hedging** (`experiment/strategies/smart_hedging.py`): Sends backup request to faster provider when primary is slow. Economic decision rule: hedge when `P(violation) * P(backup_succeeds) > C_backup / V_penalty`.
+1. **LP Mix** (`legacy/experiment/strategies/online_latency_router.py`): Solves an LP to find provider weights that minimize cost subject to `sum(pi_j * F_j(SLO)) >= 0.99`. Updates weights every 60s based on rolling latency profiles.
+2. **V2 P50 Router** (`legacy/experiment/strategies/v2_router.py`): Ranks providers by P50 latency, picks cheapest in near-best band. Simpler, no LP.
+3. **Smart Hedging** (`legacy/experiment/strategies/smart_hedging.py`): Sends backup request to faster provider when primary is slow. Economic decision rule: hedge when `P(violation) * P(backup_succeeds) > C_backup / V_penalty`.
 
 **Problem we found**: LP Mix over-diversifies when one provider dominates (both cheapest and fastest). It spreads traffic to worse providers, causing MORE SLO violations than a trivial "always pick cheapest" baseline.
 
@@ -61,7 +61,7 @@ def generate_workload(
     ...
 ```
 
-Use the `Request` dataclass from `experiment/data/schema.py`.
+Use the `Request` dataclass from `legacy/experiment/data/schema.py`.
 
 ### 3. Scenario Configurations
 
@@ -104,12 +104,12 @@ For each scenario generate:
 
 ## Key Files to Read
 
-- `experiment/strategies/v2_router.py` — **Start here**. The V2 router is simple and clean.
-- `experiment/strategies/smart_hedging.py` — Hedging logic, focus on `SMART_ECONOMIC` strategy.
-- `experiment/strategies/online_latency_router.py` — LP router (the one that over-diversifies).
-- `experiment/scripts/simulate/offline_counterfactual.py` — **Reference implementation** for how we run counterfactual simulations. Your synthetic sim should follow a similar pattern.
-- `experiment/scripts/simulate/policies.py` — How policies are defined and dispatched.
-- `experiment/data/schema.py` — Data structures (`Request`, `ProviderConfig`, `RoutingDecision`).
+- `legacy/experiment/strategies/v2_router.py` — **Start here**. The V2 router is simple and clean.
+- `legacy/experiment/strategies/smart_hedging.py` — Hedging logic, focus on `SMART_ECONOMIC` strategy.
+- `legacy/experiment/strategies/online_latency_router.py` — LP router (the one that over-diversifies).
+- `legacy/experiment/scripts/simulate/offline_counterfactual.py` — **Reference implementation** for how we run counterfactual simulations. Your synthetic sim should follow a similar pattern.
+- `legacy/experiment/scripts/simulate/policies.py` — How policies are defined and dispatched.
+- `legacy/experiment/data/schema.py` — Data structures (`Request`, `ProviderConfig`, `RoutingDecision`).
 - `MEMORY/v2-router-design.md` — V2 router design rationale.
 - `MEMORY/acf-analysis-probing-effectiveness.md` — Why P50 works but P99 doesn't for prediction.
 

@@ -22,14 +22,14 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiment.scripts.simulate.synthetic.tiered import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.tiered import (  # noqa: E402
     TIERED_STRATEGIES,
     run_tiered_scenario,
 )
-from experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
     make_mm25_scenarios,
 )
-from experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
+from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
     generate_workload,
 )
 

@@ -10,8 +10,8 @@ world model and multiple routing algorithms:
   workloads, scenarios, and metrics.
 - Multiple routing strategies registered as plugins and evaluated on the
   same scenarios.
-- Backward-compatible legacy entrypoints kept in place so older scripts and
-  experiment notes continue to run.
+- Legacy code quarantined under `legacy/experiment/` so the root package
+  boundary stays unambiguous.
 
 The code refactor is complete through the simulator package consolidation.
 Worktree cleanup was intentionally left out of scope.
@@ -47,11 +47,10 @@ Use `rwsim/` as the canonical package surface for new code:
 - `rwsim/drivers/`: canonical driver entrypoints
 - `rwsim/runner.py`: shared strategy dispatch
 
-Legacy paths under `experiment/scripts/simulate/synthetic/` still work and
-are intentionally kept for compatibility. The leaf world primitives now live
-in `rwsim/world/`; legacy `_core` world modules are compatibility wrappers.
-Strategy implementations are still being migrated behind the `rwsim/strategies`
-registry surface.
+Historical code that has not been deleted yet lives under
+`legacy/experiment/`. The leaf world primitives now live in `rwsim/world/`;
+legacy `_core` world modules are compatibility wrappers under the legacy
+namespace. New work should not import from `legacy/experiment/`.
 
 The target architecture and algorithm decomposition are documented in:
 
@@ -90,6 +89,7 @@ RouteWise/
     tiered_capacity/
     estimator_ablation/
   legacy/
+    experiment/
   scripts/
   tests/
     golden/
@@ -157,8 +157,9 @@ All golden artifacts are stored under `tests/golden/`.
 
 ## Running experiments
 
-The old top-level scripts remain valid and are still the most convenient way
-to run full experiment suites.
+The old top-level scripts remain valid and dispatch through the quarantined
+legacy namespace where needed. Prefer `scripts/run_experiment.py` for new
+config-driven runs.
 
 ### Latency-only synthetic scenarios
 
@@ -235,8 +236,8 @@ Any structural change to the simulator should satisfy all of the following:
 1. `python tests/golden_capture.py --mode compare` stays green.
 2. No algorithm decision logic changes unless the change is explicitly a
    research change rather than a refactor.
-3. Legacy import paths and top-level scripts remain functional until the
-   team decides to remove compatibility shims.
+3. Top-level scripts remain functional while `legacy/experiment/` is
+   kill-on-reproduce.
 
 ## Known caveat
 
@@ -256,11 +257,12 @@ as a separate behavioral fix, not as part of the structural refactor.
 ## Notes on compatibility
 
 - `rwsim/` is the canonical package surface for new development.
-- `experiment/scripts/simulate/synthetic/_core/` remains as a legacy import
-  path. Its world-model and strategy files now forward into `rwsim/`.
-- `experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
-  and `experiment/strategies/online/predictors/` are compatibility wrappers
-  around `rwsim/policies/`.
+- `legacy/experiment/` contains historical compatibility code only.
+- `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
+  strategy files now forward into `rwsim/`.
+- `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
+  and `legacy/experiment/strategies/online/predictors/` are compatibility
+  wrappers around `rwsim/policies/`.
 - Top-level `run_*.py` scripts remain the default operational entrypoints.
 
 That split is intentional: it keeps old experiments reproducible while giving

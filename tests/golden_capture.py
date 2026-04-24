@@ -327,14 +327,14 @@ def _capture_latency_synthetic(repo_root: Path) -> dict[str, Any]:
     """Capture S1-S5 latency scenarios."""
     _bootstrap_repo(repo_root)
 
-    from experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
         STRATEGIES,
         run_scenario,
     )
-    from experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.scenarios import (  # noqa: E402
         make_scenarios,
     )
-    from experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
         generate_workload,
     )
 
@@ -373,14 +373,14 @@ def _capture_latency_sanity(repo_root: Path) -> dict[str, Any]:
     """Capture Step 1-Step 5 sanity scenarios."""
     _bootstrap_repo(repo_root)
 
-    from experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.runner import (  # noqa: E402
         STRATEGIES,
         run_strategy,
     )
-    from experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.sanity_check import (  # noqa: E402
         make_sanity_steps,
     )
-    from experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
         generate_workload,
     )
 
@@ -430,30 +430,30 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
     """Capture one tiered-family scenario set."""
     _bootstrap_repo(repo_root)
 
-    from experiment.scripts.simulate.synthetic.tiered.runner import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.tiered.runner import (  # noqa: E402
         run_tiered_scenario,
     )
-    from experiment.scripts.simulate.synthetic.tiered.strategies import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.tiered.strategies import (  # noqa: E402
         TIERED_STRATEGIES,
     )
-    from experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
+    from legacy.experiment.scripts.simulate.synthetic.workload import (  # noqa: E402
         generate_workload,
     )
 
     if family == "tiered":
-        from experiment.scripts.simulate.synthetic.tiered.scenarios import (  # noqa: E402
+        from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios import (  # noqa: E402
             make_tiered_scenarios,
         )
 
         scenario_factory = make_tiered_scenarios
     elif family == "calibrated":
-        from experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
+        from legacy.experiment.scripts.simulate.synthetic.tiered.scenarios_mm25 import (  # noqa: E402
             make_mm25_scenarios,
         )
 
         scenario_factory = make_mm25_scenarios
     elif family == "stress":
-        from experiment.scripts.simulate.synthetic.tiered.stress_scenarios import (  # noqa: E402
+        from legacy.experiment.scripts.simulate.synthetic.tiered.stress_scenarios import (  # noqa: E402
             make_stress_scenarios,
         )
 
