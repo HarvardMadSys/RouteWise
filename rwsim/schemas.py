@@ -1,8 +1,7 @@
 """Shared schemas for the target RouteWise simulator architecture.
 
-These dataclasses are intentionally lightweight and dependency-free. They are
-the migration target for data that currently lives across several legacy
-modules.
+These dataclasses are intentionally lightweight and dependency-free. Add fields
+only when they are shared across module boundaries.
 """
 
 from __future__ import annotations

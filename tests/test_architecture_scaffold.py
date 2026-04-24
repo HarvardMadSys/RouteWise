@@ -70,27 +70,13 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             ("estimator_ablation", "synthetic_latency", "tiered_capacity"),
         )
 
-    def test_tiered_legacy_calibrated_scenarios_have_canonical_home(self) -> None:
+    def test_tiered_calibrated_scenarios_have_canonical_home(self) -> None:
         canonical = ROOT_DIR / "experiments" / "tiered_capacity" / "calibrated.py"
-        wrapper = (
-            ROOT_DIR
-            / "legacy"
-            / "experiment"
-            / "scripts"
-            / "simulate"
-            / "synthetic"
-            / "tiered"
-            / "scenarios_calibrated.py"
-        )
 
         self.assertTrue(canonical.exists())
         self.assertIn("make_calibrated_scenarios", canonical.read_text(encoding="utf-8"))
-        self.assertIn(
-            "experiments.tiered_capacity.calibrated",
-            wrapper.read_text(encoding="utf-8"),
-        )
 
-    def test_request_schema_keeps_legacy_convenience_properties(self) -> None:
+    def test_request_schema_keeps_convenience_properties(self) -> None:
         request = Request(
             id=1,
             timestamp=90000.0,
@@ -131,9 +117,9 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
-    def test_legacy_experiment_package_is_quarantined(self) -> None:
+    def test_old_experiment_packages_are_removed(self) -> None:
         self.assertFalse((ROOT_DIR / "experiment").exists())
-        self.assertTrue((ROOT_DIR / "legacy" / "experiment").is_dir())
+        self.assertFalse((ROOT_DIR / "legacy").exists())
 
         for path in ROOT_DIR.rglob("*.py"):
             if ".venv" in path.parts:
@@ -141,22 +127,23 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             old_from = "from " + "experiment."
             old_import = "import " + "experiment."
-            self.assertNotIn(old_from, source, f"{path} should use rwsim or legacy")
-            self.assertNotIn(old_import, source, f"{path} should use rwsim or legacy")
+            self.assertNotIn(old_from, source, f"{path} should use rwsim or experiments")
+            self.assertNotIn(old_import, source, f"{path} should use rwsim or experiments")
 
-    def test_top_level_experiment_scripts_do_not_import_legacy(self) -> None:
+    def test_top_level_experiment_scripts_do_not_import_deleted_packages(self) -> None:
+        deleted_import = "legacy" + ".experiment"
         for path in ROOT_DIR.glob("run_*.py"):
             source = path.read_text(encoding="utf-8")
-            self.assertNotIn("legacy.experiment", source, f"{path} should use canonical imports")
+            self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
 
-    def test_canonical_packages_do_not_import_legacy(self) -> None:
-        for dirname in ("rwsim", "experiments"):
+    def test_canonical_packages_do_not_import_deleted_packages(self) -> None:
+        deleted_import = "legacy" + ".experiment"
+        for dirname in ("rwsim", "experiments", "scripts", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
                 source = path.read_text(encoding="utf-8")
-                self.assertNotIn("legacy.experiment", source, f"{path} should not import legacy")
+                self.assertNotIn(deleted_import, source, f"{path} should not import deleted packages")
 
     def test_value_estimators_live_under_policy_stage(self) -> None:
-        from legacy.experiment.predictors import EMAOutputPredictor as LegacyEMAOutputPredictor
         from rwsim.policies.value_estimators import (
             EMAOutputPredictor,
             HistogramOutputPredictor,
@@ -178,12 +165,9 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(type(ema.predict(request)).__name__, "QuantilePrediction")
         self.assertEqual(OracleOutputPredictor().predict(request).q50, 64.0)
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
-        self.assertIs(LegacyEMAOutputPredictor, EMAOutputPredictor)
 
     def test_offline_stage_core_has_canonical_home(self) -> None:
         from experiments.offline_stage import DEFAULT_CONFIG_PATH
-        from legacy.experiment.cost import CostCalculator as LegacyCostCalculator
-        from legacy.experiment.data.schema import Request as LegacyOfflineRequest
         from rwsim.offline import CostCalculator, Request
 
         self.assertTrue((ROOT_DIR / "rwsim" / "offline" / "schemas.py").exists())
@@ -192,20 +176,15 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             (ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml").exists()
         )
         self.assertTrue((ROOT_DIR / "config" / "experiment.yaml").is_symlink())
-        self.assertIs(LegacyCostCalculator, CostCalculator)
-        self.assertIs(LegacyOfflineRequest, Request)
+        self.assertEqual(CostCalculator.__module__, "rwsim.offline.cost")
+        self.assertEqual(Request.__module__, "rwsim.offline.schemas")
         self.assertEqual(
             DEFAULT_CONFIG_PATH,
             ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml",
         )
-        self.assertIn(
-            "experiments.offline_stage.config",
-            (ROOT_DIR / "legacy" / "experiment" / "config.py").read_text(encoding="utf-8"),
-        )
 
     def test_offline_stage_strategies_have_canonical_home(self) -> None:
         canonical = ROOT_DIR / "experiments" / "offline_stage" / "strategies"
-        legacy = ROOT_DIR / "legacy" / "experiment" / "strategies"
 
         for relpath in (
             "all_api.py",
@@ -221,34 +200,12 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             "online/primal_dual.py",
         ):
             self.assertTrue((canonical / relpath).exists(), relpath)
-            self.assertIn(
-                "experiments.offline_stage.strategies",
-                (legacy / relpath).read_text(encoding="utf-8"),
-                relpath,
-            )
 
     def test_latency_profiling_probe_has_canonical_home(self) -> None:
         canonical = ROOT_DIR / "experiments" / "offline_stage" / "latency_profiling.py"
-        wrapper = ROOT_DIR / "legacy" / "experiment" / "latency_profiling.py"
 
         self.assertTrue(canonical.exists())
         self.assertIn("PROJECT_ROOT", canonical.read_text(encoding="utf-8"))
-        self.assertIn(
-            "experiments.offline_stage.latency_profiling",
-            wrapper.read_text(encoding="utf-8"),
-        )
-
-    def test_legacy_experiment_code_is_wrapper_only(self) -> None:
-        for path in (ROOT_DIR / "legacy" / "experiment").rglob("*.py"):
-            if "tests" in path.parts:
-                continue
-            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-                if line.startswith("class "):
-                    self.fail(f"{path}:{lineno} defines a class outside canonical packages")
-                if line.startswith("async def "):
-                    self.fail(f"{path}:{lineno} defines an async function outside canonical packages")
-                if line.startswith("def ") and not line.startswith("def __getattr__("):
-                    self.fail(f"{path}:{lineno} defines a function outside canonical packages")
 
     def test_basic_cost_routers_live_under_policy_stage(self) -> None:
         from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
@@ -261,7 +218,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(cheapest_provider(providers).name, "cheap")
         self.assertEqual(provider_for_index(providers, 3).name, "cheap")
 
-    def test_world_modules_do_not_import_legacy_core(self) -> None:
+    def test_world_modules_do_not_import_old_core(self) -> None:
         legacy_token = "experiment.scripts.simulate.synthetic._core"
 
         for path in (ROOT_DIR / "rwsim" / "world").rglob("*.py"):
@@ -280,7 +237,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(legacy_registry_token, source)
 
-    def test_rwsim_does_not_load_legacy_strategy_modules(self) -> None:
+    def test_rwsim_does_not_load_old_strategy_modules(self) -> None:
         forbidden = (
             "experiment.strategies",
             "experiment/strategies",

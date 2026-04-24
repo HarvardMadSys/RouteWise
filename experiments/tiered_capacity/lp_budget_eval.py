@@ -107,22 +107,21 @@ VARIANT_ALIASES = {
 }
 
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-_LEGACY_EXPERIMENT_ROOT = _WORKSPACE_ROOT / "legacy" / "experiment"
-_LEGACY_DATA_ROOT = _LEGACY_EXPERIMENT_ROOT / "data"
-_LEGACY_DATASET_CACHE_ROOT = _LEGACY_EXPERIMENT_ROOT / "cache" / "dataset"
+_TRACE_DATA_ROOT = _WORKSPACE_ROOT / "data"
+_DATASET_CACHE_ROOT = _WORKSPACE_ROOT / "outputs" / "cache" / "dataset"
 _DATA_LOADER_CONFIG = {"dataset": {}}
 
 _TRACE_DATASET_PATHS = {
     "freeinference": [
-        _LEGACY_DATA_ROOT / "freeinference_logs.csv",
+        _TRACE_DATA_ROOT / "freeinference_logs.csv",
     ],
     "rednote": [
-        _LEGACY_DATA_ROOT / "rednote_logs.csv",
+        _TRACE_DATA_ROOT / "rednote_logs.csv",
     ],
     "sharegpt": [
-        _LEGACY_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
-        _LEGACY_DATA_ROOT / "sharegpt_burstgpt" / "sharegpt_prompts_7d.jsonl",
-        _LEGACY_DATA_ROOT / "sharegpt_burstgpt" / "converted.csv",
+        _TRACE_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
+        _TRACE_DATA_ROOT / "sharegpt_burstgpt" / "sharegpt_prompts_7d.jsonl",
+        _TRACE_DATA_ROOT / "sharegpt_burstgpt" / "converted.csv",
     ],
 }
 
@@ -1405,7 +1404,7 @@ def _resolve_trace_dataset_path(dataset_name: str) -> Path | None:
 
 
 def _dataset_cache_path(dataset_name: str) -> Path:
-    return _LEGACY_DATASET_CACHE_ROOT / f"{dataset_name}.pkl"
+    return _DATASET_CACHE_ROOT / f"{dataset_name}.pkl"
 
 
 def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
@@ -1565,7 +1564,7 @@ def generate_scenario_workload(
     Args:
         scenario: Scenario configuration.
         seed: RNG seed controlling either synthetic generation or trace slicing.
-        dataset_name: Workload source. Use "synthetic" for the legacy synthetic
+        dataset_name: Workload source. Use "synthetic" for the built-in synthetic
             generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
     """
     if dataset_name != "synthetic":

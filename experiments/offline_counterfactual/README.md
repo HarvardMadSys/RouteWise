@@ -1,8 +1,7 @@
 # Offline Counterfactual Experiment
 
 Paper-used workflow for replaying OpenRouter evaluation logs while excluding a
-dominant provider. The implementation lives here; legacy
-`legacy.experiment.scripts.simulate.*` modules are compatibility wrappers.
+dominant provider. The implementation lives here.
 
 Run:
 

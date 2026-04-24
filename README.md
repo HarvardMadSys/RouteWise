@@ -10,12 +10,10 @@ world model and multiple routing algorithms:
   workloads, scenarios, and metrics.
 - Multiple routing strategies registered as plugins and evaluated on the
   same scenarios.
-- Legacy code quarantined under `legacy/experiment/` so the root package
-  boundary stays unambiguous.
+- Paper experiment code lives under `experiments/`; reusable simulator code
+  lives under `rwsim/`.
 
-The code refactor is complete through the simulator package consolidation.
-Full legacy removal is not complete; see `docs/LEGACY_AUDIT.md` for the
-remaining legacy inventory and deletion conditions.
+The old `experiment/` and `legacy/` package surfaces have been removed.
 
 ## Quick start
 
@@ -49,16 +47,13 @@ Use `rwsim/` as the canonical package surface for new code:
 - `rwsim/drivers/`: canonical driver entrypoints
 - `rwsim/runner.py`: shared strategy dispatch
 
-Historical code that has not been deleted yet lives under
-`legacy/experiment/`. The leaf world primitives now live in `rwsim/world/`;
-legacy `_core` world modules are compatibility wrappers under the legacy
-namespace. New work should not import from `legacy/experiment/`.
+Historical paper workflows have canonical homes under `experiments/`.
+Reusable primitives live in `rwsim/`.
 
 The target architecture and algorithm decomposition are documented in:
 
 - `docs/ARCHITECTURE.md`
 - `docs/ALGORITHMS.md`
-- `docs/LEGACY_AUDIT.md`
 
 Config-driven experiment recipes now live under `experiments/`. The thin
 inspection entrypoint is:
@@ -93,8 +88,6 @@ RouteWise/
     tiered_capacity/
     estimator_ablation/
     offline_stage/
-  legacy/
-    experiment/
   scripts/
   tests/
     golden/
@@ -241,8 +234,6 @@ Any structural change to the simulator should satisfy all of the following:
 1. `python tests/golden_capture.py --mode compare` stays green.
 2. No algorithm decision logic changes unless the change is explicitly a
    research change rather than a refactor.
-3. Top-level scripts remain functional while `legacy/experiment/` is
-   kill-on-reproduce.
 
 ## Known Algorithm Caveats
 
@@ -264,23 +255,13 @@ structural refactor:
 These should be handled as separate behavioral fixes, not as part of the
 structural refactor.
 
-## Notes on compatibility
+## Notes on Layout
 
 - `rwsim/` is the canonical package surface for new development.
-- `legacy/experiment/` contains compatibility wrappers plus paper-used
-  offline/stage strategy workflows that are pending canonical migration.
 - Offline/stage core types, config loading, quota/cost/cache, and simulator
   code now live in `rwsim/offline/` and `experiments/offline_stage/`.
 - Offline/stage paper strategies now live in
-  `experiments/offline_stage/strategies/`; old strategy paths are wrappers.
+  `experiments/offline_stage/strategies/`.
 - The OpenRouter latency profiling probe now lives at
   `experiments/offline_stage/latency_profiling.py`.
-- `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
-  strategy files now forward into `rwsim/`.
-- `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
-  and `legacy/experiment/strategies/online/predictors/` are compatibility
-  wrappers around `rwsim/policies/`.
 - Top-level `run_*.py` scripts remain the default operational entrypoints.
-
-That split is temporary: it keeps old experiments reproducible while the
-remaining legacy inventory is migrated or deleted.

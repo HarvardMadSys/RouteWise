@@ -54,7 +54,7 @@ class Stage1OptimalStrategy(RoutingStrategy):
 
         Args:
             cost_calculator: CostCalculator instance
-            quota_manager: QuotaManager instance (legacy, may be unused)
+            quota_manager: QuotaManager instance (may be unused)
             config: Experiment configuration
             **kwargs: Additional arguments including:
                 - active_plans: List of plan IDs to use (overrides config)

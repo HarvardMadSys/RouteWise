@@ -1,7 +1,7 @@
 """Shared simulation loop target.
 
-This module defines the ownership boundary. Current legacy strategies still
-run their own loops; migrated strategies should move to this engine.
+This module defines the ownership boundary. Some current strategies still run
+their own loops; migrated strategies should move to this engine.
 """
 
 from __future__ import annotations

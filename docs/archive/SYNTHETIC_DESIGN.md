@@ -2,7 +2,7 @@
 
 Post-refactor path note: this document records the design history. The
 canonical implementation now lives under `experiments/synthetic_latency/` and
-`rwsim/`; old `legacy/experiment/...` paths are compatibility references.
+`rwsim/`
 
 ## Motivation
 

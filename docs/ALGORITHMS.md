@@ -186,9 +186,9 @@ simulation loop.
 ## Mapping Current Strategies To Pipeline Configs
 
 This mapping is provisional. It is a migration alias table, not a behavior
-switch. When a current strategy has a legacy implementation detail, the alias
-should preserve that behavior until a separate research change intentionally
-changes the algorithm.
+switch. When a current strategy has an existing implementation detail, the
+alias should preserve that behavior until a separate research change
+intentionally changes the algorithm.
 
 The code-level alias table lives in `rwsim/policies/composer.py`.
 
@@ -214,7 +214,7 @@ The code-level alias table lives in `rwsim/policies/composer.py`.
 
 The sidecar LP-budget experiment already contains a newer probability-targeted
 hedge variant. That should migrate as a distinct hedger stage, not be folded
-silently into legacy `lp_hedge` or `v2_p50_hedge` aliases.
+silently into existing `lp_hedge` or `v2_p50_hedge` aliases.
 
 The paper offline/stage strategy implementations now live in
 `experiments/offline_stage/strategies/`. They are canonical for reproducing
@@ -290,5 +290,5 @@ For each strategy migration:
 5. Reproduce the old strategy result under golden comparison.
 6. Convert the old strategy name into a pipeline config alias.
 
-The strategy is not considered migrated until its legacy runner can be
+The strategy is not considered migrated until its monolithic runner can be
 removed or converted into a thin wrapper around the pipeline composer.

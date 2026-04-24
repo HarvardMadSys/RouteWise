@@ -12,16 +12,7 @@ Tests cover:
 - simulate_request correctly skips hedge when hedge_time is inf
 """
 
-import os
-import sys
-
-# Setup import path
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-_strategies_dir = os.path.join(_script_dir, "..", "strategies")
-sys.path.insert(0, _strategies_dir)
-
-from online_latency_router import ProviderProfile
-from smart_hedging import (
+from rwsim.policies.hedgers.smart_economic import (
     BackupSelectionMethod,
     HedgingParams,
     HedgingStrategy,
@@ -31,6 +22,7 @@ from smart_hedging import (
     find_optimal_hedge_time_survival,
     smart_hedge_economic,
 )
+from rwsim.policies.latency_routers.online_lp import ProviderProfile
 
 
 def _make_profile(provider: str, latencies_ms: list[float], now: float = 1000.0) -> ProviderProfile:

@@ -1,12 +1,12 @@
 """Canonical package entrypoint for the RouteWise simulator.
 
-Legacy strategy exports are loaded lazily so dependency-light modules such as
+Strategy exports are loaded lazily so dependency-light modules such as
 ``rwsim.schemas`` can be imported before the scientific stack is installed.
 """
 
 from __future__ import annotations
 
-_LEGACY_RUNNER_EXPORTS = {
+_RUNNER_EXPORTS = {
     "LATENCY_STRATEGIES",
     "TIERED_STRATEGIES",
     "run_registered_strategy",
@@ -26,12 +26,12 @@ _SCHEMA_EXPORTS = {
     "WorkloadConfig",
 }
 
-__all__ = sorted(_LEGACY_RUNNER_EXPORTS | _SCHEMA_EXPORTS)
+__all__ = sorted(_RUNNER_EXPORTS | _SCHEMA_EXPORTS)
 
 
 def __getattr__(name: str):
     """Resolve public exports lazily."""
-    if name in _LEGACY_RUNNER_EXPORTS:
+    if name in _RUNNER_EXPORTS:
         from . import runner
 
         return getattr(runner, name)

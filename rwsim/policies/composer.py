@@ -138,7 +138,7 @@ STRATEGY_PIPELINE_ALIASES: dict[str, PolicyPipelineSpec] = {
 
 
 def available_aliases() -> tuple[str, ...]:
-    """Return the known legacy strategy aliases."""
+    """Return the known strategy aliases."""
     return tuple(sorted(STRATEGY_PIPELINE_ALIASES))
 
 

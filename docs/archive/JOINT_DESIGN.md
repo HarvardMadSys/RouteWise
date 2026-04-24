@@ -2,7 +2,7 @@
 
 Post-refactor path note: this document records the design history. The
 canonical implementation now lives under `experiments/tiered_capacity/` and
-`rwsim/`; old `legacy/experiment/...` paths below are compatibility references.
+`rwsim/`
 
 ## Motivation
 

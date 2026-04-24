@@ -5,11 +5,9 @@ simulation and paper experiments. The goal is to make the codebase composable:
 each module should behave like a small, testable building block with a clear
 contract.
 
-The current repository is still in migration, but the root package boundary is
-now explicit: `rwsim/` is the simulator package, `experiments/` contains
-config-driven experiment recipes, and historical code is quarantined under
-`legacy/experiment/`. The target is to make `rwsim/` the single source of
-truth.
+The root package boundary is explicit: `rwsim/` is the simulator package and
+`experiments/` contains reproducible paper experiment recipes. Historical
+paper-era code has been moved into those canonical homes.
 
 ## Target Layout
 
@@ -74,9 +72,6 @@ RouteWise/
     run_experiment.py
     plot_experiment.py
 
-  legacy/
-    experiment/
-
   tests/
     unit/
     integration/
@@ -87,7 +82,6 @@ RouteWise/
   docs/
     ARCHITECTURE.md
     ALGORITHMS.md
-    LEGACY_AUDIT.md
 ```
 
 ## Layer Responsibilities
@@ -260,25 +254,6 @@ arguments and dispatch into `experiments/`. They should not contain research
 logic, simulator logic, or plotting logic beyond selecting an experiment
 command.
 
-### `legacy/`
-
-`legacy/` is a temporary compatibility area for old code while the new
-architecture is being reproduced.
-
-It exists to preserve baseline comparability during the migration. Some code
-inside `legacy/experiment/` is already a wrapper over `rwsim/` or
-`experiments/`; the rest is paper-used offline/stage experiment code pending
-canonical migration. The detailed inventory lives in `docs/LEGACY_AUDIT.md`.
-
-`legacy/` should be removed once the new architecture reproduces the required
-golden baselines and paper experiments.
-
-The rule is:
-
-```text
-legacy/ is kill-on-reproduce.
-```
-
 ### `tests/`
 
 `tests/` proves that both individual building blocks and assembled experiment
@@ -311,7 +286,6 @@ Dependencies must flow downward:
 ```text
 scripts -> experiments -> rwsim
 tests   -> rwsim / experiments
-legacy  -> isolated compatibility code
 ```
 
 Forbidden dependencies:
@@ -332,12 +306,9 @@ Current status:
   providers, workload generation, scenario containers, shadow pricing, and run
   metrics.
 - `rwsim/data/` owns reusable trace-data loading helpers used by experiments.
-- `legacy/experiment/scripts/simulate/synthetic/_core/` world modules are
-  compatibility wrappers.
 - `rwsim/strategies/registry.py` owns the canonical strategy registry surface.
 - `rwsim/strategies/latency_impl.py` and `rwsim/strategies/tiered_impl.py`
-  own the reproduced strategy loops; legacy synthetic runner modules under
-  `legacy/experiment/` are wrappers.
+  own the reproduced strategy loops.
 - `rwsim/policies/` now owns the migrated latency routers, hedgers, value
   estimators, and initial cost-router selectors. Remaining work is to move
   full request-loop execution into `rwsim/engine/` behind the composer.
@@ -358,9 +329,7 @@ Recommended order:
 7. Extract the shared simulation engine.
 8. Move policies behind stage interfaces.
 9. Convert concrete paper scenarios into config-driven experiments.
-10. Delete legacy code once the corresponding new path has reproduced the
-    same behavior.
-11. Replace top-level `run_*.py` files with thin scripts.
+10. Replace top-level `run_*.py` files with thin scripts.
 
 Each migration step should preserve:
 
