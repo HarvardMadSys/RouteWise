@@ -29,6 +29,9 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/_core/strategies/*.py` | `rwsim/strategies/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/runner.py` | `rwsim/strategies/latency_impl.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/strategies.py` | `rwsim/strategies/tiered_impl.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/{providers,workload}.py` | `rwsim/world/` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/{providers,shadow_price}.py` | `rwsim/world/` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/runner.py` | `rwsim/runner.py` / `run_joint.py` | Compatibility orchestration |
 | `legacy/experiment/scripts/simulate/synthetic/scenarios.py` | `experiments/synthetic_latency/configs/` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/_core/sanity_check.py` | `experiments/synthetic_latency/sanity.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/plots.py` | `experiments/synthetic_latency/plots.py` | Wrapper |
@@ -68,13 +71,14 @@ wrapper: each workflow needs a canonical replacement under `rwsim/` +
 
 | Legacy path | Canonical migration target |
 | --- | --- |
+| `config/experiment.yaml` | Move offline/stage experiment config into the owning `experiments/` package or split shared model/provider config from paper-run config. |
 | `legacy/experiment/data/schema.py` | Fold offline `ProviderConfig` / `RoutingDecision` models into `rwsim/schemas.py` or a dedicated offline schema module. |
 | `legacy/experiment/{config,cost,quota,window_quota,cache,simulator}.py` | Map shared execution, cost, quota, and cache pieces into `rwsim/engine`, `rwsim/world`, and `rwsim/data`. |
 | `legacy/experiment/strategies/{all_api,greedy,stage1_*,stage2_*}.py` | Map stage strategies into `rwsim/policies` / `rwsim/strategies` pipeline configs. |
 | `legacy/experiment/strategies/online/{base,greedy,learning_augmented,primal_dual}.py` | Map online routing stack into canonical policy stages or strategy aliases. |
 | `legacy/experiment/scripts/simulate/{offline_counterfactual,policies,bootstrap,plot_counterfactual}.py` | Move offline counterfactual workflow into an `experiments/` package with canonical policy imports. |
 | `legacy/experiment/scripts/run_phase{3,4}_simulation.py` | Move Phase 3/4 latency experiment runners into `experiments/` and keep paper-output compatibility. |
-| `legacy/experiment/scripts/plot/latency/*.py` | Move Phase 3/4 plotters into the same experiment package or a paper plotting module. |
+| `legacy/experiment/scripts/plot/{common.py,latency/*.py}` | Move Phase 3/4 plotters and paper style helpers into the same experiment package or a paper plotting module. |
 | `legacy/experiment/latency_profiling.py` | Live/probe script; keep separate from simulator refactor unless still used. |
 
 Deletion condition: either reproduce the relevant artifact from `rwsim/` +
@@ -92,6 +96,13 @@ There are also no known canonical `rwsim/` or `experiments/` modules importing
 
 `tests/test_architecture_scaffold.py` intentionally imports one legacy
 predictor wrapper to verify backward compatibility.
+
+## Documentation Debt
+
+The root design notes are paper-era context, not the current package map.
+They now carry post-refactor path notes, but any migration work should treat
+`docs/ARCHITECTURE.md`, `docs/ALGORITHMS.md`, and this audit as the source of
+truth.
 
 ## Naming Notes
 

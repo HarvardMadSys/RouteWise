@@ -1,5 +1,9 @@
 # Joint Cross-Tier Routing — Design & Results
 
+Post-refactor path note: this document records the design history. The
+canonical implementation now lives under `experiments/tiered_capacity/` and
+`rwsim/`; old `legacy/experiment/...` paths below are compatibility references.
+
 ## Motivation
 
 The current RouteWise routes in two stages: Layer 1 picks the tier
@@ -15,14 +19,15 @@ providers across all tiers in one step — dominates the two-layer design.
 ## Files
 
 ```
-legacy/experiment/scripts/simulate/synthetic/tiered/
-    providers.py       TieredProvider + QuotaState + ConcurrencyState
-    shadow_price.py    psi(z), lambda(u), effective_cost, calibrate_envelopes
-    scenarios.py       S6, S7, S8 tiered scenarios
-    strategies.py      two_layer + 4 joint variants
-    runner.py          Scenario-level orchestration
-    __init__.py
+experiments/tiered_capacity/
+    configs/           S6, S7, S8, S9, unified_pool configs
+    experiment.py      Config loading and runner helpers
+    materialize.py     Config -> runnable world objects
+    plots.py           Tiered capacity plots
 
+rwsim/world/           TieredProvider + quota/concurrency state + shadow prices
+rwsim/strategies/      two_layer + joint variants
+rwsim/policies/        pipeline-stage policy components
 run_joint.py           Top-level entry; writes results/joint/{scenario}/summary.json
 LESSONS_LEARNED.md     Process diary (how the design evolved, what broke)
 ```

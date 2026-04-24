@@ -1,5 +1,9 @@
 # Synthetic Simulation — Design & Implementation
 
+Post-refactor path note: this document records the design history. The
+canonical implementation now lives under `experiments/synthetic_latency/` and
+`rwsim/`; old `legacy/experiment/...` paths are compatibility references.
+
 ## Motivation
 
 The LP Mix router (`OnlineLatencyRouter`) was found to over-diversify traffic when one provider is both cheapest and fastest, causing more SLO violations than a trivial "always-pick-cheapest" baseline. The V2 P50 router and Smart Hedging approach are proposed as fixes. Before relying on noisy real-world data, we want to verify the algorithms in a controlled environment where:
@@ -15,15 +19,16 @@ This document describes the design of the synthetic simulation built to satisfy 
 ## File Structure
 
 ```
-legacy/experiment/scripts/simulate/synthetic/
-    providers.py    — SyntheticProvider, ShiftingProvider, LogNormal distribution
-    workload.py     — Request stream generator (Poisson / bursty)
-    scenarios.py    — S1–S5 scenario configurations
-    runner.py       — Simulation engine: all eight strategies
+experiments/synthetic_latency/
+    configs/        — S1–S5 scenario configurations
+    experiment.py   — Config loading and runner helpers
+    materialize.py  — Config -> runnable world objects
     plots.py        — Four plot types per scenario
-    __init__.py
 
-run_synthetic.py    — Top-level orchestrator (runs from project root)
+rwsim/world/        — providers, distributions, workload, metrics
+rwsim/strategies/   — latency strategy loops
+rwsim/policies/     — pipeline-stage policy components
+run_synthetic.py    — Top-level orchestrator
 results/synthetic/  — Output directory
     s{N}_*/
         summary.json

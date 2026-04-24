@@ -1,5 +1,9 @@
 # RouteWise Synthetic Simulation Task
 
+Post-refactor path note: this is an older task brief. Use `rwsim/` and
+`experiments/` for new work; `legacy/experiment/...` references below describe
+the original implementation or compatibility wrappers.
+
 ## Goal
 
 Build a synthetic simulation environment with mock providers to verify routing algorithm behavior under controlled conditions. This helps us understand the system without real-world noise.
