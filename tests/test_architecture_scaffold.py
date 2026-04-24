@@ -125,6 +125,10 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertNotIn(legacy_registry_token, source)
             self.assertIn("rwsim.strategies.registry", source)
 
+        for path in (ROOT_DIR / "rwsim" / "strategies").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn(legacy_registry_token, source)
+
 
 if __name__ == "__main__":
     unittest.main()
