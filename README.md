@@ -243,7 +243,7 @@ Any structural change to the simulator should satisfy all of the following:
 There is one documented pre-existing latent bug that was intentionally not
 mixed into the refactor:
 
-- In `tiered/strategies.py`, `_provider_p95_at()` checks
+- In `rwsim/strategies/tiered_impl.py`, `_provider_p95_at()` checks
   `hasattr(provider, "_active_dist")`.
 - Stress scenario `st2_s_q_degradation` uses `TieredProvider` with
   `shift_time` and `ttft_dist_after`, not `ShiftingProvider`.

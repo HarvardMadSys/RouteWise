@@ -6,7 +6,7 @@ import numpy as np
 
 
 def _tiered_module():
-    from experiment.scripts.simulate.synthetic.tiered import strategies as tiered_strategies
+    from rwsim.strategies import tiered_impl as tiered_strategies
 
     return tiered_strategies
 
