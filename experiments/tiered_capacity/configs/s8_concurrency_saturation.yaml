@@ -1,7 +1,8 @@
 name: s8_concurrency_saturation
-description: >
-  S_C is free but concurrency-limited. Arrival rate exceeds slot capacity, so
-  the router must spill to S_A when concurrency saturates.
+description: >-
+  S_C (C=4 slots, 2s service, $0) and S_A (P50=100 ms, $3/M). Arrival rate 3
+  req/s is 3x the S_C capacity. Two-layer saturates S_C and queues; joint_v2
+  spills via lambda(u).
 primary_slo_ms: 2000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:

@@ -1,7 +1,8 @@
 name: s7_quota_depletion
-description: >
-  S_Q is free and SLO-safe but has limited quota. S_A is faster and paid. The
-  experiment tests smooth shadow-price handoff from quota to API.
+description: >-
+  S_Q (quota=100, P50=300 ms, $0) and S_A (P50=200 ms, $3/M). 200-request
+  workload causes quota to deplete at ~50 % of the run. Two-layer flips
+  cliff-wise at z=1; joint_v2 ramps smoothly as psi(z) climbs.
 primary_slo_ms: 2000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:

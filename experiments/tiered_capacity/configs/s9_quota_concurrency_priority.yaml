@@ -1,7 +1,9 @@
 name: s9_quota_concurrency_priority
-description: >
-  S_Q, S_C, and S_A are all present. This control separates fixed tier-priority
-  baselines from cross-tier effective-cost routing.
+description: >-
+  S_Q (quota=800, P50=450 ms, $0), S_C (C=4 slots, P50=140 ms, 2s service,
+  $0), and S_A (P50=100 ms, $3/M). Quota-first stays on S_Q while
+  concurrency-first prefers S_C. This scenario is intended to separate fixed
+  tier-priority baselines in a mixed-tier world.
 primary_slo_ms: 1000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:
