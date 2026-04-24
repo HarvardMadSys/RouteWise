@@ -26,7 +26,7 @@ def load_scenario_config(path: str) -> ScenarioConfig:
     except ModuleNotFoundError as exc:
         raise RuntimeError("PyYAML is required to load scenario configs.") from exc
 
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         payload = yaml.safe_load(handle)
     return build_scenario(payload)
 

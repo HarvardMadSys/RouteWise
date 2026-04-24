@@ -11,3 +11,6 @@ Each experiment should combine:
 - output schema decisions.
 
 Core simulation logic belongs in `rwsim/`, not here.
+
+Use `scripts/run_experiment.py --experiment tiered_capacity --list` to inspect
+the config-driven entry points.

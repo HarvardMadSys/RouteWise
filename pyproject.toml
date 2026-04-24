@@ -28,6 +28,8 @@ include-package-data = true
 include = [
   "experiment",
   "experiment.*",
+  "experiments",
+  "experiments.*",
   "rwsim",
   "rwsim.*",
 ]
