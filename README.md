@@ -157,9 +157,9 @@ All golden artifacts are stored under `tests/golden/`.
 
 ## Running experiments
 
-The old top-level scripts remain valid and dispatch through the quarantined
-legacy namespace where needed. Prefer `scripts/run_experiment.py` for new
-config-driven runs.
+The old top-level scripts remain valid, but their simulator-facing imports now
+prefer canonical `rwsim/` and `experiments/` modules. Prefer
+`scripts/run_experiment.py` for new config-driven runs.
 
 ### Latency-only synthetic scenarios
 

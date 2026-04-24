@@ -39,6 +39,7 @@ needed:
 | `legacy/experiment/scripts/simulate/synthetic/tiered/stress_scenarios.py` | `experiments/tiered_capacity/stress.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_mm25.py` | `experiments/tiered_capacity/minimax_m25.py` | Wrapper |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/phase_diagram.py` | `experiments/tiered_capacity/phase_diagram.py` | Wrapper |
+| `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` | Wrapper |
 | `legacy/experiment/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/online/predictors/**` | `rwsim/policies/value_estimators/` | Wrapper |
 | `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py` | `rwsim/policies/{latency_routers,hedgers}/` | Wrapper |
@@ -54,7 +55,6 @@ be deleted until they get canonical homes:
 | Legacy path | Intended canonical home | Notes |
 | --- | --- | --- |
 | `legacy/experiment/scripts/simulate/synthetic/tiered/scenarios_calibrated.py` | `experiments/tiered_capacity/calibrated.py` | Earlier calibrated tiered scenarios. |
-| `legacy/experiment/scripts/simulate/synthetic/tiered/lp_budget_eval.py` | `experiments/tiered_capacity/lp_budget_eval.py` or delete after reproduce | Large standalone LP budget evaluation. |
 
 Migration condition: move the implementation to the intended home, leave a
 temporary wrapper in legacy, update top-level scripts/tests to import the
@@ -85,14 +85,11 @@ scope and remove the corresponding runner/tests/docs together.
 The main synthetic/tiered runners and `tests/golden_capture.py` now import
 canonical `rwsim/` and `experiments/` paths.
 
-Known remaining root-level legacy caller:
-
-- `run_joint_lp_budget_eval.py` imports
-  `legacy.experiment.scripts.simulate.synthetic.tiered.lp_budget_eval`.
-
-That LP-budget sidecar also depends on the historical `legacy.experiment.data`
-loader stack, so it should move only together with a clear decision on whether
-trace-data/offline workflows are still supported.
+There are no known root-level script callers of `legacy.experiment.*` now.
+`experiments/tiered_capacity/lp_budget_eval.py` still imports the historical
+`legacy.experiment.data` loader for trace-driven datasets. That is an explicit
+remaining data/offline-stack dependency, not a top-level experiment entrypoint
+dependency.
 
 `tests/test_architecture_scaffold.py` intentionally imports one legacy
 predictor wrapper to verify backward compatibility.

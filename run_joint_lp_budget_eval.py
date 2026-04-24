@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from legacy.experiment.scripts.simulate.synthetic.tiered.lp_budget_eval import (  # noqa: E402
+from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
     CONTROL_VARIANTS,
     FIRST_BATCH_SCENARIOS,
     HEDGE_ABLATION_VARIANTS,
@@ -319,11 +319,8 @@ def _metadata(
         "driver": str(_ROOT / "run_joint_lp_budget_eval.py"),
         "sidecar_module": str(
             _ROOT
-            / "experiment"
-            / "scripts"
-            / "simulate"
-            / "synthetic"
-            / "tiered"
+            / "experiments"
+            / "tiered_capacity"
             / "lp_budget_eval.py"
         ),
         "main_variants": MAIN_VARIANTS,
