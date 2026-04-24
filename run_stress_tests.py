@@ -42,7 +42,7 @@ from experiments.tiered_capacity.plots import (
     plot_provider_mix,
     plot_slo_cost_pareto,
 )
-from legacy.experiment.scripts.simulate.synthetic.tiered.stress_scenarios import (
+from experiments.tiered_capacity import (
     make_stress_scenarios,
 )
 from legacy.experiment.scripts.simulate.synthetic.workload import generate_workload

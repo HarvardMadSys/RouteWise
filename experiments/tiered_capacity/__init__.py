@@ -11,6 +11,7 @@ from experiments.tiered_capacity.experiment import (
     run_strategy,
     summarize,
 )
+from experiments.tiered_capacity.stress import make_stress_scenarios
 
 __all__ = [
     "CONFIG_DIR",
@@ -20,6 +21,7 @@ __all__ = [
     "load_all_world_scenarios",
     "load_scenario",
     "load_world_scenario",
+    "make_stress_scenarios",
     "run_strategy",
     "summarize",
 ]

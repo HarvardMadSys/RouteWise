@@ -453,7 +453,7 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
 
         scenario_factory = make_mm25_scenarios
     elif family == "stress":
-        from legacy.experiment.scripts.simulate.synthetic.tiered.stress_scenarios import (  # noqa: E402
+        from experiments.tiered_capacity import (  # noqa: E402
             make_stress_scenarios,
         )
 
