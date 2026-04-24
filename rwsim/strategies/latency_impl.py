@@ -26,6 +26,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from rwsim.policies.cost_routers import (
+    cheapest_provider,
+    cheapest_provider_name,
+    hindsight_fastest_provider,
+    provider_for_index,
+)
 from rwsim.policies.hedgers import (
     BackupSelectionMethod,
     HedgingParams,
@@ -36,7 +42,7 @@ from rwsim.policies.hedgers import (
 from rwsim.policies.latency_routers import OnlineLatencyRouter, V2Router
 from rwsim.schemas import Request
 from rwsim.world.metrics import StrategyRun
-from rwsim.world.providers import ShiftingProvider, SyntheticProvider
+from rwsim.world.providers import SyntheticProvider
 from rwsim.world.scenarios import ScenarioConfig
 
 # ---------------------------------------------------------------------------
@@ -106,7 +112,7 @@ def _run_cheapest_fixed(
     requests: list[Request],
     rng: np.random.Generator,
 ) -> StrategyRun:
-    cheapest = min(scenario.providers, key=lambda p: p.cost_per_token)
+    cheapest = cheapest_provider(scenario.providers)
     ttft_ms, cost_usd, provider, timestamps = [], [], [], []
 
     for req in requests:
@@ -137,20 +143,7 @@ def _run_fastest_fixed(
     For ShiftingProviders, we take the time-averaged P50 across the full
     simulation window (sampling half the requests from each phase).
     """
-    seed_rng = np.random.default_rng(0)
-    half = 5000
-
-    best_p50: dict[str, float] = {}
-    for p in scenario.providers:
-        if isinstance(p, ShiftingProvider):
-            s_before = p.ttft_dist.sample(seed_rng, half)
-            s_after = p.ttft_dist_after.sample(seed_rng, half)
-            best_p50[p.name] = float(np.median(np.concatenate([s_before, s_after])))
-        else:
-            best_p50[p.name] = float(np.median(p.ttft_dist.sample(seed_rng, half * 2)))
-
-    fastest_name = min(best_p50, key=lambda n: best_p50[n])
-    fastest = next(p for p in scenario.providers if p.name == fastest_name)
+    fastest = hindsight_fastest_provider(scenario.providers)
 
     ttft_ms, cost_usd, provider, timestamps = [], [], [], []
     for req in requests:
@@ -176,15 +169,11 @@ def _run_round_robin(
     requests: list[Request],
     rng: np.random.Generator,
 ) -> StrategyRun:
-    names = [p.name for p in scenario.providers]
-    pdict = {p.name: p for p in scenario.providers}
-    n = len(names)
-
     ttft_ms, cost_usd, provider, timestamps = [], [], [], []
     for idx, req in enumerate(requests):
         t = float(req.timestamp)
-        pname = names[idx % n]
-        p = pdict[pname]
+        p = provider_for_index(scenario.providers, idx)
+        pname = p.name
         tm, _ = _sample(p, req.response_tokens, rng, t)
         ttft_ms.append(tm)
         cost_usd.append(p.cost_per_token * req.total_tokens)
@@ -238,7 +227,7 @@ def _cheapest_provider_name(scenario: ScenarioConfig) -> str:
     more defensible default than picking `providers[0]`, which would bias
     toward whatever order scenarios were declared in.
     """
-    return min(scenario.providers, key=lambda p: p.cost_per_token).name
+    return cheapest_provider_name(scenario.providers)
 
 
 def _probe_providers(

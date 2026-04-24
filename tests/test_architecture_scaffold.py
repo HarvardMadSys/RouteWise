@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from experiments import available_experiments, get_experiment
 from experiments._configs import summarize_scenario
@@ -134,6 +135,17 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(OracleOutputPredictor().predict(request).q50, 64.0)
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
         self.assertIs(LegacyEMAOutputPredictor, EMAOutputPredictor)
+
+    def test_basic_cost_routers_live_under_policy_stage(self) -> None:
+        from rwsim.policies.cost_routers import cheapest_provider, provider_for_index
+
+        providers = (
+            SimpleNamespace(name="expensive", cost_per_token=3.0),
+            SimpleNamespace(name="cheap", cost_per_token=1.0),
+        )
+
+        self.assertEqual(cheapest_provider(providers).name, "cheap")
+        self.assertEqual(provider_for_index(providers, 3).name, "cheap")
 
     def test_world_modules_do_not_import_legacy_core(self) -> None:
         legacy_token = "experiment.scripts.simulate.synthetic._core"
