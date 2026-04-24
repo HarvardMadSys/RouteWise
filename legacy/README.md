@@ -6,6 +6,9 @@ Temporary compatibility area for old implementations during migration.
 It exists only to keep historical scripts reproducible while the `rwsim/` and
 `experiments/` paths replace it.
 
+Not everything in this directory has been replaced yet. The current inventory
+and deletion conditions are tracked in `../docs/LEGACY_AUDIT.md`.
+
 Rule:
 
 ```text

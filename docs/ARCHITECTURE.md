@@ -72,6 +72,7 @@ RouteWise/
   docs/
     ARCHITECTURE.md
     ALGORITHMS.md
+    LEGACY_AUDIT.md
 ```
 
 ## Layer Responsibilities
@@ -230,9 +231,13 @@ command.
 `legacy/` is a temporary compatibility area for old code while the new
 architecture is being reproduced.
 
-It exists to preserve baseline comparability during the migration. It should
-be removed once the new architecture reproduces the required golden baselines
-and paper experiments.
+It exists to preserve baseline comparability during the migration. Some code
+inside `legacy/experiment/` is already a wrapper over `rwsim/`; some is still
+real experiment or analysis logic that needs a canonical home before deletion.
+The detailed inventory lives in `docs/LEGACY_AUDIT.md`.
+
+`legacy/` should be removed once the new architecture reproduces the required
+golden baselines and paper experiments.
 
 The rule is:
 

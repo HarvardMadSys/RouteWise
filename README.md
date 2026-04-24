@@ -14,7 +14,8 @@ world model and multiple routing algorithms:
   boundary stays unambiguous.
 
 The code refactor is complete through the simulator package consolidation.
-Worktree cleanup was intentionally left out of scope.
+Full legacy removal is not complete; see `docs/LEGACY_AUDIT.md` for the
+remaining legacy inventory and deletion conditions.
 
 ## Quick start
 
@@ -56,6 +57,7 @@ The target architecture and algorithm decomposition are documented in:
 
 - `docs/ARCHITECTURE.md`
 - `docs/ALGORITHMS.md`
+- `docs/LEGACY_AUDIT.md`
 
 Config-driven experiment recipes now live under `experiments/`. The thin
 inspection entrypoint is:
@@ -257,7 +259,8 @@ as a separate behavioral fix, not as part of the structural refactor.
 ## Notes on compatibility
 
 - `rwsim/` is the canonical package surface for new development.
-- `legacy/experiment/` contains historical compatibility code only.
+- `legacy/experiment/` contains historical compatibility code and some
+  still-useful experiment/analysis logic that has not been fully migrated.
 - `legacy/experiment/scripts/simulate/synthetic/_core/` world-model and
   strategy files now forward into `rwsim/`.
 - `legacy/experiment/strategies/{online_latency_router,v2_router,smart_hedging}.py`
@@ -265,5 +268,5 @@ as a separate behavioral fix, not as part of the structural refactor.
   wrappers around `rwsim/policies/`.
 - Top-level `run_*.py` scripts remain the default operational entrypoints.
 
-That split is intentional: it keeps old experiments reproducible while giving
-new code a cleaner import surface.
+That split is temporary: it keeps old experiments reproducible while the
+remaining legacy inventory is migrated or deleted.
