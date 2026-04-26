@@ -45,6 +45,7 @@ from rwsim.world import (
 MAIN_VARIANTS = [
     "original_lp",
     "original_lp_hedge",
+    "original_lp_explorer",
     "budget_vhat_t25",
     "budget_vhat_t50",
     "budget_vhat_t75",
@@ -57,6 +58,37 @@ MAIN_VARIANTS = [
     "budget_vhat_t100_hedge",
     "budget_vhat_t150_hedge",
     "budget_vhat_t200_hedge",
+    "budget_vhat_t25_explorer",
+    "budget_vhat_t50_explorer",
+    "budget_vhat_t75_explorer",
+    "budget_vhat_t100_explorer",
+    "budget_vhat_t150_explorer",
+    "budget_vhat_t200_explorer",
+]
+EXPLORER_VARIANTS = [
+    "original_lp_explorer",
+    "budget_vhat_t25_explorer",
+    "budget_vhat_t50_explorer",
+    "budget_vhat_t75_explorer",
+    "budget_vhat_t100_explorer",
+    "budget_vhat_t150_explorer",
+    "budget_vhat_t200_explorer",
+]
+BACKUP_EXPLORATION_VARIANTS = [
+    "original_lp_hedge_randombackup",
+    "original_lp_explorer_randombackup",
+    "budget_vhat_t25_hedge_randombackup",
+    "budget_vhat_t25_explorer_randombackup",
+    "budget_vhat_t50_hedge_randombackup",
+    "budget_vhat_t50_explorer_randombackup",
+    "budget_vhat_t75_hedge_randombackup",
+    "budget_vhat_t75_explorer_randombackup",
+    "budget_vhat_t100_hedge_randombackup",
+    "budget_vhat_t100_explorer_randombackup",
+    "budget_vhat_t150_hedge_randombackup",
+    "budget_vhat_t150_explorer_randombackup",
+    "budget_vhat_t200_hedge_randombackup",
+    "budget_vhat_t200_explorer_randombackup",
 ]
 HEDGE_ABLATION_VARIANTS = [
     "original_lp_oldhedge",
@@ -97,7 +129,6 @@ BACKUP_RANDOM_PROB_ZERO_POINT = 0.10
 BACKUP_VIOLATION_WINDOW = 256
 TRIVIAL_SUPPORT_THRESHOLD = 1
 PROBE_RATE = 0.05
-HEDGE_AS_PROBE = True
 TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
 
 VARIANT_ALIASES = {
@@ -147,11 +178,17 @@ def _is_control_variant(variant: str) -> bool:
     return canonicalize_variant_name(variant) in CONTROL_VARIANTS
 
 
+def _strip_random_backup_suffix(variant: str) -> str:
+    if variant.endswith("_randombackup"):
+        return variant[:-len("_randombackup")]
+    return variant
+
+
 def _hedge_mode(variant: str) -> str:
-    variant = canonicalize_variant_name(variant)
+    variant = _strip_random_backup_suffix(canonicalize_variant_name(variant))
     if variant.endswith("_oldhedge"):
         return "old"
-    if variant.endswith("_hedge"):
+    if variant.endswith("_hedge") or variant.endswith("_explorer"):
         return "new"
     return "none"
 
@@ -160,11 +197,22 @@ def _use_hedge(variant: str) -> bool:
     return _hedge_mode(variant) != "none"
 
 
+def _use_hedge_as_probe(variant: str) -> bool:
+    variant = _strip_random_backup_suffix(canonicalize_variant_name(variant))
+    return variant.endswith("_explorer")
+
+
+def _use_random_backup_exploration(variant: str) -> bool:
+    return canonicalize_variant_name(variant).endswith("_randombackup")
+
+
 def _base_variant(variant: str) -> str:
-    variant = canonicalize_variant_name(variant)
+    variant = _strip_random_backup_suffix(canonicalize_variant_name(variant))
     hedge_mode = _hedge_mode(variant)
     if hedge_mode == "old":
         return variant[:-len("_oldhedge")]
+    if variant.endswith("_explorer"):
+        return variant[:-len("_explorer")]
     if hedge_mode == "new":
         return variant[:-len("_hedge")]
     return variant
@@ -899,7 +947,7 @@ def _ttft_cdf_ms(
     return float(provider._active_ttft_dist(now).cdf(threshold_ms))
 
 
-def _pick_explorer_backup(
+def _pick_probability_target_backup(
     providers: list[TieredProvider],
     primary: TieredProvider,
     req: Request,
@@ -908,17 +956,16 @@ def _pick_explorer_backup(
     slo_ms: float,
     rng: np.random.Generator,
     violation_tracker: RecentViolationTracker,
+    allow_random_backup: bool,
     target_success: float = HEDGE_SUCCESS_TARGET,
     dispatch_overhead_ms: float = HEDGE_DISPATCH_OVERHEAD_MS,
 ) -> tuple[TieredProvider | None, str, float]:
-    """Pick a backup using the meeting-style safe/random explorer mix.
+    """Pick the backup candidate for probability-target hedging.
 
-    The new hedge path uses two branches:
-    - exploit: choose the cheapest currently available backup that is
-      SLO-feasible on its own
-    - explore: choose a random currently available backup
-
-    The random branch probability shrinks when recent SLO violations rise.
+    By default, this is deterministic: cheapest currently available backup
+    that is SLO-feasible on its own, then fastest fallback. Random backup
+    exploration is an explicit ablation knob and is not part of hedge-only or
+    hedge-as-probe semantics.
     """
     others = [
         provider for provider in providers
@@ -929,10 +976,13 @@ def _pick_explorer_backup(
     if not others:
         return None, "no_backup", 0.0
 
-    random_prob = _adaptive_random_backup_probability(violation_tracker)
-    if rng.random() < random_prob:
+    random_prob = (
+        _adaptive_random_backup_probability(violation_tracker)
+        if allow_random_backup else 0.0
+    )
+    if allow_random_backup and rng.random() < random_prob:
         index = int(rng.integers(0, len(others)))
-        return others[index], "random_explorer", random_prob
+        return others[index], "random_backup", random_prob
 
     remaining_budget_ms = slo_ms - dispatch_overhead_ms
     safe = [
@@ -1111,6 +1161,7 @@ def _apply_probability_target_hedge(
     now: float,
     rng: np.random.Generator,
     violation_tracker: RecentViolationTracker,
+    allow_random_backup: bool,
 ) -> tuple[float, float, bool, list[tuple[str, float]], float, str, float]:
     """Apply the new probability-only hedge trigger.
 
@@ -1133,7 +1184,7 @@ def _apply_probability_target_hedge(
         _sample_service_time(primary, rng, now, req.response_tokens),
     )
 
-    backup, backup_selection_mode, random_backup_prob = _pick_explorer_backup(
+    backup, backup_selection_mode, random_backup_prob = _pick_probability_target_backup(
         providers,
         primary,
         req,
@@ -1141,6 +1192,7 @@ def _apply_probability_target_hedge(
         slo_ms=scenario.primary_slo_ms,
         rng=rng,
         violation_tracker=violation_tracker,
+        allow_random_backup=allow_random_backup,
     )
     if backup is None:
         return (
@@ -1207,6 +1259,7 @@ def run_variant(
     variant = canonicalize_variant_name(variant)
     if (
         variant not in MAIN_VARIANTS
+        and variant not in BACKUP_EXPLORATION_VARIANTS
         and variant not in HEDGE_ABLATION_VARIANTS
         and variant not in PROVIDER_PERCENTILE_ABLATION_VARIANTS
         and variant not in CONTROL_VARIANTS
@@ -1221,6 +1274,8 @@ def run_variant(
 
     sampler = SWRRSampler()
     L, U = calibrate_envelopes(scenario.providers)
+    hedge_as_probe = _use_hedge_as_probe(variant)
+    random_backup_exploration = _use_random_backup_exploration(variant)
     diagnostics = RunDiagnostics(
         variant=variant,
         scenario_name=scenario.name,
@@ -1297,6 +1352,7 @@ def run_variant(
                 now,
                 rng,
                 violation_tracker,
+                random_backup_exploration,
             )
             diagnostics.backup_selection_counts[backup_selection_mode] += 1
             diagnostics.backup_random_prob_values.append(random_backup_prob)
@@ -1325,7 +1381,7 @@ def run_variant(
             observed_samples = [(primary.name, primary_ttft_ms)]
 
         profiles[primary.name].add_sample(now, observed_samples[0][1])
-        if HEDGE_AS_PROBE and hedged and len(observed_samples) > 1:
+        if hedge_as_probe and hedged and len(observed_samples) > 1:
             backup_name, backup_ttft_ms = observed_samples[1]
             if backup_name != primary.name:
                 profiles[backup_name].add_sample(now, backup_ttft_ms)
@@ -1653,8 +1709,10 @@ def build_hedge_delta(
 
 
 __all__ = [
+    "BACKUP_EXPLORATION_VARIANTS",
     "CONTROL_VARIANTS",
     "EvaluatedRun",
+    "EXPLORER_VARIANTS",
     "FIRST_BATCH_SCENARIOS",
     "HEDGE_ABLATION_VARIANTS",
     "MAIN_VARIANTS",

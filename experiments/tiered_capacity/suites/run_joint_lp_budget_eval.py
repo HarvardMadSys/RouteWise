@@ -15,7 +15,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
+    BACKUP_EXPLORATION_VARIANTS,
     CONTROL_VARIANTS,
+    EXPLORER_VARIANTS,
     FIRST_BATCH_SCENARIOS,
     HEDGE_ABLATION_VARIANTS,
     MAIN_VARIANTS,
@@ -111,6 +113,14 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--include-backup-exploration-ablation",
+        action="store_true",
+        help=(
+            "Also run variants that enable adaptive random backup selection. "
+            "Default *_hedge and *_explorer variants use deterministic backups."
+        ),
+    )
+    parser.add_argument(
         "--freeze-golden",
         action="store_true",
         help="Write a sidecar golden snapshot under outputs/lp_budget/golden/.",
@@ -121,7 +131,8 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override the dedicated background probing rate for the sidecar "
-            "evaluation. Use 0.0 to run a pure explorer/no-probe ablation."
+            "evaluation. Use 0.0 with *_explorer variants to run a pure "
+            "hedge-as-probe/no-dedicated-probe ablation."
         ),
     )
     return parser.parse_args()
@@ -216,25 +227,49 @@ def _build_delta_rows(
     rows: list[dict[str, object]] = []
     pairs = [
         ("original_lp", "original_lp_hedge"),
+        ("original_lp_hedge", "original_lp_explorer"),
+        ("original_lp_hedge", "original_lp_hedge_randombackup"),
+        ("original_lp_explorer", "original_lp_explorer_randombackup"),
         ("original_lp", "original_lp_oldhedge"),
         ("budget_body_p25", "budget_body_p25_hedge"),
         ("budget_body_p50", "budget_body_p50_hedge"),
         ("budget_body_p75", "budget_body_p75_hedge"),
         ("budget_vhat_t25", "budget_vhat_t25_hedge"),
+        ("budget_vhat_t25_hedge", "budget_vhat_t25_explorer"),
+        ("budget_vhat_t25_hedge", "budget_vhat_t25_hedge_randombackup"),
+        ("budget_vhat_t25_explorer", "budget_vhat_t25_explorer_randombackup"),
         ("budget_vhat_t50", "budget_vhat_t50_hedge"),
+        ("budget_vhat_t50_hedge", "budget_vhat_t50_explorer"),
+        ("budget_vhat_t50_hedge", "budget_vhat_t50_hedge_randombackup"),
+        ("budget_vhat_t50_explorer", "budget_vhat_t50_explorer_randombackup"),
         ("budget_vhat_t75", "budget_vhat_t75_hedge"),
+        ("budget_vhat_t75_hedge", "budget_vhat_t75_explorer"),
+        ("budget_vhat_t75_hedge", "budget_vhat_t75_hedge_randombackup"),
+        ("budget_vhat_t75_explorer", "budget_vhat_t75_explorer_randombackup"),
         ("budget_vhat_t75", "budget_vhat_t75_oldhedge"),
+        ("budget_vhat_t100", "budget_vhat_t100_hedge"),
+        ("budget_vhat_t100_hedge", "budget_vhat_t100_explorer"),
+        ("budget_vhat_t100_hedge", "budget_vhat_t100_hedge_randombackup"),
+        ("budget_vhat_t100_explorer", "budget_vhat_t100_explorer_randombackup"),
+        ("budget_vhat_t150", "budget_vhat_t150_hedge"),
+        ("budget_vhat_t150_hedge", "budget_vhat_t150_explorer"),
+        ("budget_vhat_t150_hedge", "budget_vhat_t150_hedge_randombackup"),
+        ("budget_vhat_t150_explorer", "budget_vhat_t150_explorer_randombackup"),
+        ("budget_vhat_t200", "budget_vhat_t200_hedge"),
+        ("budget_vhat_t200_hedge", "budget_vhat_t200_explorer"),
+        ("budget_vhat_t200_hedge", "budget_vhat_t200_hedge_randombackup"),
+        ("budget_vhat_t200_explorer", "budget_vhat_t200_explorer_randombackup"),
     ]
-    for no_hedge, hedged in pairs:
-        if no_hedge not in summary or hedged not in summary:
+    for baseline, comparison in pairs:
+        if baseline not in summary or comparison not in summary:
             continue
-        delta = build_hedge_delta(summary[no_hedge], summary[hedged])
+        delta = build_hedge_delta(summary[baseline], summary[comparison])
         rows.append(
             {
                 "dataset": dataset_name,
                 "scenario": scenario_name,
-                "no_hedge_variant": no_hedge,
-                "hedged_variant": hedged,
+                "baseline_variant": baseline,
+                "comparison_variant": comparison,
                 **delta,
             }
         )
@@ -243,9 +278,12 @@ def _build_delta_rows(
 
 def _style_for_variant(variant: str) -> tuple[str, str]:
     variant = canonicalize_variant_name(variant)
+    random_backup = variant.endswith("_randombackup")
+    style_variant = variant[:-len("_randombackup")] if random_backup else variant
     colors = {
         "original_lp": "#1f1f1f",
         "original_lp_hedge": "#1f1f1f",
+        "original_lp_explorer": "#1f1f1f",
         "original_lp_oldhedge": "#1f1f1f",
         "budget_body_p25": "#1f77b4",
         "budget_body_p25_hedge": "#1f77b4",
@@ -255,23 +293,39 @@ def _style_for_variant(variant: str) -> tuple[str, str]:
         "budget_body_p75_hedge": "#d62728",
         "budget_vhat_t25": "#ff7f0e",
         "budget_vhat_t25_hedge": "#ff7f0e",
+        "budget_vhat_t25_explorer": "#ff7f0e",
         "budget_vhat_t50": "#9467bd",
         "budget_vhat_t50_hedge": "#9467bd",
+        "budget_vhat_t50_explorer": "#9467bd",
         "budget_vhat_t75": "#8c564b",
         "budget_vhat_t75_hedge": "#8c564b",
+        "budget_vhat_t75_explorer": "#8c564b",
         "budget_vhat_t75_oldhedge": "#8c564b",
+        "budget_vhat_t100": "#e377c2",
+        "budget_vhat_t100_hedge": "#e377c2",
+        "budget_vhat_t100_explorer": "#e377c2",
+        "budget_vhat_t150": "#7f7f7f",
+        "budget_vhat_t150_hedge": "#7f7f7f",
+        "budget_vhat_t150_explorer": "#7f7f7f",
+        "budget_vhat_t200": "#bcbd22",
+        "budget_vhat_t200_hedge": "#bcbd22",
+        "budget_vhat_t200_explorer": "#bcbd22",
         "cheapest_available": "#7f7f7f",
         "fastest_available": "#17becf",
         "quota_first": "#bcbd22",
         "concurrency_first": "#e377c2",
     }
-    if variant.endswith("_oldhedge"):
+    if random_backup:
+        marker = "*"
+    elif variant.endswith("_oldhedge"):
         marker = "^"
+    elif variant.endswith("_explorer"):
+        marker = "P"
     elif variant.endswith("_hedge"):
         marker = "X"
     else:
         marker = "o"
-    return colors.get(variant, "#8c564b"), marker
+    return colors.get(style_variant, "#8c564b"), marker
 
 
 def _plot_tradeoff(
@@ -324,6 +378,8 @@ def _metadata(
             / "lp_budget_eval.py"
         ),
         "main_variants": MAIN_VARIANTS,
+        "explorer_variants": EXPLORER_VARIANTS,
+        "backup_exploration_variants": BACKUP_EXPLORATION_VARIANTS,
         "hedge_ablation_variants": HEDGE_ABLATION_VARIANTS,
         "provider_percentile_ablation_variants": PROVIDER_PERCENTILE_ABLATION_VARIANTS,
         "control_variants": CONTROL_VARIANTS,
@@ -356,14 +412,16 @@ def _metadata(
             "duration while preserving token counts and local burst structure"
         ),
         "hedge_as_probe": (
-            "Enabled for all hedged variants: when a hedge fires, the backup "
-            "TTFT sample is fed back into the rolling profile while keeping the "
-            "5% dedicated background probe path unchanged"
+            "Enabled only for explicit *_explorer variants: when a hedge fires, "
+            "the backup TTFT sample is fed back into the rolling profile. "
+            "*_hedge variants are hedge-only and do not update the backup profile."
         ),
         "probe_rate_override": probe_rate,
         "backup_selection_policy": (
-            "New hedge variants use an adaptive safe-cheapest / random-explorer "
-            "backup mix; oldhedge variants retain the historical fastest-backup rule"
+            "Default *_hedge and *_explorer variants use deterministic "
+            "safe-cheapest / fastest-fallback backup selection. Explicit "
+            "*_randombackup variants enable the adaptive random-backup branch. "
+            "Oldhedge variants retain the historical fastest-backup rule."
         ),
     }
 
@@ -390,6 +448,8 @@ def main() -> None:
     ]
     if args.include_hedge_ablation:
         variants.extend(HEDGE_ABLATION_VARIANTS)
+    if args.include_backup_exploration_ablation:
+        variants.extend(BACKUP_EXPLORATION_VARIANTS)
     if args.include_provider_percentile_ablation:
         variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
     if not args.skip_controls:
