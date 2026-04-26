@@ -232,13 +232,11 @@ def _pick_cross_tier_backup(
     primary: TieredProvider,
     now: float,
 ) -> TieredProvider | None:
-    """Fastest provider in any tier other than `primary`'s."""
+    """Fastest available provider in any tier other than `primary`'s."""
     others = [
         p for p in providers
         if p.tier != primary.tier and p.is_available(now)
     ]
-    if not others:
-        others = [p for p in providers if p.name != primary.name]
     if not others:
         return None
     return min(others, key=lambda p: p.true_p50_ms(now))
@@ -319,6 +317,11 @@ def _run_joint(
                         effective_cost(backup, req.total_tokens, t, U=U, L=L),
                     )
                     if P_viol * F_backup > c_backup_eff / V_penalty:
+                        if not backup.is_available(t):
+                            raise RuntimeError(
+                                f"Selected unavailable hedge backup {backup.name!r} "
+                                f"at t={t:.3f}"
+                            )
                         T_backup_ms = _sample_ttft(backup, rng, t)
                         backup.account_request(
                             req.id + 10_000_000, t,

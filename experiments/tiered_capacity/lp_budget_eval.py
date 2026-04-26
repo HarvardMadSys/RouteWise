@@ -962,17 +962,15 @@ def _pick_probability_target_backup(
 ) -> tuple[TieredProvider | None, str, float]:
     """Pick the backup candidate for probability-target hedging.
 
-    By default, this is deterministic: cheapest currently available backup
-    that is SLO-feasible on its own, then fastest fallback. Random backup
-    exploration is an explicit ablation knob and is not part of hedge-only or
-    hedge-as-probe semantics.
+    By default, this is deterministic: cheapest currently available cross-tier
+    backup that is SLO-feasible on its own, then fastest available cross-tier
+    fallback. Random backup exploration is an explicit ablation knob and is
+    not part of hedge-only or hedge-as-probe semantics.
     """
     others = [
         provider for provider in providers
         if provider.tier != primary.tier and provider.is_available(now)
     ]
-    if not others:
-        others = [provider for provider in providers if provider.name != primary.name]
     if not others:
         return None, "no_backup", 0.0
 
@@ -1223,6 +1221,11 @@ def _apply_probability_target_hedge(
         )
 
     dispatch_time_sec = now + hedge_time_ms / 1000.0
+    if not backup.is_available(dispatch_time_sec):
+        raise RuntimeError(
+            f"Selected unavailable probability-target backup {backup.name!r} "
+            f"at t={dispatch_time_sec:.3f}"
+        )
     backup_ttft_ms = _sample_ttft(backup, rng, dispatch_time_sec)
     backup.account_request(
         req.id + 10_000_000,
