@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import numpy as np
+
+from experiments.tiered_capacity.lp_budget_eval import (
+    RecentViolationTracker,
+    _pick_probability_target_backup,
+)
+from rwsim.schemas import Request
 from rwsim.strategies.tiered_impl import _pick_cross_tier_backup
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
 from rwsim.world.distributions import LogNormal
@@ -79,3 +86,46 @@ def test_cross_tier_backup_ignores_unavailable_fastest_candidate() -> None:
     ]
 
     assert _pick_cross_tier_backup(providers, primary, NOW) == slow_available
+
+
+def test_probability_target_cross_tier_scope_rejects_same_tier_backup() -> None:
+    primary = _api_provider("api-primary")
+    same_tier_backup = _api_provider("api-backup")
+    request = Request(id=1, timestamp=NOW, request_tokens=10, response_tokens=10, total_tokens=20)
+
+    backup, mode, random_prob = _pick_probability_target_backup(
+        [primary, same_tier_backup],
+        primary,
+        request,
+        now=NOW,
+        slo_ms=1000.0,
+        rng=np.random.default_rng(0),
+        violation_tracker=RecentViolationTracker(),
+        allow_random_backup=False,
+        backup_scope="cross_tier",
+    )
+
+    assert backup is None
+    assert mode == "no_backup"
+    assert random_prob == 0.0
+
+
+def test_probability_target_default_scope_allows_same_tier_backup() -> None:
+    primary = _api_provider("api-primary")
+    same_tier_backup = _api_provider("api-backup")
+    request = Request(id=1, timestamp=NOW, request_tokens=10, response_tokens=10, total_tokens=20)
+
+    backup, mode, random_prob = _pick_probability_target_backup(
+        [primary, same_tier_backup],
+        primary,
+        request,
+        now=NOW,
+        slo_ms=1000.0,
+        rng=np.random.default_rng(0),
+        violation_tracker=RecentViolationTracker(),
+        allow_random_backup=False,
+    )
+
+    assert backup == same_tier_backup
+    assert mode == "safe_cheapest"
+    assert random_prob == 0.0

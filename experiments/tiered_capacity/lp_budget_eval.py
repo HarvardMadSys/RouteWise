@@ -129,6 +129,7 @@ BACKUP_RANDOM_PROB_ZERO_POINT = 0.10
 BACKUP_VIOLATION_WINDOW = 256
 TRIVIAL_SUPPORT_THRESHOLD = 1
 PROBE_RATE = 0.05
+BACKUP_SCOPES = ("any_provider", "cross_tier")
 TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
 
 VARIANT_ALIASES = {
@@ -947,6 +948,35 @@ def _ttft_cdf_ms(
     return float(provider._active_ttft_dist(now).cdf(threshold_ms))
 
 
+def _available_backup_candidates(
+    providers: list[TieredProvider],
+    primary: TieredProvider,
+    now: float,
+    *,
+    backup_scope: str,
+) -> list[TieredProvider]:
+    """Return currently available backup candidates under the requested scope."""
+    if backup_scope not in BACKUP_SCOPES:
+        raise ValueError(
+            f"Unknown backup_scope {backup_scope!r}. Expected one of {BACKUP_SCOPES!r}."
+        )
+
+    if backup_scope == "cross_tier":
+        return [
+            provider
+            for provider in providers
+            if provider.name != primary.name
+            and provider.tier != primary.tier
+            and provider.is_available(now)
+        ]
+
+    return [
+        provider
+        for provider in providers
+        if provider.name != primary.name and provider.is_available(now)
+    ]
+
+
 def _pick_probability_target_backup(
     providers: list[TieredProvider],
     primary: TieredProvider,
@@ -957,20 +987,25 @@ def _pick_probability_target_backup(
     rng: np.random.Generator,
     violation_tracker: RecentViolationTracker,
     allow_random_backup: bool,
+    backup_scope: str = "any_provider",
     target_success: float = HEDGE_SUCCESS_TARGET,
     dispatch_overhead_ms: float = HEDGE_DISPATCH_OVERHEAD_MS,
 ) -> tuple[TieredProvider | None, str, float]:
     """Pick the backup candidate for probability-target hedging.
 
-    By default, this is deterministic: cheapest currently available cross-tier
-    backup that is SLO-feasible on its own, then fastest available cross-tier
-    fallback. Random backup exploration is an explicit ablation knob and is
-    not part of hedge-only or hedge-as-probe semantics.
+    `backup_scope` separates optional tier restrictions from the hedge formula
+    itself. The canonical probability-target hedger considers any available
+    non-primary provider. `cross_tier` is an explicit ablation knob for testing
+    the older tier-separation constraint. Random backup exploration is also an
+    explicit ablation knob and is not part of hedge-only or hedge-as-probe
+    semantics.
     """
-    others = [
-        provider for provider in providers
-        if provider.tier != primary.tier and provider.is_available(now)
-    ]
+    others = _available_backup_candidates(
+        providers,
+        primary,
+        now,
+        backup_scope=backup_scope,
+    )
     if not others:
         return None, "no_backup", 0.0
 
@@ -1160,6 +1195,7 @@ def _apply_probability_target_hedge(
     rng: np.random.Generator,
     violation_tracker: RecentViolationTracker,
     allow_random_backup: bool,
+    backup_scope: str,
 ) -> tuple[float, float, bool, list[tuple[str, float]], float, str, float]:
     """Apply the new probability-only hedge trigger.
 
@@ -1191,6 +1227,7 @@ def _apply_probability_target_hedge(
         rng=rng,
         violation_tracker=violation_tracker,
         allow_random_backup=allow_random_backup,
+        backup_scope=backup_scope,
     )
     if backup is None:
         return (
@@ -1257,9 +1294,14 @@ def run_variant(
     *,
     seed: int,
     probe_rate: float = PROBE_RATE,
+    backup_scope: str = "any_provider",
 ) -> EvaluatedRun:
     """Run one sidecar variant on one scenario for one RNG seed."""
     variant = canonicalize_variant_name(variant)
+    if backup_scope not in BACKUP_SCOPES:
+        raise ValueError(
+            f"Unknown backup_scope {backup_scope!r}. Expected one of {BACKUP_SCOPES!r}."
+        )
     if (
         variant not in MAIN_VARIANTS
         and variant not in BACKUP_EXPLORATION_VARIANTS
@@ -1356,6 +1398,7 @@ def run_variant(
                 rng,
                 violation_tracker,
                 random_backup_exploration,
+                backup_scope,
             )
             diagnostics.backup_selection_counts[backup_selection_mode] += 1
             diagnostics.backup_random_prob_values.append(random_backup_prob)
@@ -1712,6 +1755,7 @@ def build_hedge_delta(
 
 
 __all__ = [
+    "BACKUP_SCOPES",
     "BACKUP_EXPLORATION_VARIANTS",
     "CONTROL_VARIANTS",
     "EvaluatedRun",

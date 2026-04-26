@@ -16,6 +16,7 @@ if str(_ROOT) not in sys.path:
 
 from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
     BACKUP_EXPLORATION_VARIANTS,
+    BACKUP_SCOPES,
     CONTROL_VARIANTS,
     EXPLORER_VARIANTS,
     FIRST_BATCH_SCENARIOS,
@@ -133,6 +134,16 @@ def _parse_args() -> argparse.Namespace:
             "Override the dedicated background probing rate for the sidecar "
             "evaluation. Use 0.0 with *_explorer variants to run a pure "
             "hedge-as-probe/no-dedicated-probe ablation."
+        ),
+    )
+    parser.add_argument(
+        "--backup-scope",
+        choices=BACKUP_SCOPES,
+        default="any_provider",
+        help=(
+            "Backup candidate scope for probability-target hedging. "
+            "The default any_provider is the canonical Hedge-ProbTarget "
+            "candidate set; use cross_tier only for the tier-separation ablation."
         ),
     )
     return parser.parse_args()
@@ -366,6 +377,7 @@ def _plot_tradeoff(
 
 def _metadata(
     probe_rate: float | None,
+    backup_scope: str,
     datasets: list[str],
 ) -> dict[str, object]:
     return {
@@ -403,8 +415,8 @@ def _metadata(
         ),
         "v_hat_i_assumption": (
             "v_hat_i is implemented as the estimated per-request API price anchor, "
-            "computed as request.total_tokens multiplied by the cheapest S_A "
-            "provider price in the current synthetic scenario"
+            "computed from the cheapest SLO-safe S_A provider at the current time; "
+            "if no SLO-safe S_A exists, it falls back to the cheapest S_A provider"
         ),
         "workload_mode": (
             "synthetic generator by default; trace-driven mode uses real request "
@@ -417,11 +429,14 @@ def _metadata(
             "*_hedge variants are hedge-only and do not update the backup profile."
         ),
         "probe_rate_override": probe_rate,
+        "backup_scope": backup_scope,
         "backup_selection_policy": (
             "Default *_hedge and *_explorer variants use deterministic "
             "safe-cheapest / fastest-fallback backup selection. Explicit "
             "*_randombackup variants enable the adaptive random-backup branch. "
-            "Oldhedge variants retain the historical fastest-backup rule."
+            "The canonical backup candidate set is any available non-primary "
+            "provider. backup_scope=cross_tier is an explicit tier-separation "
+            "ablation. Oldhedge variants retain the historical fastest-backup rule."
         ),
     }
 
@@ -459,7 +474,7 @@ def main() -> None:
 
     output_root.mkdir(parents=True, exist_ok=True)
     with (output_root / "metadata.json").open("w") as handle:
-        json.dump(_metadata(args.probe_rate, datasets), handle, indent=2)
+        json.dump(_metadata(args.probe_rate, args.backup_scope, datasets), handle, indent=2)
 
     all_summary_rows: list[dict[str, object]] = []
     all_diagnostic_rows: list[dict[str, object]] = []
@@ -494,6 +509,7 @@ def main() -> None:
                         variant,
                         seed=seed,
                         probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
+                        backup_scope=args.backup_scope,
                     )
                     for seed in seeds
                 ]
