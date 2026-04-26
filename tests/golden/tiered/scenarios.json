@@ -621,9 +621,9 @@
       "strategies": {
         "joint_hedge": {
           "aggregate": {
-            "hedge_rate": 0.0019157088122605363,
+            "hedge_rate": 0.0,
             "mean_cost_usd": 0.00022608620689655164,
-            "p50_ms": 247.89270839591973,
+            "p50_ms": 247.66176602818655,
             "p99_ms": 811.9480767726349,
             "provider_fractions": {
               "Chutes_S_Q": 0.5747126436781609,
@@ -705,15 +705,15 @@
               "digests": {
                 "concurrency_utilization": "834b357d7d39eea0e0c10d11b2219f6830900756c8044936f5374c9e9490f05a",
                 "cost_usd": "1d13b6667247c2b6f0b875faeac92caa4a3d984ccbf58d658dbc897b165d1e30",
-                "hedge_triggered": "c23fb0f06f54cbac2ba0557f6e0b793661003e2a82bcab50cd5e9d11622166a5",
+                "hedge_triggered": "eaae98aa73fe0b561c8b02607a524fb4853bbe81c6de8c3d8a9b7449366809d4",
                 "provider": "1f4ad15eb8729b3da7874717efe7272d49e5e71fe562f92f526243b605e712f3",
                 "quota_fraction_used": "a08dd83eb1d6c290e9caa30cbf21594583c86affc2149f2062879650e653744b",
                 "shadow_price_q": "d63748557643610f7881705179f47a7e94759a7f3d19bf42e5e5411bb92796a0",
                 "tier": "a48f760177c0cb8d9c0f255fb3f314551260323e279e72a3a1be75ed8be6151b",
                 "timestamp": "238e4ea785a9d201ae66655abe23976f81c8f08ec7db131c72f1f2f700ea3379",
-                "ttft_ms": "d90b42ba2ea6374779633b5f757239495f51107c1baeb3087a62a949fe071e04"
+                "ttft_ms": "aab326b37b1e84dc22e18528d04a1a36da4ff963910b2ad010545566546bbb31"
               },
-              "hedge_rate": 0.005747126436781609,
+              "hedge_rate": 0.0,
               "mean_cost_usd": 0.00022608620689655164,
               "metrics": {
                 "slo_violation_rate_1000ms": 0.005747126436781609,
@@ -721,7 +721,7 @@
                 "slo_violation_rate_3000ms": 0.0,
                 "slo_violation_rate_5000ms": 0.0
               },
-              "p50_ms": 259.7649436402876,
+              "p50_ms": 259.072116537088,
               "p99_ms": 882.1828056718784,
               "provider_fractions": {
                 "Chutes_S_Q": 0.5747126436781609,
