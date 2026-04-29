@@ -7,7 +7,9 @@ __pycache__/
 .ruff_cache/
 results/
 artifacts/
-data/
+# Local trace data symlinks at repo root only; do not match nested
+# `data/` directories (e.g. experiments/real_evaluation/data/).
+/data/
 outputs/*
 !outputs/.gitkeep
 *.egg-info/
