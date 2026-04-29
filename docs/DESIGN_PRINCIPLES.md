@@ -233,7 +233,7 @@ Enforced by ``eval_grid.assert_grid_invariants``. These check the *shape*
 of the grid, not its behaviour. They run cheaply and must pass before
 any code change lands.
 
-- 9 grid scenarios exist (3 stages × 3 distributions).
+- 12 grid scenarios exist (4 stages × 3 distributions).
 - Stage 1 cells: every provider has the same ``cost_per_token``.
 - Stage 2 cells: at least 3 distinct ``cost_per_token`` values among providers.
 - Stage 3 cells: contain all three tiers (``S_A``, ``S_Q``, ``S_C``) with

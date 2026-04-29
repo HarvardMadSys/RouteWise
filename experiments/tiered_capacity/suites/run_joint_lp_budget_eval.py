@@ -46,7 +46,7 @@ DEFAULT_SEEDS = [42, 43, 44]
 
 # Scenario family identifiers exposed via --scenario-family. The legacy
 # family preserves all pre-existing behaviour; eval_grid switches to the
-# 3-stage × 3-distribution grid declared in eval_grid.py.
+# 4-stage × 3-distribution grid declared in eval_grid.py.
 SCENARIO_FAMILY_LEGACY = "legacy"
 SCENARIO_FAMILY_EVAL_GRID = "eval_grid"
 SCENARIO_FAMILIES = (SCENARIO_FAMILY_LEGACY, SCENARIO_FAMILY_EVAL_GRID)
@@ -63,7 +63,7 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Which scenario family to evaluate. 'legacy' (default) runs the "
             "hand-authored S6/S7/S8/S9/unified_pool scenarios. 'eval_grid' "
-            "runs the 3-stage x 3-distribution grid defined in eval_grid.py "
+            "runs the 4-stage x 3-distribution grid defined in eval_grid.py "
             "and switches the variant / dataset defaults to PAPER_GRID_VARIANTS "
             "and PAPER_WORKLOADS respectively."
         ),
@@ -75,7 +75,7 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "Scenario name to run. May be repeated. Defaults to the mandatory "
-            "first-batch scenarios for legacy family, or all 9 grid cells for "
+            "first-batch scenarios for legacy family, or all 12 grid cells for "
             "the eval_grid family."
         ),
     )

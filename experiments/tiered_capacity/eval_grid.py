@@ -2,7 +2,7 @@
 
 The simulator evaluation is generated from three orthogonal axes plus a
 workload axis. This module builds the ``stage × latency_family`` cross
-product (9 scenarios), exposes the canonical 10-variant policy list, and
+product (12 scenarios; 4 stages × 3 distributions), exposes the canonical 10-variant policy list, and
 declares the workload list. See ``docs/DESIGN_PRINCIPLES.md`` for the full
 design rationale.
 
@@ -27,7 +27,7 @@ Public surface:
 - :data:`PAPER_GRID_VARIANTS` — the 10 runnable variant names
 - :data:`PAPER_WORKLOADS` — paper-facing workload identifiers
 - :data:`WORKLOAD_DATASET_IDS` — paper id → runner dataset id
-- :func:`make_eval_grid_scenarios` — builds the 9 scenarios
+- :func:`make_eval_grid_scenarios` — builds the 12 scenarios (4 stages × 3 distributions)
 - :func:`assert_grid_invariants` — structural (config) invariants
 """
 
@@ -296,7 +296,7 @@ def make_scenario(stage: ProviderSetup, family: LatencyFamily) -> ScenarioConfig
 
 
 def make_eval_grid_scenarios() -> dict[str, ScenarioConfig]:
-    """Build the full 3-stage × 3-family grid (9 scenarios)."""
+    """Build the full 4-stage × 3-family grid (12 scenarios)."""
     grid: dict[str, ScenarioConfig] = {}
     for stage in ProviderSetup:
         for family in LatencyFamily:
