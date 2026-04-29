@@ -536,9 +536,10 @@ def _metadata(
         ),
         "trace_timing_mode": "natural_full_trace",
         "lp_tbar_source": (
-            "ground-truth analytical expected TTFT (provider.ttft_dist.mean()), "
+            "ground-truth analytical expected TTFT from the provider's active "
+            "distribution at decision time (shift_time / ttft_dist_after aware), "
             "not the rolling-profile sample mean. Matches the algorithm spec "
-            "T_bar_j(t) = E[T_j] without contaminating the LP objective with "
+            "T_bar_j(t) = E[T_j(t)] without contaminating the LP objective with "
             "finite-sample estimator noise. See _body_latency_proxy_ms in "
             "experiments/tiered_capacity/lp_budget_eval.py and "
             "DESIGN_PRINCIPLES.md §1 ('reasoning beats realism')."

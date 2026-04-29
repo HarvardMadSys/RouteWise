@@ -21,6 +21,7 @@ __all__ = [
     "load_scenario",
     "load_world_scenario",
     "make_mm25_scenarios",
+    "make_simple_scenarios",
     "make_calibrated_scenarios",
     "make_stress_scenarios",
     "run_strategy",
@@ -34,6 +35,10 @@ def __getattr__(name: str):
         from experiments.tiered_capacity import minimax_m25
 
         return minimax_m25.make_mm25_scenarios
+    if name == "make_simple_scenarios":
+        from experiments.tiered_capacity import simple_scenarios
+
+        return simple_scenarios.make_simple_scenarios
     if name == "make_calibrated_scenarios":
         from experiments.tiered_capacity import calibrated
 

@@ -189,13 +189,6 @@ Infeasible providers get `c_eff(j) = +inf`:
     j infeasible if j in S_Q and k_j >= Q_j                                [eq. 9]
     j infeasible if j in S_C and a_j >= C_j                                [eq. 10]
 
-A per-request cost anchor for downstream stages:
-
-    v_hat = min_{j in S_A and SLO-safe} c_A(j)                             [eq. 11]
-
-Fallback when no SLO-safe `S_A` exists: cheapest `S_A`, then cheapest
-positive-cost provider, then `0`.
-
 References: Buchbinder-Naor 2009 Thm 4.2, competitive ratio `ln(U/L) + 1` for
 the online knapsack interpretation of `psi`; paper §3.2.3.
 
@@ -203,8 +196,8 @@ the online knapsack interpretation of `psi`; paper §3.2.3.
 
 Cost router = per-provider effective-cost computation. It does not own latency
 optimization, hedging, request execution, or the simulation loop. In the
-canonical pipeline it emits `{c_eff(j)}` and `v_hat`; provider selection is
-performed by the latency router or by a trivial selector such as
+canonical pipeline it emits `{c_eff(j)}` and infeasibility metadata; provider
+selection is performed by the latency router or by a trivial selector such as
 `argmin c_eff`.
 
 #### Three-Column Reconciliation
@@ -216,7 +209,7 @@ performed by the latency router or by a trivial selector such as
 | `lambda(u)` | `U * u` linear | `U * u^alpha`, default `alpha=1.0`, in `concurrency_shadow_price()` | `U * u` linear by default | Paper specifies linear; keep `alpha` only as an ablation knob |
 | `lat_term` in `c_eff` | Not present | Optional `latency_alpha * true_p50_ms(now)` | Remove from cost router | Latency belongs in the latency-router objective |
 | Envelope `(L, U)` | Assumed given | `U = max api_cost_at(typical_tokens=200)`, `L = U * 1e-3` | Code calibration | Paper does not specify calibration; current rule is reproducible |
-| `v_hat` anchor | Minimum API request cost | Sidecar LP-budget uses cheapest SLO-safe `S_A` anchor | SLO-safe `S_A` anchor | Prevents a pathologically slow cheap API from starving latency budget |
+| Cost-budget anchor | Loosely described as request value / API cost in older notes | Sidecar still has `budget_vhat_t*` variants | Range-normalized budget `B_p = c_min + p(c_max - c_min)` | `p` is an interpretable slider over the feasible provider cost range |
 | Infeasibility | Exhausted capacity excluded | Selectors filter `is_available`; `two_layer` filters within the selected tier before P50 ranking | Infeasible means `+inf` and cannot be selected | Selection safety should be uniform across routers |
 
 #### Stage Interface
@@ -229,7 +222,7 @@ class CostRouter(Protocol):
         providers: Sequence[Provider],
         state: SimulationState,
     ) -> CostEstimate:
-        """Return c_eff, v_hat, and infeasibility reasons."""
+        """Return c_eff and infeasibility reasons."""
 ```
 
 `effective_costs()` is a pure function of `(request, providers,
@@ -244,7 +237,7 @@ workload, sample latency, or mutate provider state.
 | `rwsim/policies/cost_routers/round_robin.py` | Deterministic round-robin selector | Baseline only |
 | `rwsim/policies/cost_routers/tiered.py` | Tier priority and cheapest-effective helpers | Current home for two-layer and joint cost helpers |
 | `rwsim/world/shadow_price.py` | Shadow-price primitives | Should become an implementation detail of cost routers |
-| `experiments/tiered_capacity/lp_budget_eval.py` | Sidecar budget variants | Source for `v_hat` budget semantics |
+| `experiments/tiered_capacity/lp_budget_eval.py` | Sidecar budget variants | Migration source for range-budget semantics; old `v_hat` variants are not the final formula |
 
 #### Unit-Test Contract
 
@@ -255,7 +248,7 @@ Each cost router must pass the following in `tests/unit/policies/cost_routers/`:
 2. **Monotonicity**: `psi` is non-decreasing in `z`; `lambda` is
    non-decreasing in `u`.
 3. **Scale invariance**: Scaling all `S_A` costs by constant `k` scales
-   `(L, U, c_A, v_hat)` by `k` and leaves the argmin unchanged when all
+   `(L, U, c_A, c_eff)` by `k` and leaves the argmin unchanged when all
    providers are scaled together.
 4. **Infeasibility**: Exhausted quota or saturated concurrency yields
    `c_eff = +inf`, and downstream selectors never choose that provider.
@@ -301,26 +294,35 @@ LP latency router:
 Budget-body latency router:
 
     minimize    sum_j pi_j * Tbar_j(t)                                     [eq. 10]
-    subject to  sum_j pi_j * c_eff(j) <= tau * v_hat                       [eq. 11]
+    subject to  sum_j pi_j * c_eff(j) <= B_p(i, t)                         [eq. 11]
                 sum_j pi_j = 1,  pi_j >= 0                                 [eq. 12]
+
+where
+
+    B_p(i, t) = c_min(i, t) + p * (c_max(i, t) - c_min(i, t))              [eq. 13]
+    c_min(i, t) = min feasible c_eff(j)                                    [eq. 14]
+    c_max(i, t) = max feasible c_eff(j)                                    [eq. 15]
+    p in [0, 1]
 
 P50-band latency router:
 
-    P = Pareto({(P50_j, c_eff(j))})                                        [eq. 13]
-    B = {j in P : P50_j <= min_k P50_k * (1 + band)}                       [eq. 14]
-    primary = argmin_{j in B} c_eff(j)                                     [eq. 15]
+    P = Pareto({(P50_j, c_eff(j))})                                        [eq. 16]
+    B = {j in P : P50_j <= min_k P50_k * (1 + band)}                       [eq. 17]
+    primary = argmin_{j in B} c_eff(j)                                     [eq. 18]
 
 P95 SLO filter:
 
-    S = {j : P95_j(t) <= safety_margin * SLO}                              [eq. 16]
-    primary = argmin_{j in S} c_eff(j)                                     [eq. 17]
+    S = {j : P95_j(t) <= safety_margin * SLO}                              [eq. 19]
+    primary = argmin_{j in S} c_eff(j)                                     [eq. 20]
 
 #### Pipeline Role
 
 Latency router = provider selection under SLO and cost-budget constraints. It
-consumes `{c_eff(j)}` and `v_hat` from the cost router, plus latency profiles.
-It may output a single primary provider or a mixing distribution. It does not
-compute shadow prices, launch hedges, or update provider capacity.
+consumes `{c_eff(j)}` from the cost router, plus latency profiles. It computes
+the feasible cost envelope `(c_min, c_max)` for the current request and uses the
+range-normalized knob `p` to set `B_p`. It may output a single primary provider
+or a mixing distribution. It does not compute shadow prices, launch hedges, or
+update provider capacity.
 
 #### Three-Column Reconciliation
 
@@ -332,8 +334,8 @@ compute shadow prices, launch hedges, or update provider capacity.
 | LP fallback | Avoid empty routing on infeasible LP | `solve_lp_with_fallback()` relaxes SLO then best-effort | Same | Operationally necessary and deterministic |
 | SWRR | Implement LP weights as routing decisions | `SWRRSampler` smooths weights | Same | Reduces short-run variance without changing target weights |
 | V2 / P50-band | P50 rank, Pareto prune, near-best band | `V2Router` and `tiered_filters.select_p50_band()` | Keep as latency-router variant | It is provider selection, not cost routing |
-| P95 filter drift | Analytical P95 must follow active distribution | `provider_p95_at()` misses `TieredProvider._active_ttft_dist()` | Use active TTFT distribution for all providers | Drift must affect both sampling and filtering |
-| Budget body | Minimize latency inside cost envelope | Sidecar `_select_budget_body()` uses `Tbar` under `budget_tau` | Promote as `lp_cost_budget` latency router | This is a latency selection rule consuming cost-router output |
+| P95 filter drift | Analytical P95 must follow active distribution | `provider_p95_at()` and `_body_latency_proxy_ms()` now use the active TTFT distribution | Keep this invariant covered by tests | Drift must affect both sampling and filtering |
+| Budget body | Minimize latency inside cost envelope | Sidecar `_select_budget_body()` uses `Tbar` under `budget_tau`; older variants include `budget_vhat_t*` and provider-percentile `budget_body_p*` | Promote range-normalized `lp_cost_budget` latency router | `p` should interpolate between cheapest and most expensive feasible cost, giving a clear Pareto knob |
 
 #### Stage Interface
 
@@ -371,8 +373,8 @@ Each latency router must pass the following in `tests/unit/policies/latency_rout
    than SEPARATE mode for the same samples.
 3. **LP feasibility**: if any provider satisfies the target CDF alone, LP
    returns weights summing to one and satisfying eq. 8 within tolerance.
-4. **Budget feasibility**: budget-body expected cost is `<= tau * v_hat` when
-   the LP status is optimal.
+4. **Budget feasibility**: budget-body expected cost is `<= B_p` when the LP
+   status is optimal, with `B_p = c_min + p(c_max - c_min)`.
 5. **P50-band determinism**: ties are broken by effective cost and then stable
    provider ordering.
 6. **Drift awareness**: P95/P50 filters use the provider distribution active at
@@ -380,9 +382,9 @@ Each latency router must pass the following in `tests/unit/policies/latency_rout
 
 #### Known Divergence to Resolve
 
-`provider_p95_at()` currently only recognizes `_active_dist`; it must use
-`_active_ttft_dist()` for `TieredProvider` drift. Also, `alpha * P50` inside
-`solve_lp()` is an ablation knob, not the default canonical LP objective.
+`alpha * P50` inside `solve_lp()` is an ablation knob, not the default canonical
+LP objective. Drift-aware P95/Tbar reads are now covered by
+`test_provider_p95_and_lp_tbar_honour_drift`.
 
 ### Hedger
 

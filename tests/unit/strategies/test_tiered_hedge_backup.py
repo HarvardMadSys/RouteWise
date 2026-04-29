@@ -6,7 +6,9 @@ import numpy as np
 
 from experiments.tiered_capacity.lp_budget_eval import (
     RecentViolationTracker,
+    RollingLatencyProfile,
     _pick_probability_target_backup,
+    _select_budget_body,
 )
 from rwsim.schemas import Request
 from rwsim.strategies.tiered_impl import _pick_cross_tier_backup
@@ -24,6 +26,16 @@ def _api_provider(name: str) -> TieredProvider:
     return TieredProvider(
         name=name,
         cost_per_token=0.001,
+        ttft_dist=TTFT,
+        tps_dist=TPS,
+        tier=ProviderTier.S_A,
+    )
+
+
+def _priced_api_provider(name: str, cost_per_token: float) -> TieredProvider:
+    return TieredProvider(
+        name=name,
+        cost_per_token=cost_per_token,
         ttft_dist=TTFT,
         tps_dist=TPS,
         tier=ProviderTier.S_A,
@@ -129,3 +141,41 @@ def test_probability_target_default_scope_allows_same_tier_backup() -> None:
     assert backup == same_tier_backup
     assert mode == "safe_cheapest"
     assert random_prob == 0.0
+
+
+def test_rolling_profile_hides_future_samples_until_observation_time() -> None:
+    profile = RollingLatencyProfile(window_sec=100.0)
+
+    profile.add_sample(12.0, 120.0)
+    profile.add_sample(10.0, 100.0)
+
+    assert profile.values(11.0) == [100.0]
+    assert sorted(profile.values(12.0)) == [100.0, 120.0]
+
+
+def test_range_budget_uses_feasible_cost_envelope() -> None:
+    providers = [
+        _priced_api_provider("cheap", 0.001),
+        _priced_api_provider("middle", 0.002),
+        _priced_api_provider("expensive", 0.004),
+    ]
+    request = Request(id=1, timestamp=NOW, request_tokens=10, response_tokens=10, total_tokens=20)
+    profiles = {
+        provider.name: RollingLatencyProfile(window_sec=100.0)
+        for provider in providers
+    }
+
+    outcome = _select_budget_body(
+        providers,
+        request,
+        now=NOW,
+        slo_ms=1000.0,
+        U=1.0,
+        L=1.0,
+        profiles=profiles,
+        variant="budget_range_p25",
+    )
+
+    costs = list(outcome.c_eff.values())
+    expected_budget = min(costs) + 0.25 * (max(costs) - min(costs))
+    assert np.isclose(outcome.budget_tau, expected_budget)
