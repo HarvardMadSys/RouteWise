@@ -1847,24 +1847,51 @@ def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
 
 @lru_cache(maxsize=None)
 def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
-    """Load one real workload dataset for trace-driven synthetic experiments."""
+    """Load one real workload dataset for trace-driven synthetic experiments.
+
+    Delegates all cache logic — loading, manifest verification, and
+    auto-building — to :mod:`experiments.tiered_capacity.dataset_cache`.
+    This ensures the runtime loader never silently accepts a stale pickle
+    when the source file has changed.
+
+    Load order:
+    1. Pickle cache with valid manifest → ~0.3 s.
+    2. Stale/missing cache → auto-rebuild from raw source (writes pickle
+       + manifest).
+    3. Neither source nor cache → ``FileNotFoundError``.
+
+    Build caches ahead of time with::
+
+        python -m experiments.tiered_capacity.dataset_cache build
+    """
     if dataset_name not in TRACE_WORKLOAD_DATASETS:
         raise ValueError(
             f"Unknown trace-driven dataset: {dataset_name!r}. "
             f"Expected one of {TRACE_WORKLOAD_DATASETS!r}."
         )
 
-    dataset_path = _resolve_trace_dataset_path(dataset_name)
-    if dataset_path is not None:
-        if dataset_path.suffix == ".jsonl":
-            return tuple(_load_sharegpt_jsonl_requests(dataset_path))
-        loader = DataLoader(_DATA_LOADER_CONFIG)
-        return tuple(loader.load(dataset_path))
+    from experiments.tiered_capacity.dataset_cache import (
+        CacheStalenessError,
+        build_cache,
+        load_cached,
+        verify_cache,
+    )
 
+    # --- fast path: verified pickle cache --------------------------------
     cache_path = _dataset_cache_path(dataset_name)
     if cache_path.exists():
-        with cache_path.open("rb") as handle:
-            return tuple(pickle.load(handle))
+        try:
+            verify_cache(dataset_name, quick=True)
+            return load_cached(dataset_name)
+        except CacheStalenessError:
+            # Cache is stale — fall through to rebuild.
+            pass
+
+    # --- slow path: build (or rebuild) from raw source -------------------
+    source_path = _resolve_trace_dataset_path(dataset_name)
+    if source_path is not None:
+        build_cache(dataset_name, force=True)
+        return load_cached(dataset_name)
 
     raise FileNotFoundError(
         "Could not locate trace data for dataset "
