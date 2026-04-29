@@ -2,27 +2,39 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
+from typing import Any
 
 from rwsim.policies.cost_routers.tiered import effective_costs
 from rwsim.schemas import Request
-from rwsim.world.distributions import LogNormal
 from rwsim.world.providers import ProviderTier, TieredProvider
 
 
-def lognormal_p95(dist: LogNormal) -> float:
-    """Analytical P95 for a lognormal distribution."""
-    return math.exp(dist.mu + 1.645 * dist.sigma)
+def lognormal_p95(dist: Any) -> float:
+    """Distribution-agnostic P95 lookup.
+
+    Kept under the historical name for backward compatibility with callers
+    that still import ``lognormal_p95`` (``rwsim/strategies/tiered_impl.py``,
+    ``rwsim/policies/latency_routers/__init__.py``). Any object exposing a
+    ``p95()`` method works — including ``Uniform`` / ``Normal`` /
+    ``LogNormal`` from ``rwsim.world.distributions``.
+    """
+    return float(dist.p95())
 
 
 def provider_p95_at(provider: TieredProvider, now: float) -> float:
-    """P95 TTFT for a provider at simulated time."""
+    """P95 TTFT for a provider at simulated time.
+
+    Distribution-agnostic: any object exposing ``p95()`` works (Uniform,
+    Normal, LogNormal, ...). Previously this function reached into
+    ``LogNormal.mu/sigma`` directly; that path is gone so eval-grid
+    scenarios with non-LogNormal latency families do not crash here.
+    """
     if hasattr(provider, "_active_dist"):
         dist = provider._active_dist(now)  # noqa: SLF001 - shift helper
     else:
         dist = provider.ttft_dist
-    return lognormal_p95(dist)
+    return float(dist.p95())
 
 
 def select_p50_band(

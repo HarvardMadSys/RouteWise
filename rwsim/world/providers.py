@@ -7,25 +7,34 @@ from dataclasses import dataclass
 import numpy as np
 
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
-from rwsim.world.distributions import LogNormal
+from rwsim.world.distributions import LatencyDistribution, LogNormal
 
 
 @dataclass
 class Provider:
-    """Unified synthetic provider covering API, quota, concurrency, and drift."""
+    """Unified synthetic provider covering API, quota, concurrency, and drift.
+
+    Distribution fields use :class:`~rwsim.world.distributions.LatencyDistribution`
+    (a Protocol) rather than ``LogNormal`` directly. The legacy YAML loader
+    still produces ``LogNormal`` instances; the eval-grid factory may
+    inject ``Uniform`` or ``Normal``. Routing code must access these
+    fields only through the Protocol surface (``sample``, ``p50``,
+    ``p95``, ``p99``, ``quantile``, ``mean``, ``std``, ``cdf``) — never
+    via ``mu`` / ``sigma`` or other LogNormal-specific attributes.
+    """
 
     name: str
     cost_per_token: float
-    ttft_dist: LogNormal
-    tps_dist: LogNormal
+    ttft_dist: LatencyDistribution
+    tps_dist: LatencyDistribution
     tier: ProviderTier = ProviderTier.S_A
     quota: QuotaState | None = None
     concurrency: ConcurrencyState | None = None
-    service_time_dist: LogNormal | None = None
+    service_time_dist: LatencyDistribution | None = None
     shift_time: float | None = None
-    ttft_dist_after: LogNormal | None = None
+    ttft_dist_after: LatencyDistribution | None = None
 
-    def _active_ttft_dist(self, current_time: float) -> LogNormal:
+    def _active_ttft_dist(self, current_time: float) -> LatencyDistribution:
         """Return the TTFT distribution active at the given simulated time."""
         if (
             self.shift_time is not None
@@ -109,7 +118,7 @@ class Provider:
 class ShiftingProvider(Provider):
     """Compatibility subclass that requires a time-shift definition."""
 
-    def _active_dist(self, current_time: float) -> LogNormal:
+    def _active_dist(self, current_time: float) -> LatencyDistribution:
         """Legacy helper used by latency-only code paths."""
         return self._active_ttft_dist(current_time)
 
