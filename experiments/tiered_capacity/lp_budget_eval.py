@@ -170,7 +170,16 @@ BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION = 0.05
 BACKUP_RANDOM_PROB_ZERO_POINT = 0.10
 BACKUP_VIOLATION_WINDOW = 256
 TRIVIAL_SUPPORT_THRESHOLD = 1
-PROBE_RATE = 0.05
+PROBE_RATE = 0.0  # Simulator default: no dedicated probing.
+# The paper-line algorithm follows Juncheng's "active system" assumption
+# (2026-04-22): hedging fires often enough that backup requests serve as
+# free latency probes (hedge-as-probe / explorer); a separately-fired
+# active probe stream is unnecessary in production. Setting the default
+# to 0.0 here means callers who instantiate run_variant() / sidecar
+# selectors directly inherit no-probing behaviour without having to
+# remember to pass probe_rate=0.0. Explicit active-probing ablations can
+# still set probe_rate>0 via the runner's --probe-rate flag or the
+# function argument.
 BACKUP_SCOPES = ("any_provider", "cross_tier")
 TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
 ObservedSample = tuple[str, float, float]  # provider, observation timestamp, TTFT ms
@@ -1556,10 +1565,17 @@ def run_variant(
     variant: str,
     *,
     seed: int,
-    probe_rate: float = PROBE_RATE,
+    probe_rate: float | None = None,
     backup_scope: str = "any_provider",
 ) -> EvaluatedRun:
-    """Run one sidecar variant on one scenario for one RNG seed."""
+    """Run one sidecar variant on one scenario for one RNG seed.
+
+    ``probe_rate=None`` (the default) inherits the module-level
+    :data:`PROBE_RATE` (0.0 — no dedicated probing). Pass an explicit
+    float to opt into an active-probing ablation.
+    """
+    if probe_rate is None:
+        probe_rate = PROBE_RATE
     variant = canonicalize_variant_name(variant)
     if backup_scope not in BACKUP_SCOPES:
         raise ValueError(

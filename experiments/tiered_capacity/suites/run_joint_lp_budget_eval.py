@@ -732,7 +732,12 @@ def main() -> None:
                         workload,
                         variant,
                         seed=seed,
-                        probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
+                        # probe_rate=None lets run_variant inherit its own
+                        # default (PROBE_RATE = 0.0, "no dedicated probing"
+                        # per Juncheng's active-system assumption). Pass
+                        # --probe-rate <float> on the CLI to opt into an
+                        # explicit active-probing ablation.
+                        probe_rate=args.probe_rate,
                         backup_scope=args.backup_scope,
                     )
                     for seed in seeds
