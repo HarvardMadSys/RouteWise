@@ -14,6 +14,12 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from experiments.tiered_capacity.eval_grid import (  # noqa: E402
+    PAPER_GRID_VARIANTS,
+    PAPER_WORKLOADS,
+    WORKLOAD_DATASET_IDS,
+    make_eval_grid_scenarios,
+)
 from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
     BACKUP_EXPLORATION_VARIANTS,
     BACKUP_SCOPES,
@@ -23,6 +29,7 @@ from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
     HEDGE_ABLATION_VARIANTS,
     MAIN_VARIANTS,
     PROVIDER_PERCENTILE_ABLATION_VARIANTS,
+    SHADOW_PRICE_ABLATION_VARIANTS,
     TRACE_WORKLOAD_DATASETS,
     build_all_scenarios,
     build_first_batch_scenarios,
@@ -36,11 +43,31 @@ from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
 
 OUTPUT_ROOT = _ROOT / "outputs" / "lp_budget"
 DEFAULT_SEEDS = [42, 43, 44]
+DEFAULT_ACTIVE_PROBE_RATE = 0.0
+
+# Scenario family identifiers exposed via --scenario-family. The legacy
+# family preserves all pre-existing behaviour; eval_grid switches to the
+# 3-stage × 3-distribution grid declared in eval_grid.py.
+SCENARIO_FAMILY_LEGACY = "legacy"
+SCENARIO_FAMILY_EVAL_GRID = "eval_grid"
+SCENARIO_FAMILIES = (SCENARIO_FAMILY_LEGACY, SCENARIO_FAMILY_EVAL_GRID)
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the sidecar LP-budget evaluation on tiered scenarios."
+    )
+    parser.add_argument(
+        "--scenario-family",
+        choices=SCENARIO_FAMILIES,
+        default=SCENARIO_FAMILY_LEGACY,
+        help=(
+            "Which scenario family to evaluate. 'legacy' (default) runs the "
+            "hand-authored S6/S7/S8/S9/unified_pool scenarios. 'eval_grid' "
+            "runs the 3-stage x 3-distribution grid defined in eval_grid.py "
+            "and switches the variant / dataset defaults to PAPER_GRID_VARIANTS "
+            "and PAPER_WORKLOADS respectively."
+        ),
     )
     parser.add_argument(
         "--scenario",
@@ -49,7 +76,8 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "Scenario name to run. May be repeated. Defaults to the mandatory "
-            "first-batch scenarios."
+            "first-batch scenarios for legacy family, or all 9 grid cells for "
+            "the eval_grid family."
         ),
     )
     parser.add_argument(
@@ -62,6 +90,19 @@ def _parse_args() -> argparse.Namespace:
             "Workload dataset to use. May be repeated. Defaults to built-in "
             "synthetic workload generation. Use freeinference / rednote / "
             "sharegpt for trace-driven synthetic evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--trace-replay-natural",
+        action="store_true",
+        help=(
+            "When set, trace-driven workloads (freeinference / rednote / "
+            "sharegpt) replay the **entire** trace at its natural arrival "
+            "rate instead of contiguous-slicing 2000 requests and rescaling "
+            "to scenario.duration_seconds. This preserves real quota-window "
+            "rolls and concurrency utilisation dynamics; the simulated time "
+            "span varies by workload (sharegpt 7d, freeinference 89d, "
+            "rednote 83d). Synthetic dataset is unaffected."
         ),
     )
     parser.add_argument(
@@ -122,6 +163,17 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--include-shadow-price-ablation",
+        action="store_true",
+        help=(
+            "Also run the shadow-price ablation: ``original_lp_rawcost*`` "
+            "uses raw marginal cost (zero for S_Q / S_C subscription tiers) "
+            "instead of effective_cost. Pair with ``original_lp*`` to "
+            "isolate the contribution of ψ(z) / λ(u) shadow prices. Stays "
+            "off by default so legacy main runs are not polluted."
+        ),
+    )
+    parser.add_argument(
         "--freeze-golden",
         action="store_true",
         help="Write a sidecar golden snapshot under outputs/lp_budget/golden/.",
@@ -132,8 +184,9 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override the dedicated background probing rate for the sidecar "
-            "evaluation. Use 0.0 with *_explorer variants to run a pure "
-            "hedge-as-probe/no-dedicated-probe ablation."
+            "evaluation. Defaults to 0.0 for paper-facing runs; positive values "
+            "are explicit active-probing ablations. Explorer variants use "
+            "hedge-as-probe feedback, not dedicated probes."
         ),
     )
     parser.add_argument(
@@ -245,6 +298,27 @@ def _build_delta_rows(
         ("budget_body_p25", "budget_body_p25_hedge"),
         ("budget_body_p50", "budget_body_p50_hedge"),
         ("budget_body_p75", "budget_body_p75_hedge"),
+        ("budget_range_p0", "budget_range_p0_hedge"),
+        ("budget_range_p0_hedge", "budget_range_p0_explorer"),
+        ("budget_range_p0_hedge", "budget_range_p0_hedge_randombackup"),
+        ("budget_range_p0_explorer", "budget_range_p0_explorer_randombackup"),
+        ("budget_range_p25", "budget_range_p25_hedge"),
+        ("budget_range_p25_hedge", "budget_range_p25_explorer"),
+        ("budget_range_p25_hedge", "budget_range_p25_hedge_randombackup"),
+        ("budget_range_p25_explorer", "budget_range_p25_explorer_randombackup"),
+        ("budget_range_p50", "budget_range_p50_hedge"),
+        ("budget_range_p50_hedge", "budget_range_p50_explorer"),
+        ("budget_range_p50_hedge", "budget_range_p50_hedge_randombackup"),
+        ("budget_range_p50_explorer", "budget_range_p50_explorer_randombackup"),
+        ("budget_range_p75", "budget_range_p75_hedge"),
+        ("budget_range_p75_hedge", "budget_range_p75_explorer"),
+        ("budget_range_p75_hedge", "budget_range_p75_hedge_randombackup"),
+        ("budget_range_p75_explorer", "budget_range_p75_explorer_randombackup"),
+        ("budget_range_p75", "budget_range_p75_oldhedge"),
+        ("budget_range_p100", "budget_range_p100_hedge"),
+        ("budget_range_p100_hedge", "budget_range_p100_explorer"),
+        ("budget_range_p100_hedge", "budget_range_p100_hedge_randombackup"),
+        ("budget_range_p100_explorer", "budget_range_p100_explorer_randombackup"),
         ("budget_vhat_t25", "budget_vhat_t25_hedge"),
         ("budget_vhat_t25_hedge", "budget_vhat_t25_explorer"),
         ("budget_vhat_t25_hedge", "budget_vhat_t25_hedge_randombackup"),
@@ -302,6 +376,22 @@ def _style_for_variant(variant: str) -> tuple[str, str]:
         "budget_body_p50_hedge": "#2ca02c",
         "budget_body_p75": "#d62728",
         "budget_body_p75_hedge": "#d62728",
+        "budget_range_p0": "#1f77b4",
+        "budget_range_p0_hedge": "#1f77b4",
+        "budget_range_p0_explorer": "#1f77b4",
+        "budget_range_p25": "#2ca02c",
+        "budget_range_p25_hedge": "#2ca02c",
+        "budget_range_p25_explorer": "#2ca02c",
+        "budget_range_p50": "#d62728",
+        "budget_range_p50_hedge": "#d62728",
+        "budget_range_p50_explorer": "#d62728",
+        "budget_range_p75": "#9467bd",
+        "budget_range_p75_hedge": "#9467bd",
+        "budget_range_p75_explorer": "#9467bd",
+        "budget_range_p75_oldhedge": "#9467bd",
+        "budget_range_p100": "#8c564b",
+        "budget_range_p100_hedge": "#8c564b",
+        "budget_range_p100_explorer": "#8c564b",
         "budget_vhat_t25": "#ff7f0e",
         "budget_vhat_t25_hedge": "#ff7f0e",
         "budget_vhat_t25_explorer": "#ff7f0e",
@@ -379,7 +469,21 @@ def _metadata(
     probe_rate: float | None,
     backup_scope: str,
     datasets: list[str],
+    scenario_family: str = SCENARIO_FAMILY_LEGACY,
+    active_scenarios: list[str] | None = None,
+    active_variants: list[str] | None = None,
+    active_seeds: list[int] | None = None,
 ) -> dict[str, object]:
+    """Build the run metadata dict.
+
+    The catalogue lists (``main_variants`` etc.) describe what the runner
+    *can* dispatch; the ``active_*`` lists describe what this specific
+    invocation *did* dispatch. Reviewers and artifact evaluators should
+    read the active lists to reconstruct the exact run.
+    """
+    effective_probe_rate = (
+        DEFAULT_ACTIVE_PROBE_RATE if probe_rate is None else probe_rate
+    )
     return {
         "implementation_root": str(_ROOT),
         "driver": str(Path(__file__).resolve()),
@@ -389,20 +493,31 @@ def _metadata(
             / "tiered_capacity"
             / "lp_budget_eval.py"
         ),
+        "scenario_family": scenario_family,
+        # ---- catalogue (everything the runner knows about) ---------------
         "main_variants": MAIN_VARIANTS,
         "explorer_variants": EXPLORER_VARIANTS,
         "backup_exploration_variants": BACKUP_EXPLORATION_VARIANTS,
         "hedge_ablation_variants": HEDGE_ABLATION_VARIANTS,
         "provider_percentile_ablation_variants": PROVIDER_PERCENTILE_ABLATION_VARIANTS,
+        "shadow_price_ablation_variants": SHADOW_PRICE_ABLATION_VARIANTS,
         "control_variants": CONTROL_VARIANTS,
         "mandatory_first_batch_scenarios": FIRST_BATCH_SCENARIOS,
+        "paper_grid_variants": list(PAPER_GRID_VARIANTS),
+        "paper_workloads": list(PAPER_WORKLOADS),
+        # ---- active (what this run actually dispatched) -------------------
+        "active_scenarios": list(active_scenarios) if active_scenarios else [],
+        "active_variants": list(active_variants) if active_variants else [],
+        "active_seeds": list(active_seeds) if active_seeds else [],
         "datasets": datasets,
         "old_selector": (
             "min sum_j pi_j * c_eff_j subject to sum_j pi_j * F_j(SLO) >= 0.99 "
             "with relaxation targets 0.98 / 0.95 / 0.90 and best-effort fallback"
         ),
         "new_selector": (
-            "min sum_j pi_j * Tbar_j subject to sum_j pi_j * c_eff_j <= tau * v_hat_i"
+            "Canonical budget_range_p* selector: min sum_j pi_j * Tbar_j subject to "
+            "sum_j pi_j * c_eff_j <= c_min + p * (c_max - c_min), "
+            "where c_min/c_max are the current feasible provider cost envelope"
         ),
         "hedge_rule": (
             "Dispatch backup at the latest wait time t such that "
@@ -413,10 +528,15 @@ def _metadata(
             "Comparator only: min sum_j pi_j * Tbar_j subject to "
             "sum_j pi_j * c_eff_j <= percentile_tau({c_eff_j over feasible providers})"
         ),
-        "v_hat_i_assumption": (
-            "v_hat_i is implemented as the estimated per-request API price anchor, "
-            "computed from the cheapest SLO-safe S_A provider at the current time; "
-            "if no SLO-safe S_A exists, it falls back to the cheapest S_A provider"
+        "range_budget_assumption": (
+            "Canonical LP-TTFT-budget variants use p in [0, 1] as an interpretable "
+            "cost-latency knob over the feasible c_eff range for each request"
+        ),
+        "legacy_v_hat_i_assumption": (
+            "Legacy budget_vhat_t* comparison variants still use v_hat_i as the "
+            "estimated per-request API price anchor, computed from the cheapest "
+            "SLO-safe S_A provider at the current time; if no SLO-safe S_A exists, "
+            "it falls back to the cheapest S_A provider"
         ),
         "workload_mode": (
             "synthetic generator by default; trace-driven mode uses real request "
@@ -426,9 +546,17 @@ def _metadata(
         "hedge_as_probe": (
             "Enabled only for explicit *_explorer variants: when a hedge fires, "
             "the backup TTFT sample is fed back into the rolling profile. "
-            "*_hedge variants are hedge-only and do not update the backup profile."
+            "*_hedge variants are hedge-only and do not update the backup profile. "
+            "Explorer variants are runnable ablations/debug aids, but are not part "
+            "of the stationary simulator paper grid."
         ),
         "probe_rate_override": probe_rate,
+        "effective_active_probe_rate": effective_probe_rate,
+        "active_probing_policy": (
+            "Dedicated active probing is disabled by default for paper-facing "
+            "simulator runs. Set --probe-rate > 0 only for an explicit active-"
+            "probing ablation."
+        ),
         "backup_scope": backup_scope,
         "backup_selection_policy": (
             "Default *_hedge and *_explorer variants use deterministic "
@@ -451,30 +579,117 @@ def _workload_seed(dataset_name: str, scenario_name: str) -> int:
     )
 
 
+def _resolve_scenario_family(
+    args: argparse.Namespace,
+) -> tuple[dict, list[str], list[str], list[str]]:
+    """Return (scenarios, default_scenarios, default_variants, default_datasets).
+
+    Encapsulates the family-specific defaults so ``main`` stays linear.
+    Legacy family preserves the historical defaults exactly; eval_grid
+    swaps the scenario source, the variant list, and the dataset list.
+    """
+    if args.scenario_family == SCENARIO_FAMILY_EVAL_GRID:
+        scenarios = make_eval_grid_scenarios()
+        default_scenarios = sorted(scenarios)
+        default_variants = list(PAPER_GRID_VARIANTS)
+        default_datasets = [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS]
+        return scenarios, default_scenarios, default_variants, default_datasets
+
+    # Legacy: untouched behaviour.
+    scenarios = build_all_scenarios()
+    return scenarios, list(FIRST_BATCH_SCENARIOS), list(MAIN_VARIANTS), ["synthetic"]
+
+
 def main() -> None:
     args = _parse_args()
-    scenarios = build_all_scenarios()
-    selected_scenarios = args.scenarios or FIRST_BATCH_SCENARIOS
+    scenarios, default_scenarios, default_variants, default_datasets = (
+        _resolve_scenario_family(args)
+    )
+    selected_scenarios = args.scenarios or default_scenarios
     seeds = args.seeds or DEFAULT_SEEDS
-    datasets = args.datasets or ["synthetic"]
+    datasets = args.datasets or default_datasets
+
+    # Validate that every requested scenario exists in the chosen family;
+    # the misleading KeyError path used to swallow eval_grid name typos.
+    unknown = [name for name in selected_scenarios if name not in scenarios]
+    if unknown:
+        raise SystemExit(
+            f"Unknown scenarios for family={args.scenario_family!r}: {unknown}. "
+            f"Available: {sorted(scenarios)}"
+        )
+
     variants = [
         canonicalize_variant_name(variant)
-        for variant in (args.variants or list(MAIN_VARIANTS))
+        for variant in (args.variants or default_variants)
     ]
-    if args.include_hedge_ablation:
-        variants.extend(HEDGE_ABLATION_VARIANTS)
-    if args.include_backup_exploration_ablation:
-        variants.extend(BACKUP_EXPLORATION_VARIANTS)
-    if args.include_provider_percentile_ablation:
-        variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
-    if not args.skip_controls:
-        variants.extend(CONTROL_VARIANTS)
+    # Ablation / control flags only make sense for the legacy family — the
+    # eval_grid variants are deliberately scoped to PAPER_GRID_VARIANTS.
+    if args.scenario_family == SCENARIO_FAMILY_EVAL_GRID:
+        # Only warn when the user *explicitly* passed an include-* ablation
+        # flag, since those defaults are False (so a True value is always
+        # user-set). Don't warn on `--skip-controls` because its default
+        # (False) is shared with "user didn't pass it" — that would emit
+        # noise on every default invocation.
+        explicit_ablation_flags = [
+            name
+            for name, value in (
+                ("--include-hedge-ablation", args.include_hedge_ablation),
+                ("--include-backup-exploration-ablation",
+                 args.include_backup_exploration_ablation),
+                ("--include-provider-percentile-ablation",
+                 args.include_provider_percentile_ablation),
+                ("--include-shadow-price-ablation",
+                 args.include_shadow_price_ablation),
+            )
+            if value
+        ]
+        if explicit_ablation_flags:
+            # Shadow-price ablation IS still meaningful under eval_grid
+            # (it's the cleanest way to isolate ψ(z)/λ(u) value on
+            # Stage 3 cells), so honour it even though the other ablation
+            # flags don't apply. Warn about the others only.
+            other_flags = [f for f in explicit_ablation_flags
+                           if f != "--include-shadow-price-ablation"]
+            if other_flags:
+                    print(
+                        "[run_joint_lp_budget_eval] eval_grid family ignores "
+                        f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
+                        f"canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
+                        file=sys.stderr,
+                    )
+        if args.include_shadow_price_ablation:
+            variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
+        # Controls are silently skipped for eval_grid regardless of
+        # --skip-controls because they pollute the Pareto frontier.
+    else:  # SCENARIO_FAMILY_LEGACY
+        if args.include_hedge_ablation:
+            variants.extend(HEDGE_ABLATION_VARIANTS)
+        if args.include_backup_exploration_ablation:
+            variants.extend(BACKUP_EXPLORATION_VARIANTS)
+        if args.include_provider_percentile_ablation:
+            variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
+        if args.include_shadow_price_ablation:
+            variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
+        if not args.skip_controls:
+            variants.extend(CONTROL_VARIANTS)
     variants = list(dict.fromkeys(canonicalize_variant_name(variant) for variant in variants))
     output_root = args.output_root
 
     output_root.mkdir(parents=True, exist_ok=True)
     with (output_root / "metadata.json").open("w") as handle:
-        json.dump(_metadata(args.probe_rate, args.backup_scope, datasets), handle, indent=2)
+        json.dump(
+            _metadata(
+                args.probe_rate,
+                args.backup_scope,
+                datasets,
+                scenario_family=args.scenario_family,
+                active_scenarios=selected_scenarios,
+                active_variants=variants,
+                active_seeds=seeds,
+            ),
+            handle,
+            indent=2,
+        )
 
     all_summary_rows: list[dict[str, object]] = []
     all_diagnostic_rows: list[dict[str, object]] = []
@@ -494,6 +709,12 @@ def main() -> None:
                 scenario,
                 seed=_workload_seed(dataset_name, scenario_name),
                 dataset_name=dataset_name,
+                trace_replay_natural=args.trace_replay_natural,
+            )
+            print(
+                f"  workload: {len(workload)} requests, "
+                f"span={(workload[-1].timestamp - workload[0].timestamp) / 3600:.2f}h"
+                if workload else "  workload: 0 requests"
             )
             scenario_dir = dataset_root / scenario_name
             scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -503,12 +724,16 @@ def main() -> None:
 
             for variant in variants:
                 evaluated_runs = [
-                    run_variant(
+                        run_variant(
                         scenario,
                         workload,
                         variant,
                         seed=seed,
-                        probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
+                        probe_rate=(
+                            DEFAULT_ACTIVE_PROBE_RATE
+                            if args.probe_rate is None
+                            else args.probe_rate
+                        ),
                         backup_scope=args.backup_scope,
                     )
                     for seed in seeds
