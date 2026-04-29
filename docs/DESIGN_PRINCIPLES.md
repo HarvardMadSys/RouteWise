@@ -248,7 +248,7 @@ capacity caps — all of which need the simulator to run end-to-end.
 
 | Stage | p | Qualitative expectation |
 |------:|---|--------------------------|
-| 1 | any | All 15 variants collapse to the same routing (``c_min = c_max`` makes ``B_p`` independent of ``p``); mass concentrates on the fastest provider |
+| 1 | any | All 10 variants collapse to the same routing (``c_min = c_max`` makes ``B_p`` independent of ``p``); mass concentrates on the fastest provider |
 | 2 | 0   | Mass concentrates on the cheapest provider (LP cost budget shrinks to ``c_min``) |
 | 2 | 1   | Mass concentrates on the fastest provider (cost constraint vanishes) |
 | 2 | 0.5 | Mass spreads; **realised cost is monotone in ``p``** because providers are clean (1:2:4 cost / inverse latency) |

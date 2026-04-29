@@ -657,7 +657,7 @@ def main() -> None:
                 print(
                     "[run_joint_lp_budget_eval] eval_grid family ignores "
                     f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
-                    "canonical 15-variant set.",
+                    f"canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
                     file=sys.stderr,
                 )
         if args.include_shadow_price_ablation:
