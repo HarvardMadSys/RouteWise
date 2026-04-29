@@ -1860,121 +1860,41 @@ def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
     )
 
 
-def _select_trace_slice(
-    requests: tuple[Request, ...],
-    *,
-    n_requests: int,
-    seed: int,
-) -> list[Request]:
-    """Select one contiguous slice from a real workload trace."""
-    if len(requests) < n_requests:
-        raise ValueError(
-            f"Trace only contains {len(requests)} requests, fewer than "
-            f"the requested slice size {n_requests}."
-        )
-    max_start = len(requests) - n_requests
-    if max_start <= 0:
-        return list(requests)
-
-    rng = np.random.default_rng(seed)
-    start_idx = int(rng.integers(0, max_start + 1))
-    end_idx = start_idx + n_requests
-    return list(requests[start_idx:end_idx])
-
-
-def _normalize_trace_slice(
-    requests: list[Request],
-    *,
-    duration_seconds: float,
-) -> list[Request]:
-    """Rebase and scale one trace slice into the scenario time horizon."""
-    if not requests:
-        return []
-
-    source_timestamps = np.array([float(req.timestamp) for req in requests], dtype=float)
-    rebased = source_timestamps - source_timestamps[0]
-    span = float(rebased[-1]) if len(rebased) > 1 else 0.0
-
-    if span <= 0.0:
-        normalized_timestamps = np.linspace(
-            0.0,
-            duration_seconds,
-            num=len(requests),
-            endpoint=False,
-        )
-    else:
-        normalized_timestamps = rebased * (duration_seconds / span)
-
-    normalized_requests: list[Request] = []
-    for idx, (request, timestamp) in enumerate(zip(requests, normalized_timestamps)):
-        normalized_requests.append(
-            Request(
-                id=idx,
-                timestamp=int(round(min(timestamp, duration_seconds))),
-                request_tokens=request.request_tokens,
-                response_tokens=request.response_tokens,
-                total_tokens=request.total_tokens,
-                model=request.model,
-                provider=request.provider,
-                actual_cost=request.actual_cost,
-                latency_ms=request.latency_ms,
-                ttft_ms=request.ttft_ms,
-            )
-        )
-    return normalized_requests
-
-
 def _generate_trace_driven_workload(
     scenario: TieredScenarioConfig,
     *,
     dataset_name: str,
     seed: int,
 ) -> list[Request]:
-    """Build a trace-driven workload for one scenario from a real dataset.
-
-    We preserve the request size distribution and local burst structure of a
-    contiguous trace slice, then normalize the slice into the scenario's target
-    duration so every scenario still sees the intended offered load level.
-
-    NOTE: this mode rescales trace timestamps to fit ``scenario.duration_seconds``,
-    which compresses the natural arrival pattern. For workloads where the
-    natural arrival rate matters (quota window dynamics, concurrency
-    saturation), use :func:`_generate_trace_driven_workload_natural` instead.
-    """
-    full_trace = _load_trace_dataset_requests(dataset_name)
-    slice_requests = _select_trace_slice(
-        full_trace,
-        n_requests=scenario.n_requests,
-        seed=seed,
-    )
-    return _normalize_trace_slice(
-        slice_requests,
-        duration_seconds=scenario.duration_seconds,
-    )
-
-
-def _generate_trace_driven_workload_natural(
-    scenario: TieredScenarioConfig,
-    *,
-    dataset_name: str,
-    seed: int,
-) -> list[Request]:
-    """Trace-driven workload preserving natural arrival timestamps.
+    """Build a trace-driven workload by replaying the entire trace at its
+    natural arrival rate.
 
     Uses the **entire** trace (no random slicing) and **does not rescale**
     timestamps — the simulator's "now" advances at the trace's natural
     pace. Wall-clock simulation time is unaffected (Python still processes
     events as fast as it can); what changes is the *simulated* time
     spanning whatever the trace actually spanned (e.g. 7 days for
-    sharegpt, 89 days for freeinference). This preserves quota-window
-    rolls and concurrency saturation dynamics as they would occur in
-    production.
+    sharegpt, 89 days for freeinference, 83 days for rednote). This
+    preserves quota-window rolls and concurrency saturation dynamics as
+    they would occur in production.
 
     The ``seed`` argument is currently unused in this mode (no slicing /
-    no synthetic generation), but kept in the signature so the caller
-    can stay polymorphic with the rescaled variant.
+    no resampling), but kept in the signature so the caller can stay
+    polymorphic with the synthetic generator.
+
+    Historical note: an earlier scaled-replay mode contiguously sliced
+    ``scenario.n_requests`` (default 2000) requests from the trace and
+    rescaled their timestamps into ``scenario.duration_seconds``
+    (default 3600 s). For sharegpt that was a 1.2× compression
+    (close to natural). For freeinference (89-day trace) it was 11.5×.
+    For rednote (83-day trace) it was 73×. The compression artificially
+    inflated arrival rate, fabricated capacity stress that does not
+    exist in production, and distorted quota-window semantics.
+    The scaled-replay path — along with its ``_select_trace_slice`` /
+    ``_normalize_trace_slice`` helpers — was removed on 2026-04-29 so
+    nobody can wire it back in by mistake.
     """
-    del seed  # unused in natural mode — full trace, no slicing, no resampling
+    del seed  # unused — full trace, no slicing, no resampling
     full_trace = _load_trace_dataset_requests(dataset_name)
     if not full_trace:
         return []
@@ -2005,30 +1925,23 @@ def generate_scenario_workload(
     *,
     seed: int = 0,
     dataset_name: str = "synthetic",
-    trace_replay_natural: bool = False,
 ) -> list[Request]:
     """Generate the shared workload for one scenario.
 
     Args:
         scenario: Scenario configuration.
-        seed: RNG seed controlling either synthetic generation or trace slicing.
-        dataset_name: Workload source. Use "synthetic" for the built-in synthetic
-            generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
-        trace_replay_natural: When True (and ``dataset_name`` is a trace
-            dataset), use the entire trace with natural inter-arrival
-            timestamps (no slicing, no rescaling to ``scenario.duration_seconds``).
-            This preserves real-world arrival rates and quota-window dynamics
-            but makes simulated time span vary across workloads (sharegpt 7d,
-            freeinference 89d, rednote 83d). Default ``False`` keeps the
-            historical contiguous-slice + rescale-to-duration behaviour.
+        seed: RNG seed controlling synthetic generation. Unused for
+            trace-driven datasets (the full trace is replayed in natural
+            order; there is no slicing or resampling).
+        dataset_name: Workload source. Use ``"synthetic"`` for the
+            built-in Poisson generator, or one of ``TRACE_WORKLOAD_DATASETS``
+            for trace-driven replay. Trace replay is always natural-rate;
+            the earlier scaled-replay mode and its
+            ``trace_replay_natural`` opt-in flag were removed on
+            2026-04-29 (see :func:`_generate_trace_driven_workload`
+            docstring for the rationale).
     """
     if dataset_name != "synthetic":
-        if trace_replay_natural:
-            return _generate_trace_driven_workload_natural(
-                scenario,
-                dataset_name=dataset_name,
-                seed=seed,
-            )
         return _generate_trace_driven_workload(
             scenario,
             dataset_name=dataset_name,

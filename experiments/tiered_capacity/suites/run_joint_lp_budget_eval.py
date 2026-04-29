@@ -91,19 +91,12 @@ def _parse_args() -> argparse.Namespace:
             "sharegpt for trace-driven synthetic evaluation."
         ),
     )
-    parser.add_argument(
-        "--trace-replay-natural",
-        action="store_true",
-        help=(
-            "When set, trace-driven workloads (freeinference / rednote / "
-            "sharegpt) replay the **entire** trace at its natural arrival "
-            "rate instead of contiguous-slicing 2000 requests and rescaling "
-            "to scenario.duration_seconds. This preserves real quota-window "
-            "rolls and concurrency utilisation dynamics; the simulated time "
-            "span varies by workload (sharegpt 7d, freeinference 89d, "
-            "rednote 83d). Synthetic dataset is unaffected."
-        ),
-    )
+    # Note: ``--trace-replay-natural`` was removed on 2026-04-29. Trace
+    # replay is now unconditional natural arrival rate (see
+    # _generate_trace_driven_workload docstring in lp_budget_eval.py).
+    # The previous scaled-replay mode artificially compressed real
+    # arrival patterns by up to 73× and produced fictitious capacity
+    # stress; keeping it as opt-in left the wrong default exposed.
     parser.add_argument(
         "--seed",
         action="append",
@@ -712,7 +705,6 @@ def main() -> None:
                 scenario,
                 seed=_workload_seed(dataset_name, scenario_name),
                 dataset_name=dataset_name,
-                trace_replay_natural=args.trace_replay_natural,
             )
             print(
                 f"  workload: {len(workload)} requests, "
