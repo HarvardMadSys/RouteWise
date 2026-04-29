@@ -22,6 +22,7 @@ from scipy.optimize import linprog
 
 from experiments.tiered_capacity import list_scenarios, load_world_scenario
 from experiments.tiered_capacity.minimax_m25 import make_mm25_scenarios
+from experiments.tiered_capacity.simple_scenarios import make_simple_scenarios
 from rwsim.data import DataLoader
 from rwsim.policies.latency_routers.online_lp import SWRRSampler
 from rwsim.schemas import Request
@@ -46,6 +47,21 @@ MAIN_VARIANTS = [
     "original_lp",
     "original_lp_hedge",
     "original_lp_explorer",
+    "budget_range_p0",
+    "budget_range_p25",
+    "budget_range_p50",
+    "budget_range_p75",
+    "budget_range_p100",
+    "budget_range_p0_hedge",
+    "budget_range_p25_hedge",
+    "budget_range_p50_hedge",
+    "budget_range_p75_hedge",
+    "budget_range_p100_hedge",
+    "budget_range_p0_explorer",
+    "budget_range_p25_explorer",
+    "budget_range_p50_explorer",
+    "budget_range_p75_explorer",
+    "budget_range_p100_explorer",
     "budget_vhat_t25",
     "budget_vhat_t50",
     "budget_vhat_t75",
@@ -67,6 +83,11 @@ MAIN_VARIANTS = [
 ]
 EXPLORER_VARIANTS = [
     "original_lp_explorer",
+    "budget_range_p0_explorer",
+    "budget_range_p25_explorer",
+    "budget_range_p50_explorer",
+    "budget_range_p75_explorer",
+    "budget_range_p100_explorer",
     "budget_vhat_t25_explorer",
     "budget_vhat_t50_explorer",
     "budget_vhat_t75_explorer",
@@ -77,6 +98,16 @@ EXPLORER_VARIANTS = [
 BACKUP_EXPLORATION_VARIANTS = [
     "original_lp_hedge_randombackup",
     "original_lp_explorer_randombackup",
+    "budget_range_p0_hedge_randombackup",
+    "budget_range_p0_explorer_randombackup",
+    "budget_range_p25_hedge_randombackup",
+    "budget_range_p25_explorer_randombackup",
+    "budget_range_p50_hedge_randombackup",
+    "budget_range_p50_explorer_randombackup",
+    "budget_range_p75_hedge_randombackup",
+    "budget_range_p75_explorer_randombackup",
+    "budget_range_p100_hedge_randombackup",
+    "budget_range_p100_explorer_randombackup",
     "budget_vhat_t25_hedge_randombackup",
     "budget_vhat_t25_explorer_randombackup",
     "budget_vhat_t50_hedge_randombackup",
@@ -92,6 +123,7 @@ BACKUP_EXPLORATION_VARIANTS = [
 ]
 HEDGE_ABLATION_VARIANTS = [
     "original_lp_oldhedge",
+    "budget_range_p75_oldhedge",
     "budget_vhat_t75_oldhedge",
 ]
 PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
@@ -101,6 +133,22 @@ PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
     "budget_body_p25_hedge",
     "budget_body_p50_hedge",
     "budget_body_p75_hedge",
+]
+# Shadow-price ablation: identical to ``original_lp`` but the LP cost
+# vector uses :meth:`TieredProvider.marginal_cost` (zero for S_Q/S_C)
+# instead of :func:`effective_cost` (which carries ψ(z) and λ(u) shadow
+# prices). Stays out of MAIN_VARIANTS so default legacy runs are not
+# polluted; opt in via ``--include-shadow-price-ablation`` on the runner.
+#
+# Explorer variant deliberately excluded — same reason as
+# ``PAPER_HEDGE_MODES`` in ``eval_grid.py``: under the active-system
+# probing assumption, hedge-as-probe and dedicated probing are
+# observationally equivalent in the stationary simulator, so the
+# ablation only needs (no_hedge, hedge) to expose the rawcost vs
+# effective_cost contrast.
+SHADOW_PRICE_ABLATION_VARIANTS = [
+    "original_lp_rawcost",
+    "original_lp_rawcost_hedge",
 ]
 CONTROL_VARIANTS = [
     "cheapest_available",
@@ -131,6 +179,7 @@ TRIVIAL_SUPPORT_THRESHOLD = 1
 PROBE_RATE = 0.05
 BACKUP_SCOPES = ("any_provider", "cross_tier")
 TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
+ObservedSample = tuple[str, float, float]  # provider, observation timestamp, TTFT ms
 
 VARIANT_ALIASES = {
     "old_body": "original_lp",
@@ -169,6 +218,10 @@ def _is_budget_variant(variant: str) -> bool:
 
 def _is_provider_percentile_variant(variant: str) -> bool:
     return _base_variant(variant).startswith("budget_body_p")
+
+
+def _is_range_budget_variant(variant: str) -> bool:
+    return _base_variant(variant).startswith("budget_range_p")
 
 
 def _is_vhat_budget_variant(variant: str) -> bool:
@@ -273,18 +326,26 @@ def _choose_lp_provider(
 
 
 def _mean_tier_fraction(runs: list[StrategyRun]) -> dict[str, float]:
-    fractions: dict[str, list[float]] = {}
+    tier_names = sorted(
+        {tier_name for run in runs for tier_name in run.tier_fractions()}
+    )
+    fractions: dict[str, list[float]] = {name: [] for name in tier_names}
     for run in runs:
-        for tier_name, fraction in run.tier_fractions().items():
-            fractions.setdefault(tier_name, []).append(fraction)
+        run_fractions = run.tier_fractions()
+        for tier_name in tier_names:
+            fractions[tier_name].append(run_fractions.get(tier_name, 0.0))
     return {name: float(np.mean(values)) for name, values in sorted(fractions.items())}
 
 
 def _mean_provider_fraction(runs: list[StrategyRun]) -> dict[str, float]:
-    fractions: dict[str, list[float]] = {}
+    provider_names = sorted(
+        {provider_name for run in runs for provider_name in run.provider_fractions()}
+    )
+    fractions: dict[str, list[float]] = {name: [] for name in provider_names}
     for run in runs:
-        for provider_name, fraction in run.provider_fractions().items():
-            fractions.setdefault(provider_name, []).append(fraction)
+        run_fractions = run.provider_fractions()
+        for provider_name in provider_names:
+            fractions[provider_name].append(run_fractions.get(provider_name, 0.0))
     return {name: float(np.mean(values)) for name, values in sorted(fractions.items())}
 
 
@@ -314,12 +375,19 @@ class RollingLatencyProfile:
 
     def _prune(self, current_time: float) -> None:
         cutoff = current_time - self.window_sec
-        while self._samples and self._samples[0][0] < cutoff:
-            self._samples.popleft()
+        self._samples = deque(
+            (timestamp, ttft_ms)
+            for timestamp, ttft_ms in self._samples
+            if timestamp >= cutoff
+        )
 
     def values(self, current_time: float) -> list[float]:
         self._prune(current_time)
-        return [ttft_ms for _, ttft_ms in self._samples]
+        return [
+            ttft_ms
+            for timestamp, ttft_ms in self._samples
+            if timestamp <= current_time
+        ]
 
     def sample_count(self, current_time: float) -> int:
         return len(self.values(current_time))
@@ -615,6 +683,32 @@ def _select_original_lp(
     L: float,
     profiles: dict[str, RollingLatencyProfile],
 ) -> SelectorOutcome:
+    """LP-CDF selector (the "old LP-Mix family", generalised to tiered).
+
+    This selector is the SLO-CDF-anchored LP that originally appeared in
+    the Phase-3 latency-only experiments as ``LP-Mix``. The original
+    Phase-3 form used raw API pricing (single tier, no shadow prices) and
+    target_cdf >= 0.99 with relaxation fallback. Here we **generalise it
+    to the tiered setting** by replacing ``c_j = cost_per_token × tokens``
+    with ``c_eff = effective_cost(provider, ...)`` so the same LP can run
+    against ``S_A``, ``S_Q``, and ``S_C`` providers.
+
+    This means ``original_lp`` is **not** a 1:1 replay of Phase-3 LP-Mix:
+    it shares the SLO-CDF objective shape but already carries the ψ(z) /
+    λ(u) shadow prices in its cost vector. To get the strict shadow-price
+    ablation (Phase-3-equivalent on Stage 3), use
+    :func:`_select_original_lp_rawcost`, which uses ``marginal_cost``
+    (zero for S_Q / S_C) and isolates the contribution of shadow pricing.
+
+    Naming convention used in metadata and figures:
+
+    - ``original_lp``         — LP-CDF / old LP-Mix family, tiered
+                                 effective-cost generalisation
+    - ``original_lp_rawcost`` — same LP-CDF objective, but with raw
+                                 marginal cost (no shadow prices)
+    - ``budget_range_p*``     — new LP-TTFT-budget family (latency in
+                                 objective, cost in constraint)
+    """
     feasible = [provider for provider in providers if provider.is_available(now)]
     if not feasible:
         fallback = _fallback_api_provider(providers)
@@ -636,6 +730,102 @@ def _select_original_lp(
     names = [provider.name for provider in feasible]
     c_eff = {
         provider.name: effective_cost(provider, req.total_tokens, now, U=U, L=L)
+        for provider in feasible
+    }
+    slo_attainment = {
+        provider.name: profiles[provider.name].slo_attainment(now, slo_ms)
+        for provider in feasible
+    }
+
+    last_status = "solver_failure_fallback"
+    for target in OLD_TARGETS:
+        success, vector = _solve_simplex_lp(
+            objective=[c_eff[name] for name in names],
+            upper_constraint=[-slo_attainment[name] for name in names],
+            upper_bound=-target,
+        )
+        if success and vector is not None:
+            weights = _normalize_weights(names, vector)
+            if weights:
+                status = "optimal" if math.isclose(target, 0.99) else f"relaxed_{target:.2f}"
+                return SelectorOutcome(
+                    weights=weights,
+                    status=status,
+                    c_eff=c_eff,
+                    budget_tau=None,
+                    expected_c_eff=_expected_weighted_value(weights, c_eff),
+                    budget_utilization=None,
+                    budget_slack=None,
+                    true_p50_fallbacks=0,
+                    feasible_count=len(feasible),
+                )
+            last_status = "degenerate_feasible_fallback"
+
+    best_provider = min(
+        feasible,
+        key=lambda provider: (-slo_attainment[provider.name], c_eff[provider.name]),
+    )
+    return SelectorOutcome(
+        weights=_single_provider_weight(best_provider),
+        status="best_effort" if last_status != "degenerate_feasible_fallback" else last_status,
+        c_eff=c_eff,
+        budget_tau=None,
+        expected_c_eff=c_eff[best_provider.name],
+        budget_utilization=None,
+        budget_slack=None,
+        true_p50_fallbacks=0,
+        feasible_count=len(feasible),
+    )
+
+
+def _select_original_lp_rawcost(
+    providers: list[TieredProvider],
+    req: Request,
+    now: float,
+    slo_ms: float,
+    U: float,
+    L: float,
+    profiles: dict[str, RollingLatencyProfile],
+) -> SelectorOutcome:
+    """Shadow-price ablation: same as :func:`_select_original_lp` but the
+    LP cost vector uses :meth:`TieredProvider.marginal_cost` instead of
+    :func:`effective_cost`.
+
+    For ``S_A`` providers ``marginal_cost == effective_cost``, so on Stage 2
+    (S_A only) this should be indistinguishable from ``original_lp``. On
+    Stage 3 (joint provider) ``marginal_cost = 0`` for ``S_Q`` and ``S_C``,
+    so the LP no longer sees any cost penalty for greedily exhausting
+    subscription capacity. The expected behaviour is "S_Q / S_C are picked
+    first until exhaustion, then sudden overflow to S_A" — exactly the
+    failure mode that motivates ψ(z) and λ(u).
+
+    Used to isolate the contribution of shadow pricing in the cost vector
+    while keeping every other piece (profile, SLO targets, LP solver,
+    capacity bookkeeping, hedger) identical to ``original_lp``.
+    """
+    feasible = [provider for provider in providers if provider.is_available(now)]
+    if not feasible:
+        fallback = _fallback_api_provider(providers)
+        c_eff = {
+            fallback.name: float(fallback.marginal_cost(req.total_tokens, now))
+        }
+        return SelectorOutcome(
+            weights=_single_provider_weight(fallback),
+            status="no_capacity_fallback",
+            c_eff=c_eff,
+            budget_tau=None,
+            expected_c_eff=c_eff[fallback.name],
+            budget_utilization=None,
+            budget_slack=None,
+            true_p50_fallbacks=0,
+            feasible_count=0,
+        )
+
+    names = [provider.name for provider in feasible]
+    # Raw marginal cost: API price for S_A, zero for S_Q / S_C (subscription
+    # is sunk cost). This is the deliberate ablation point.
+    c_eff = {
+        provider.name: float(provider.marginal_cost(req.total_tokens, now))
         for provider in feasible
     }
     slo_attainment = {
@@ -732,6 +922,11 @@ def _select_budget_body(
     budget_level = _budget_level_from_variant(variant)
     if _is_provider_percentile_variant(variant):
         budget_tau = float(np.percentile(list(c_eff.values()), budget_level))
+    elif _is_range_budget_variant(variant):
+        p = budget_level / 100.0
+        c_min = min(c_eff.values())
+        c_max = max(c_eff.values())
+        budget_tau = float(c_min + p * (c_max - c_min))
     elif _is_vhat_budget_variant(variant):
         tau = budget_level / 100.0
         budget_tau = tau * _predicted_api_cost_anchor(providers, req, now, slo_ms)
@@ -1139,10 +1334,10 @@ def _apply_existing_hedge(
     c_eff: dict[str, float],
     U: float,
     L: float,
-) -> tuple[float, float, bool, list[tuple[str, float]], float]:
+) -> tuple[float, float, bool, list[ObservedSample], float]:
     """Apply the current hedge rule unchanged from the tiered runner."""
     primary_ttft_ms = _sample_ttft(primary, rng, now)
-    observed_samples = [(primary.name, primary_ttft_ms)]
+    observed_samples = [(primary.name, now, primary_ttft_ms)]
     final_ttft_ms = primary_ttft_ms
     billed_cost = primary.marginal_cost(req.total_tokens, now)
     hedged = False
@@ -1179,7 +1374,8 @@ def _apply_existing_hedge(
         now,
         _sample_service_time(backup, rng, now, req.response_tokens),
     )
-    observed_samples.append((backup.name, backup_ttft_ms))
+    backup_observation_time = now + wait_threshold_ms / 1000.0 + backup_ttft_ms / 1000.0
+    observed_samples.append((backup.name, backup_observation_time, backup_ttft_ms))
     billed_cost += backup.marginal_cost(req.total_tokens, now)
     final_ttft_ms = min(primary_ttft_ms, wait_threshold_ms + backup_ttft_ms)
     hedged = True
@@ -1196,7 +1392,7 @@ def _apply_probability_target_hedge(
     violation_tracker: RecentViolationTracker,
     allow_random_backup: bool,
     backup_scope: str,
-) -> tuple[float, float, bool, list[tuple[str, float]], float, str, float]:
+) -> tuple[float, float, bool, list[ObservedSample], float, str, float, str]:
     """Apply the new probability-only hedge trigger.
 
     A backup launched at time `t` is considered feasible if:
@@ -1207,7 +1403,19 @@ def _apply_probability_target_hedge(
     then dispatches the backup if the primary has not completed by that time.
     """
     primary_ttft_ms = _sample_ttft(primary, rng, now)
-    observed_samples = [(primary.name, primary_ttft_ms)]
+    primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens)
+    if (
+        primary.tier == ProviderTier.S_C
+        and primary.concurrency is not None
+        and not primary.concurrency.can_admit_interval(
+            now,
+            now + primary_service_time,
+        )
+    ):
+        primary = _fallback_api_provider(providers)
+        primary_ttft_ms = _sample_ttft(primary, rng, now)
+        primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens)
+    observed_samples = [(primary.name, now, primary_ttft_ms)]
     final_ttft_ms = primary_ttft_ms
     billed_cost = primary.marginal_cost(req.total_tokens, now)
     hedged = False
@@ -1215,7 +1423,7 @@ def _apply_probability_target_hedge(
     primary.account_request(
         req.id,
         now,
-        _sample_service_time(primary, rng, now, req.response_tokens),
+        primary_service_time,
     )
 
     backup, backup_selection_mode, random_backup_prob = _pick_probability_target_backup(
@@ -1238,6 +1446,7 @@ def _apply_probability_target_hedge(
             primary_ttft_ms,
             backup_selection_mode,
             random_backup_prob,
+            primary.name,
         )
 
     hedge_time_ms = _find_latest_safe_hedge_time_ms(
@@ -1255,21 +1464,53 @@ def _apply_probability_target_hedge(
             primary_ttft_ms,
             backup_selection_mode,
             random_backup_prob,
+            primary.name,
         )
 
     dispatch_time_sec = now + hedge_time_ms / 1000.0
     if not backup.is_available(dispatch_time_sec):
-        raise RuntimeError(
-            f"Selected unavailable probability-target backup {backup.name!r} "
-            f"at t={dispatch_time_sec:.3f}"
+        return (
+            final_ttft_ms,
+            billed_cost,
+            hedged,
+            observed_samples,
+            primary_ttft_ms,
+            "dispatch_unavailable",
+            random_backup_prob,
+            primary.name,
         )
     backup_ttft_ms = _sample_ttft(backup, rng, dispatch_time_sec)
+    backup_service_time = _sample_service_time(
+        backup,
+        rng,
+        dispatch_time_sec,
+        req.response_tokens,
+    )
+    if (
+        backup.tier == ProviderTier.S_C
+        and backup.concurrency is not None
+        and not backup.concurrency.can_admit_interval(
+            dispatch_time_sec,
+            dispatch_time_sec + backup_service_time,
+        )
+    ):
+        return (
+            final_ttft_ms,
+            billed_cost,
+            hedged,
+            observed_samples,
+            primary_ttft_ms,
+            "dispatch_interval_unavailable",
+            random_backup_prob,
+            primary.name,
+        )
     backup.account_request(
         req.id + 10_000_000,
         dispatch_time_sec,
-        _sample_service_time(backup, rng, dispatch_time_sec, req.response_tokens),
+        backup_service_time,
     )
-    observed_samples.append((backup.name, backup_ttft_ms))
+    backup_observation_time = dispatch_time_sec + backup_ttft_ms / 1000.0
+    observed_samples.append((backup.name, backup_observation_time, backup_ttft_ms))
     billed_cost += backup.marginal_cost(req.total_tokens, dispatch_time_sec)
     final_ttft_ms = min(
         primary_ttft_ms,
@@ -1284,6 +1525,7 @@ def _apply_probability_target_hedge(
         primary_ttft_ms,
         backup_selection_mode,
         random_backup_prob,
+        primary.name,
     )
 
 
@@ -1307,6 +1549,7 @@ def run_variant(
         and variant not in BACKUP_EXPLORATION_VARIANTS
         and variant not in HEDGE_ABLATION_VARIANTS
         and variant not in PROVIDER_PERCENTILE_ABLATION_VARIANTS
+        and variant not in SHADOW_PRICE_ABLATION_VARIANTS
         and variant not in CONTROL_VARIANTS
     ):
         raise ValueError(f"Unknown LP-budget variant: {variant!r}")
@@ -1362,6 +1605,16 @@ def run_variant(
                 L,
                 profiles,
             )
+        elif _base_variant(variant) == "original_lp_rawcost":
+            outcome = _select_original_lp_rawcost(
+                scenario.providers,
+                req,
+                now,
+                scenario.primary_slo_ms,
+                U,
+                L,
+                profiles,
+            )
         else:
             outcome = _select_budget_body(
                 scenario.providers,
@@ -1389,6 +1642,7 @@ def run_variant(
                 _,
                 backup_selection_mode,
                 random_backup_prob,
+                actual_primary_name,
             ) = _apply_probability_target_hedge(
                 scenario,
                 scenario.providers,
@@ -1400,6 +1654,7 @@ def run_variant(
                 random_backup_exploration,
                 backup_scope,
             )
+            primary = providers_by_name[actual_primary_name]
             diagnostics.backup_selection_counts[backup_selection_mode] += 1
             diagnostics.backup_random_prob_values.append(random_backup_prob)
         elif hedge_mode == "old":
@@ -1424,13 +1679,14 @@ def run_variant(
             final_ttft_ms = primary_ttft_ms
             billed_cost = primary.marginal_cost(req.total_tokens, now)
             hedged = False
-            observed_samples = [(primary.name, primary_ttft_ms)]
+            observed_samples = [(primary.name, now, primary_ttft_ms)]
 
-        profiles[primary.name].add_sample(now, observed_samples[0][1])
+        _, primary_sample_time, primary_ttft_ms = observed_samples[0]
+        profiles[primary.name].add_sample(primary_sample_time, primary_ttft_ms)
         if hedge_as_probe and hedged and len(observed_samples) > 1:
-            backup_name, backup_ttft_ms = observed_samples[1]
+            backup_name, backup_sample_time, backup_ttft_ms = observed_samples[1]
             if backup_name != primary.name:
-                profiles[backup_name].add_sample(now, backup_ttft_ms)
+                profiles[backup_name].add_sample(backup_sample_time, backup_ttft_ms)
                 diagnostics.explorer_feedback_count += 1
         _probe_non_primary_profiles(
             profiles,
@@ -1493,6 +1749,7 @@ def build_first_batch_scenarios() -> dict[str, TieredScenarioConfig]:
 def build_all_scenarios() -> dict[str, TieredScenarioConfig]:
     """Return every registered synthetic scenario available to the sidecar."""
     scenarios = {name: load_world_scenario(name) for name in list_scenarios()}
+    scenarios.update(make_simple_scenarios())
     scenarios.update(make_mm25_scenarios())
     return scenarios
 
@@ -1637,22 +1894,54 @@ def _generate_trace_driven_workload(
     dataset_name: str,
     seed: int,
 ) -> list[Request]:
-    """Build a trace-driven workload for one scenario from a real dataset.
+    """Build a trace-driven workload by replaying the entire trace at its
+    natural arrival rate.
 
-    We preserve the request size distribution and local burst structure of a
-    contiguous trace slice, then normalize the slice into the scenario's target
-    duration so every scenario still sees the intended offered load level.
+    Uses the **entire** trace (no random slicing) and **does not rescale**
+    timestamps — the simulator's "now" advances at the trace's natural
+    pace. Wall-clock simulation time is unaffected (Python still processes
+    events as fast as it can); what changes is the *simulated* time
+    spanning whatever the trace actually spanned (e.g. 7 days for
+    sharegpt, 89 days for freeinference). This preserves quota-window
+    rolls and concurrency saturation dynamics as they would occur in
+    production.
+
+    The ``seed`` argument is currently unused in this mode (no slicing /
+    no synthetic generation), but kept in the signature so the caller
+    can stay polymorphic with the synthetic generator.
+
+    Historical note: an earlier mode contiguously sliced 2000 requests
+    and rescaled their timestamps into ``scenario.duration_seconds``
+    (typically 3600s). That mode artificially compressed real arrival
+    patterns by 1.2× (sharegpt) to 73× (rednote), creating fictitious
+    capacity stress that does not exist in production. It was removed
+    on 2026-04-29 along with the ``--trace-replay-natural`` opt-in flag
+    so the wrong default cannot resurface.
     """
+    del seed  # unused — full trace, no slicing, no resampling
     full_trace = _load_trace_dataset_requests(dataset_name)
-    slice_requests = _select_trace_slice(
-        full_trace,
-        n_requests=scenario.n_requests,
-        seed=seed,
-    )
-    return _normalize_trace_slice(
-        slice_requests,
-        duration_seconds=scenario.duration_seconds,
-    )
+    if not full_trace:
+        return []
+
+    # Rebase to start at t=0 but keep the inter-arrival pattern intact.
+    base = float(full_trace[0].timestamp)
+    rebased: list[Request] = []
+    for idx, req in enumerate(full_trace):
+        rebased.append(
+            Request(
+                id=idx,
+                timestamp=int(round(float(req.timestamp) - base)),
+                request_tokens=req.request_tokens,
+                response_tokens=req.response_tokens,
+                total_tokens=req.total_tokens,
+                model=req.model,
+                provider=req.provider,
+                actual_cost=req.actual_cost,
+                latency_ms=req.latency_ms,
+                ttft_ms=req.ttft_ms,
+            )
+        )
+    return rebased
 
 
 def generate_scenario_workload(
@@ -1660,6 +1949,7 @@ def generate_scenario_workload(
     *,
     seed: int = 0,
     dataset_name: str = "synthetic",
+    trace_replay_natural: bool = False,
 ) -> list[Request]:
     """Generate the shared workload for one scenario.
 
@@ -1668,8 +1958,21 @@ def generate_scenario_workload(
         seed: RNG seed controlling either synthetic generation or trace slicing.
         dataset_name: Workload source. Use "synthetic" for the built-in synthetic
             generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
+        trace_replay_natural: When True (and ``dataset_name`` is a trace
+            dataset), use the entire trace with natural inter-arrival
+            timestamps (no slicing, no rescaling to ``scenario.duration_seconds``).
+            This preserves real-world arrival rates and quota-window dynamics
+            but makes simulated time span vary across workloads (sharegpt 7d,
+            freeinference 89d, rednote 83d). Default ``False`` keeps the
+            historical contiguous-slice + rescale-to-duration behaviour.
     """
     if dataset_name != "synthetic":
+        if trace_replay_natural:
+            return _generate_trace_driven_workload_natural(
+                scenario,
+                dataset_name=dataset_name,
+                seed=seed,
+            )
         return _generate_trace_driven_workload(
             scenario,
             dataset_name=dataset_name,
