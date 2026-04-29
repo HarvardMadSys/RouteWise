@@ -21,6 +21,19 @@ class CapacityStateTest(unittest.TestCase):
         self.assertEqual(quota.used, 0)
         self.assertEqual(quota.window_start, 10.0)
 
+    def test_quota_rolls_on_fixed_window_boundaries(self) -> None:
+        quota = QuotaState(size=1, window_sec=10.0)
+
+        quota.charge(0.0)
+        self.assertFalse(quota.can_admit(9.0))
+
+        self.assertTrue(quota.can_admit(13.0))
+        self.assertEqual(quota.window_start, 10.0)
+        quota.charge(13.0)
+
+        self.assertTrue(quota.can_admit(21.0))
+        self.assertEqual(quota.window_start, 20.0)
+
     def test_concurrency_sweeps_completed_requests(self) -> None:
         concurrency = ConcurrencyState(limit=1)
 
@@ -31,6 +44,38 @@ class CapacityStateTest(unittest.TestCase):
 
         self.assertTrue(concurrency.can_admit(5.0))
         self.assertEqual(concurrency.utilization(5.0), 0.0)
+
+    def test_future_concurrency_interval_does_not_occupy_before_start(self) -> None:
+        concurrency = ConcurrencyState(limit=1)
+
+        concurrency.admit(request_id=1, now=5.0, service_time_sec=5.0)
+
+        self.assertTrue(concurrency.can_admit(4.0))
+        self.assertEqual(concurrency.utilization(4.0), 0.0)
+        self.assertFalse(concurrency.can_admit(5.0))
+        self.assertEqual(concurrency.utilization(5.0), 1.0)
+        self.assertFalse(concurrency.can_admit(9.0))
+        self.assertTrue(concurrency.can_admit(10.0))
+
+    def test_concurrency_interval_admission_checks_overlap(self) -> None:
+        concurrency = ConcurrencyState(limit=1)
+
+        concurrency.admit(request_id=1, now=5.0, service_time_sec=5.0)
+
+        self.assertTrue(concurrency.can_admit_interval(0.0, 4.0))
+        self.assertFalse(concurrency.can_admit_interval(4.0, 6.0))
+        self.assertFalse(concurrency.can_admit_interval(6.0, 8.0))
+        self.assertTrue(concurrency.can_admit_interval(10.0, 12.0))
+
+    def test_concurrency_admit_rejects_overlapping_future_reservation(self) -> None:
+        concurrency = ConcurrencyState(limit=1)
+
+        concurrency.admit(request_id=1, now=10.0, service_time_sec=10.0)
+
+        self.assertTrue(concurrency.can_admit(5.0))
+        with self.assertRaises(RuntimeError):
+            concurrency.admit(request_id=2, now=5.0, service_time_sec=10.0)
+        self.assertEqual(concurrency._active_count_at(12.0), 1)
 
 
 if __name__ == "__main__":
