@@ -21,8 +21,10 @@ from experiments.tiered_capacity.eval_grid import (
     assert_grid_invariants,
     make_eval_grid_scenarios,
     make_scenario,
+    make_stage3_capacity_scenarios,
     make_ttft_distribution,
     runner_dataset_id,
+    stage3_capacity_scenario_name,
     variant_name,
 )
 from experiments.tiered_capacity.lp_budget_eval import (
@@ -91,6 +93,52 @@ def test_stage3_has_all_three_tiers():
         scenario = make_scenario(ProviderSetup.JOINT_PROVIDER, family)
         tiers = {p.tier for p in scenario.providers}
         assert {ProviderTier.S_A, ProviderTier.S_Q, ProviderTier.S_C}.issubset(tiers)
+
+
+def test_stage3_capacity_overrides_set_quota_and_concurrency():
+    scenario = make_scenario(
+        ProviderSetup.JOINT_PROVIDER,
+        LatencyFamily.HEAVY_TAIL,
+        stage3_quota_size=5000,
+        stage3_concurrency_limit=8,
+    )
+    assert scenario.name == "grid_joint_provider_heavy_tail_q5000_c8"
+
+    quota_provider = next(p for p in scenario.providers if p.tier is ProviderTier.S_Q)
+    concurrency_provider = next(
+        p for p in scenario.providers if p.tier is ProviderTier.S_C
+    )
+    assert quota_provider.quota is not None
+    assert quota_provider.quota.size == 5000
+    assert concurrency_provider.concurrency is not None
+    assert concurrency_provider.concurrency.limit == 8
+
+
+def test_stage3_capacity_overrides_reject_non_stage3():
+    with pytest.raises(ValueError):
+        make_scenario(
+            ProviderSetup.SAME_LATENCY,
+            LatencyFamily.HEAVY_TAIL,
+            stage3_quota_size=5000,
+        )
+
+
+def test_stage3_capacity_scenarios_cover_cross_product():
+    scenarios = make_stage3_capacity_scenarios(
+        quota_sizes=[1000, 5000],
+        concurrency_limits=[2, 4],
+        families=[LatencyFamily.HEAVY_TAIL],
+    )
+    expected = {
+        stage3_capacity_scenario_name(
+            LatencyFamily.HEAVY_TAIL,
+            quota_size=quota,
+            concurrency_limit=concurrency,
+        )
+        for quota in [1000, 5000]
+        for concurrency in [2, 4]
+    }
+    assert set(scenarios) == expected
 
 
 # ---------------------------------------------------------------------------

@@ -34,9 +34,9 @@ Public surface:
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 from rwsim.world import (
     ConcurrencyState,
@@ -238,13 +238,23 @@ def _stage2_specs() -> list[_ProviderSpec]:
     ]
 
 
-def _stage3_specs() -> list[_ProviderSpec]:
+def _stage3_specs(
+    *,
+    quota_size: int = 1000,
+    concurrency_limit: int = 4,
+) -> list[_ProviderSpec]:
     """Stage 3: full joint — S_Q + S_C + 2 S_A.
 
     Built on top of Stage 2: the two S_A providers preserve the cost-latency
     tradeoff so we can still observe Pareto behaviour in the API tier,
     while S_Q and S_C add the capacity / subscription dimensions.
     """
+    if quota_size <= 0:
+        raise ValueError(f"quota_size must be positive, got {quota_size}")
+    if concurrency_limit <= 0:
+        raise ValueError(
+            f"concurrency_limit must be positive, got {concurrency_limit}"
+        )
     return [
         # S_Q: free at the margin but quota-limited and moderately fast.
         _ProviderSpec(
@@ -252,7 +262,7 @@ def _stage3_specs() -> list[_ProviderSpec]:
             ProviderTier.S_Q,
             cost_per_token=0.0,
             p50_ms=_P50_MEDIUM_MS,
-            quota_size=1000,
+            quota_size=quota_size,
         ),
         # S_C: free at the margin but concurrency-limited and fast.
         _ProviderSpec(
@@ -260,7 +270,7 @@ def _stage3_specs() -> list[_ProviderSpec]:
             ProviderTier.S_C,
             cost_per_token=0.0,
             p50_ms=_P50_FAST_MS,
-            concurrency_limit=4,
+            concurrency_limit=concurrency_limit,
         ),
         # S_A overflow: cheap-slow.
         _ProviderSpec("S3_api_cheap_slow", ProviderTier.S_A, _COST_CHEAP, _P50_SLOW_MS),
@@ -277,12 +287,44 @@ _STAGE_BUILDERS: dict[ProviderSetup, Callable[[], list[_ProviderSpec]]] = {
 }
 
 
-def make_scenario(stage: ProviderSetup, family: LatencyFamily) -> ScenarioConfig:
+def make_scenario(
+    stage: ProviderSetup,
+    family: LatencyFamily,
+    *,
+    stage3_quota_size: int | None = None,
+    stage3_concurrency_limit: int | None = None,
+) -> ScenarioConfig:
     """Build one scenario for a given (stage, latency family) cell."""
-    specs = _STAGE_BUILDERS[stage]()
+    has_stage3_override = (
+        stage3_quota_size is not None or stage3_concurrency_limit is not None
+    )
+    if has_stage3_override and stage is not ProviderSetup.JOINT_PROVIDER:
+        raise ValueError(
+            "stage3_quota_size / stage3_concurrency_limit only apply to "
+            f"ProviderSetup.JOINT_PROVIDER, got {stage!r}"
+        )
+
+    if stage is ProviderSetup.JOINT_PROVIDER and has_stage3_override:
+        quota_size = 1000 if stage3_quota_size is None else stage3_quota_size
+        concurrency_limit = (
+            4 if stage3_concurrency_limit is None else stage3_concurrency_limit
+        )
+        specs = _stage3_specs(
+            quota_size=quota_size,
+            concurrency_limit=concurrency_limit,
+        )
+        name = stage3_capacity_scenario_name(
+            family,
+            quota_size=quota_size,
+            concurrency_limit=concurrency_limit,
+        )
+    else:
+        specs = _STAGE_BUILDERS[stage]()
+        name = f"grid_{stage.value}_{family.value}"
+
     providers = [_build_provider(spec, family) for spec in specs]
     return ScenarioConfig(
-        name=f"grid_{stage.value}_{family.value}",
+        name=name,
         description=(
             f"Eval grid cell: stage={stage.value}, latency_family={family.value}. "
             f"Providers: {', '.join(p.name for p in providers)}."
@@ -302,6 +344,45 @@ def make_eval_grid_scenarios() -> dict[str, ScenarioConfig]:
         for family in LatencyFamily:
             scenario = make_scenario(stage, family)
             grid[scenario.name] = scenario
+    return grid
+
+
+def stage3_capacity_scenario_name(
+    family: LatencyFamily,
+    *,
+    quota_size: int,
+    concurrency_limit: int,
+) -> str:
+    """Stable scenario id for Stage 3 capacity-sensitivity cells."""
+    return (
+        f"grid_{ProviderSetup.JOINT_PROVIDER.value}_{family.value}"
+        f"_q{quota_size}_c{concurrency_limit}"
+    )
+
+
+def make_stage3_capacity_scenarios(
+    *,
+    quota_sizes: Iterable[int],
+    concurrency_limits: Iterable[int],
+    families: Iterable[LatencyFamily] = (LatencyFamily.HEAVY_TAIL,),
+) -> dict[str, ScenarioConfig]:
+    """Build Stage 3 sensitivity scenarios over quota/concurrency settings.
+
+    The default family is ``heavy_tail`` because Stage 3 is the paper's
+    representative joint-provider case; uniform/normal can be added by
+    passing ``families`` explicitly for appendix sweeps.
+    """
+    grid: dict[str, ScenarioConfig] = {}
+    for family in families:
+        for quota_size in quota_sizes:
+            for concurrency_limit in concurrency_limits:
+                scenario = make_scenario(
+                    ProviderSetup.JOINT_PROVIDER,
+                    family,
+                    stage3_quota_size=quota_size,
+                    stage3_concurrency_limit=concurrency_limit,
+                )
+                grid[scenario.name] = scenario
     return grid
 
 
@@ -565,7 +646,9 @@ __all__ = [
     "assert_grid_invariants",
     "make_eval_grid_scenarios",
     "make_scenario",
+    "make_stage3_capacity_scenarios",
     "make_ttft_distribution",
     "runner_dataset_id",
+    "stage3_capacity_scenario_name",
     "variant_name",
 ]
