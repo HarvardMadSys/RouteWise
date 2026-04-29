@@ -1349,7 +1349,13 @@ def _apply_existing_hedge(
 ) -> tuple[float, float, bool, list[ObservedSample], float]:
     """Apply the current hedge rule unchanged from the tiered runner."""
     primary_ttft_ms = _sample_ttft(primary, rng, now)
-    observed_samples = [(primary.name, now, primary_ttft_ms)]
+    # Observation time is when the response arrives, not when we
+    # dispatched. The rolling profile must not see the sample until
+    # ``now + ttft``; dispatching at ``now`` means the latency value
+    # is only observable later. The backup observation time below is
+    # already computed correctly as ``dispatch_time + ttft``.
+    primary_observation_time = now + primary_ttft_ms / 1000.0
+    observed_samples = [(primary.name, primary_observation_time, primary_ttft_ms)]
     final_ttft_ms = primary_ttft_ms
     billed_cost = primary.marginal_cost(req.total_tokens, now)
     hedged = False
@@ -1427,7 +1433,10 @@ def _apply_probability_target_hedge(
         primary = _fallback_api_provider(providers)
         primary_ttft_ms = _sample_ttft(primary, rng, now)
         primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens)
-    observed_samples = [(primary.name, now, primary_ttft_ms)]
+    # Observation time = dispatch time + observed TTFT. See the
+    # equivalent comment in _apply_economic_hedge.
+    primary_observation_time = now + primary_ttft_ms / 1000.0
+    observed_samples = [(primary.name, primary_observation_time, primary_ttft_ms)]
     final_ttft_ms = primary_ttft_ms
     billed_cost = primary.marginal_cost(req.total_tokens, now)
     hedged = False
@@ -1690,7 +1699,12 @@ def run_variant(
             final_ttft_ms = primary_ttft_ms
             billed_cost = primary.marginal_cost(req.total_tokens, now)
             hedged = False
-            observed_samples = [(primary.name, now, primary_ttft_ms)]
+            # Observation time = dispatch time + observed TTFT (see
+            # _apply_economic_hedge for the rationale).
+            primary_observation_time = now + primary_ttft_ms / 1000.0
+            observed_samples = [
+                (primary.name, primary_observation_time, primary_ttft_ms)
+            ]
 
         _, primary_sample_time, primary_ttft_ms = observed_samples[0]
         profiles[primary.name].add_sample(primary_sample_time, primary_ttft_ms)
