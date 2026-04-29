@@ -43,7 +43,6 @@ from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
 
 OUTPUT_ROOT = _ROOT / "outputs" / "lp_budget"
 DEFAULT_SEEDS = [42, 43, 44]
-DEFAULT_ACTIVE_PROBE_RATE = 0.0
 
 # Scenario family identifiers exposed via --scenario-family. The legacy
 # family preserves all pre-existing behaviour; eval_grid switches to the
@@ -92,10 +91,19 @@ def _parse_args() -> argparse.Namespace:
             "sharegpt for trace-driven synthetic evaluation."
         ),
     )
-    # Note: ``--trace-replay-natural`` was removed on 2026-04-29. Trace
-    # replay is now unconditional natural arrival rate (the previous
-    # scaled-replay mode artificially compressed real arrival patterns
-    # by up to 73× and produced fictitious capacity stress).
+    parser.add_argument(
+        "--trace-replay-natural",
+        action="store_true",
+        help=(
+            "When set, trace-driven workloads (freeinference / rednote / "
+            "sharegpt) replay the **entire** trace at its natural arrival "
+            "rate instead of contiguous-slicing 2000 requests and rescaling "
+            "to scenario.duration_seconds. This preserves real quota-window "
+            "rolls and concurrency utilisation dynamics; the simulated time "
+            "span varies by workload (sharegpt 7d, freeinference 89d, "
+            "rednote 83d). Synthetic dataset is unaffected."
+        ),
+    )
     parser.add_argument(
         "--seed",
         action="append",
@@ -175,9 +183,8 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override the dedicated background probing rate for the sidecar "
-            "evaluation. Defaults to 0.0 for paper-facing runs; positive values "
-            "are explicit active-probing ablations. Explorer variants use "
-            "hedge-as-probe feedback, not dedicated probes."
+            "evaluation. Use 0.0 with *_explorer variants to run a pure "
+            "hedge-as-probe/no-dedicated-probe ablation."
         ),
     )
     parser.add_argument(
@@ -472,9 +479,6 @@ def _metadata(
     invocation *did* dispatch. Reviewers and artifact evaluators should
     read the active lists to reconstruct the exact run.
     """
-    effective_probe_rate = (
-        DEFAULT_ACTIVE_PROBE_RATE if probe_rate is None else probe_rate
-    )
     return {
         "implementation_root": str(_ROOT),
         "driver": str(Path(__file__).resolve()),
@@ -530,24 +534,32 @@ def _metadata(
             "it falls back to the cheapest S_A provider"
         ),
         "workload_mode": (
-            "synthetic generator by default; trace-driven mode uses real request "
-            "traces and rescales contiguous slices into each scenario's target "
-            "duration while preserving token counts and local burst structure"
+            "synthetic generator (Poisson with LogNormal output tokens) for "
+            "--dataset synthetic; for trace-driven datasets (sharegpt / "
+            "freeinference / rednote) the runner replays the **full** trace at "
+            "natural arrival timestamps with no slicing, no rescaling, no load "
+            "scaling. The simulated time span varies by workload (sharegpt 7d, "
+            "freeinference 89d, rednote 83d). The earlier scaled-replay path "
+            "(contiguous-slice 2000 requests + rescale to scenario.duration_seconds) "
+            "was removed on 2026-04-29 because its compression artefacts (1.2× "
+            "sharegpt, 11.5× freeinference, 73× rednote) fabricated capacity "
+            "stress that does not exist in production."
+        ),
+        "trace_timing_mode": "natural_full_trace",
+        "lp_tbar_source": (
+            "ground-truth analytical expected TTFT (provider.ttft_dist.mean()), "
+            "not the rolling-profile sample mean. Matches the algorithm spec "
+            "T_bar_j(t) = E[T_j] without contaminating the LP objective with "
+            "finite-sample estimator noise. See _body_latency_proxy_ms in "
+            "experiments/tiered_capacity/lp_budget_eval.py and "
+            "DESIGN_PRINCIPLES.md §1 ('reasoning beats realism')."
         ),
         "hedge_as_probe": (
             "Enabled only for explicit *_explorer variants: when a hedge fires, "
             "the backup TTFT sample is fed back into the rolling profile. "
-            "*_hedge variants are hedge-only and do not update the backup profile. "
-            "Explorer variants are runnable ablations/debug aids, but are not part "
-            "of the stationary simulator paper grid."
+            "*_hedge variants are hedge-only and do not update the backup profile."
         ),
         "probe_rate_override": probe_rate,
-        "effective_active_probe_rate": effective_probe_rate,
-        "active_probing_policy": (
-            "Dedicated active probing is disabled by default for paper-facing "
-            "simulator runs. Set --probe-rate > 0 only for an explicit active-"
-            "probing ablation."
-        ),
         "backup_scope": backup_scope,
         "backup_selection_policy": (
             "Default *_hedge and *_explorer variants use deterministic "
@@ -642,12 +654,12 @@ def main() -> None:
             other_flags = [f for f in explicit_ablation_flags
                            if f != "--include-shadow-price-ablation"]
             if other_flags:
-                    print(
-                        "[run_joint_lp_budget_eval] eval_grid family ignores "
-                        f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
-                        f"canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
-                        file=sys.stderr,
-                    )
+                print(
+                    "[run_joint_lp_budget_eval] eval_grid family ignores "
+                    f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
+                    "canonical 15-variant set.",
+                    file=sys.stderr,
+                )
         if args.include_shadow_price_ablation:
             variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
         # Controls are silently skipped for eval_grid regardless of
@@ -700,6 +712,7 @@ def main() -> None:
                 scenario,
                 seed=_workload_seed(dataset_name, scenario_name),
                 dataset_name=dataset_name,
+                trace_replay_natural=args.trace_replay_natural,
             )
             print(
                 f"  workload: {len(workload)} requests, "
@@ -714,16 +727,12 @@ def main() -> None:
 
             for variant in variants:
                 evaluated_runs = [
-                        run_variant(
+                    run_variant(
                         scenario,
                         workload,
                         variant,
                         seed=seed,
-                        probe_rate=(
-                            DEFAULT_ACTIVE_PROBE_RATE
-                            if args.probe_rate is None
-                            else args.probe_rate
-                        ),
+                        probe_rate=(0.05 if args.probe_rate is None else args.probe_rate),
                         backup_scope=args.backup_scope,
                     )
                     for seed in seeds
