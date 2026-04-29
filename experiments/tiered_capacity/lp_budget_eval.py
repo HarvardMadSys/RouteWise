@@ -655,9 +655,9 @@ def _body_latency_proxy_ms(
     """
     del profile  # ground-truth path does not need sampled history
     if hasattr(provider, "_active_ttft_dist"):
-        dist = provider._active_ttft_dist(now)  # noqa: SLF001 - drift accessor
+        dist = provider._active_ttft_dist(now)
     elif hasattr(provider, "_active_dist"):
-        dist = provider._active_dist(now)  # noqa: SLF001 - legacy shift helper
+        dist = provider._active_dist(now)
     else:
         dist = provider.ttft_dist
     if hasattr(dist, "mean"):

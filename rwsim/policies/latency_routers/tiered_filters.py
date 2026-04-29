@@ -44,10 +44,10 @@ def provider_p95_at(provider: TieredProvider, now: float) -> float:
     the eval-grid paper line is unchanged numerically.
     """
     if hasattr(provider, "_active_ttft_dist"):
-        dist = provider._active_ttft_dist(now)  # noqa: SLF001 - drift accessor
+        dist = provider._active_ttft_dist(now)
     elif hasattr(provider, "_active_dist"):
         # Legacy ShiftingProvider compatibility shim.
-        dist = provider._active_dist(now)  # noqa: SLF001 - shift helper
+        dist = provider._active_dist(now)
     else:
         dist = provider.ttft_dist
     return float(dist.p95())

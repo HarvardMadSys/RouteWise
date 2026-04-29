@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-import pytest
 
 import experiments.tiered_capacity.lp_budget_eval as lp_eval
 from rwsim.schemas import Request
@@ -11,6 +12,9 @@ from rwsim.world.capacity import ConcurrencyState, ProviderTier
 from rwsim.world.distributions import LogNormal
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
+
+if TYPE_CHECKING:
+    import pytest
 
 
 NOW = 10.0

@@ -28,9 +28,11 @@ from experiments.tiered_capacity.eval_grid import (
 from experiments.tiered_capacity.lp_budget_eval import (
     MAIN_VARIANTS,
     TRACE_WORKLOAD_DATASETS,
+    _body_latency_proxy_ms,
 )
 from rwsim.policies.latency_routers.tiered_filters import provider_p95_at
 from rwsim.world.distributions import LogNormal, Normal, Uniform
+from rwsim.world.providers import ProviderTier, TieredProvider
 
 
 # ---------------------------------------------------------------------------
@@ -248,17 +250,6 @@ def test_provider_p95_and_lp_tbar_honour_drift():
     only exposes ``_active_ttft_dist`` — so drift was silently ignored
     and P95 / Tbar reflected the pre-shift distribution forever.
     """
-    from rwsim.world import (
-        ConcurrencyState,
-        ProviderTier,
-        QuotaState,
-        TieredProvider,
-    )
-    from rwsim.world.distributions import LogNormal
-    from experiments.tiered_capacity.lp_budget_eval import (
-        _body_latency_proxy_ms,
-    )
-
     fast = LogNormal(mu=4.6, sigma=0.3)   # P50 ≈ 100 ms
     slow = LogNormal(mu=6.9, sigma=0.3)   # P50 ≈ 1000 ms
     SHIFT = 3600.0  # provider goes from "fast" to "slow" at t = 3600 s
