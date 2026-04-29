@@ -12,18 +12,30 @@ Algorithm history and code-reading guidance live in
 
 ## Final Method To Claim
 
-The final method we are trying to support is:
+The final method, separated by where each piece is claimed:
 
 ```text
-cost router
-  -> LP-TTFT-budget
-  -> Hedge-ProbTarget
-  -> Explorer feedback
+Simulator main grid (paper §5 main tables):
+  cost router
+    -> LP-TTFT-budget
+    -> Hedge-ProbTarget
+
+Explorer (hedge-as-probe profile feedback):
+  production mechanism / real-experiment ablation only;
+  NOT part of the stationary simulator grid.
 ```
 
-Historical variants such as `LP-CDF`, `Hedge-Economic`, and `LP-V2/P50-band`
-are ablations or background. They are not the final method unless we decide to
-change the paper story.
+This split follows Juncheng's 2026-04-22 / 2026-04-28 guidance: under
+the active-system probing assumption, Explorer and Hedge-ProbTarget
+are observationally identical in the stationary simulator (see
+`DESIGN_PRINCIPLES.md` §2.3 "Explorer is intentionally excluded from
+the simulator paper grid"). Explorer's contribution is therefore
+discussed in the system-design / real-experiment section, not in the
+simulator main tables.
+
+Historical variants such as `LP-CDF`, `Hedge-Economic`, and
+`LP-V2/P50-band` are ablations or background. They are not the final
+method unless we decide to change the paper story.
 
 ## Paper-Facing Workloads
 
@@ -75,15 +87,22 @@ Pass condition:
 
 ## P1. Main Progression Experiment
 
-Goal: show the progression from old method to final method.
+Goal: show the progression from old method to the simulator-grid final
+method.
 
 Run each paper workload with:
 
 1. `LP-CDF + no hedge`
 2. `LP-CDF + Hedge-Economic`
 3. `LP-TTFT-budget + no hedge`
-4. `LP-TTFT-budget + Hedge-ProbTarget`
-5. `LP-TTFT-budget + Hedge-ProbTarget + Explorer`
+4. `LP-TTFT-budget + Hedge-ProbTarget` ← simulator-grid final method
+
+Note: Explorer (hedge-as-probe) is **not** added as a fifth row in the
+simulator main progression. Under the active-system probing assumption
+the stationary simulator cannot distinguish it from `Hedge-ProbTarget`
+(they share the same routing decisions and the same cost). Explorer's
+positive contribution is documented in the real-experiment / system
+section (P3 below), not in the simulator main tables.
 
 Metrics:
 
@@ -91,15 +110,12 @@ Metrics:
 - P50/P95/P99 TTFT
 - SLO violation rate
 - hedge rate
-- Explorer feedback count
 - provider/tier distribution
 
 Pass condition:
 
 - The final method improves tail metrics over `LP-TTFT-budget + no hedge`.
 - The final method has interpretable cost overhead.
-- Explorer does not materially regress cost/tail, or the paper explicitly frames
-  it as a profile-freshness tradeoff.
 
 ## P2. Hedge Formula Ablation
 
@@ -128,9 +144,21 @@ Pass condition:
 - Additive/residual hedge is removed from the paper or shown only as a retired
   design that over-hedges.
 
-## P3. Explorer Ablation
+## P3. Explorer Ablation (real-experiment / drift scenario only)
 
 Goal: isolate whether hedge-as-probe improves future routing.
+
+**Scope: this ablation does not run on the stationary simulator paper
+grid.** The simulator is stationary by construction (latency
+distributions don't drift, provider availability is fixed); Explorer's
+profile-freshness contribution is invisible in that regime. The
+ablation lives in either of two places:
+
+1. A dedicated **drift scenario** added outside the eval grid: provider
+   shift mid-run, dedicated probing rate set to 0, measure adaptation
+   delay and post-drift SLO. This is *not* the eval grid.
+2. **Real-experiment data** (P4 / P5 OpenRouter live runs), where
+   profile drift is naturally present.
 
 Compare:
 
@@ -260,8 +288,12 @@ get agreement on the remaining experiments.
    - What experiments remain before paper submission?
 
 2. **Final Method To Claim**
-   - `cost router -> LP-TTFT-budget -> Hedge-ProbTarget -> Explorer`
-   - Historical variants are ablations.
+   - Simulator main grid: `cost router -> LP-TTFT-budget -> Hedge-ProbTarget`
+   - Explorer (hedge-as-probe): production mechanism / real-experiment
+     ablation only; not in the simulator main tables. See P3 above for
+     where it is evaluated.
+   - Historical variants (`LP-CDF`, `Hedge-Economic`, `LP-V2/P50-band`)
+     are ablations.
 
 3. **Datasets**
    - ShareGPT, FreeInference, Enterprise/RedNote.
@@ -271,11 +303,14 @@ get agreement on the remaining experiments.
    - Named strategy, named hedger, Explorer toggle, logging/artifacts.
 
 5. **Main Progression Experiment**
-   - Five variants from `LP-CDF` to final method.
+   - Four simulator variants from `LP-CDF` to
+     `LP-TTFT-budget + Hedge-ProbTarget`. Explorer is excluded from
+     the simulator progression (see slide 2 / P3 in the doc above).
 
-6. **Hedge + Explorer Ablations**
-   - Hedge formula ablation.
-   - Explorer feedback ablation.
+6. **Hedge Ablations + Explorer drift / real-experiment ablation**
+   - Hedge formula ablation (simulator grid).
+   - Explorer feedback ablation: drift scenario or real-experiment
+     only, not on the stationary simulator grid.
 
 7. **E2E FreeInference**
    - `API-only`, `Greedy`, `Cost-only`, `Joint`, then `Latency-only`.
