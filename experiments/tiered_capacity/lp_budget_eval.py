@@ -142,7 +142,6 @@ PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
 SHADOW_PRICE_ABLATION_VARIANTS = [
     "original_lp_rawcost",
     "original_lp_rawcost_hedge",
-    "original_lp_rawcost_explorer",
 ]
 CONTROL_VARIANTS = [
     "cheapest_available",

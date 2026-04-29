@@ -170,15 +170,17 @@ def test_shadow_price_ablation_excluded_from_main_variants():
         "They belong in SHADOW_PRICE_ABLATION_VARIANTS only."
     )
 
-    # The ablation list keeps all three hedge modes runnable.
-    # Whether explorer is included in paper *figures* is a separate
-    # question (see PAPER_HEDGE_MODES); SHADOW_PRICE_ABLATION_VARIANTS
-    # stays as the full set so ad-hoc rawcost+explorer ablations remain
-    # available without code changes.
+    # The ablation list contains only (no_hedge, hedge) — explorer is
+    # excluded for the same reason it's out of PAPER_GRID_VARIANTS
+    # (Juncheng's active-system probing assumption makes hedge-as-probe
+    # observationally redundant with hedge alone in the stationary
+    # simulator). If a rawcost + explorer point is needed for an ad-hoc
+    # drift experiment, build the variant id by hand
+    # ("original_lp_rawcost_explorer") and pass it via --variant — the
+    # validator and selector dispatch still accept the explorer suffix.
     assert SHADOW_PRICE_ABLATION_VARIANTS == [
         "original_lp_rawcost",
         "original_lp_rawcost_hedge",
-        "original_lp_rawcost_explorer",
     ]
 
 
