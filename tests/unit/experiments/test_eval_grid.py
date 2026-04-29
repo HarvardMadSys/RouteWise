@@ -174,10 +174,16 @@ def test_shadow_price_ablation_excluded_from_main_variants():
     # excluded for the same reason it's out of PAPER_GRID_VARIANTS
     # (Juncheng's active-system probing assumption makes hedge-as-probe
     # observationally redundant with hedge alone in the stationary
-    # simulator). If a rawcost + explorer point is needed for an ad-hoc
-    # drift experiment, build the variant id by hand
-    # ("original_lp_rawcost_explorer") and pass it via --variant — the
-    # validator and selector dispatch still accept the explorer suffix.
+    # simulator).
+    #
+    # Note: ``original_lp_rawcost_explorer`` is **not** runnable. The
+    # ``run_variant`` validator only accepts variants present in
+    # MAIN_VARIANTS / SHADOW_PRICE_ABLATION_VARIANTS / the other
+    # ablation lists; since rawcost_explorer is in none of these, it
+    # raises ``ValueError`` if passed via --variant. If an ad-hoc drift
+    # experiment needs that point, add the variant id back to
+    # SHADOW_PRICE_ABLATION_VARIANTS (intentional one-line revert), or
+    # extend the validator's allow-set, before invoking it.
     assert SHADOW_PRICE_ABLATION_VARIANTS == [
         "original_lp_rawcost",
         "original_lp_rawcost_hedge",
