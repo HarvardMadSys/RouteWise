@@ -169,16 +169,21 @@ BACKUP_RANDOM_PROB_TARGET_SLO_VIOLATION = 0.05
 BACKUP_RANDOM_PROB_ZERO_POINT = 0.10
 BACKUP_VIOLATION_WINDOW = 256
 TRIVIAL_SUPPORT_THRESHOLD = 1
-PROBE_RATE = 0.0  # Simulator default: no dedicated probing.
-# The paper-line algorithm follows Juncheng's "active system" assumption
-# (2026-04-22): hedging fires often enough that backup requests serve as
-# free latency probes (hedge-as-probe / explorer); a separately-fired
-# active probe stream is unnecessary in production. Setting the default
-# to 0.0 here means callers who instantiate run_variant() / sidecar
-# selectors directly inherit no-probing behaviour without having to
-# remember to pass probe_rate=0.0. Explicit active-probing ablations can
-# still set probe_rate>0 via the runner's --probe-rate flag or the
-# function argument.
+# NOTE: A ``PROBE_RATE`` constant + dedicated active-probing helper used
+# to live here. They were removed on 2026-04-29 along with the
+# ``--probe-rate`` runner flag and the ``probe_rate`` parameter on
+# ``run_variant()``. The paper-line simulator does not exercise active
+# probing:
+#   1. The LP body objective uses ground-truth analytical T̄ (see
+#      ``_body_latency_proxy_ms``), so it does not depend on a sampled
+#      rolling profile.
+#   2. Explorer (hedge-as-probe) is excluded from the simulator paper
+#      grid; profile freshness is not measured here.
+#   3. Production probing cost / capacity / observation-time accounting
+#      is a real-experiment concern, handled outside this module.
+# If a future profile-freshness debug experiment needs active probing,
+# write it as a self-contained script under ``experiments/debug/`` —
+# do NOT thread probe_rate back through the paper-line dispatch.
 BACKUP_SCOPES = ("any_provider", "cross_tier")
 TRACE_WORKLOAD_DATASETS = ("freeinference", "rednote", "sharegpt")
 ObservedSample = tuple[str, float, float]  # provider, observation timestamp, TTFT ms
@@ -526,28 +531,6 @@ def _warm_up_profiles(
             profiles[provider.name].add_sample(
                 t_sample,
                 provider.sample_ttft(rng, t_sample),
-            )
-
-
-def _probe_non_primary_profiles(
-    profiles: dict[str, RollingLatencyProfile],
-    providers: list[TieredProvider],
-    primary_name: str,
-    now: float,
-    rng: np.random.Generator,
-    *,
-    probe_rate: float = PROBE_RATE,
-) -> None:
-    """Reuse the existing lightweight probe policy from the latency simulator."""
-    if probe_rate <= 0.0:
-        return
-    for provider in providers:
-        if provider.name == primary_name:
-            continue
-        if rng.random() < probe_rate:
-            profiles[provider.name].add_sample(
-                now,
-                provider.sample_ttft(rng, now),
             )
 
 
@@ -1564,17 +1547,9 @@ def run_variant(
     variant: str,
     *,
     seed: int,
-    probe_rate: float | None = None,
     backup_scope: str = "any_provider",
 ) -> EvaluatedRun:
-    """Run one sidecar variant on one scenario for one RNG seed.
-
-    ``probe_rate=None`` (the default) inherits the module-level
-    :data:`PROBE_RATE` (0.0 — no dedicated probing). Pass an explicit
-    float to opt into an active-probing ablation.
-    """
-    if probe_rate is None:
-        probe_rate = PROBE_RATE
+    """Run one sidecar variant on one scenario for one RNG seed."""
     variant = canonicalize_variant_name(variant)
     if backup_scope not in BACKUP_SCOPES:
         raise ValueError(
@@ -1724,14 +1699,8 @@ def run_variant(
             if backup_name != primary.name:
                 profiles[backup_name].add_sample(backup_sample_time, backup_ttft_ms)
                 diagnostics.explorer_feedback_count += 1
-        _probe_non_primary_profiles(
-            profiles,
-            scenario.providers,
-            primary.name,
-            now,
-            rng,
-            probe_rate=probe_rate,
-        )
+        # Dedicated active probing was deleted on 2026-04-29 — see the
+        # PROBE_RATE comment block at the top of this module.
 
         q_provider = next(
             (provider for provider in scenario.providers if provider.tier == ProviderTier.S_Q),

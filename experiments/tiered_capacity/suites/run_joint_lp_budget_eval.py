@@ -170,16 +170,13 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write a sidecar golden snapshot under outputs/lp_budget/golden/.",
     )
-    parser.add_argument(
-        "--probe-rate",
-        type=float,
-        default=None,
-        help=(
-            "Override the dedicated background probing rate for the sidecar "
-            "evaluation. Use 0.0 with *_explorer variants to run a pure "
-            "hedge-as-probe/no-dedicated-probe ablation."
-        ),
-    )
+    # Note: ``--probe-rate`` was removed on 2026-04-29 along with the
+    # active-probing helper in lp_budget_eval.py. The simulator paper line
+    # uses ground-truth analytical T̄ for the LP body and does not exercise
+    # probe-driven profile updates; production probing cost / capacity is
+    # a real-experiment concern handled outside this runner. If a future
+    # debug experiment needs active probing, write it as a self-contained
+    # script under ``experiments/debug/`` rather than re-adding a flag here.
     parser.add_argument(
         "--backup-scope",
         choices=BACKUP_SCOPES,
@@ -457,7 +454,6 @@ def _plot_tradeoff(
 
 
 def _metadata(
-    probe_rate: float | None,
     backup_scope: str,
     datasets: list[str],
     scenario_family: str = SCENARIO_FAMILY_LEGACY,
@@ -552,7 +548,7 @@ def _metadata(
             "the backup TTFT sample is fed back into the rolling profile. "
             "*_hedge variants are hedge-only and do not update the backup profile."
         ),
-        "probe_rate_override": probe_rate,
+        "active_probing": "disabled (deleted on 2026-04-29; see lp_budget_eval.py top comment)",
         "backup_scope": backup_scope,
         "backup_selection_policy": (
             "Default *_hedge and *_explorer variants use deterministic "
@@ -675,7 +671,6 @@ def main() -> None:
     with (output_root / "metadata.json").open("w") as handle:
         json.dump(
             _metadata(
-                args.probe_rate,
                 args.backup_scope,
                 datasets,
                 scenario_family=args.scenario_family,
@@ -724,12 +719,6 @@ def main() -> None:
                         workload,
                         variant,
                         seed=seed,
-                        # probe_rate=None lets run_variant inherit its own
-                        # default (PROBE_RATE = 0.0, "no dedicated probing"
-                        # per Juncheng's active-system assumption). Pass
-                        # --probe-rate <float> on the CLI to opt into an
-                        # explicit active-probing ablation.
-                        probe_rate=args.probe_rate,
                         backup_scope=args.backup_scope,
                     )
                     for seed in seeds
