@@ -1949,30 +1949,23 @@ def generate_scenario_workload(
     *,
     seed: int = 0,
     dataset_name: str = "synthetic",
-    trace_replay_natural: bool = False,
 ) -> list[Request]:
     """Generate the shared workload for one scenario.
 
     Args:
         scenario: Scenario configuration.
-        seed: RNG seed controlling either synthetic generation or trace slicing.
-        dataset_name: Workload source. Use "synthetic" for the built-in synthetic
-            generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
-        trace_replay_natural: When True (and ``dataset_name`` is a trace
-            dataset), use the entire trace with natural inter-arrival
-            timestamps (no slicing, no rescaling to ``scenario.duration_seconds``).
-            This preserves real-world arrival rates and quota-window dynamics
-            but makes simulated time span vary across workloads (sharegpt 7d,
-            freeinference 89d, rednote 83d). Default ``False`` keeps the
-            historical contiguous-slice + rescale-to-duration behaviour.
+        seed: RNG seed controlling synthetic generation. Unused for
+            trace-driven datasets (the full trace is replayed in natural
+            order; there is no slicing or resampling).
+        dataset_name: Workload source. Use ``"synthetic"`` for the
+            built-in Poisson generator, or one of ``TRACE_WORKLOAD_DATASETS``
+            for trace-driven replay. Trace replay is always natural-rate;
+            an earlier scaled-replay mode was removed on 2026-04-29 because
+            its compression artefacts (1.2× sharegpt, 11× freeinference,
+            73× rednote) fabricated capacity stress that does not exist
+            in production.
     """
     if dataset_name != "synthetic":
-        if trace_replay_natural:
-            return _generate_trace_driven_workload_natural(
-                scenario,
-                dataset_name=dataset_name,
-                seed=seed,
-            )
         return _generate_trace_driven_workload(
             scenario,
             dataset_name=dataset_name,
