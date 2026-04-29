@@ -139,16 +139,10 @@ PROVIDER_PERCENTILE_ABLATION_VARIANTS = [
 # instead of :func:`effective_cost` (which carries ψ(z) and λ(u) shadow
 # prices). Stays out of MAIN_VARIANTS so default legacy runs are not
 # polluted; opt in via ``--include-shadow-price-ablation`` on the runner.
-#
-# Explorer variant deliberately excluded — same reason as
-# ``PAPER_HEDGE_MODES`` in ``eval_grid.py``: under the active-system
-# probing assumption, hedge-as-probe and dedicated probing are
-# observationally equivalent in the stationary simulator, so the
-# ablation only needs (no_hedge, hedge) to expose the rawcost vs
-# effective_cost contrast.
 SHADOW_PRICE_ABLATION_VARIANTS = [
     "original_lp_rawcost",
     "original_lp_rawcost_hedge",
+    "original_lp_rawcost_explorer",
 ]
 CONTROL_VARIANTS = [
     "cheapest_available",
@@ -627,14 +621,41 @@ def _body_latency_proxy_ms(
     profile: RollingLatencyProfile,
     now: float,
 ) -> tuple[float, int]:
-    mean_ttft = profile.mean_ttft(now)
-    if mean_ttft is not None:
-        return mean_ttft, 0
+    """Return the LP's ``T̄_j(t)`` for one provider.
 
-    median_ttft = profile.median_ttft(now)
-    if median_ttft is not None:
-        return median_ttft, 0
+    The simulator knows each provider's true latency distribution
+    (LogNormal / Normal / Uniform parameters set at scenario
+    construction), so we use the **analytical** expected TTFT directly
+    instead of the rolling-profile sample mean. This decouples the LP's
+    decisions from finite-sample estimator noise, which would otherwise
+    contaminate experiment intent — most starkly in Stage 0 where the
+    grid is constructed with **identical true latency distributions**
+    across all providers (so the LP should see ``T̄`` truly tied, not
+    differing by ±10ms because of sampling variance from a few hundred
+    observations).
 
+    Production deployments cannot use this path (no access to
+    ground-truth distribution parameters), but the production algorithm
+    still solves ``min Σ π × T̄`` against a profile-based estimator.
+    The simulator's job is to expose the **mathematical** behaviour of
+    the LP under controlled conditions; it is the production layer's
+    responsibility to handle finite-sample noise. See DESIGN_PRINCIPLES.md
+    §1: "reasoning beats realism".
+
+    Note: ``provider.ttft_dist.mean()`` is the analytical expected TTFT
+    (e.g. ``exp(mu + sigma^2/2)`` for LogNormal). This matches the
+    algorithm spec where ``T̄_j(t) = E[T_j]``. We fall back to
+    ``true_p50_ms`` only if a provider does not expose ``mean()`` (legacy
+    distributions); the existing rolling-profile path is kept for
+    diagnostic / probe-experiment use, not for the paper grid.
+
+    The ``profile`` argument is no longer consulted on the main path
+    but is kept in the signature so callers can stay polymorphic.
+    """
+    del profile  # ground-truth path does not need sampled history
+    dist = provider.ttft_dist
+    if hasattr(dist, "mean"):
+        return float(dist.mean()), 0
     return provider.true_p50_ms(now), 1
 
 
@@ -1894,8 +1915,36 @@ def _generate_trace_driven_workload(
     dataset_name: str,
     seed: int,
 ) -> list[Request]:
-    """Build a trace-driven workload by replaying the entire trace at its
-    natural arrival rate.
+    """Build a trace-driven workload for one scenario from a real dataset.
+
+    We preserve the request size distribution and local burst structure of a
+    contiguous trace slice, then normalize the slice into the scenario's target
+    duration so every scenario still sees the intended offered load level.
+
+    NOTE: this mode rescales trace timestamps to fit ``scenario.duration_seconds``,
+    which compresses the natural arrival pattern. For workloads where the
+    natural arrival rate matters (quota window dynamics, concurrency
+    saturation), use :func:`_generate_trace_driven_workload_natural` instead.
+    """
+    full_trace = _load_trace_dataset_requests(dataset_name)
+    slice_requests = _select_trace_slice(
+        full_trace,
+        n_requests=scenario.n_requests,
+        seed=seed,
+    )
+    return _normalize_trace_slice(
+        slice_requests,
+        duration_seconds=scenario.duration_seconds,
+    )
+
+
+def _generate_trace_driven_workload_natural(
+    scenario: TieredScenarioConfig,
+    *,
+    dataset_name: str,
+    seed: int,
+) -> list[Request]:
+    """Trace-driven workload preserving natural arrival timestamps.
 
     Uses the **entire** trace (no random slicing) and **does not rescale**
     timestamps — the simulator's "now" advances at the trace's natural
@@ -1908,17 +1957,9 @@ def _generate_trace_driven_workload(
 
     The ``seed`` argument is currently unused in this mode (no slicing /
     no synthetic generation), but kept in the signature so the caller
-    can stay polymorphic with the synthetic generator.
-
-    Historical note: an earlier mode contiguously sliced 2000 requests
-    and rescaled their timestamps into ``scenario.duration_seconds``
-    (typically 3600s). That mode artificially compressed real arrival
-    patterns by 1.2× (sharegpt) to 73× (rednote), creating fictitious
-    capacity stress that does not exist in production. It was removed
-    on 2026-04-29 along with the ``--trace-replay-natural`` opt-in flag
-    so the wrong default cannot resurface.
+    can stay polymorphic with the rescaled variant.
     """
-    del seed  # unused — full trace, no slicing, no resampling
+    del seed  # unused in natural mode — full trace, no slicing, no resampling
     full_trace = _load_trace_dataset_requests(dataset_name)
     if not full_trace:
         return []
@@ -1949,23 +1990,30 @@ def generate_scenario_workload(
     *,
     seed: int = 0,
     dataset_name: str = "synthetic",
+    trace_replay_natural: bool = False,
 ) -> list[Request]:
     """Generate the shared workload for one scenario.
 
     Args:
         scenario: Scenario configuration.
-        seed: RNG seed controlling synthetic generation. Unused for
-            trace-driven datasets (the full trace is replayed in natural
-            order; there is no slicing or resampling).
-        dataset_name: Workload source. Use ``"synthetic"`` for the
-            built-in Poisson generator, or one of ``TRACE_WORKLOAD_DATASETS``
-            for trace-driven replay. Trace replay is always natural-rate;
-            an earlier scaled-replay mode was removed on 2026-04-29 because
-            its compression artefacts (1.2× sharegpt, 11× freeinference,
-            73× rednote) fabricated capacity stress that does not exist
-            in production.
+        seed: RNG seed controlling either synthetic generation or trace slicing.
+        dataset_name: Workload source. Use "synthetic" for the built-in synthetic
+            generator, or one of TRACE_WORKLOAD_DATASETS for trace-driven mode.
+        trace_replay_natural: When True (and ``dataset_name`` is a trace
+            dataset), use the entire trace with natural inter-arrival
+            timestamps (no slicing, no rescaling to ``scenario.duration_seconds``).
+            This preserves real-world arrival rates and quota-window dynamics
+            but makes simulated time span vary across workloads (sharegpt 7d,
+            freeinference 89d, rednote 83d). Default ``False`` keeps the
+            historical contiguous-slice + rescale-to-duration behaviour.
     """
     if dataset_name != "synthetic":
+        if trace_replay_natural:
+            return _generate_trace_driven_workload_natural(
+                scenario,
+                dataset_name=dataset_name,
+                seed=seed,
+            )
         return _generate_trace_driven_workload(
             scenario,
             dataset_name=dataset_name,

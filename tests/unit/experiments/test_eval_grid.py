@@ -170,12 +170,15 @@ def test_shadow_price_ablation_excluded_from_main_variants():
         "They belong in SHADOW_PRICE_ABLATION_VARIANTS only."
     )
 
-    # The ablation list contains only (no_hedge, hedge) — explorer is
-    # deliberately excluded for the same reason it's out of
-    # PAPER_GRID_VARIANTS.
+    # The ablation list keeps all three hedge modes runnable.
+    # Whether explorer is included in paper *figures* is a separate
+    # question (see PAPER_HEDGE_MODES); SHADOW_PRICE_ABLATION_VARIANTS
+    # stays as the full set so ad-hoc rawcost+explorer ablations remain
+    # available without code changes.
     assert SHADOW_PRICE_ABLATION_VARIANTS == [
         "original_lp_rawcost",
         "original_lp_rawcost_hedge",
+        "original_lp_rawcost_explorer",
     ]
 
 
