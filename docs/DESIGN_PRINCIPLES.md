@@ -48,9 +48,16 @@ Every cell of the grid is identified by ``(stage, distribution, policy, workload
 
 | Stage | Provider Setup | Purpose |
 |------:|----------------|---------|
+| 0 | All ``S_A`` providers, **same** latency, different cost | Cost router fantasy test — algorithm should always pick the cheapest |
 | 1 | All ``S_A`` providers, **same** cost, different latency | Latency router only — algorithm should pick the fastest |
 | 2 | All ``S_A`` providers, different cost **and** latency | Cost-latency tradeoff — algorithm should sweep the Pareto frontier as ``p`` varies |
 | 3 | Full joint: ``S_A`` + ``S_Q`` (quota) + ``S_C`` (concurrency) | Headline scenario — capacity tiers + subscription pricing on top of Stage 2 |
+
+Stage 0 is the cost-router-only fantasy test (Juncheng's 2026-04-28
+directive: "It's the same latency, different costs. We should choose
+the cheap one most of the time."). It exists so the cost-routing path
+is exercised in isolation before Stage 2 introduces the cost-latency
+tradeoff.
 
 Stage 3 intentionally combines two new variables (capacity + subscription
 pricing) because Stages 1 and 2 already validated each building block
@@ -151,7 +158,7 @@ the runnable variant ids understood by
 | 0.75  | ``budget_range_p75``  | ``budget_range_p75_hedge``  |
 | 1.0   | ``budget_range_p100`` | ``budget_range_p100_hedge`` |
 
-10 variants × 3 stages × 3 distributions = **90 simulator configurations**.
+10 variants × 4 stages × 3 distributions = **120 simulator configurations**.
 
 ### 2.4 Workload (4th Axis)
 

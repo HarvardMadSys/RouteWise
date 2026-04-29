@@ -54,8 +54,14 @@ from rwsim.world.distributions import LogNormal, Normal, Uniform
 
 
 class ProviderSetup(str, Enum):
-    """Provider setup for each grid stage."""
+    """Provider setup for each grid stage.
 
+    Stage progression follows Juncheng's directive (2026-04-28 meeting):
+    "Build complexity gradually — one variable per experiment." Each stage
+    adds exactly one new dimension over the previous one.
+    """
+
+    SAME_LATENCY = "same_latency"  # Stage 0: 3 S_A, same latency, different cost
     SAME_COST = "same_cost"  # Stage 1: 3 S_A, same cost, different latency
     COST_LATENCY_TRADEOFF = "cost_latency_tradeoff"  # Stage 2: cost-latency tradeoff
     JOINT_PROVIDER = "joint_provider"  # Stage 3: S_A + S_Q + S_C
@@ -197,6 +203,23 @@ _COST_MEDIUM = 2e-6  # $2 / M
 _COST_EXPENSIVE = 4e-6  # $4 / M
 
 
+def _stage0_specs() -> list[_ProviderSpec]:
+    """Stage 0: 3 S_A providers, **same latency, different cost**.
+
+    Per Juncheng's 2026-04-28 directive — a "fantasy test" for the cost
+    router in isolation. Latency is identical across all three providers,
+    so the only meaningful decision the LP can make is cost. The
+    algorithm should always pick the cheapest provider; if it does not,
+    something is wrong with the cost-routing path before we move on to
+    cost-latency tradeoffs in Stage 2.
+    """
+    return [
+        _ProviderSpec("S0_cheap", ProviderTier.S_A, _COST_CHEAP, _P50_MEDIUM_MS),
+        _ProviderSpec("S0_medium", ProviderTier.S_A, _COST_MEDIUM, _P50_MEDIUM_MS),
+        _ProviderSpec("S0_expensive", ProviderTier.S_A, _COST_EXPENSIVE, _P50_MEDIUM_MS),
+    ]
+
+
 def _stage1_specs() -> list[_ProviderSpec]:
     """Stage 1: 3 S_A providers, same cost, different latency."""
     return [
@@ -247,6 +270,7 @@ def _stage3_specs() -> list[_ProviderSpec]:
 
 
 _STAGE_BUILDERS: dict[ProviderSetup, Callable[[], list[_ProviderSpec]]] = {
+    ProviderSetup.SAME_LATENCY: _stage0_specs,
     ProviderSetup.SAME_COST: _stage1_specs,
     ProviderSetup.COST_LATENCY_TRADEOFF: _stage2_specs,
     ProviderSetup.JOINT_PROVIDER: _stage3_specs,
@@ -457,6 +481,22 @@ def _summarize_invariants(scenarios: dict[str, ScenarioConfig]) -> list[str]:
         )
 
     for name, scenario in scenarios.items():
+        # Stage 0: every provider should have the same latency (one P50)
+        # but distinct costs (3 different cost_per_token values).
+        if name.startswith("grid_same_latency_"):
+            p50s = {p.ttft_dist.p50() for p in scenario.providers}
+            if len(p50s) != 1:
+                problems.append(
+                    f"{name}: same_latency stage must have identical P50 across "
+                    f"providers, got {p50s}"
+                )
+            costs = {p.cost_per_token for p in scenario.providers}
+            if len(costs) < 2:
+                problems.append(
+                    f"{name}: same_latency stage must have at least 2 distinct "
+                    f"cost_per_token values, got {costs}"
+                )
+
         # Stage 1: every provider should have the same cost.
         if name.startswith("grid_same_cost_"):
             costs = {p.cost_per_token for p in scenario.providers}

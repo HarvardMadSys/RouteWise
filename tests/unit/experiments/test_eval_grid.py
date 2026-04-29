@@ -38,9 +38,10 @@ from rwsim.world.distributions import LogNormal, Normal, Uniform
 # ---------------------------------------------------------------------------
 
 
-def test_grid_has_nine_scenarios():
+def test_grid_has_twelve_scenarios():
+    """4 stages (Stage 0 / 1 / 2 / 3) × 3 distributions = 12 scenarios."""
     grid = make_eval_grid_scenarios()
-    assert len(grid) == 9
+    assert len(grid) == 12
     expected_names = {
         f"grid_{stage.value}_{family.value}"
         for stage in ProviderSetup
@@ -52,6 +53,19 @@ def test_grid_has_nine_scenarios():
 def test_grid_structural_invariants_pass():
     # Should not raise.
     assert_grid_invariants()
+
+
+def test_stage0_same_latency_distinct_costs():
+    """Stage 0 (Juncheng directive 2026-04-28): identical latency,
+    different costs. Cost router should always pick the cheapest."""
+    for family in LatencyFamily:
+        scenario = make_scenario(ProviderSetup.SAME_LATENCY, family)
+        p50s = {p.ttft_dist.p50() for p in scenario.providers}
+        costs = {p.cost_per_token for p in scenario.providers}
+        assert len(p50s) == 1, f"Stage 0 / {family} should have one P50, got {p50s}"
+        assert len(costs) >= 2, (
+            f"Stage 0 / {family} should have multiple costs, got {costs}"
+        )
 
 
 def test_stage1_same_cost():
