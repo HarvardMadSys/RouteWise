@@ -237,6 +237,68 @@ def test_provider_p95_works_for_all_families(family):
         assert p95 >= provider.true_p50_ms(0.0)
 
 
+def test_provider_p95_and_lp_tbar_honour_drift():
+    """Drift support invariant: when a provider is configured with
+    ``shift_time`` + ``ttft_dist_after``, both ``provider_p95_at`` and
+    ``_body_latency_proxy_ms`` must read the **active** distribution at
+    ``now``. Stationary providers (no drift) are unchanged.
+
+    Pre-fix bug: ``provider_p95_at`` checked for ``_active_dist`` (the
+    legacy ``ShiftingProvider`` accessor) but plain ``TieredProvider``
+    only exposes ``_active_ttft_dist`` — so drift was silently ignored
+    and P95 / Tbar reflected the pre-shift distribution forever.
+    """
+    from rwsim.world import (
+        ConcurrencyState,
+        ProviderTier,
+        QuotaState,
+        TieredProvider,
+    )
+    from rwsim.world.distributions import LogNormal
+    from experiments.tiered_capacity.lp_budget_eval import (
+        _body_latency_proxy_ms,
+    )
+
+    fast = LogNormal(mu=4.6, sigma=0.3)   # P50 ≈ 100 ms
+    slow = LogNormal(mu=6.9, sigma=0.3)   # P50 ≈ 1000 ms
+    SHIFT = 3600.0  # provider goes from "fast" to "slow" at t = 3600 s
+
+    drifting = TieredProvider(
+        name="drifting_S_A",
+        cost_per_token=2e-6,
+        ttft_dist=fast,
+        tps_dist=LogNormal(mu=5.5, sigma=0.3),
+        tier=ProviderTier.S_A,
+        shift_time=SHIFT,
+        ttft_dist_after=slow,
+    )
+
+    # Pre-shift: should see the fast distribution.
+    pre_p95 = provider_p95_at(drifting, now=SHIFT - 1.0)
+    pre_tbar, _ = _body_latency_proxy_ms(drifting, profile=None, now=SHIFT - 1.0)
+    assert abs(pre_p95 - fast.p95()) < 1e-6, (
+        f"pre-shift P95 should equal fast.p95()={fast.p95():.2f}, got {pre_p95:.2f}"
+    )
+    assert abs(pre_tbar - fast.mean()) < 1e-6, (
+        f"pre-shift Tbar should equal fast.mean()={fast.mean():.2f}, got {pre_tbar:.2f}"
+    )
+
+    # Post-shift: should see the slow distribution.
+    post_p95 = provider_p95_at(drifting, now=SHIFT + 1.0)
+    post_tbar, _ = _body_latency_proxy_ms(drifting, profile=None, now=SHIFT + 1.0)
+    assert abs(post_p95 - slow.p95()) < 1e-6, (
+        f"post-shift P95 should equal slow.p95()={slow.p95():.2f}, got {post_p95:.2f}"
+    )
+    assert abs(post_tbar - slow.mean()) < 1e-6, (
+        f"post-shift Tbar should equal slow.mean()={slow.mean():.2f}, got {post_tbar:.2f}"
+    )
+
+    # The two distributions are far apart — make sure the test would fail
+    # if drift were ignored.
+    assert post_p95 > 5 * pre_p95
+    assert post_tbar > 5 * pre_tbar
+
+
 # ---------------------------------------------------------------------------
 # Distribution shape ordering: heavy_tail tail >= normal tail >= uniform tail.
 # ---------------------------------------------------------------------------

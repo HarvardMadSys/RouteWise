@@ -25,12 +25,28 @@ def lognormal_p95(dist: Any) -> float:
 def provider_p95_at(provider: TieredProvider, now: float) -> float:
     """P95 TTFT for a provider at simulated time.
 
-    Distribution-agnostic: any object exposing ``p95()`` works (Uniform,
-    Normal, LogNormal, ...). Previously this function reached into
-    ``LogNormal.mu/sigma`` directly; that path is gone so eval-grid
-    scenarios with non-LogNormal latency families do not crash here.
+    Drift-aware: prefers ``provider._active_ttft_dist(now)`` so that
+    after a configured ``shift_time``, the post-shift distribution
+    (``ttft_dist_after``) is used. ``_active_dist`` is the legacy
+    helper exposed by ``ShiftingProvider``; it just delegates to
+    ``_active_ttft_dist`` so we keep it as a fallback for any
+    third-party provider class that hasn't migrated.
+
+    Distribution-agnostic: any object exposing ``p95()`` works
+    (Uniform, Normal, LogNormal, ...). The previous implementation
+    reached into ``LogNormal.mu/sigma`` directly; that path is gone so
+    eval-grid scenarios with non-LogNormal latency families do not
+    crash here.
+
+    For stationary providers (no ``shift_time`` configured), this
+    returns exactly ``provider.ttft_dist.p95()`` — same as before. The
+    drift path only activates for providers that opt into a shift, so
+    the eval-grid paper line is unchanged numerically.
     """
-    if hasattr(provider, "_active_dist"):
+    if hasattr(provider, "_active_ttft_dist"):
+        dist = provider._active_ttft_dist(now)  # noqa: SLF001 - drift accessor
+    elif hasattr(provider, "_active_dist"):
+        # Legacy ShiftingProvider compatibility shim.
         dist = provider._active_dist(now)  # noqa: SLF001 - shift helper
     else:
         dist = provider.ttft_dist

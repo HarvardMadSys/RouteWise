@@ -633,18 +633,33 @@ def _body_latency_proxy_ms(
     responsibility to handle finite-sample noise. See DESIGN_PRINCIPLES.md
     §1: "reasoning beats realism".
 
-    Note: ``provider.ttft_dist.mean()`` is the analytical expected TTFT
-    (e.g. ``exp(mu + sigma^2/2)`` for LogNormal). This matches the
-    algorithm spec where ``T̄_j(t) = E[T_j]``. We fall back to
-    ``true_p50_ms`` only if a provider does not expose ``mean()`` (legacy
-    distributions); the existing rolling-profile path is kept for
-    diagnostic / probe-experiment use, not for the paper grid.
+    Note: the distribution is read via ``provider._active_ttft_dist(now)``
+    rather than ``provider.ttft_dist`` directly, so a configured
+    ``shift_time`` / ``ttft_dist_after`` (provider drift) takes effect
+    in the LP body. For stationary providers this is a no-op — the
+    accessor returns ``ttft_dist`` — so the eval-grid paper line is
+    numerically unchanged. ``dist.mean()`` is the analytical expected
+    TTFT (e.g. ``exp(mu + sigma^2/2)`` for LogNormal), matching the
+    algorithm spec ``T̄_j(t) = E[T_j]``.
+
+    Fallbacks:
+    - If the provider exposes the legacy ``_active_dist`` accessor
+      (``ShiftingProvider``), it is honoured.
+    - If neither accessor exists, fall back to ``provider.ttft_dist``
+      (stationary path).
+    - If the resulting distribution does not expose ``mean()`` (very
+      legacy distributions), fall back to ``true_p50_ms``.
 
     The ``profile`` argument is no longer consulted on the main path
     but is kept in the signature so callers can stay polymorphic.
     """
     del profile  # ground-truth path does not need sampled history
-    dist = provider.ttft_dist
+    if hasattr(provider, "_active_ttft_dist"):
+        dist = provider._active_ttft_dist(now)  # noqa: SLF001 - drift accessor
+    elif hasattr(provider, "_active_dist"):
+        dist = provider._active_dist(now)  # noqa: SLF001 - legacy shift helper
+    else:
+        dist = provider.ttft_dist
     if hasattr(dist, "mean"):
         return float(dist.mean()), 0
     return provider.true_p50_ms(now), 1
@@ -1348,6 +1363,7 @@ def _apply_existing_hedge(
     L: float,
 ) -> tuple[float, float, bool, list[ObservedSample], float]:
     """Apply the current hedge rule unchanged from the tiered runner."""
+    del c_eff  # oldhedge recomputes backup cost at its actual dispatch time
     primary_ttft_ms = _sample_ttft(primary, rng, now)
     # Observation time is when the response arrives, not when we
     # dispatched. The rolling profile must not see the sample until
@@ -1366,35 +1382,49 @@ def _apply_existing_hedge(
         _sample_service_time(primary, rng, now, req.response_tokens),
     )
 
-    backup = _pick_cross_tier_backup(providers, primary, now)
-    if backup is None:
-        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
-
     primary_p50 = primary.true_p50_ms(now)
     wait_threshold_ms = max(primary_p50 * 1.5, scenario.primary_slo_ms * 0.5)
     if primary_ttft_ms <= wait_threshold_ms:
         return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
 
+    dispatch_time_sec = now + wait_threshold_ms / 1000.0
+    backup = _pick_cross_tier_backup(providers, primary, dispatch_time_sec)
+    if backup is None:
+        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
     p_viol = 0.5
     remaining_ms = scenario.primary_slo_ms - wait_threshold_ms
-    f_backup = 1.0 if backup.true_p50_ms(now) < remaining_ms else 0.3
-    backup_c_eff = c_eff.get(
-        backup.name,
-        effective_cost(backup, req.total_tokens, now, U=U, L=L),
-    )
+    f_backup = 1.0 if backup.true_p50_ms(dispatch_time_sec) < remaining_ms else 0.3
+    backup_c_eff = effective_cost(backup, req.total_tokens, dispatch_time_sec, U=U, L=L)
     v_penalty = U * HEDGE_COST_MULTIPLIER
     if p_viol * f_backup <= backup_c_eff / v_penalty:
         return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
 
-    backup_ttft_ms = _sample_ttft(backup, rng, now)
+    backup_ttft_ms = _sample_ttft(backup, rng, dispatch_time_sec)
+    backup_service_time = _sample_service_time(
+        backup,
+        rng,
+        dispatch_time_sec,
+        req.response_tokens,
+    )
+    if (
+        backup.tier == ProviderTier.S_C
+        and backup.concurrency is not None
+        and not backup.concurrency.can_admit_interval(
+            dispatch_time_sec,
+            dispatch_time_sec + backup_service_time,
+        )
+    ):
+        return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
+
     backup.account_request(
         req.id + 10_000_000,
-        now,
-        _sample_service_time(backup, rng, now, req.response_tokens),
+        dispatch_time_sec,
+        backup_service_time,
     )
-    backup_observation_time = now + wait_threshold_ms / 1000.0 + backup_ttft_ms / 1000.0
+    backup_observation_time = dispatch_time_sec + backup_ttft_ms / 1000.0
     observed_samples.append((backup.name, backup_observation_time, backup_ttft_ms))
-    billed_cost += backup.marginal_cost(req.total_tokens, now)
+    billed_cost += backup.marginal_cost(req.total_tokens, dispatch_time_sec)
     final_ttft_ms = min(primary_ttft_ms, wait_threshold_ms + backup_ttft_ms)
     hedged = True
     return final_ttft_ms, billed_cost, hedged, observed_samples, primary_ttft_ms
