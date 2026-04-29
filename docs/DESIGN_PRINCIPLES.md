@@ -116,18 +116,19 @@ The policy axis is ``5 p values × 2 hedge modes = 10 variants``:
 **Explorer is intentionally excluded from the simulator paper grid.**
 Per Juncheng's directive (2026-04-22 / 2026-04-28), the production
 design assumes an active system where hedging fires often enough that
-its backup requests serve as free latency probes — so dedicated probing
-is unnecessary in production, and probing cost is approximately zero.
-In a stationary simulator with this assumption baked in, the
-``hedge_as_probe`` variant (explorer) and the ``hedge``-with-dedicated-
-probing variant produce identical routing decisions and identical cost.
-Showing both in figures would waste space. Explorer's contribution
-lives in two places that are **not** the simulator grid:
+its backup requests serve as free latency probes — so the simulator
+paper line does not model a separate active-probing stream. In a
+stationary simulator, ``hedge_as_probe`` (explorer) adds no visible
+routing signal beyond ``hedge`` because provider distributions do not
+drift. Showing both in figures would waste space. Explorer's
+contribution lives in two places that are **not** the simulator grid:
 
 1. **Operational simplicity** — system design claim, qualitative.
 2. **Drift robustness** — quantitative, requires a separate non-stationary
-   scenario (provider shift mid-run, dedicated probing rate = 0,
-   metrics on profile freshness and post-drift adaptation delay).
+   scenario with no active-probing path (provider shift mid-run, metrics
+   on profile freshness and post-drift adaptation delay) or real-experiment
+   data. Dedicated-probing comparisons belong only in a separate real/debug
+   harness that accounts for probe cost, capacity, and observation time.
 
 Encoding this directive: :data:`PAPER_HEDGE_MODES` =
 ``("no_hedge", "hedge")`` only. The `variant_name()` constructor still

@@ -155,8 +155,9 @@ profile-freshness contribution is invisible in that regime. The
 ablation lives in either of two places:
 
 1. A dedicated **drift scenario** added outside the eval grid: provider
-   shift mid-run, dedicated probing rate set to 0, measure adaptation
-   delay and post-drift SLO. This is *not* the eval grid.
+   shift mid-run, no active probing path, measure whether hedge-as-probe
+   feedback changes adaptation delay and post-drift SLO. This is *not*
+   the eval grid.
 2. **Real-experiment data** (P4 / P5 OpenRouter live runs), where
    profile drift is naturally present.
 
@@ -164,8 +165,12 @@ Compare:
 
 - `LP-TTFT-budget + Hedge-ProbTarget`, no backup feedback
 - same, with Explorer feedback
-- same, with Explorer feedback and no dedicated probing
-- same, with dedicated probing only
+
+Do **not** add a "dedicated probing only" simulator row here. Active
+probing was removed from the simulator paper line on 2026-04-29; if a
+future team wants to compare against dedicated probes, that belongs in a
+separate real-experiment or debug-only harness that accounts for probe
+cost, capacity, and observation time.
 
 Metrics:
 
