@@ -1379,7 +1379,7 @@ def _apply_existing_hedge(
     primary.account_request(
         req.id,
         now,
-        _sample_service_time(primary, rng, now, req.response_tokens),
+        _sample_service_time(primary, rng, now, req.response_tokens, primary_ttft_ms),
     )
 
     primary_p50 = primary.true_p50_ms(now)
@@ -1406,6 +1406,7 @@ def _apply_existing_hedge(
         rng,
         dispatch_time_sec,
         req.response_tokens,
+        backup_ttft_ms,
     )
     if (
         backup.tier == ProviderTier.S_C
@@ -1451,7 +1452,7 @@ def _apply_probability_target_hedge(
     then dispatches the backup if the primary has not completed by that time.
     """
     primary_ttft_ms = _sample_ttft(primary, rng, now)
-    primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens)
+    primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens, primary_ttft_ms)
     if (
         primary.tier == ProviderTier.S_C
         and primary.concurrency is not None
@@ -1462,7 +1463,7 @@ def _apply_probability_target_hedge(
     ):
         primary = _fallback_api_provider(providers)
         primary_ttft_ms = _sample_ttft(primary, rng, now)
-        primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens)
+        primary_service_time = _sample_service_time(primary, rng, now, req.response_tokens, primary_ttft_ms)
     # Observation time = dispatch time + observed TTFT. See the
     # equivalent comment in _apply_economic_hedge.
     primary_observation_time = now + primary_ttft_ms / 1000.0
@@ -1536,6 +1537,7 @@ def _apply_probability_target_hedge(
         rng,
         dispatch_time_sec,
         req.response_tokens,
+        backup_ttft_ms,
     )
     if (
         backup.tier == ProviderTier.S_C
@@ -1724,7 +1726,7 @@ def run_variant(
             primary.account_request(
                 req.id,
                 now,
-                _sample_service_time(primary, rng, now, req.response_tokens),
+                _sample_service_time(primary, rng, now, req.response_tokens, primary_ttft_ms),
             )
             final_ttft_ms = primary_ttft_ms
             billed_cost = primary.marginal_cost(req.total_tokens, now)
@@ -1835,7 +1837,7 @@ def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
             requests.append(
                 Request(
                     id=idx,
-                    timestamp=int(round(timestamp - first_timestamp)),
+                    timestamp=float(timestamp - first_timestamp),
                     request_tokens=request_tokens,
                     response_tokens=response_tokens,
                     total_tokens=total_tokens,
@@ -1946,7 +1948,7 @@ def _generate_trace_driven_workload(
         rebased.append(
             Request(
                 id=idx,
-                timestamp=int(round(float(req.timestamp) - base)),
+                timestamp=float(float(req.timestamp) - base),
                 request_tokens=req.request_tokens,
                 response_tokens=req.response_tokens,
                 total_tokens=req.total_tokens,

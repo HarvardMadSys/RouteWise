@@ -52,7 +52,7 @@ def generate_workload(
         requests.append(
             Request(
                 id=i,
-                timestamp=int(timestamps[i]),
+                timestamp=float(timestamps[i]),
                 request_tokens=input_tokens,
                 response_tokens=resp,
                 total_tokens=input_tokens + resp,

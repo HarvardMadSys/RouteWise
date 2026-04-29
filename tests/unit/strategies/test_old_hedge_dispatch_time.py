@@ -78,7 +78,7 @@ def test_oldhedge_accounts_backup_at_wait_threshold(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         lp_eval,
         "_sample_service_time",
-        lambda provider, rng, now, response_tokens: next(service_samples),
+        lambda provider, rng, now, response_tokens, ttft_ms=None: next(service_samples),
     )
 
     final_ttft_ms, _, hedged, observed_samples, _ = lp_eval._apply_existing_hedge(
@@ -117,7 +117,7 @@ def test_oldhedge_does_not_use_backup_unavailable_at_dispatch(
     monkeypatch.setattr(
         lp_eval,
         "_sample_service_time",
-        lambda provider, rng, now, response_tokens: 0.2,
+        lambda provider, rng, now, response_tokens, ttft_ms=None: 0.2,
     )
 
     final_ttft_ms, _, hedged, observed_samples, _ = lp_eval._apply_existing_hedge(

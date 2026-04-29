@@ -104,13 +104,23 @@ def _sample_service_time(
     rng: np.random.Generator,
     t: float,
     output_tokens: int,
+    ttft_ms: float | None = None,
 ) -> float:
-    """Service time in seconds (for S_C slot occupancy)."""
+    """Service time in seconds (for S_C slot occupancy).
+
+    When ``ttft_ms`` is supplied the service time is derived from that
+    same TTFT sample so the reported latency and the slot occupancy stay
+    physically consistent.
+    """
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.service_time_dist is not None:
         return float(provider.service_time_dist.sample(rng)[0]) / 1000.0
-    ttft_ms, e2e_ms = provider.sample_request(output_tokens, rng, t)
+    if ttft_ms is not None:
+        tps = max(float(provider.tps_dist.sample(rng)[0]), 1.0)
+        generation_ms = (output_tokens / tps) * 1000.0
+        return (ttft_ms + generation_ms) / 1000.0
+    _ttft_ms, e2e_ms = provider.sample_request(output_tokens, rng, t)
     return e2e_ms / 1000.0
 
 
@@ -146,7 +156,7 @@ def _run_two_layer(
         primary = pick_two_layer_provider(scenario.providers, t)
 
         tm = _sample_ttft(primary, rng, t)
-        service_time = _sample_service_time(primary, rng, t, req.response_tokens)
+        service_time = _sample_service_time(primary, rng, t, req.response_tokens, tm)
         primary.account_request(req.id, t, service_time)
 
         ttft_ms.append(tm)
@@ -282,7 +292,7 @@ def _run_joint(
         T_primary_ms = _sample_ttft(primary, rng, t)
         primary.account_request(
             req.id, t,
-            _sample_service_time(primary, rng, t, req.response_tokens),
+            _sample_service_time(primary, rng, t, req.response_tokens, T_primary_ms),
         )
 
         hedged = False
@@ -326,7 +336,7 @@ def _run_joint(
                         backup.account_request(
                             req.id + 10_000_000, t,
                             _sample_service_time(
-                                backup, rng, t, req.response_tokens
+                                backup, rng, t, req.response_tokens, T_backup_ms
                             ),
                         )
                         final_ttft_ms = min(
