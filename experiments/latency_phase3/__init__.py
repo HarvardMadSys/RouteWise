@@ -1,4 +1,4 @@
-"""Phase 3 latency routing paper experiment."""
+"""Deprecated Phase 3 LP-Mix latency replay experiment."""
 
 from __future__ import annotations
 

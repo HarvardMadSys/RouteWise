@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Phase 3 Simulation: Evaluate Online Latency-Aware Routing.
+"""DEPRECATED Phase 3 Simulation: Evaluate Online Latency-Aware Routing.
 
 This script replays Phase 1 latency profiling data to evaluate the LP-Mix
-routing strategy against baselines.
+routing strategy against baselines. It is preserved as an early LP-CDF / LP-Mix
+iteration and is not the current paper-facing evaluation path.
 
 Key features:
 - Time causality: Only use data with timestamp < t for decisions at time t

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Phase 4 Simulation: Evaluate Smart Hedging Strategies.
+"""DEPRECATED Phase 4 Simulation: Evaluate Smart Hedging Strategies.
 
 This script replays Phase 1 latency profiling data to evaluate hedging strategies
-built on top of Phase 3 LP-Mix routing.
+built on top of Phase 3 LP-Mix routing. It is preserved as an early LP-CDF plus
+old smart-hedging iteration and is not the current paper-facing evaluation path.
 
 Key features:
 - Time causality: Only use data with timestamp < t for decisions at time t
