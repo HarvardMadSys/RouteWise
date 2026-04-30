@@ -51,6 +51,84 @@ def test_long_inter_arrival_gap_not_skipped() -> None:
     assert seen == [0, 1]
 
 
+def test_default_replay_runs_full_trace_for_each_policy() -> None:
+    """Multiple policies are fair comparisons by default: every policy
+    receives every trace request, rather than a round-robin shard."""
+    inventory = load_inventory(_INVENTORY_PATH)
+    trace = [
+        TraceRequest(
+            arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8
+        ),
+        TraceRequest(
+            arrival_time_sec=0.01, prompt="x", prompt_tokens=10, max_tokens=8
+        ),
+    ]
+    seen: list[tuple[str, int]] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Recorder(tmp)
+        runner = RealExperimentRunner(
+            inventory=inventory,
+            policy_names=["cheapest_fixed", "fastest_fixed"],
+            recorder=rec,
+            slo_ms=inventory.primary_slo_ms,
+        )
+        runner._dispatch_one = (  # type: ignore[method-assign]
+            lambda policy, req, idx: seen.append((policy.name, idx))
+        )
+        runner.replay(trace, speedup=200.0, duration_sec=10.0)
+        rec.close()
+
+    assert sorted(seen) == sorted([
+        ("cheapest_fixed", 0),
+        ("cheapest_fixed", 1),
+        ("fastest_fixed", 0),
+        ("fastest_fixed", 1),
+    ])
+
+
+def test_traffic_split_replay_preserves_round_robin_smoke_mode() -> None:
+    """Round-robin request assignment is still available, but only when
+    explicitly requested as traffic-split smoke mode."""
+    inventory = load_inventory(_INVENTORY_PATH)
+    trace = [
+        TraceRequest(
+            arrival_time_sec=float(i) * 0.01,
+            prompt="x",
+            prompt_tokens=10,
+            max_tokens=8,
+        )
+        for i in range(4)
+    ]
+    seen: list[tuple[str, int]] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Recorder(tmp)
+        runner = RealExperimentRunner(
+            inventory=inventory,
+            policy_names=["cheapest_fixed", "fastest_fixed"],
+            recorder=rec,
+            slo_ms=inventory.primary_slo_ms,
+        )
+        runner._dispatch_one = (  # type: ignore[method-assign]
+            lambda policy, req, idx: seen.append((policy.name, idx))
+        )
+        runner.replay(
+            trace,
+            speedup=200.0,
+            duration_sec=10.0,
+            traffic_split=True,
+        )
+        rec.close()
+
+    assert sorted(seen) == sorted([
+        ("cheapest_fixed", 0),
+        ("fastest_fixed", 1),
+        ("cheapest_fixed", 2),
+        ("fastest_fixed", 3),
+    ])
+
+
 def test_duration_cap_stops_replay() -> None:
     """Replay halts cleanly when ``duration_sec`` is reached during a wait."""
     inventory = load_inventory(_INVENTORY_PATH)

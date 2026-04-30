@@ -1,8 +1,9 @@
 """Trace-replay runner for real online evaluation.
 
 Drives one or more policies through a synthetic / real trace against live
-provider APIs. Each request is dispatched in a daemon thread; per-policy
-profiles + capacity state are updated by feedback after each completion.
+provider APIs. By default every policy sees the full trace with isolated
+state. Each request is dispatched in a daemon thread; per-policy profiles
+and capacity state are updated by feedback after each completion.
 
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
@@ -162,6 +163,20 @@ def make_synthetic_trace(
         )
         for i in range(n_requests)
     ]
+
+
+@dataclass
+class _PreparedDispatch:
+    """A routed request ready for physical execution."""
+
+    policy: BasePolicy
+    req: TraceRequest
+    req_index: int
+    decision: RoutingDecision
+    prompt: str
+    expected_service_sec: float
+    backup: str | None
+    hedge_delay_sec: float
 
 
 # ---------------------------------------------------------------------------
@@ -361,35 +376,115 @@ class RealExperimentRunner:
         *,
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
+        traffic_split: bool = False,
+        coalesce_identical_actions: bool = False,
     ) -> None:
+        """Replay a trace against the configured policies.
+
+        Default semantics are paper-safe: every policy gets the full trace
+        with isolated policy state. ``traffic_split=True`` restores the old
+        smoke-test behavior where request ``i`` is assigned to policy
+        ``i % n_policies``. ``coalesce_identical_actions=True`` keeps full-trace
+        semantics but executes identical physical actions once, then fans the
+        observed result out to each policy's virtual accounting.
+        """
         if not trace:
             logger.warning("replay called with empty trace")
             return
+        if traffic_split and coalesce_identical_actions:
+            raise ValueError(
+                "traffic_split and coalesce_identical_actions are mutually exclusive"
+            )
+        if traffic_split:
+            self._replay_traffic_split(
+                trace, speedup=speedup, duration_sec=duration_sec
+            )
+            return
+        if coalesce_identical_actions:
+            self._replay_coalesced_full_trace(
+                trace, speedup=speedup, duration_sec=duration_sec
+            )
+            return
+
+        for policy in self.policies.values():
+            if self._stop_event.is_set():
+                break
+            self._replay_full_trace_for_policy(
+                policy, trace, speedup=speedup, duration_sec=duration_sec
+            )
+
+    def _wait_for_request_arrival(
+        self,
+        run_start: float,
+        req: TraceRequest,
+        *,
+        speedup: float,
+        duration_sec: float,
+    ) -> bool:
+        """Return True when ``req`` is due; False on stop/duration cap."""
+        while True:
+            if self._stop_event.is_set():
+                logger.info("stop event set; halting trace dispatch")
+                return False
+            if (time.time() - run_start) > duration_sec:
+                logger.info("duration cap %.0fs reached", duration_sec)
+                return False
+            now_relative = (time.time() - run_start) * speedup
+            wait = req.arrival_time_sec - now_relative
+            if wait <= 0:
+                return True
+            time.sleep(min(wait / max(speedup, 1e-6), 5.0))
+
+    def _join_threads(self, threads: list[threading.Thread]) -> None:
+        for t in threads:
+            t.join(timeout=self.timeout_sec + 5)
+
+    def _replay_full_trace_for_policy(
+        self,
+        policy: BasePolicy,
+        trace: list[TraceRequest],
+        *,
+        speedup: float,
+        duration_sec: float,
+    ) -> None:
+        run_start = time.time()
+        threads: list[threading.Thread] = []
+        for i, req in enumerate(trace):
+            if not self._wait_for_request_arrival(
+                run_start, req, speedup=speedup, duration_sec=duration_sec
+            ):
+                break
+            t = threading.Thread(
+                target=self._dispatch_one,
+                args=(policy, req, i),
+                daemon=True,
+            )
+            t.start()
+            threads.append(t)
+            if (i + 1) % 25 == 0:
+                threads = [t for t in threads if t.is_alive()]
+        self._join_threads(threads)
+
+    def _replay_traffic_split(
+        self,
+        trace: list[TraceRequest],
+        *,
+        speedup: float,
+        duration_sec: float,
+    ) -> None:
         run_start = time.time()
         threads: list[threading.Thread] = []
         n_policies = len(self.policies)
         policy_names = list(self.policies.keys())
 
-        timed_out = False
         for i, req in enumerate(trace):
             # Wait until this request's arrival time. Must be a `while` loop:
             # a previous bug used `continue` in a for-loop, which advanced
             # to the next request and silently dropped any whose
             # inter-arrival gap exceeded the sleep cap.
-            while True:
-                if self._stop_event.is_set():
-                    logger.info("stop event set; halting trace dispatch")
-                    return
-                if (time.time() - run_start) > duration_sec:
-                    logger.info("duration cap %.0fs reached", duration_sec)
-                    timed_out = True
-                    break
-                now_relative = (time.time() - run_start) * speedup
-                wait = req.arrival_time_sec - now_relative
-                if wait <= 0:
-                    break
-                time.sleep(min(wait / max(speedup, 1e-6), 5.0))
-            if timed_out:
+            if not self._wait_for_request_arrival(
+                run_start, req, speedup=speedup, duration_sec=duration_sec
+            ):
                 break
 
             policy_name = policy_names[i % n_policies]
@@ -405,18 +500,54 @@ class RealExperimentRunner:
             if (i + 1) % 25 == 0:
                 threads = [t for t in threads if t.is_alive()]
 
-        for t in threads:
-            t.join(timeout=self.timeout_sec + 5)
+        self._join_threads(threads)
+
+    def _replay_coalesced_full_trace(
+        self,
+        trace: list[TraceRequest],
+        *,
+        speedup: float,
+        duration_sec: float,
+    ) -> None:
+        run_start = time.time()
+        threads: list[threading.Thread] = []
+        policies = list(self.policies.values())
+        for i, req in enumerate(trace):
+            if not self._wait_for_request_arrival(
+                run_start, req, speedup=speedup, duration_sec=duration_sec
+            ):
+                break
+
+            groups: dict[tuple[Any, ...], list[_PreparedDispatch]] = {}
+            for policy in policies:
+                prepared = self._prepare_dispatch(policy, req, i)
+                if prepared is None:
+                    continue
+                groups.setdefault(self._action_key(prepared), []).append(prepared)
+
+            for prepareds in groups.values():
+                t = threading.Thread(
+                    target=self._execute_coalesced_group,
+                    args=(prepareds,),
+                    daemon=True,
+                )
+                t.start()
+                threads.append(t)
+
+            if (i + 1) % 25 == 0:
+                threads = [t for t in threads if t.is_alive()]
+
+        self._join_threads(threads)
 
     # ------------------------------------------------------------------
     # Per-request dispatch.
     # ------------------------------------------------------------------
 
-    def _dispatch_one(
+    def _prepare_dispatch(
         self, policy: BasePolicy, req: TraceRequest, req_index: int
-    ) -> None:
+    ) -> _PreparedDispatch | None:
         if self._cost_exhausted(policy.name):
-            return
+            return None
 
         ctx = RequestContext(
             prompt_tokens=max(1, req.prompt_tokens or 1),
@@ -426,11 +557,15 @@ class RealExperimentRunner:
         decision = policy.route(now, ctx)
         if decision.primary is None:
             self._record_no_route(policy, req, req_index, decision, now)
-            return
+            return None
 
         prompt = req.prompt if req.use_real_prompt else DEFAULT_PROBE_PROMPT
-        expected_service_sec = max(0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0)
+        expected_service_sec = max(
+            0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0
+        )
 
+        backup: str | None = None
+        hedge_delay_sec = float("inf")
         if policy.use_hedge:
             backup = select_safe_cheapest_backup(
                 primary=decision.primary,
@@ -455,58 +590,161 @@ class RealExperimentRunner:
             decision.hedge = backup
             decision.hedge_delay_sec = hedge_delay_sec
 
-            policy.charge_capacity(decision.primary, now, expected_service_sec)
-            if backup is not None and math.isfinite(hedge_delay_sec):
-                # Charge backup capacity at the *moment the backup thread
-                # starts*, not after the hedged request returns. Without
-                # this, concurrent route() calls during the backup's
-                # lifetime would still see the slot as free.
-                def _charge_backup(dispatch_ts: float, _b=backup) -> None:
-                    policy.charge_capacity(_b, dispatch_ts, expected_service_sec)
+        policy.charge_capacity(decision.primary, now, expected_service_sec)
+        return _PreparedDispatch(
+            policy=policy,
+            req=req,
+            req_index=req_index,
+            decision=decision,
+            prompt=prompt,
+            expected_service_sec=expected_service_sec,
+            backup=backup,
+            hedge_delay_sec=hedge_delay_sec,
+        )
 
-                hedged = send_hedged_request(
-                    send_fn=self._send_via_transport,
-                    primary_provider=decision.primary,
-                    backup_provider=backup,
-                    hedge_delay_sec=hedge_delay_sec,
-                    prompt=prompt,
-                    max_tokens=req.max_tokens,
-                    timeout=self.timeout_sec,
-                    dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
-                    on_backup_dispatch=_charge_backup,
-                )
-                self._feed_back_hedged(policy, hedged)
-                self._account_cost(policy, hedged)
-                self._record_hedged(
-                    policy, req, req_index, decision, hedged, hedge_delay_sec
-                )
-                return
+    @staticmethod
+    def _is_hedged_action(prepared: _PreparedDispatch) -> bool:
+        return prepared.backup is not None and math.isfinite(prepared.hedge_delay_sec)
 
-            # Hedge disabled (no backup or hedge_time = inf): single send.
-            result = send_request(
+    def _action_key(self, prepared: _PreparedDispatch) -> tuple[Any, ...]:
+        """Physical action identity for safe coalescing."""
+        hedged = self._is_hedged_action(prepared)
+        return (
+            "hedged" if hedged else "single",
+            prepared.decision.primary,
+            prepared.backup if hedged else None,
+            round(prepared.hedge_delay_sec, 6) if hedged else None,
+            prepared.prompt,
+            prepared.req.max_tokens,
+        )
+
+    def _dispatch_one(
+        self, policy: BasePolicy, req: TraceRequest, req_index: int
+    ) -> None:
+        prepared = self._prepare_dispatch(policy, req, req_index)
+        if prepared is None:
+            return
+        self._execute_prepared_dispatch(prepared)
+
+    def _execute_prepared_dispatch(self, prepared: _PreparedDispatch) -> None:
+        policy = prepared.policy
+        req = prepared.req
+        decision = prepared.decision
+
+        if self._is_hedged_action(prepared):
+            assert prepared.backup is not None
+
+            # Charge backup capacity at the *moment the backup thread
+            # starts*, not after the hedged request returns. Without
+            # this, concurrent route() calls during the backup's
+            # lifetime would still see the slot as free.
+            def _charge_backup(dispatch_ts: float, _b=prepared.backup) -> None:
+                policy.charge_capacity(
+                    _b, dispatch_ts, prepared.expected_service_sec
+                )
+
+            hedged = send_hedged_request(
                 send_fn=self._send_via_transport,
-                provider=decision.primary,
-                prompt=prompt,
+                primary_provider=decision.primary or "",
+                backup_provider=prepared.backup,
+                hedge_delay_sec=prepared.hedge_delay_sec,
+                prompt=prepared.prompt,
                 max_tokens=req.max_tokens,
                 timeout=self.timeout_sec,
+                dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
+                on_backup_dispatch=_charge_backup,
             )
-            self._feed_back_single(policy, decision.primary, result)
-            self._account_single(policy, result)
-            self._record_single(policy, req, req_index, decision, result)
+            self._feed_back_hedged(policy, hedged)
+            self._account_cost(policy, hedged)
+            self._record_hedged(
+                policy,
+                req,
+                prepared.req_index,
+                decision,
+                hedged,
+                prepared.hedge_delay_sec,
+            )
             return
 
-        # Non-hedging policy.
-        policy.charge_capacity(decision.primary, now, expected_service_sec)
         result = send_request(
             send_fn=self._send_via_transport,
-            provider=decision.primary,
-            prompt=prompt,
+            provider=decision.primary or "",
+            prompt=prepared.prompt,
             max_tokens=req.max_tokens,
             timeout=self.timeout_sec,
         )
-        self._feed_back_single(policy, decision.primary, result)
+        self._feed_back_single(policy, decision.primary or "", result)
         self._account_single(policy, result)
-        self._record_single(policy, req, req_index, decision, result)
+        self._record_single(policy, req, prepared.req_index, decision, result)
+
+    def _execute_coalesced_group(self, prepareds: list[_PreparedDispatch]) -> None:
+        """Execute one physical action and fan out result to virtual policies."""
+        if not prepareds:
+            return
+        if len(prepareds) == 1:
+            self._execute_prepared_dispatch(prepareds[0])
+            return
+
+        first = prepareds[0]
+        if self._is_hedged_action(first):
+            assert first.backup is not None
+
+            def _charge_all_backups(dispatch_ts: float) -> None:
+                for prepared in prepareds:
+                    assert prepared.backup is not None
+                    prepared.policy.charge_capacity(
+                        prepared.backup,
+                        dispatch_ts,
+                        prepared.expected_service_sec,
+                    )
+
+            hedged = send_hedged_request(
+                send_fn=self._send_via_transport,
+                primary_provider=first.decision.primary or "",
+                backup_provider=first.backup,
+                hedge_delay_sec=first.hedge_delay_sec,
+                prompt=first.prompt,
+                max_tokens=first.req.max_tokens,
+                timeout=self.timeout_sec,
+                dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
+                on_backup_dispatch=_charge_all_backups,
+            )
+            physical_cost = self._hedged_cost(hedged)
+            for prepared in prepareds:
+                self._feed_back_hedged(prepared.policy, hedged)
+                self._account_cost(prepared.policy, hedged, physical=False)
+                self._record_hedged(
+                    prepared.policy,
+                    prepared.req,
+                    prepared.req_index,
+                    prepared.decision,
+                    hedged,
+                    prepared.hedge_delay_sec,
+                )
+            self._account_physical_cost(physical_cost)
+            return
+
+        result = send_request(
+            send_fn=self._send_via_transport,
+            provider=first.decision.primary or "",
+            prompt=first.prompt,
+            max_tokens=first.req.max_tokens,
+            timeout=self.timeout_sec,
+        )
+        physical_cost = result.billed_cost_usd
+        for prepared in prepareds:
+            self._feed_back_single(
+                prepared.policy, prepared.decision.primary or "", result
+            )
+            self._account_single(prepared.policy, result, physical=False)
+            self._record_single(
+                prepared.policy,
+                prepared.req,
+                prepared.req_index,
+                prepared.decision,
+                result,
+            )
+        self._account_physical_cost(physical_cost)
 
     # ------------------------------------------------------------------
     # Profile + capacity feedback.
@@ -538,18 +776,41 @@ class RealExperimentRunner:
     # Cost accounting + recording.
     # ------------------------------------------------------------------
 
-    def _account_single(self, policy: BasePolicy, result: SingleRequestResult) -> None:
+    def _account_physical_cost(self, cost: float) -> None:
         with self._cost_lock:
-            self._cost_per_policy[policy.name] += result.billed_cost_usd
-            self._total_cost_usd += result.billed_cost_usd
+            self._total_cost_usd += cost
 
-    def _account_cost(self, policy: BasePolicy, hedged: HedgedResult) -> None:
+    @staticmethod
+    def _hedged_cost(hedged: HedgedResult) -> float:
         cost = hedged.primary_result.billed_cost_usd
         if hedged.backup_result is not None:
             cost += hedged.backup_result.billed_cost_usd
+        return cost
+
+    def _account_single(
+        self,
+        policy: BasePolicy,
+        result: SingleRequestResult,
+        *,
+        physical: bool = True,
+    ) -> None:
+        with self._cost_lock:
+            self._cost_per_policy[policy.name] += result.billed_cost_usd
+            if physical:
+                self._total_cost_usd += result.billed_cost_usd
+
+    def _account_cost(
+        self,
+        policy: BasePolicy,
+        hedged: HedgedResult,
+        *,
+        physical: bool = True,
+    ) -> None:
+        cost = self._hedged_cost(hedged)
         with self._cost_lock:
             self._cost_per_policy[policy.name] += cost
-            self._total_cost_usd += cost
+            if physical:
+                self._total_cost_usd += cost
 
     def _cost_exhausted(self, policy_name: str) -> bool:
         with self._cost_lock:
@@ -665,7 +926,27 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         dest="policies",
         default=None,
-        help="Repeatable. Policy names to run interleaved on the trace.",
+        help=(
+            "Repeatable. By default each policy runs the full trace with "
+            "isolated state."
+        ),
+    )
+    parser.add_argument(
+        "--traffic-split",
+        action="store_true",
+        help=(
+            "Smoke mode only: split requests across policies round-robin "
+            "instead of running every policy on the full trace."
+        ),
+    )
+    parser.add_argument(
+        "--coalesce-identical-actions",
+        action="store_true",
+        help=(
+            "Run every policy on the full trace, but execute identical "
+            "physical provider actions once and fan out the observed result "
+            "to each policy's virtual accounting."
+        ),
     )
     parser.add_argument(
         "--max-requests",
@@ -788,6 +1069,8 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
+        traffic_split=args.traffic_split,
+        coalesce_identical_actions=args.coalesce_identical_actions,
     )
 
     summary_path = runner.finalize()

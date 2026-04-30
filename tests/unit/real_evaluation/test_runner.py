@@ -16,6 +16,7 @@ from experiments.real_evaluation.inventory import (
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
+    RoutingDecision,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.runner import RealExperimentRunner
@@ -255,3 +256,74 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     primary_ts = charge_calls[primary_idx][1]
     backup_ts = charge_calls[backup_idx][1]
     assert backup_ts >= primary_ts
+
+
+def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
+    """Coalescing is a physical-execution optimization only: two policies
+    that pick the same provider share one API call, while each policy still
+    receives its own virtual cost/profile/accounting row."""
+    runner, rec = _build_runner(policy_names=["cheapest_fixed", "fastest_fixed"])
+    provider = runner.inventory.providers[0].name
+
+    for policy in runner.policies.values():
+        monkeypatch.setattr(
+            policy,
+            "route",
+            lambda now, ctx, _provider=provider: RoutingDecision(
+                primary=_provider,
+                notes="coalesce_test",
+            ),
+        )
+
+    send_count = 0
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+    ) -> SingleRequestResult:
+        nonlocal send_count
+        send_count += 1
+        if ttft_info is not None:
+            ttft_info.update(
+                ttft_ms=100.0, first_token_ts=time.time(), status="success"
+            )
+        if ttft_event is not None:
+            ttft_event.set()
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    from experiments.real_evaluation.runner import TraceRequest
+
+    runner.replay(
+        [
+            TraceRequest(
+                arrival_time_sec=0.0,
+                prompt="x",
+                prompt_tokens=10,
+                max_tokens=8,
+            )
+        ],
+        speedup=100.0,
+        coalesce_identical_actions=True,
+    )
+    rec.close()
+
+    assert send_count == 1
+    assert runner._cost_per_policy["cheapest_fixed"] == 0.01
+    assert runner._cost_per_policy["fastest_fixed"] == 0.01
+    assert runner._total_cost_usd == 0.01
