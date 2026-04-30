@@ -41,6 +41,10 @@ CSV_FIELDS: tuple[str, ...] = (
     "e2e_ms",
     "status",
     "error_message",
+    "http_status",
+    "retry_count",
+    "retry_sleep_ms",
+    "rate_limited",
     "billed_cost_usd",
     "primary_cost_usd",
     "backup_cost_usd",
@@ -74,6 +78,10 @@ class RequestLogRow:
     e2e_ms: float
     status: str
     error_message: str | None
+    http_status: int | None
+    retry_count: int
+    retry_sleep_ms: float
+    rate_limited: bool
     billed_cost_usd: float
     primary_cost_usd: float
     backup_cost_usd: float
@@ -114,6 +122,10 @@ class RequestLogRow:
             "e2e_ms": f"{self.e2e_ms:.3f}",
             "status": self.status,
             "error_message": self.error_message or "",
+            "http_status": str(self.http_status or ""),
+            "retry_count": str(self.retry_count),
+            "retry_sleep_ms": f"{self.retry_sleep_ms:.3f}",
+            "rate_limited": "1" if self.rate_limited else "0",
             "billed_cost_usd": f"{self.billed_cost_usd:.8f}",
             "primary_cost_usd": f"{self.primary_cost_usd:.8f}",
             "backup_cost_usd": f"{self.backup_cost_usd:.8f}",
@@ -198,6 +210,10 @@ class Recorder:
             e2e_ms=chosen.e2e_ms,
             status=chosen.status,
             error_message=chosen.error_message,
+            http_status=chosen.http_status,
+            retry_count=chosen.retry_count,
+            retry_sleep_ms=chosen.retry_sleep_ms,
+            rate_limited=chosen.rate_limited,
             billed_cost_usd=billed_cost,
             primary_cost_usd=primary_cost,
             backup_cost_usd=backup_cost,
@@ -256,6 +272,9 @@ class Recorder:
                     "n_slo_violation": 0,
                     "n_hedge_triggered": 0,
                     "n_hedge_won_by_backup": 0,
+                    "n_rate_limited": 0,
+                    "total_retry_count": 0,
+                    "total_retry_sleep_ms": 0.0,
                     "total_cost_usd": 0.0,
                     "ttft_ms_success": [],
                     "e2e_ms_success": [],
@@ -263,6 +282,10 @@ class Recorder:
             )
             stats["n_total"] += 1
             stats["total_cost_usd"] += row.billed_cost_usd
+            stats["total_retry_count"] += row.retry_count
+            stats["total_retry_sleep_ms"] += row.retry_sleep_ms
+            if row.rate_limited:
+                stats["n_rate_limited"] += 1
             if row.hedge_triggered:
                 stats["n_hedge_triggered"] += 1
                 if row.hedge_winner == "backup":

@@ -21,10 +21,12 @@ old ``__sort_latency__`` sentinel string the runner used to monkeypatch).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import requests
@@ -38,6 +40,10 @@ OLLAMA_CLOUD_BASE_URL = os.environ.get(
 )
 
 OPENROUTER_SORT_MODES: frozenset[str] = frozenset({"price", "throughput", "latency"})
+RATE_LIMIT_STATUS = 429
+DEFAULT_RATE_LIMIT_BACKOFF_SEC = 0.25
+MAX_RATE_LIMIT_BACKOFF_SEC = 5.0
+logger = logging.getLogger(__name__)
 
 
 def _ensure_v1_suffix(url: str) -> str:
@@ -63,6 +69,9 @@ class SingleRequestResult:
     start_ts: float = 0.0
     first_token_ts: float | None = None
     http_status: int | None = None
+    retry_count: int = 0
+    retry_sleep_ms: float = 0.0
+    rate_limited: bool = False
 
 
 @dataclass
@@ -110,6 +119,31 @@ def compute_request_cost_usd(
     return (
         input_price_per_m * prompt_tokens + output_price_per_m * completion_tokens
     ) / 1_000_000.0
+
+
+def _parse_retry_after_sec(value: str | None) -> float | None:
+    if not value:
+        return None
+    stripped = value.strip()
+    try:
+        return max(0.0, float(stripped))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(stripped)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at is None:
+        return None
+    return max(0.0, retry_at.timestamp() - time.time())
+
+
+def _rate_limit_backoff_sec(response: requests.Response, retry_count: int) -> float:
+    retry_after = _parse_retry_after_sec(response.headers.get("Retry-After"))
+    if retry_after is not None:
+        return min(retry_after, MAX_RATE_LIMIT_BACKOFF_SEC)
+    backoff = DEFAULT_RATE_LIMIT_BACKOFF_SEC * (2 ** min(retry_count, 6))
+    return min(backoff, MAX_RATE_LIMIT_BACKOFF_SEC)
 
 
 class BaseTransport:
@@ -199,6 +233,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
 
         start_perf = time.perf_counter()
         start_ts = time.time()
+        deadline_perf = start_perf + max(float(timeout), 1e-6)
 
         ttft_ms = -1.0
         e2e_ms = -1.0
@@ -210,6 +245,9 @@ class OpenAICompatStreamingTransport(BaseTransport):
         http_status: int | None = None
         reported_cost_usd: float | None = None
         reported_provider: str | None = None
+        retry_count = 0
+        retry_sleep_sec = 0.0
+        saw_rate_limit = False
 
         if ttft_info is not None:
             ttft_info.setdefault("ttft_ms", -1.0)
@@ -217,100 +255,127 @@ class OpenAICompatStreamingTransport(BaseTransport):
             ttft_info.setdefault("status", None)
 
         try:
-            response = self.session.post(
-                url=url,
-                headers=headers,
-                json=payload,
-                timeout=timeout,
-                stream=True,
-            )
-            http_status = response.status_code
-
-            if response.status_code != 200:
-                error_data: dict[str, Any] = {}
-                try:
-                    error_data = response.json() if response.text else {}
-                except Exception:
-                    error_data = {}
-                error_message = (
-                    error_data.get("error", {}).get("message")
-                    if isinstance(error_data.get("error"), dict)
-                    else str(error_data)
+            while True:
+                remaining_timeout = max(1e-3, deadline_perf - time.perf_counter())
+                response = self.session.post(
+                    url=url,
+                    headers=headers,
+                    json=payload,
+                    timeout=remaining_timeout,
+                    stream=True,
                 )
-                response.close()
-                if ttft_event is not None:
-                    ttft_event.set()
-                if ttft_info is not None:
-                    ttft_info["status"] = f"HTTP {response.status_code}"
-                return SingleRequestResult(
-                    ttft_ms=-1.0,
-                    e2e_ms=-1.0,
-                    status=f"HTTP {response.status_code}",
-                    provider=self.cfg.name,
-                    error_message=error_message or "http_error",
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    billed_cost_usd=0.0,
-                    start_ts=start_ts,
-                    first_token_ts=None,
-                    http_status=http_status,
-                )
+                http_status = response.status_code
 
-            for raw_line in response.iter_lines(decode_unicode=True):
-                if not raw_line:
-                    continue
-                if not raw_line.startswith("data:"):
-                    continue
-                data_str = raw_line[len("data:"):].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-
-                usage = chunk.get("usage") or {}
-                if isinstance(usage, dict):
-                    prompt_tokens = int(usage.get("prompt_tokens") or prompt_tokens)
-                    completion_tokens = int(
-                        usage.get("completion_tokens") or completion_tokens
+                if response.status_code != 200:
+                    error_data: dict[str, Any] = {}
+                    try:
+                        error_data = response.json() if response.text else {}
+                    except Exception:
+                        error_data = {}
+                    error_message = (
+                        error_data.get("error", {}).get("message")
+                        if isinstance(error_data.get("error"), dict)
+                        else str(error_data)
                     )
-                    if usage.get("cost") is not None:
-                        try:
-                            reported_cost_usd = float(usage["cost"])
-                        except (TypeError, ValueError):
-                            pass
-
-                provider_field = chunk.get("provider")
-                if isinstance(provider_field, str):
-                    reported_provider = provider_field
-
-                choices = chunk.get("choices") or []
-                if choices:
-                    delta = choices[0].get("delta") or {}
-                    # Reasoning models stream visible tokens in
-                    # delta.reasoning / reasoning_content / thinking before
-                    # delta.content. Treat any non-empty stream field as
-                    # the user-visible first token.
-                    visible_token = (
-                        delta.get("content")
-                        or delta.get("reasoning")
-                        or delta.get("reasoning_content")
-                        or delta.get("thinking")
-                    )
-                    if visible_token and first_token_ts is None:
-                        first_token_ts = time.time()
-                        first_token_perf = time.perf_counter()
-                        ttft_ms = (first_token_perf - start_perf) * 1000.0
-                        if ttft_info is not None:
-                            ttft_info["ttft_ms"] = ttft_ms
-                            ttft_info["first_token_ts"] = first_token_ts
-                            ttft_info["status"] = "success"
+                    response.close()
+                    if response.status_code == RATE_LIMIT_STATUS:
+                        saw_rate_limit = True
+                        remaining = deadline_perf - time.perf_counter()
+                        if remaining > 0:
+                            sleep_sec = min(
+                                _rate_limit_backoff_sec(response, retry_count),
+                                remaining,
+                            )
+                            if sleep_sec > 0:
+                                retry_count += 1
+                                retry_sleep_sec += sleep_sec
+                                logger.info(
+                                    "%s hit HTTP 429; retrying after %.3fs "
+                                    "(attempt %d)",
+                                    self.cfg.name,
+                                    sleep_sec,
+                                    retry_count,
+                                )
+                                time.sleep(sleep_sec)
+                                continue
                         if ttft_event is not None:
                             ttft_event.set()
+                    if ttft_info is not None:
+                        ttft_info["status"] = f"HTTP {response.status_code}"
+                    return SingleRequestResult(
+                        ttft_ms=-1.0,
+                        e2e_ms=(time.perf_counter() - start_perf) * 1000.0,
+                        status=f"HTTP {response.status_code}",
+                        provider=self.cfg.name,
+                        error_message=error_message or "http_error",
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        billed_cost_usd=0.0,
+                        start_ts=start_ts,
+                        first_token_ts=None,
+                        http_status=http_status,
+                        retry_count=retry_count,
+                        retry_sleep_ms=retry_sleep_sec * 1000.0,
+                        rate_limited=saw_rate_limit,
+                    )
 
-            end_perf = time.perf_counter()
-            e2e_ms = (end_perf - start_perf) * 1000.0
+                for raw_line in response.iter_lines(decode_unicode=True):
+                    if not raw_line:
+                        continue
+                    if not raw_line.startswith("data:"):
+                        continue
+                    data_str = raw_line[len("data:"):].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    usage = chunk.get("usage") or {}
+                    if isinstance(usage, dict):
+                        prompt_tokens = int(usage.get("prompt_tokens") or prompt_tokens)
+                        completion_tokens = int(
+                            usage.get("completion_tokens") or completion_tokens
+                        )
+                        if usage.get("cost") is not None:
+                            try:
+                                reported_cost_usd = float(usage["cost"])
+                            except (TypeError, ValueError):
+                                pass
+
+                    provider_field = chunk.get("provider")
+                    if isinstance(provider_field, str):
+                        reported_provider = provider_field
+
+                    choices = chunk.get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta") or {}
+                        # Reasoning models stream visible tokens in
+                        # delta.reasoning / reasoning_content / thinking before
+                        # delta.content. Treat any non-empty stream field as
+                        # the user-visible first token.
+                        visible_token = (
+                            delta.get("content")
+                            or delta.get("reasoning")
+                            or delta.get("reasoning_content")
+                            or delta.get("thinking")
+                        )
+                        if visible_token and first_token_ts is None:
+                            first_token_ts = time.time()
+                            first_token_perf = time.perf_counter()
+                            ttft_ms = (first_token_perf - start_perf) * 1000.0
+                            if ttft_info is not None:
+                                ttft_info["ttft_ms"] = ttft_ms
+                                ttft_info["first_token_ts"] = first_token_ts
+                                ttft_info["status"] = "success"
+                            if ttft_event is not None:
+                                ttft_event.set()
+
+                end_perf = time.perf_counter()
+                e2e_ms = (end_perf - start_perf) * 1000.0
+                response.close()
+                break
 
         except requests.exceptions.Timeout:
             status = "timeout"
@@ -359,6 +424,9 @@ class OpenAICompatStreamingTransport(BaseTransport):
             start_ts=start_ts,
             first_token_ts=first_token_ts,
             http_status=http_status,
+            retry_count=retry_count,
+            retry_sleep_ms=retry_sleep_sec * 1000.0,
+            rate_limited=saw_rate_limit,
         )
 
 
