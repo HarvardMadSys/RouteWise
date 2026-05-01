@@ -100,6 +100,7 @@ def load_trace_jsonl(
     """
     out: list[TraceRequest] = []
     first_ts: float | None = None
+    skipped_nonpositive_output_cap = 0
     trace_path = Path(path)
     with trace_path.open() as handle:
         for line_num, line in enumerate(handle, start=1):
@@ -125,6 +126,18 @@ def load_trace_jsonl(
                 continue
             if relative > trace_end_sec:
                 break
+            max_tokens_raw = _first_present(rec, ("num_decode_tokens", "max_tokens"))
+            if max_tokens_raw is None:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: missing output token cap "
+                    "(expected num_decode_tokens or max_tokens)"
+                )
+            max_tokens = _coerce_int(
+                trace_path, line_num, "output token cap", max_tokens_raw
+            )
+            if max_tokens <= 0:
+                skipped_nonpositive_output_cap += 1
+                continue
             prompt = _first_present(rec, ("prompt_text", "prompt"))
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError(
@@ -139,25 +152,12 @@ def load_trace_jsonl(
                     f"{trace_path}:{line_num}: missing prompt token count "
                     "(expected num_prefill_tokens or prompt_tokens)"
                 )
-            max_tokens_raw = _first_present(rec, ("num_decode_tokens", "max_tokens"))
-            if max_tokens_raw is None:
-                raise ValueError(
-                    f"{trace_path}:{line_num}: missing output token cap "
-                    "(expected num_decode_tokens or max_tokens)"
-                )
             prompt_tokens = _coerce_int(
                 trace_path, line_num, "prompt token count", prompt_tokens_raw
-            )
-            max_tokens = _coerce_int(
-                trace_path, line_num, "output token cap", max_tokens_raw
             )
             if prompt_tokens < 0:
                 raise ValueError(
                     f"{trace_path}:{line_num}: prompt token count must be >= 0"
-                )
-            if max_tokens <= 0:
-                raise ValueError(
-                    f"{trace_path}:{line_num}: output token cap must be > 0"
                 )
             out.append(
                 TraceRequest(
@@ -169,6 +169,12 @@ def load_trace_jsonl(
             )
             if max_requests is not None and len(out) >= max_requests:
                 break
+    if skipped_nonpositive_output_cap:
+        logger.warning(
+            "Skipped %d trace rows from %s because output token cap was <= 0",
+            skipped_nonpositive_output_cap,
+            trace_path,
+        )
     return out
 
 

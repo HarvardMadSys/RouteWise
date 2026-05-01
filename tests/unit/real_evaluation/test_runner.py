@@ -113,15 +113,6 @@ def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> Non
             },
             "missing arrival timestamp",
         ),
-        (
-            {
-                "arrived_at": 10.0,
-                "prompt_text": "Explain TCP briefly.",
-                "num_prefill_tokens": 5,
-                "num_decode_tokens": 0,
-            },
-            "output token cap must be > 0",
-        ),
     ],
 )
 def test_load_trace_jsonl_fails_fast_on_missing_or_invalid_fields(
@@ -140,6 +131,33 @@ def test_load_trace_jsonl_fails_fast_on_bad_json(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="invalid JSON"):
         load_trace_jsonl(trace_path)
+
+
+def test_load_trace_jsonl_skips_nonpositive_output_caps(tmp_path, caplog) -> None:
+    trace_path = _write_trace(
+        tmp_path,
+        [
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "skip zero decode",
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 0,
+            },
+            {
+                "arrived_at": 12.0,
+                "prompt_text": "keep valid decode",
+                "num_prefill_tokens": 6,
+                "num_decode_tokens": 32,
+            },
+        ],
+    )
+
+    trace = load_trace_jsonl(trace_path)
+
+    assert len(trace) == 1
+    assert trace[0].arrival_time_sec == 2.0
+    assert trace[0].prompt == "keep valid decode"
+    assert "Skipped 1 trace rows" in caplog.text
 
 
 def test_session_is_reused_per_thread() -> None:
