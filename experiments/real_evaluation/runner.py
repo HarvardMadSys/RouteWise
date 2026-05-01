@@ -2,11 +2,9 @@
 
 Drives one or more policies through a real trace against live provider APIs.
 By default every policy sees the full trace at the same wall-clock arrivals
-with isolated state. A tiny explicit debug-smoke mode exists only to validate
-that credentials, transports, and runner wiring work; paper runs must pass a
-real trace. Each request/policy decision is dispatched in a daemon thread;
-per-policy profiles and capacity state are updated by feedback after each
-completion.
+with isolated state. Each request/policy decision is dispatched in a daemon
+thread; per-policy profiles and capacity state are updated by feedback after
+each completion.
 
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
@@ -69,8 +67,6 @@ from experiments.real_evaluation.transports import (
 DEFAULT_TIMEOUT_SEC: int = 60
 DEFAULT_PROBE_PROMPT: str = "Write a one-sentence greeting."
 DEFAULT_MAX_TOKENS: int = 128
-DEFAULT_DEBUG_MAX_TOKENS: int = 16
-DEFAULT_DEBUG_RPM: float = 6.0
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +79,6 @@ class TraceRequest:
     prompt: str
     prompt_tokens: int
     max_tokens: int
-    use_real_prompt: bool = True
 
 
 def load_trace_jsonl(
@@ -147,31 +142,6 @@ def load_trace_jsonl(
             if max_requests is not None and len(out) >= max_requests:
                 break
     return out
-
-
-def make_debug_smoke_trace(
-    n_requests: int = 1,
-    rpm: float = DEFAULT_DEBUG_RPM,
-    prompt: str = DEFAULT_PROBE_PROMPT,
-    prompt_tokens: int = 8,
-    max_tokens: int = DEFAULT_DEBUG_MAX_TOKENS,
-) -> list[TraceRequest]:
-    """Build a tiny generated trace for API/runner smoke checks only.
-
-    This is intentionally named ``debug`` rather than ``synthetic`` because it
-    is not an experiment workload and must not be used for reported metrics.
-    """
-    interval = 60.0 / max(rpm, 1e-6)
-    return [
-        TraceRequest(
-            arrival_time_sec=i * interval,
-            prompt=prompt,
-            prompt_tokens=prompt_tokens,
-            max_tokens=max_tokens,
-            use_real_prompt=False,
-        )
-        for i in range(max(n_requests, 0))
-    ]
 
 
 @dataclass
@@ -520,7 +490,7 @@ class RealExperimentRunner:
             self._record_no_route(policy, req, req_index, decision, now)
             return None
 
-        prompt = req.prompt if req.use_real_prompt else DEFAULT_PROBE_PROMPT
+        prompt = req.prompt
         expected_service_sec = max(
             0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0
         )
@@ -879,34 +849,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trace",
         type=Path,
-        default=None,
-        help="Path to a JSONL trace. Required unless --debug-smoke is set.",
-    )
-    parser.add_argument(
-        "--debug-smoke",
-        action="store_true",
-        help=(
-            "Use a tiny generated debug trace to verify API/runner wiring. "
-            "Not valid for experiment metrics."
-        ),
-    )
-    parser.add_argument(
-        "--debug-requests",
-        type=int,
-        default=1,
-        help="Number of generated requests for --debug-smoke.",
-    )
-    parser.add_argument(
-        "--debug-rpm",
-        type=float,
-        default=DEFAULT_DEBUG_RPM,
-        help="Generated request rate for --debug-smoke.",
-    )
-    parser.add_argument(
-        "--debug-max-tokens",
-        type=int,
-        default=DEFAULT_DEBUG_MAX_TOKENS,
-        help="Max output tokens for --debug-smoke requests.",
+        required=True,
+        help="Path to a JSONL trace.",
     )
     parser.add_argument(
         "--policy",
@@ -995,30 +939,12 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
-    if args.trace is None and not args.debug_smoke:
-        logger.error("pass --trace for real runs, or --debug-smoke for wiring checks")
-        return 2
-    if args.trace is not None and args.debug_smoke:
-        logger.error("--trace and --debug-smoke are mutually exclusive")
-        return 2
-
     inventory = load_inventory(args.inventory)
     if not args.policies:
         logger.error("at least one --policy is required")
         return 2
 
-    if args.debug_smoke:
-        trace = make_debug_smoke_trace(
-            n_requests=args.debug_requests,
-            rpm=args.debug_rpm,
-            max_tokens=args.debug_max_tokens,
-        )
-        logger.warning(
-            "debug-smoke trace enabled: this run only validates wiring, not metrics"
-        )
-    else:
-        assert args.trace is not None
-        trace = load_trace_jsonl(args.trace, max_requests=args.max_requests)
+    trace = load_trace_jsonl(args.trace, max_requests=args.max_requests)
     if not trace:
         logger.error("trace is empty; nothing to replay")
         return 2
