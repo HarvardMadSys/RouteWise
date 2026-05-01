@@ -3,6 +3,9 @@ __pycache__/
 *.pyo
 .DS_Store
 .venv/
+.env
+.env.*
+!.env.example
 .pytest_cache/
 .ruff_cache/
 results/
