@@ -1023,10 +1023,41 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("at least one --policy is required")
         return 2
 
-    trace = load_trace_jsonl(args.trace, max_requests=args.max_requests)
+    trace_end_sec = (
+        args.duration_sec * args.speedup
+        if math.isfinite(args.duration_sec)
+        else float("inf")
+    )
+    trace = load_trace_jsonl(
+        args.trace,
+        max_requests=args.max_requests,
+        trace_end_sec=trace_end_sec,
+    )
     if not trace:
         logger.error("trace is empty; nothing to replay")
         return 2
+
+    trace_span_sec = trace[-1].arrival_time_sec if trace else 0.0
+    max_policy_dispatches = len(trace) * len(args.policies)
+    logger.info(
+        "run plan: %d trace requests over %.1fs trace time; %d policies -> "
+        "<= %d policy dispatches; speedup=%.2gx duration_cap=%s",
+        len(trace),
+        trace_span_sec,
+        len(args.policies),
+        max_policy_dispatches,
+        args.speedup,
+        "inf" if not math.isfinite(args.duration_sec) else f"{args.duration_sec:.0f}s",
+    )
+    logger.info("policies: %s", ", ".join(args.policies))
+    logger.info(
+        "inventory: %d providers from %s; warmup_probes=%d; max_cost_usd=$%.2f",
+        len(inventory.providers),
+        args.inventory,
+        args.warmup_probes,
+        args.max_cost_usd,
+    )
+    logger.info("output: %s", args.output)
 
     output_dir = args.output
     output_dir.mkdir(parents=True, exist_ok=True)
