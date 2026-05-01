@@ -42,7 +42,7 @@ import logging
 import math
 import random
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
@@ -753,8 +753,8 @@ class BudgetedVhatHedgePolicy(BasePolicy):
 # ---------------------------------------------------------------------------
 
 
-class BudgetRangeHedgePolicy(BasePolicy):
-    """``LP-RangeBudget`` + ``Hedge-ProbTarget`` (current paper main method).
+class BudgetRangePolicy(BasePolicy):
+    """``LP-RangeBudget`` body router (current paper main method).
 
     Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_p``
     where ``B_p = c_min + (p/100) * (c_max - c_min)``.
@@ -767,7 +767,8 @@ class BudgetRangeHedgePolicy(BasePolicy):
     should pin both to identical outputs given matched inputs.
     """
 
-    use_hedge = True
+    use_hedge = False
+    name_suffix = ""
 
     def __init__(
         self,
@@ -782,7 +783,7 @@ class BudgetRangeHedgePolicy(BasePolicy):
                 f"budget_percentile must be in [0, 100]; got {budget_percentile}"
             )
         self.budget_percentile = int(budget_percentile)
-        self.name = f"budget_range_p{self.budget_percentile}_hedge"
+        self.name = f"budget_range_p{self.budget_percentile}{self.name_suffix}"
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         feasible = [s for s in self.states.values() if s.is_available(now)]
@@ -844,6 +845,13 @@ class BudgetRangeHedgePolicy(BasePolicy):
         )
 
 
+class BudgetRangeHedgePolicy(BudgetRangePolicy):
+    """``LP-RangeBudget`` + ``Hedge-ProbTarget``."""
+
+    use_hedge = True
+    name_suffix = "_hedge"
+
+
 def _fallback_in_budget(
     feasible: list[ProviderState],
     c_eff: dict[str, float],
@@ -896,7 +904,8 @@ def build_policy(
         ``fastest_fixed``, ``quota_first``, ``concurrency_first``
       * Legacy LP-CDF: ``original_lp_hedge``
       * Legacy vhat budget: ``budget_vhat_t<NN>_hedge`` (NN ∈ {25, 50, 75, 100})
-      * Current paper line: ``budget_range_p<PP>_hedge`` (PP ∈ [0, 100])
+      * Current paper line: ``budget_range_p<PP>`` and
+        ``budget_range_p<PP>_hedge`` (PP ∈ [0, 100])
     """
     common = dict(specs=specs, slo_ms=slo_ms, profile_window_sec=profile_window_sec)
     if name == "openrouter_auto":
@@ -935,6 +944,12 @@ def build_policy(
         except ValueError as exc:
             raise ValueError(f"Bad budget_range name: {name!r}") from exc
         return BudgetRangeHedgePolicy(**common, budget_percentile=p)
+    if name.startswith("budget_range_p"):
+        try:
+            p = int(name[len("budget_range_p") :])
+        except ValueError as exc:
+            raise ValueError(f"Bad budget_range name: {name!r}") from exc
+        return BudgetRangePolicy(**common, budget_percentile=p)
 
     raise ValueError(f"Unknown policy name: {name!r}")
 
@@ -942,6 +957,7 @@ def build_policy(
 __all__ = [
     "BasePolicy",
     "BudgetRangeHedgePolicy",
+    "BudgetRangePolicy",
     "BudgetedVhatHedgePolicy",
     "CheapestFixedPolicy",
     "ConcurrencyFirstPolicy",
