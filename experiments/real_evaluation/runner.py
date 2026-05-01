@@ -995,6 +995,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Load .env so OPENROUTER_API_KEY etc. don't have to be exported by hand
+    # before each run. The transport reads from os.environ, so this must
+    # happen before any provider config is built.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
     args = _build_arg_parser().parse_args(argv)
     logging.basicConfig(
         level=getattr(logging, args.log_level),
