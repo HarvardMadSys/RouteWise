@@ -1,10 +1,12 @@
 """Trace-replay runner for real online evaluation.
 
-Drives one or more policies through a synthetic / real trace against live
-provider APIs. By default every policy sees the full trace at the same
-wall-clock arrivals with isolated state. Each request/policy decision is
-dispatched in a daemon thread; per-policy profiles and capacity state are
-updated by feedback after each completion.
+Drives one or more policies through a real trace against live provider APIs.
+By default every policy sees the full trace at the same wall-clock arrivals
+with isolated state. A tiny explicit debug-smoke mode exists only to validate
+that credentials, transports, and runner wiring work; paper runs must pass a
+real trace. Each request/policy decision is dispatched in a daemon thread;
+per-policy profiles and capacity state are updated by feedback after each
+completion.
 
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
@@ -67,6 +69,8 @@ from experiments.real_evaluation.transports import (
 DEFAULT_TIMEOUT_SEC: int = 60
 DEFAULT_PROBE_PROMPT: str = "Write a one-sentence greeting."
 DEFAULT_MAX_TOKENS: int = 128
+DEFAULT_DEBUG_MAX_TOKENS: int = 16
+DEFAULT_DEBUG_RPM: float = 6.0
 
 logger = logging.getLogger(__name__)
 
@@ -145,15 +149,19 @@ def load_trace_jsonl(
     return out
 
 
-def make_synthetic_trace(
-    n_requests: int,
-    rate_per_sec: float = 1.0,
+def make_debug_smoke_trace(
+    n_requests: int = 1,
+    rpm: float = DEFAULT_DEBUG_RPM,
     prompt: str = DEFAULT_PROBE_PROMPT,
-    prompt_tokens: int = 50,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    prompt_tokens: int = 8,
+    max_tokens: int = DEFAULT_DEBUG_MAX_TOKENS,
 ) -> list[TraceRequest]:
-    """Build a fixed-rate synthetic trace for smoke testing."""
-    interval = 1.0 / max(rate_per_sec, 1e-6)
+    """Build a tiny generated trace for API/runner smoke checks only.
+
+    This is intentionally named ``debug`` rather than ``synthetic`` because it
+    is not an experiment workload and must not be used for reported metrics.
+    """
+    interval = 60.0 / max(rpm, 1e-6)
     return [
         TraceRequest(
             arrival_time_sec=i * interval,
@@ -162,7 +170,7 @@ def make_synthetic_trace(
             max_tokens=max_tokens,
             use_real_prompt=False,
         )
-        for i in range(n_requests)
+        for i in range(max(n_requests, 0))
     ]
 
 
@@ -872,7 +880,33 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--trace",
         type=Path,
         default=None,
-        help="Path to a JSONL trace. If omitted, a synthetic trace is generated.",
+        help="Path to a JSONL trace. Required unless --debug-smoke is set.",
+    )
+    parser.add_argument(
+        "--debug-smoke",
+        action="store_true",
+        help=(
+            "Use a tiny generated debug trace to verify API/runner wiring. "
+            "Not valid for experiment metrics."
+        ),
+    )
+    parser.add_argument(
+        "--debug-requests",
+        type=int,
+        default=1,
+        help="Number of generated requests for --debug-smoke.",
+    )
+    parser.add_argument(
+        "--debug-rpm",
+        type=float,
+        default=DEFAULT_DEBUG_RPM,
+        help="Generated request rate for --debug-smoke.",
+    )
+    parser.add_argument(
+        "--debug-max-tokens",
+        type=int,
+        default=DEFAULT_DEBUG_MAX_TOKENS,
+        help="Max output tokens for --debug-smoke requests.",
     )
     parser.add_argument(
         "--policy",
@@ -898,18 +932,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Cap the trace to at most this many rows.",
-    )
-    parser.add_argument(
-        "--synthetic-rate",
-        type=float,
-        default=1.0,
-        help="If using a synthetic trace, requests per second.",
-    )
-    parser.add_argument(
-        "--synthetic-n",
-        type=int,
-        default=10,
-        help="If using a synthetic trace, total request count.",
     )
     parser.add_argument(
         "--speedup", type=float, default=1.0, help="Replay speedup factor."
@@ -973,19 +995,30 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
+    if args.trace is None and not args.debug_smoke:
+        logger.error("pass --trace for real runs, or --debug-smoke for wiring checks")
+        return 2
+    if args.trace is not None and args.debug_smoke:
+        logger.error("--trace and --debug-smoke are mutually exclusive")
+        return 2
+
     inventory = load_inventory(args.inventory)
     if not args.policies:
         logger.error("at least one --policy is required")
         return 2
 
-    trace = (
-        load_trace_jsonl(args.trace, max_requests=args.max_requests)
-        if args.trace is not None
-        else make_synthetic_trace(
-            n_requests=args.synthetic_n,
-            rate_per_sec=args.synthetic_rate,
+    if args.debug_smoke:
+        trace = make_debug_smoke_trace(
+            n_requests=args.debug_requests,
+            rpm=args.debug_rpm,
+            max_tokens=args.debug_max_tokens,
         )
-    )
+        logger.warning(
+            "debug-smoke trace enabled: this run only validates wiring, not metrics"
+        )
+    else:
+        assert args.trace is not None
+        trace = load_trace_jsonl(args.trace, max_requests=args.max_requests)
     if not trace:
         logger.error("trace is empty; nothing to replay")
         return 2

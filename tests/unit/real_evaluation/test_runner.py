@@ -19,7 +19,11 @@ from experiments.real_evaluation.policies import (
     RoutingDecision,
 )
 from experiments.real_evaluation.recorder import Recorder
-from experiments.real_evaluation.runner import RealExperimentRunner
+from experiments.real_evaluation.runner import (
+    RealExperimentRunner,
+    main,
+    make_debug_smoke_trace,
+)
 from experiments.real_evaluation.transports import (
     SingleRequestResult,
     TransportConfig,
@@ -327,3 +331,51 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     assert runner._cost_per_policy["cheapest_fixed"] == 0.01
     assert runner._cost_per_policy["fastest_fixed"] == 0.01
     assert runner._total_cost_usd == 0.01
+
+
+def test_debug_smoke_trace_is_tiny_generated_wiring_input() -> None:
+    """Debug-smoke input is explicit and small; it is not an experiment
+    workload replacement."""
+    trace = make_debug_smoke_trace(n_requests=3, rpm=6.0, max_tokens=12)
+
+    assert [req.arrival_time_sec for req in trace] == [0.0, 10.0, 20.0]
+    assert all(not req.use_real_prompt for req in trace)
+    assert all(req.max_tokens == 12 for req in trace)
+
+
+def test_cli_requires_trace_unless_debug_smoke() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        code = main(
+            [
+                "--inventory",
+                _INVENTORY_PATH,
+                "--policy",
+                "openrouter_auto",
+                "--output",
+                tmp,
+            ]
+        )
+
+    assert code == 2
+
+
+def test_cli_rejects_trace_and_debug_smoke_together() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        trace_path = f"{tmp}/trace.jsonl"
+        with open(trace_path, "w") as handle:
+            handle.write('{"arrival_time_sec": 0, "prompt": "x", "max_tokens": 1}\\n')
+        code = main(
+            [
+                "--inventory",
+                _INVENTORY_PATH,
+                "--trace",
+                trace_path,
+                "--debug-smoke",
+                "--policy",
+                "openrouter_auto",
+                "--output",
+                tmp,
+            ]
+        )
+
+    assert code == 2

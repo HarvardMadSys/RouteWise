@@ -59,7 +59,7 @@ from experiments.real_evaluation.runner import (
     RealExperimentRunner,
     TraceRequest,
     load_trace_jsonl,
-    make_synthetic_trace,
+    make_debug_smoke_trace,
 )
 from experiments.real_evaluation.shadow_price import (
     calibrate_envelopes,
@@ -123,7 +123,7 @@ __all__ = [
     "effective_cost",
     "load_inventory",
     "load_trace_jsonl",
-    "make_synthetic_trace",
+    "make_debug_smoke_trace",
     "quota_shadow_price",
     "request_marginal_cost",
     "resolve_transport_config",
