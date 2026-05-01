@@ -1,0 +1,200 @@
+{
+  "model_family": "minimax-m2.5",
+  "openrouter_model_id": "minimax/minimax-m2.5",
+  "primary_slo_ms": 2000,
+  "slo_thresholds_ms": [
+    1000,
+    2000,
+    3000,
+    5000
+  ],
+  "providers": [
+    {
+      "name": "OR_AkashML",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "AkashML",
+      "input_price_per_m": 0.2,
+      "output_price_per_m": 1.18,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='akashml/fp8', uptime_1d=97.92%"
+    },
+    {
+      "name": "OR_AtlasCloud",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "AtlasCloud",
+      "input_price_per_m": 0.295,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='atlas-cloud/fp8', uptime_1d=99.40%"
+    },
+    {
+      "name": "OR_Baidu",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Baidu",
+      "input_price_per_m": 0.27,
+      "output_price_per_m": 1.08,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='baidu/fp8', uptime_1d=99.96%"
+    },
+    {
+      "name": "OR_Chutes",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.15,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='chutes/fp8', uptime_1d=99.41%"
+    },
+    {
+      "name": "OR_DeepInfra",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "DeepInfra",
+      "input_price_per_m": 0.15,
+      "output_price_per_m": 1.15,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='deepinfra/fp8', uptime_1d=99.96%"
+    },
+    {
+      "name": "OR_Friendli",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Friendli",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='friendli', uptime_1d=99.11%"
+    },
+    {
+      "name": "OR_Inceptron",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Inceptron",
+      "input_price_per_m": 0.24,
+      "output_price_per_m": 0.9,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='inceptron/fp8', uptime_1d=99.94%"
+    },
+    {
+      "name": "OR_Mara",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Mara",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='mara', uptime_1d=100.00%"
+    },
+    {
+      "name": "OR_Minimax",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Minimax",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='minimax/fp8', uptime_1d=97.66%"
+    },
+    {
+      "name": "OR_Nebius",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Nebius",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='nebius/fp4', uptime_1d=99.95%"
+    },
+    {
+      "name": "OR_Novita",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Novita",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='novita/fp8', uptime_1d=99.24%"
+    },
+    {
+      "name": "OR_Parasail",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Parasail",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='parasail/fp8', uptime_1d=99.94%"
+    },
+    {
+      "name": "OR_Phala",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Phala",
+      "input_price_per_m": 0.2,
+      "output_price_per_m": 1.38,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='phala', uptime_1d=98.71%"
+    },
+    {
+      "name": "OR_SambaNova",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "SambaNova",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='sambanova', uptime_1d=98.51%"
+    },
+    {
+      "name": "OR_SiliconFlow",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "SiliconFlow",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='siliconflow/fp8', uptime_1d=99.93%"
+    },
+    {
+      "name": "OR_Venice",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Venice",
+      "input_price_per_m": 0.34,
+      "output_price_per_m": 1.19,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='venice', uptime_1d=98.72%"
+    },
+    {
+      "name": "OR_WandB",
+      "tier": "api",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "WandB",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "notes": "OR endpoint tag='wandb/fp8', uptime_1d=97.18%"
+    }
+  ]
+}
