@@ -201,10 +201,20 @@ class OpenAICompatStreamingTransport(BaseTransport):
         return headers
 
     def _build_payload(self, prompt: str, max_tokens: int) -> dict[str, Any]:
+        # Force greedy decoding so realized output length is dominated by
+        # the model + prompt rather than each provider's default sampling
+        # temperature (which varies: OpenAI/DeepInfra ≈ 1.0, Together ≈ 0.7,
+        # Gemini ≈ 0.4). Without this, cross-provider cost comparisons mix
+        # routing differences with sampling-temperature differences.
+        # ``seed`` is honored by some OR sub-providers and ignored by
+        # others, so it's a best-effort stability hint rather than a
+        # guarantee.
         payload: dict[str, Any] = {
             "model": self.cfg.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "seed": 42,
             "stream": True,
         }
 
