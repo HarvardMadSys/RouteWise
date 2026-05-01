@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -505,6 +506,8 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
     else:
         raise ValueError(f"Unknown transport: {transport}")
 
+    input_price_per_m, output_price_per_m = _resolve_provider_prices(provider_entry)
+
     return TransportConfig(
         name=provider_entry["name"],
         transport=transport,
@@ -513,10 +516,57 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         sort_mode=sort_mode,
         base_url=base_url,
         api_key_env=api_key_env,
-        input_price_per_m=float(provider_entry.get("input_price_per_m") or 0.0),
-        output_price_per_m=float(provider_entry.get("output_price_per_m") or 0.0),
+        input_price_per_m=input_price_per_m,
+        output_price_per_m=output_price_per_m,
         extra_headers=extra_headers,
     )
+
+
+def _resolve_provider_prices(provider_entry: dict[str, Any]) -> tuple[float, float]:
+    name = str(provider_entry.get("name", "<unnamed>"))
+    tier = provider_entry.get("tier")
+    transport = provider_entry.get("transport")
+    requires_positive_price = tier == "api" or transport == "openrouter"
+
+    input_price = _price_field(
+        provider_entry,
+        "input_price_per_m",
+        required=requires_positive_price,
+    )
+    output_price = _price_field(
+        provider_entry, "output_price_per_m", required=requires_positive_price
+    )
+
+    if requires_positive_price and (input_price <= 0.0 or output_price <= 0.0):
+        raise ValueError(
+            f"{name}: api/openrouter providers require positive input/output "
+            f"prices, got input_price_per_m={input_price!r}, "
+            f"output_price_per_m={output_price!r}"
+        )
+    return input_price, output_price
+
+
+def _price_field(
+    provider_entry: dict[str, Any],
+    field_name: str,
+    *,
+    required: bool,
+) -> float:
+    name = str(provider_entry.get("name", "<unnamed>"))
+    value = provider_entry.get(field_name)
+    if value is None:
+        if required:
+            raise ValueError(f"{name}: missing required {field_name}")
+        return 0.0
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name}: {field_name} must be numeric, got {value!r}"
+        ) from exc
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{name}: {field_name} must be finite and >= 0")
+    return parsed
 
 
 __all__ = [

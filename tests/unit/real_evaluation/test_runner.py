@@ -3,16 +3,16 @@ dispatch + dispatch-time backup capacity charge through the runner."""
 
 from __future__ import annotations
 
+import json
 import tempfile
 import threading
 import time
 from typing import Any
 from unittest.mock import patch
 
-from experiments.real_evaluation.inventory import (
-    ProviderSpec,
-    load_inventory,
-)
+import pytest
+
+from experiments.real_evaluation.inventory import load_inventory
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -21,11 +21,9 @@ from experiments.real_evaluation.policies import (
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.runner import (
     RealExperimentRunner,
+    load_trace_jsonl,
 )
-from experiments.real_evaluation.transports import (
-    SingleRequestResult,
-    TransportConfig,
-)
+from experiments.real_evaluation.transports import SingleRequestResult
 
 _INVENTORY_PATH = (
     "experiments/real_evaluation/data/joint_minimax_m25_online.json"
@@ -44,6 +42,104 @@ def _build_runner(
         slo_ms=inventory.primary_slo_ms,
     )
     return runner, rec
+
+
+def _write_trace(tmp_path, rows: list[dict] | list[str]):
+    trace_path = tmp_path / "trace.jsonl"
+    lines: list[str] = []
+    for row in rows:
+        if isinstance(row, str):
+            lines.append(row)
+        else:
+            lines.append(json.dumps(row))
+    trace_path.write_text("\n".join(lines) + "\n")
+    return trace_path
+
+
+def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> None:
+    trace_path = _write_trace(
+        tmp_path,
+        [
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "Explain TCP briefly.",
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 32,
+            }
+        ],
+    )
+
+    trace = load_trace_jsonl(trace_path)
+
+    assert len(trace) == 1
+    assert trace[0].arrival_time_sec == 0.0
+    assert trace[0].prompt == "Explain TCP briefly."
+    assert trace[0].prompt_tokens == 5
+    assert trace[0].max_tokens == 32
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (
+            {
+                "arrived_at": 10.0,
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 32,
+            },
+            "missing non-empty prompt",
+        ),
+        (
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "Explain TCP briefly.",
+                "num_decode_tokens": 32,
+            },
+            "missing prompt token count",
+        ),
+        (
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "Explain TCP briefly.",
+                "num_prefill_tokens": 5,
+            },
+            "missing output token cap",
+        ),
+        (
+            {
+                "prompt_text": "Explain TCP briefly.",
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 32,
+            },
+            "missing arrival timestamp",
+        ),
+        (
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "Explain TCP briefly.",
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 0,
+            },
+            "output token cap must be > 0",
+        ),
+    ],
+)
+def test_load_trace_jsonl_fails_fast_on_missing_or_invalid_fields(
+    tmp_path,
+    row,
+    message,
+) -> None:
+    trace_path = _write_trace(tmp_path, [row])
+
+    with pytest.raises(ValueError, match=message):
+        load_trace_jsonl(trace_path)
+
+
+def test_load_trace_jsonl_fails_fast_on_bad_json(tmp_path) -> None:
+    trace_path = _write_trace(tmp_path, ['{"arrived_at": 1'])
+
+    with pytest.raises(ValueError, match="invalid JSON"):
+        load_trace_jsonl(trace_path)
 
 
 def test_session_is_reused_per_thread() -> None:
@@ -329,4 +425,3 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     assert runner._cost_per_policy["cheapest_fixed"] == 0.01
     assert runner._cost_per_policy["fastest_fixed"] == 0.01
     assert runner._total_cost_usd == 0.01
-

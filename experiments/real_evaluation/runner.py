@@ -24,7 +24,6 @@ import dataclasses
 import json
 import logging
 import math
-import os
 import sys
 import threading
 import time
@@ -65,8 +64,7 @@ from experiments.real_evaluation.transports import (
 )
 
 DEFAULT_TIMEOUT_SEC: int = 60
-DEFAULT_PROBE_PROMPT: str = "Write a one-sentence greeting."
-DEFAULT_MAX_TOKENS: int = 128
+WARMUP_PROBE_PROMPT: str = "Write a one-sentence greeting."
 
 logger = logging.getLogger(__name__)
 
@@ -102,19 +100,24 @@ def load_trace_jsonl(
     """
     out: list[TraceRequest] = []
     first_ts: float | None = None
-    with Path(path).open() as handle:
-        for line in handle:
+    trace_path = Path(path)
+    with trace_path.open() as handle:
+        for line_num, line in enumerate(handle, start=1):
             if not line.strip():
                 continue
             try:
                 rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            arrived = float(
-                rec.get("arrived_at")
-                or rec.get("arrival_time_sec")
-                or 0.0
-            )
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: invalid JSON: {exc.msg}"
+                ) from exc
+            arrived_raw = _first_present(rec, ("arrived_at", "arrival_time_sec"))
+            if arrived_raw is None:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: missing arrival timestamp "
+                    "(expected arrived_at or arrival_time_sec)"
+                )
+            arrived = _coerce_float(trace_path, line_num, "arrival timestamp", arrived_raw)
             if first_ts is None:
                 first_ts = arrived
             relative = (arrived - first_ts) / max(time_compression, 1e-6)
@@ -122,15 +125,40 @@ def load_trace_jsonl(
                 continue
             if relative > trace_end_sec:
                 break
-            prompt = rec.get("prompt_text") or rec.get("prompt") or DEFAULT_PROBE_PROMPT
-            prompt_tokens = int(
-                rec.get("num_prefill_tokens") or rec.get("prompt_tokens") or 0
+            prompt = _first_present(rec, ("prompt_text", "prompt"))
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError(
+                    f"{trace_path}:{line_num}: missing non-empty prompt "
+                    "(expected prompt_text or prompt)"
+                )
+            prompt_tokens_raw = _first_present(
+                rec, ("num_prefill_tokens", "prompt_tokens")
             )
-            max_tokens = int(
-                rec.get("num_decode_tokens")
-                or rec.get("max_tokens")
-                or DEFAULT_MAX_TOKENS
+            if prompt_tokens_raw is None:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: missing prompt token count "
+                    "(expected num_prefill_tokens or prompt_tokens)"
+                )
+            max_tokens_raw = _first_present(rec, ("num_decode_tokens", "max_tokens"))
+            if max_tokens_raw is None:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: missing output token cap "
+                    "(expected num_decode_tokens or max_tokens)"
+                )
+            prompt_tokens = _coerce_int(
+                trace_path, line_num, "prompt token count", prompt_tokens_raw
             )
+            max_tokens = _coerce_int(
+                trace_path, line_num, "output token cap", max_tokens_raw
+            )
+            if prompt_tokens < 0:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: prompt token count must be >= 0"
+                )
+            if max_tokens <= 0:
+                raise ValueError(
+                    f"{trace_path}:{line_num}: output token cap must be > 0"
+                )
             out.append(
                 TraceRequest(
                     arrival_time_sec=relative,
@@ -142,6 +170,41 @@ def load_trace_jsonl(
             if max_requests is not None and len(out) >= max_requests:
                 break
     return out
+
+
+def _first_present(rec: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first key that exists and is not None.
+
+    Do not use ``or`` here: valid trace values such as ``0`` must not be
+    treated as missing.
+    """
+    for key in keys:
+        if key in rec and rec[key] is not None:
+            return rec[key]
+    return None
+
+
+def _coerce_float(path: Path, line_num: int, field: str, value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{path}:{line_num}: {field} must be numeric, got {value!r}"
+        ) from exc
+
+
+def _coerce_int(path: Path, line_num: int, field: str, value: Any) -> int:
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{path}:{line_num}: {field} must be an integer, got {value!r}"
+        ) from exc
+    if not math.isfinite(as_float) or not as_float.is_integer():
+        raise ValueError(
+            f"{path}:{line_num}: {field} must be an integer, got {value!r}"
+        )
+    return int(as_float)
 
 
 @dataclass
@@ -329,7 +392,7 @@ class RealExperimentRunner:
                 ts = time.time()
                 result = self._send_via_transport(
                     provider=spec.name,
-                    prompt=DEFAULT_PROBE_PROMPT,
+                    prompt=WARMUP_PROBE_PROMPT,
                     max_tokens=8,
                     timeout=self.timeout_sec,
                     ttft_event=None,

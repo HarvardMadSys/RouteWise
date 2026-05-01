@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import threading
 
+import pytest
+
 from experiments.real_evaluation.transports import (
     OpenAICompatStreamingTransport,
     TransportConfig,
+    resolve_transport_config,
 )
 
 
@@ -151,3 +154,36 @@ def test_http_429_final_failure_only_after_retry_budget_exhausted(monkeypatch) -
     assert result.retry_count >= 1
     assert result.retry_sleep_ms >= 1.0
     assert result.ttft_ms == -1.0
+
+
+def test_openrouter_api_provider_requires_positive_prices() -> None:
+    """OpenRouter/API providers must not silently fall back to zero cost."""
+    with pytest.raises(ValueError, match="require positive input/output prices"):
+        resolve_transport_config(
+            {
+                "name": "OR_bad_price",
+                "tier": "api",
+                "transport": "openrouter",
+                "model": "test/model",
+                "input_price_per_m": 0.0,
+                "output_price_per_m": 1.0,
+            }
+        )
+
+
+def test_subscription_provider_allows_zero_marginal_price() -> None:
+    """Subscription providers can have zero marginal price; their cost is
+    represented by quota/concurrency shadow prices instead."""
+    cfg = resolve_transport_config(
+        {
+            "name": "Chutes_SQ",
+            "tier": "quota",
+            "transport": "chutes",
+            "model": "provider/model",
+            "input_price_per_m": 0.0,
+            "output_price_per_m": 0.0,
+        }
+    )
+
+    assert cfg.input_price_per_m == 0.0
+    assert cfg.output_price_per_m == 0.0
