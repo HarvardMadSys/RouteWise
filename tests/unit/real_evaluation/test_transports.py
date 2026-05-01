@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 
 import pytest
 
@@ -40,6 +41,14 @@ class _FakeResponse:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _SlowStreamResponse(_FakeResponse):
+    def iter_lines(self, decode_unicode: bool = True):
+        yield "data: " + json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+        time.sleep(0.02)
+        yield "data: " + json.dumps({"choices": [{"delta": {"content": "world"}}]})
+        yield "data: [DONE]"
 
 
 class _FakeSession:
@@ -154,6 +163,24 @@ def test_http_429_final_failure_only_after_retry_budget_exhausted(monkeypatch) -
     assert result.retry_count >= 1
     assert result.retry_sleep_ms >= 1.0
     assert result.ttft_ms == -1.0
+
+
+def test_streaming_request_honors_total_wall_clock_timeout(monkeypatch) -> None:
+    """Streaming providers may keep the socket active with periodic chunks.
+
+    The real-eval timeout is a total request deadline, not just a socket idle
+    timeout; otherwise reasoning-heavy responses can outlive the runner's join
+    window and disappear from the CSV.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    session = _FakeSession([_SlowStreamResponse(200)])
+
+    result = _transport(session).send(prompt="x", max_tokens=8, timeout=0.005)
+
+    assert result.status == "timeout"
+    assert result.error_message == "total request timeout"
+    assert result.ttft_ms > 0
+    assert result.e2e_ms >= result.ttft_ms
 
 
 def test_openrouter_api_provider_requires_positive_prices() -> None:

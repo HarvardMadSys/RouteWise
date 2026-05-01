@@ -331,6 +331,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
                     )
 
                 for raw_line in response.iter_lines(decode_unicode=True):
+                    if time.perf_counter() >= deadline_perf:
+                        status = "timeout"
+                        error_message = "total request timeout"
+                        response.close()
+                        break
                     if not raw_line:
                         continue
                     if not raw_line.startswith("data:"):
@@ -382,6 +387,12 @@ class OpenAICompatStreamingTransport(BaseTransport):
                                 ttft_info["status"] = "success"
                             if ttft_event is not None:
                                 ttft_event.set()
+
+                    if time.perf_counter() >= deadline_perf:
+                        status = "timeout"
+                        error_message = "total request timeout"
+                        response.close()
+                        break
 
                 end_perf = time.perf_counter()
                 e2e_ms = (end_perf - start_perf) * 1000.0
