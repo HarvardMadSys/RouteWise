@@ -8,6 +8,7 @@ counter while still in the wait window, silently dropping sparse arrivals.
 from __future__ import annotations
 
 import tempfile
+import threading
 
 from experiments.real_evaluation.inventory import load_inventory
 from experiments.real_evaluation.recorder import Recorder
@@ -53,7 +54,7 @@ def test_long_inter_arrival_gap_not_skipped() -> None:
 
 def test_default_replay_runs_full_trace_for_each_policy() -> None:
     """Multiple policies are fair comparisons by default: every policy
-    receives every trace request, rather than a round-robin shard."""
+    receives every trace request at the same replay arrival."""
     inventory = load_inventory(_INVENTORY_PATH)
     trace = [
         TraceRequest(
@@ -87,20 +88,19 @@ def test_default_replay_runs_full_trace_for_each_policy() -> None:
     ])
 
 
-def test_traffic_split_replay_preserves_round_robin_smoke_mode() -> None:
-    """Round-robin request assignment is still available, but only when
-    explicitly requested as traffic-split smoke mode."""
+def test_default_replay_starts_all_policies_for_same_arrival_concurrently() -> None:
+    """A single trace arrival should fan out to all policies immediately,
+    not wait for one policy's request to complete before starting the next."""
     inventory = load_inventory(_INVENTORY_PATH)
     trace = [
         TraceRequest(
-            arrival_time_sec=float(i) * 0.01,
-            prompt="x",
-            prompt_tokens=10,
-            max_tokens=8,
+            arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8
         )
-        for i in range(4)
     ]
-    seen: list[tuple[str, int]] = []
+    entered: list[tuple[str, int]] = []
+    entered_lock = threading.Lock()
+    ready = threading.Semaphore(0)
+    release = threading.Event()
 
     with tempfile.TemporaryDirectory() as tmp:
         rec = Recorder(tmp)
@@ -110,23 +110,31 @@ def test_traffic_split_replay_preserves_round_robin_smoke_mode() -> None:
             recorder=rec,
             slo_ms=inventory.primary_slo_ms,
         )
-        runner._dispatch_one = (  # type: ignore[method-assign]
-            lambda policy, req, idx: seen.append((policy.name, idx))
-        )
-        runner.replay(
-            trace,
-            speedup=200.0,
-            duration_sec=10.0,
-            traffic_split=True,
-        )
-        rec.close()
 
-    assert sorted(seen) == sorted([
-        ("cheapest_fixed", 0),
-        ("fastest_fixed", 1),
-        ("cheapest_fixed", 2),
-        ("fastest_fixed", 3),
-    ])
+        def blocking_dispatch(policy, req, idx):  # type: ignore[no-untyped-def]
+            with entered_lock:
+                entered.append((policy.name, idx))
+            ready.release()
+            release.wait(timeout=5.0)
+
+        runner._dispatch_one = blocking_dispatch  # type: ignore[method-assign]
+        replay_thread = threading.Thread(
+            target=runner.replay,
+            args=(trace,),
+            kwargs={"speedup": 1.0, "duration_sec": 10.0},
+        )
+        replay_thread.start()
+        try:
+            assert ready.acquire(timeout=5.0)
+            assert ready.acquire(timeout=5.0)
+            assert sorted(entered) == [
+                ("cheapest_fixed", 0),
+                ("fastest_fixed", 0),
+            ]
+        finally:
+            release.set()
+            replay_thread.join(timeout=5.0)
+            rec.close()
 
 
 def test_duration_cap_stops_replay() -> None:

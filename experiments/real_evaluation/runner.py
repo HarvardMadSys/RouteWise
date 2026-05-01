@@ -1,9 +1,10 @@
 """Trace-replay runner for real online evaluation.
 
 Drives one or more policies through a synthetic / real trace against live
-provider APIs. By default every policy sees the full trace with isolated
-state. Each request is dispatched in a daemon thread; per-policy profiles
-and capacity state are updated by feedback after each completion.
+provider APIs. By default every policy sees the full trace at the same
+wall-clock arrivals with isolated state. Each request/policy decision is
+dispatched in a daemon thread; per-policy profiles and capacity state are
+updated by feedback after each completion.
 
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
@@ -376,29 +377,18 @@ class RealExperimentRunner:
         *,
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
-        traffic_split: bool = False,
         coalesce_identical_actions: bool = False,
     ) -> None:
         """Replay a trace against the configured policies.
 
-        Default semantics are paper-safe: every policy gets the full trace
-        with isolated policy state. ``traffic_split=True`` restores the old
-        smoke-test behavior where request ``i`` is assigned to policy
-        ``i % n_policies``. ``coalesce_identical_actions=True`` keeps full-trace
-        semantics but executes identical physical actions once, then fans the
-        observed result out to each policy's virtual accounting.
+        Default semantics are paper-safe: every policy gets the full trace at
+        the same wall-clock request arrivals with isolated policy state.
+        ``coalesce_identical_actions=True`` keeps those full-trace semantics
+        but executes identical physical actions once, then fans the observed
+        result out to each policy's virtual accounting.
         """
         if not trace:
             logger.warning("replay called with empty trace")
-            return
-        if traffic_split and coalesce_identical_actions:
-            raise ValueError(
-                "traffic_split and coalesce_identical_actions are mutually exclusive"
-            )
-        if traffic_split:
-            self._replay_traffic_split(
-                trace, speedup=speedup, duration_sec=duration_sec
-            )
             return
         if coalesce_identical_actions:
             self._replay_coalesced_full_trace(
@@ -406,12 +396,9 @@ class RealExperimentRunner:
             )
             return
 
-        for policy in self.policies.values():
-            if self._stop_event.is_set():
-                break
-            self._replay_full_trace_for_policy(
-                policy, trace, speedup=speedup, duration_sec=duration_sec
-            )
+        self._replay_parallel_full_trace(
+            trace, speedup=speedup, duration_sec=duration_sec
+        )
 
     def _wait_for_request_arrival(
         self,
@@ -439,33 +426,7 @@ class RealExperimentRunner:
         for t in threads:
             t.join(timeout=self.timeout_sec + 5)
 
-    def _replay_full_trace_for_policy(
-        self,
-        policy: BasePolicy,
-        trace: list[TraceRequest],
-        *,
-        speedup: float,
-        duration_sec: float,
-    ) -> None:
-        run_start = time.time()
-        threads: list[threading.Thread] = []
-        for i, req in enumerate(trace):
-            if not self._wait_for_request_arrival(
-                run_start, req, speedup=speedup, duration_sec=duration_sec
-            ):
-                break
-            t = threading.Thread(
-                target=self._dispatch_one,
-                args=(policy, req, i),
-                daemon=True,
-            )
-            t.start()
-            threads.append(t)
-            if (i + 1) % 25 == 0:
-                threads = [t for t in threads if t.is_alive()]
-        self._join_threads(threads)
-
-    def _replay_traffic_split(
+    def _replay_parallel_full_trace(
         self,
         trace: list[TraceRequest],
         *,
@@ -474,28 +435,20 @@ class RealExperimentRunner:
     ) -> None:
         run_start = time.time()
         threads: list[threading.Thread] = []
-        n_policies = len(self.policies)
-        policy_names = list(self.policies.keys())
-
+        policies = list(self.policies.values())
         for i, req in enumerate(trace):
-            # Wait until this request's arrival time. Must be a `while` loop:
-            # a previous bug used `continue` in a for-loop, which advanced
-            # to the next request and silently dropped any whose
-            # inter-arrival gap exceeded the sleep cap.
             if not self._wait_for_request_arrival(
                 run_start, req, speedup=speedup, duration_sec=duration_sec
             ):
                 break
-
-            policy_name = policy_names[i % n_policies]
-            policy = self.policies[policy_name]
-            t = threading.Thread(
-                target=self._dispatch_one,
-                args=(policy, req, i),
-                daemon=True,
-            )
-            t.start()
-            threads.append(t)
+            for policy in policies:
+                t = threading.Thread(
+                    target=self._dispatch_one,
+                    args=(policy, req, i),
+                    daemon=True,
+                )
+                t.start()
+                threads.append(t)
 
             if (i + 1) % 25 == 0:
                 threads = [t for t in threads if t.is_alive()]
@@ -927,16 +880,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         dest="policies",
         default=None,
         help=(
-            "Repeatable. By default each policy runs the full trace with "
-            "isolated state."
-        ),
-    )
-    parser.add_argument(
-        "--traffic-split",
-        action="store_true",
-        help=(
-            "Smoke mode only: split requests across policies round-robin "
-            "instead of running every policy on the full trace."
+            "Repeatable. By default each policy sees the full trace at the "
+            "same wall-clock arrivals with isolated state."
         ),
     )
     parser.add_argument(
@@ -1069,7 +1014,6 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
-        traffic_split=args.traffic_split,
         coalesce_identical_actions=args.coalesce_identical_actions,
     )
 
