@@ -186,10 +186,9 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertFalse((ROOT_DIR / "scripts").exists())
 
         simulation_suites = (
-            "run_joint.py",
-            "run_joint_mm25_baselines.py",
+            "run_mm25_baselines.py",
             "run_stress_tests.py",
-            "run_joint_lp_budget_eval.py",
+            "run_simulator_grid.py",
         )
 
         for relpath in simulation_suites:
@@ -204,9 +203,8 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
     def test_full_sweep_suites_are_registered(self) -> None:
         expected = (
-            "joint",
-            "joint_lp_budget_eval",
-            "joint_mm25_baselines",
+            "mm25_baselines",
+            "simulator_grid",
             "stress",
         )
 

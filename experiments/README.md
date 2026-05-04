@@ -22,7 +22,7 @@ routewise list --suites
 
 `offline_counterfactual/` retains the OpenRouter log-replay workflow used in
 the paper. Earlier latency-phase replay packages were retired; the current
-paper-facing joint method lives under `simulation/`.
+paper-facing simulator method lives under `simulation/`.
 
 Full-sweep paper runners live under `experiments/*/suites/`. They are allowed
 to orchestrate grids, plots, and output paths, but they should not own reusable

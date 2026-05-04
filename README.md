@@ -163,22 +163,22 @@ routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge
 routewise list --suites
 ```
 
-### Simulation Scenarios
+### Simulator Grid
 
 ```bash
-routewise suite joint
+routewise suite simulator_grid
 ```
 
 Outputs:
 
-- `outputs/joint/<scenario>/summary.json`
-- per-scenario plots
-- cross-scenario summary figure
+- `outputs/simulator_grid/<dataset>/<scenario>/results.csv`
+- `outputs/simulator_grid/<dataset>/<scenario>/summary_main.csv`
+- aggregate result tables and diagnostic plots
 
-### MM25 calibrated scenarios
+### MM25 Baselines
 
 ```bash
-routewise suite joint_mm25_baselines
+routewise suite mm25_baselines
 ```
 
 ### Stress scenarios

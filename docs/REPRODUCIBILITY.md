@@ -45,15 +45,15 @@ code under `rwsim/`.
 Full paper sweeps live under `experiments/*/suites/`:
 
 ```bash
-routewise suite joint
-routewise suite joint_mm25_baselines
+routewise suite simulator_grid
+routewise suite mm25_baselines
 routewise suite stress
 ```
 
 Suite-specific arguments are passed after `--`:
 
 ```bash
-routewise suite joint_lp_budget_eval -- --scenario s6_slow_q_trap
+routewise suite simulator_grid -- --scenario s6_slow_q_trap
 ```
 
 Generated artifacts should go under `outputs/`.

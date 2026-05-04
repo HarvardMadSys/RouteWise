@@ -3,14 +3,15 @@ MiniMax-M2.5 calibrated scenarios, so the alpha sweep has an apples-to-
 apples baseline to compare against.
 
 Usage:
-    routewise suite joint_mm25_baselines
+    routewise suite mm25_baselines
 
 Output:
-    outputs/alpha_joint_mm25/{scenario}/baselines.json
+    outputs/mm25_baselines/{scenario}/baselines.json
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -29,8 +30,24 @@ from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E40
 from rwsim.world import generate_workload  # noqa: E402
 
 
-OUTPUT_ROOT = _ROOT / "outputs" / "alpha_joint_mm25"
+DEFAULT_OUTPUT_ROOT = _ROOT / "outputs" / "mm25_baselines"
 SEEDS = [42, 43, 44]
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run MM25 calibrated baseline scenarios."
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=DEFAULT_OUTPUT_ROOT,
+        help=(
+            "Directory where baseline outputs should be written. Defaults to "
+            "outputs/mm25_baselines under the worktree root."
+        ),
+    )
+    return parser.parse_args()
 
 
 def _avg(runs, fn) -> float:
@@ -69,8 +86,10 @@ def summarize(runs, scenario) -> dict:
 
 
 def main() -> None:
+    args = _parse_args()
     scenarios = make_mm25_scenarios()
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    output_root = args.output_root
+    output_root.mkdir(parents=True, exist_ok=True)
     for scenario_id, scenario in scenarios.items():
         print(f"\n=== {scenario_id} ===")
         requests = generate_workload(
@@ -99,7 +118,7 @@ def main() -> None:
                 f"[{tier_s}]  ({elapsed:.1f}s)"
             )
 
-        out_dir = OUTPUT_ROOT / scenario_id
+        out_dir = output_root / scenario_id
         out_dir.mkdir(parents=True, exist_ok=True)
         with open(out_dir / "baselines.json", "w") as f:
             json.dump(results, f, indent=2)

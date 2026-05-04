@@ -23,14 +23,9 @@ class SuiteSpec:
 
 
 _SUITES: dict[str, SuiteSpec] = {
-    "joint": SuiteSpec(
-        name="joint",
-        module="experiments.simulation.suites.run_joint",
-        description="Run simulation joint-vs-two-layer scenarios.",
-    ),
-    "joint_mm25_baselines": SuiteSpec(
-        name="joint_mm25_baselines",
-        module="experiments.simulation.suites.run_joint_mm25_baselines",
+    "mm25_baselines": SuiteSpec(
+        name="mm25_baselines",
+        module="experiments.simulation.suites.run_mm25_baselines",
         description="Run MM25 calibrated baseline scenarios.",
     ),
     "stress": SuiteSpec(
@@ -38,10 +33,10 @@ _SUITES: dict[str, SuiteSpec] = {
         module="experiments.simulation.suites.run_stress_tests",
         description="Run simulation stress scenarios.",
     ),
-    "joint_lp_budget_eval": SuiteSpec(
-        name="joint_lp_budget_eval",
-        module="experiments.simulation.suites.run_joint_lp_budget_eval",
-        description="Run the sidecar LP-budget evaluation.",
+    "simulator_grid": SuiteSpec(
+        name="simulator_grid",
+        module="experiments.simulation.suites.run_simulator_grid",
+        description="Run the paper simulator grid evaluation.",
     ),
 }
 

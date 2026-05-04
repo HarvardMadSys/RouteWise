@@ -1,4 +1,4 @@
-"""Run the sidecar LP-budget evaluation on simulation scenarios."""
+"""Run the paper simulator grid evaluation."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ from experiments.simulation.lp_budget_eval import (  # noqa: E402
     summarize_main_metrics,
 )
 
-OUTPUT_ROOT = _ROOT / "outputs" / "lp_budget"
+OUTPUT_ROOT = _ROOT / "outputs" / "simulator_grid"
 DEFAULT_SEEDS = [42, 43, 44]
 
 # Scenario family identifiers exposed via --scenario-family. The legacy
@@ -54,7 +54,7 @@ SCENARIO_FAMILIES = (SCENARIO_FAMILY_LEGACY, SCENARIO_FAMILY_EVAL_GRID)
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the sidecar LP-budget evaluation on simulation scenarios."
+        description="Run the paper simulator grid evaluation."
     )
     parser.add_argument(
         "--scenario-family",
@@ -111,7 +111,7 @@ def _parse_args() -> argparse.Namespace:
         default=OUTPUT_ROOT,
         help=(
             "Directory where evaluation outputs should be written. Defaults to "
-            "outputs/lp_budget under the worktree root."
+            "outputs/simulator_grid under the worktree root."
         ),
     )
     parser.add_argument(
@@ -168,7 +168,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--freeze-golden",
         action="store_true",
-        help="Write a sidecar golden snapshot under outputs/lp_budget/golden/.",
+        help="Write a sidecar golden snapshot under outputs/simulator_grid/golden/.",
     )
     # Note: ``--probe-rate`` was removed on 2026-04-29 along with the
     # active-probing helper in lp_budget_eval.py. The simulator paper line
@@ -645,7 +645,7 @@ def main() -> None:
                            if f != "--include-shadow-price-ablation"]
             if other_flags:
                 print(
-                    "[run_joint_lp_budget_eval] eval_grid family ignores "
+                    "[run_simulator_grid] eval_grid family ignores "
                     f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
                     f"canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
                     file=sys.stderr,

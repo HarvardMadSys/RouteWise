@@ -238,7 +238,7 @@ def _run_job(spec: JobSpec) -> JobResult:
 
 
 # ---------------------------------------------------------------------------
-# Row builders (mirrored from run_joint_lp_budget_eval.py but importable).
+# Row builders (mirrored from run_simulator_grid.py but importable).
 # ---------------------------------------------------------------------------
 
 

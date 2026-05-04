@@ -14,5 +14,5 @@ routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge
 ```
 
 Full-sweep simulation runners live under `suites/` and are exposed as
-`routewise suite joint`, `routewise suite joint_mm25_baselines`, and
+`routewise suite simulator_grid`, `routewise suite mm25_baselines`, and
 `routewise suite stress`.
