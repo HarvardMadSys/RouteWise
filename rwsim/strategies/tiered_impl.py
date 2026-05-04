@@ -406,7 +406,6 @@ __all__ = [
     "HedgingParams",
     "HedgingStrategy",
     "SmartHedger",
-    "StrategyRun",
     "TIERED_STRATEGIES",
     "V2Router",
     "_joint_select_p50band",

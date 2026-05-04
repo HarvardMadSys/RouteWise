@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from rwsim.metrics import StrategyRun
 from rwsim.schemas import Request
-from rwsim.strategies.tiered_impl import TIERED_STRATEGIES, StrategyRun, run_tiered_strategy
+from rwsim.strategies.tiered_impl import TIERED_STRATEGIES, run_tiered_strategy
 from rwsim.world.scenarios import ScenarioConfig
 
 

@@ -104,7 +104,12 @@ The shared world model includes:
 - `scenarios.py`: shared `ScenarioConfig`
 - `shadow_price.py`: quota and concurrency shadow pricing
 - `workload.py`: request generation
-- `metrics.py`: shared `StrategyRun`
+
+### `rwsim/metrics`
+
+The shared metrics package includes:
+
+- `run.py`: shared `StrategyRun`
 
 ### `rwsim/strategies`
 
