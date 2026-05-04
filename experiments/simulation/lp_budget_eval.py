@@ -32,10 +32,10 @@ from rwsim.strategies.tiered_impl import (
     _sample_service_time,
     _sample_ttft,
 )
+from rwsim.metrics import StrategyRun
 from rwsim.world import (
     ProviderTier,
     ScenarioConfig,
-    StrategyRun,
     TieredProvider,
     calibrate_envelopes,
     effective_cost,

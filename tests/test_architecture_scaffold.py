@@ -141,6 +141,15 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         for dirname in ("value_estimators", "cost_routers", "latency_routers", "hedgers"):
             self.assertTrue((ROOT_DIR / "rwsim" / "policies" / dirname).is_dir(), dirname)
 
+    def test_metrics_have_canonical_home(self) -> None:
+        import rwsim.world
+        from rwsim.metrics import StrategyRun
+
+        self.assertTrue((ROOT_DIR / "rwsim" / "metrics" / "run.py").exists())
+        self.assertFalse((ROOT_DIR / "rwsim" / "world" / "metrics.py").exists())
+        self.assertEqual(StrategyRun.__module__, "rwsim.metrics.run")
+        self.assertNotIn("StrategyRun", rwsim.world.__all__)
+
     def test_algorithm_document_has_stage_level_correctness_contracts(self) -> None:
         source = (ROOT_DIR / "docs" / "ALGORITHMS.md").read_text(encoding="utf-8")
 

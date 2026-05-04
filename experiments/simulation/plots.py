@@ -17,7 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from rwsim.world import StrategyRun
+from rwsim.metrics import StrategyRun
 
 
 _STRATEGY_COLORS = {

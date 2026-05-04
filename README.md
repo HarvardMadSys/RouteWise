@@ -198,7 +198,8 @@ For new code, prefer the `rwsim` namespace:
 
 ```python
 from rwsim import LATENCY_STRATEGIES, TIERED_STRATEGIES, run_registered_strategy
-from rwsim.world import Provider, ScenarioConfig, StrategyRun
+from rwsim.metrics import StrategyRun
+from rwsim.world import Provider, ScenarioConfig
 ```
 
 ## Verification discipline

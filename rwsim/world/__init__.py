@@ -18,7 +18,6 @@ _EXPORT_MODULES = {
     "LogNormal": "rwsim.world.distributions",
     "Normal": "rwsim.world.distributions",
     "Uniform": "rwsim.world.distributions",
-    "StrategyRun": "rwsim.metrics.run",
     "Provider": "rwsim.world.providers",
     "ShiftingProvider": "rwsim.world.providers",
     "SyntheticProvider": "rwsim.world.providers",

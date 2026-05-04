@@ -41,7 +41,8 @@ from experiments.simulation import (
     make_stress_scenarios,
 )
 from rwsim.runner import run_registered_strategy
-from rwsim.world import StrategyRun, generate_workload
+from rwsim.metrics import StrategyRun
+from rwsim.world import generate_workload
 
 
 SEEDS = [42, 43, 44]
