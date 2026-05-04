@@ -258,7 +258,7 @@ Required artifacts:
 
 - raw evaluation log
 - provider percentile/profile log
-- counterfactual or replay command
+- rerun or replay command
 - generated summary CSV
 - generated plots/tables
 
