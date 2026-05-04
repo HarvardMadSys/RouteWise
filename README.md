@@ -23,6 +23,15 @@ From the repository root:
 source .venv/bin/activate
 ```
 
+Download raw workload traces if they are not already present:
+
+```bash
+scripts/download_workloads.sh
+```
+
+The downloader is idempotent and skips existing verified files under
+`data/full/`.
+
 Core regression check:
 
 ```bash
