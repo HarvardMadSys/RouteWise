@@ -27,8 +27,8 @@ Responsibility split:
 
 Important code-status caveat:
 
-- The latest method is implemented mostly in the tiered-capacity sidecar:
-  `experiments/tiered_capacity/lp_budget_eval.py`.
+- The latest method is implemented mostly in the simulation sidecar:
+  `experiments/simulation/lp_budget_eval.py`.
 - Some older named strategies in `rwsim/policies/composer.py` still point to
   `LP-CDF` or `Hedge-Economic`. Treat that file as a migration map, not as the
   final paper truth until the latest method is promoted.
@@ -192,7 +192,7 @@ Meaning:
 
 Code:
 
-- `experiments/tiered_capacity/lp_budget_eval.py`
+- `experiments/simulation/lp_budget_eval.py`
 - Current sidecar variants still include older `budget_vhat_t*` runs and
   provider-percentile `budget_body_p*` ablations. Before final paper runs, add
   or promote range-budget variants whose RHS is exactly
@@ -230,7 +230,7 @@ Operational meaning:
 
 Code:
 
-- `experiments/tiered_capacity/lp_budget_eval.py`
+- `experiments/simulation/lp_budget_eval.py`
 - Key helpers: `_combined_success_probability_after_hedge`,
   `_find_latest_safe_hedge_time_ms`, `_apply_probability_target_hedge`
 
@@ -255,7 +255,7 @@ Important distinction:
 
 Code:
 
-- `experiments/tiered_capacity/lp_budget_eval.py`
+- `experiments/simulation/lp_budget_eval.py`
 - Look for explicit `*_explorer` variants, `explorer_feedback_count`, and
   backup-selection helpers. Plain `*_hedge` variants are hedge-only and do not
   feed backup samples into latency profiles. Explicit `*_randombackup` variants
@@ -273,7 +273,7 @@ Status:
 | `rwsim/policies/latency_routers/online_lp.py` | `LP-CDF` and SWRR | Historical baseline / old named strategies |
 | `rwsim/policies/latency_routers/v2.py` | `LP-V2` / P50-band selector | Historical routing baseline |
 | `rwsim/policies/hedgers/smart_economic.py` | `Hedge-Economic` plus older hedge helpers | Historical smart hedge baseline |
-| `experiments/tiered_capacity/lp_budget_eval.py` | `LP-TTFT-budget`, `Hedge-ProbTarget`, Explorer sidecar | Current target implementation source |
+| `experiments/simulation/lp_budget_eval.py` | `LP-TTFT-budget`, `Hedge-ProbTarget`, Explorer sidecar | Current target implementation source |
 | `rwsim/policies/composer.py` | Alias registry for migrated strategies | Migration map; may lag current target story |
 | `docs/archive/` | Older design/results notes | Useful for archaeology, not final truth |
 | `docs/ALGORITHMS.md` | Broad architecture/canonical notes | Useful, but check against this roadmap before paper edits |

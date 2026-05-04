@@ -21,20 +21,20 @@ If the package is not installed, replace `routewise` below with
 
 ```bash
 routewise list
-routewise list --experiment tiered_capacity
+routewise list --experiment simulation
 routewise list --suites
 ```
 
 ## Validate Configs
 
 ```bash
-routewise validate tiered_capacity --scenario s6_slow_q_trap
+routewise validate simulation --scenario s6_slow_q_trap
 ```
 
 ## Run One Scenario
 
 ```bash
-routewise run tiered_capacity --scenario s6_slow_q_trap --strategy joint_hedge --seed 42
+routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge --seed 42
 ```
 
 These commands use `experiments/<name>/experiment.py` and reusable simulator

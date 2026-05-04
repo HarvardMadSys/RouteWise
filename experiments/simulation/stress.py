@@ -29,7 +29,7 @@ from rwsim.world import (
     LogNormal,
     ProviderTier,
     QuotaState,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     TieredProvider,
 )
 
@@ -47,11 +47,11 @@ def _ln_p50_p99(p50_ms: float, p99_ms: float) -> LogNormal:
     return LogNormal(mu=mu, sigma=max(sigma, 0.01))
 
 
-def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
+def make_stress_scenarios() -> dict[str, ScenarioConfig]:
     """Build ST1, ST2, ST3."""
     return {
         # ------------------------------------------------------------- ST1
-        "st1_multi_s_a": TieredScenarioConfig(
+        "st1_multi_s_a": ScenarioConfig(
             name="st1_multi_s_a",
             description=(
                 "3 S_A providers + 1 S_Q. Cost vs latency tradeoff within S_A "
@@ -96,7 +96,7 @@ def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
         ),
 
         # ------------------------------------------------------------- ST2
-        "st2_s_q_degradation": TieredScenarioConfig(
+        "st2_s_q_degradation": ScenarioConfig(
             name="st2_s_q_degradation",
             description=(
                 "S_Q starts fast (P50=200ms) then suddenly degrades to "
@@ -129,7 +129,7 @@ def make_stress_scenarios() -> dict[str, TieredScenarioConfig]:
         ),
 
         # ------------------------------------------------------------- ST3
-        "st3_multi_day_rollover": TieredScenarioConfig(
+        "st3_multi_day_rollover": ScenarioConfig(
             name="st3_multi_day_rollover",
             description=(
                 "3-day simulation with S_Q quota=100 resetting every 24 h. "

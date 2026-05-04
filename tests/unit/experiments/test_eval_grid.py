@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from experiments.tiered_capacity.eval_grid import (
+from experiments.simulation.eval_grid import (
     LatencyFamily,
     PAPER_GRID_VARIANTS,
     PAPER_HEDGE_MODES,
@@ -27,7 +27,7 @@ from experiments.tiered_capacity.eval_grid import (
     stage3_capacity_scenario_name,
     variant_name,
 )
-from experiments.tiered_capacity.lp_budget_eval import (
+from experiments.simulation.lp_budget_eval import (
     MAIN_VARIANTS,
     TRACE_WORKLOAD_DATASETS,
     _body_latency_proxy_ms,
@@ -189,7 +189,7 @@ def test_paper_grid_variants_excludes_explorer():
 def test_lp_comparison_variants_runnable():
     """LP_COMPARISON_VARIANTS = 2 original_lp + 10 budget_range_p*; every
     entry must be a runnable id known to lp_budget_eval."""
-    from experiments.tiered_capacity.eval_grid import LP_COMPARISON_VARIANTS
+    from experiments.simulation.eval_grid import LP_COMPARISON_VARIANTS
 
     assert len(LP_COMPARISON_VARIANTS) == 12
     main_set = set(MAIN_VARIANTS)
@@ -210,7 +210,7 @@ def test_shadow_price_ablation_excluded_from_main_variants():
     paper-grid runs don't get their main result polluted with what is
     explicitly the algorithm with shadow pricing turned off.
     """
-    from experiments.tiered_capacity.lp_budget_eval import (
+    from experiments.simulation.lp_budget_eval import (
         SHADOW_PRICE_ABLATION_VARIANTS,
     )
 

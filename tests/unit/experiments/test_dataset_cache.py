@@ -16,7 +16,7 @@ import pytest
 
 from rwsim.schemas import Request
 
-from experiments.tiered_capacity.dataset_cache import (
+from experiments.simulation.dataset_cache import (
     CacheStalenessError,
     build_cache,
     cache_status,
@@ -28,7 +28,7 @@ from experiments.tiered_capacity.dataset_cache import (
     _read_manifest,
     _source_fingerprint,
 )
-from experiments.tiered_capacity.lp_budget_eval import (
+from experiments.simulation.lp_budget_eval import (
     TRACE_WORKLOAD_DATASETS,
     _dataset_cache_path,
 )
@@ -57,20 +57,20 @@ def _synthetic_source(tmp_path: Path, monkeypatch):
     # Patch the two functions / constants that control path resolution
     # in lp_budget_eval so the cache module picks up our fake source.
     monkeypatch.setattr(
-        "experiments.tiered_capacity.lp_budget_eval._resolve_trace_dataset_path",
+        "experiments.simulation.lp_budget_eval._resolve_trace_dataset_path",
         lambda name: jsonl if name == "sharegpt" else None,
     )
     monkeypatch.setattr(
-        "experiments.tiered_capacity.lp_budget_eval._DATASET_CACHE_ROOT",
+        "experiments.simulation.lp_budget_eval._DATASET_CACHE_ROOT",
         cache_root,
     )
     # Also patch the dataset_cache module's re-import of these.
     monkeypatch.setattr(
-        "experiments.tiered_capacity.dataset_cache._resolve_trace_dataset_path",
+        "experiments.simulation.dataset_cache._resolve_trace_dataset_path",
         lambda name: jsonl if name == "sharegpt" else None,
     )
     monkeypatch.setattr(
-        "experiments.tiered_capacity.dataset_cache._DATASET_CACHE_ROOT",
+        "experiments.simulation.dataset_cache._DATASET_CACHE_ROOT",
         cache_root,
     )
     return tmp_path, cache_root, jsonl
@@ -121,11 +121,11 @@ def test_build_rejects_unknown_dataset():
 
 def test_load_cached_raises_if_no_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "experiments.tiered_capacity.dataset_cache._DATASET_CACHE_ROOT",
+        "experiments.simulation.dataset_cache._DATASET_CACHE_ROOT",
         tmp_path / "empty",
     )
     monkeypatch.setattr(
-        "experiments.tiered_capacity.lp_budget_eval._DATASET_CACHE_ROOT",
+        "experiments.simulation.lp_budget_eval._DATASET_CACHE_ROOT",
         tmp_path / "empty",
     )
     with pytest.raises(FileNotFoundError, match="No cache"):

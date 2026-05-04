@@ -10,23 +10,23 @@ Usage
 -----
 Run the full paper grid (12 scenarios × 3 workloads = 36 jobs)::
 
-    python -m experiments.tiered_capacity.suites.run_eval_grid_parallel \\
+    python -m experiments.simulation.suites.run_eval_grid_parallel \\
         --jobs 6 --seeds 42 43 44 --output-root outputs/eval_grid
 
 Run a single dataset for smoke-testing::
 
-    python -m experiments.tiered_capacity.suites.run_eval_grid_parallel \\
+    python -m experiments.simulation.suites.run_eval_grid_parallel \\
         --jobs 4 --seeds 42 --dataset sharegpt
 
 Include the shadow-price ablation::
 
-    python -m experiments.tiered_capacity.suites.run_eval_grid_parallel \\
+    python -m experiments.simulation.suites.run_eval_grid_parallel \\
         --jobs 6 --seeds 42 43 44 --include-shadow-price-ablation
 
 Pre-build caches first (recommended for first run)::
 
-    python -m experiments.tiered_capacity.dataset_cache build
-    python -m experiments.tiered_capacity.suites.run_eval_grid_parallel --jobs 6
+    python -m experiments.simulation.dataset_cache build
+    python -m experiments.simulation.suites.run_eval_grid_parallel --jobs 6
 """
 
 from __future__ import annotations
@@ -59,14 +59,14 @@ def _worker_imports():
     """Import heavy modules inside worker processes."""
     # These are module-level in lp_budget_eval / eval_grid, but we
     # defer them here so the main process spawns workers quickly.
-    from experiments.tiered_capacity.eval_grid import (  # noqa: F811
+    from experiments.simulation.eval_grid import (  # noqa: F811
         PAPER_GRID_VARIANTS,
         PAPER_WORKLOADS,
         SHADOW_PRICE_ABLATION_VARIANTS as GRID_SHADOW_ABLATION,
         WORKLOAD_DATASET_IDS,
         make_eval_grid_scenarios,
     )
-    from experiments.tiered_capacity.lp_budget_eval import (  # noqa: F811
+    from experiments.simulation.lp_budget_eval import (  # noqa: F811
         SHADOW_PRICE_ABLATION_VARIANTS,
         build_hedge_delta,
         canonicalize_variant_name,
@@ -492,13 +492,13 @@ def main() -> None:
 
     # We need eval_grid constants even in the main process (for planning),
     # but avoid importing the full lp_budget_eval machinery until workers.
-    from experiments.tiered_capacity.eval_grid import (
+    from experiments.simulation.eval_grid import (
         PAPER_GRID_VARIANTS,
         PAPER_WORKLOADS,
         WORKLOAD_DATASET_IDS,
         make_eval_grid_scenarios,
     )
-    from experiments.tiered_capacity.lp_budget_eval import (
+    from experiments.simulation.lp_budget_eval import (
         SHADOW_PRICE_ABLATION_VARIANTS,
     )
 
@@ -563,7 +563,7 @@ def main() -> None:
     # fight over the same .pkl.tmp file.
     trace_datasets = [d for d in datasets if d != "synthetic"]
     if trace_datasets:
-        from experiments.tiered_capacity.dataset_cache import ensure_caches
+        from experiments.simulation.dataset_cache import ensure_caches
 
         print("Warming dataset caches...")
         ensure_caches(trace_datasets)

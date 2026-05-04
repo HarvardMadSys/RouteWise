@@ -59,7 +59,7 @@ Config-driven experiment recipes now live under `experiments/`. The official
 application entrypoint is outside `rwsim/`:
 
 ```bash
-python -m routewise_cli.main list --experiment tiered_capacity
+python -m routewise_cli.main list --experiment simulation
 ```
 
 ## Repository layout
@@ -83,7 +83,7 @@ RouteWise/
     scenarios.py
     registry.py
   experiments/
-    tiered_capacity/
+    simulation/
     estimator_ablation/
     offline_stage/
   routewise_cli/
@@ -137,13 +137,13 @@ Current strategy aliases are mapped to these stages in
 
 `rwsim/scenarios.py` is reserved for generic scenario builders. Concrete S6,
 S7, S8, S9, and `unified_pool` definitions live as YAML configs under
-`experiments/tiered_capacity/configs/`.
+`experiments/simulation/configs/`.
 
 ## Supported scenario families
 
 Golden baselines cover three active families:
 
-- `tiered`: S6-S9 plus `unified_pool`
+- `simulation`: S6-S9 plus `unified_pool`
 - `calibrated`: MM25 calibrated scenarios
 - `stress`: ST1-ST3
 
@@ -157,13 +157,13 @@ editable mode, use `python -m routewise_cli.main ...` with the same arguments.
 
 ```bash
 routewise list
-routewise list --experiment tiered_capacity
-routewise validate tiered_capacity --scenario s6_slow_q_trap
-routewise run tiered_capacity --scenario s6_slow_q_trap --strategy joint_hedge
+routewise list --experiment simulation
+routewise validate simulation --scenario s6_slow_q_trap
+routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge
 routewise list --suites
 ```
 
-### Tiered scenarios
+### Simulation Scenarios
 
 ```bash
 routewise suite joint

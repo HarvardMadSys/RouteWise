@@ -2,7 +2,7 @@
 
 These scenarios intentionally avoid quota, concurrency, and shadow pricing so
 the expected behavior of the range-budget LP can be reasoned about by hand.
-They are meant to be run before the full tiered-capacity simulator.
+They are meant to be run before the full simulation grid.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import math
 from rwsim.world import (
     LogNormal,
     ProviderTier,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     TieredProvider,
 )
 
@@ -57,8 +57,8 @@ def _scenario(
     providers: list[TieredProvider],
     *,
     primary_slo_ms: float = 1000.0,
-) -> TieredScenarioConfig:
-    return TieredScenarioConfig(
+) -> ScenarioConfig:
+    return ScenarioConfig(
         name=name,
         description=description,
         providers=providers,
@@ -69,7 +69,7 @@ def _scenario(
     )
 
 
-def make_simple_scenarios() -> dict[str, TieredScenarioConfig]:
+def make_simple_scenarios() -> dict[str, ScenarioConfig]:
     """Return toy scenarios with hand-checkable LP-budget behavior."""
     same_cost = _scenario(
         "simple_same_cost_different_latency",

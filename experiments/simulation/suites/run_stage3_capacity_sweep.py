@@ -14,7 +14,7 @@ Default sweep:
 
 Usage:
 
-    python -m experiments.tiered_capacity.suites.run_stage3_capacity_sweep \\
+    python -m experiments.simulation.suites.run_stage3_capacity_sweep \\
         --jobs 12 \\
         --seed 42 --seed 43 --seed 44 \\
         --output-root outputs/stage3_capacity_sweep
@@ -95,19 +95,19 @@ def _run_job(spec: CapacityJobSpec) -> CapacityJobResult:
     """Execute one capacity-sweep job in a child process."""
     t0 = time.monotonic()
     try:
-        from experiments.tiered_capacity.eval_grid import (
+        from experiments.simulation.eval_grid import (
             LatencyFamily,
             ProviderSetup,
             make_scenario,
         )
-        from experiments.tiered_capacity.lp_budget_eval import (
+        from experiments.simulation.lp_budget_eval import (
             build_hedge_delta,
             generate_scenario_workload,
             run_variant,
             summarize_diagnostics,
             summarize_main_metrics,
         )
-        from experiments.tiered_capacity.suites.run_eval_grid_parallel import (
+        from experiments.simulation.suites.run_eval_grid_parallel import (
             _build_delta_rows,
             _build_diagnostic_rows,
             _build_summary_rows,
@@ -343,7 +343,7 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
-    from experiments.tiered_capacity.eval_grid import (
+    from experiments.simulation.eval_grid import (
         PAPER_GRID_VARIANTS,
         PAPER_WORKLOADS,
         WORKLOAD_DATASET_IDS,
@@ -415,7 +415,7 @@ def main() -> None:
 
     trace_datasets = [d for d in datasets if d != "synthetic"]
     if trace_datasets:
-        from experiments.tiered_capacity.dataset_cache import ensure_caches
+        from experiments.simulation.dataset_cache import ensure_caches
 
         print("Warming dataset caches...")
         ensure_caches(trace_datasets)
@@ -463,7 +463,7 @@ def main() -> None:
                     f"{result.elapsed_seconds:.1f}s"
                 )
 
-    from experiments.tiered_capacity.suites.run_eval_grid_parallel import (
+    from experiments.simulation.suites.run_eval_grid_parallel import (
         _merge_results,
     )
 

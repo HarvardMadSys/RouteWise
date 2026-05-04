@@ -50,7 +50,7 @@ RouteWise/
     registry.py
 
   experiments/
-    tiered_capacity/
+    simulation/
       configs/
       suites/
       experiment.py
@@ -132,8 +132,8 @@ It must not define concrete paper scenarios such as:
 Concrete paper scenarios belong in experiment configs, for example:
 
 ```text
-experiments/tiered_capacity/configs/s6_slow_q_trap.yaml
-experiments/tiered_capacity/configs/unified_pool.yaml
+experiments/simulation/configs/s6_slow_q_trap.yaml
+experiments/simulation/configs/unified_pool.yaml
 ```
 
 ### `rwsim/engine/`
@@ -331,7 +331,7 @@ Current status:
 - `rwsim/policies/` now owns the migrated latency routers, hedgers, value
   estimators, and initial cost-router selectors. Remaining work is to move
   full request-loop execution into `rwsim/engine/` behind the composer.
-- `experiments/tiered_capacity/configs/` owns S6/S7/S8/S9/`unified_pool`
+- `experiments/simulation/configs/` owns S6/S7/S8/S9/`unified_pool`
   scenario definitions and can run one registered strategy through
   `routewise run ...`.
 - `experiments/*/suites/` owns full-sweep paper runners that have not yet been

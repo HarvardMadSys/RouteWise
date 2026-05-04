@@ -33,11 +33,11 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.tiered_capacity.plots import (
+from experiments.simulation.plots import (
     plot_provider_mix,
     plot_slo_cost_pareto,
 )
-from experiments.tiered_capacity import (
+from experiments.simulation import (
     make_stress_scenarios,
 )
 from rwsim.runner import run_registered_strategy

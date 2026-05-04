@@ -42,9 +42,9 @@ AUDIT_ROOTS = [
 
 SEEDS = [42, 43, 44]
 FAMILY_SPECS = {
-    "tiered": {
+    "simulation": {
         "repo_root": MAIN_ROOT,
-        "output_relpath": Path("tiered/scenarios.json"),
+        "output_relpath": Path("simulation/scenarios.json"),
     },
     "calibrated": {
         "repo_root": MAIN_ROOT,
@@ -312,33 +312,33 @@ def _scenario_payload(
     return payload
 
 
-def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
-    """Capture one tiered-family scenario set."""
+def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
+    """Capture one simulation scenario set."""
     _bootstrap_repo(repo_root)
 
     from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
     from rwsim.world import generate_workload  # noqa: E402
 
-    if family == "tiered":
-        from experiments.tiered_capacity import load_all_world_scenarios  # noqa: E402
+    if family == "simulation":
+        from experiments.simulation import load_all_world_scenarios  # noqa: E402
 
         scenario_factory = lambda: {
             scenario.name: scenario for scenario in load_all_world_scenarios()
         }
     elif family == "calibrated":
-        from experiments.tiered_capacity import (  # noqa: E402
+        from experiments.simulation import (  # noqa: E402
             make_mm25_scenarios,
         )
 
         scenario_factory = make_mm25_scenarios
     elif family == "stress":
-        from experiments.tiered_capacity import (  # noqa: E402
+        from experiments.simulation import (  # noqa: E402
             make_stress_scenarios,
         )
 
         scenario_factory = make_stress_scenarios
     else:
-        raise ValueError(f"Unsupported tiered family: {family}")
+        raise ValueError(f"Unsupported simulation family: {family}")
 
     strategy_names = list(TIERED_STRATEGIES)
     scenarios_payload: dict[str, Any] = {}
@@ -374,8 +374,8 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
 
 def _capture_family_payload(family: str, repo_root: Path) -> dict[str, Any]:
     """Capture one family in the current process."""
-    if family in {"tiered", "calibrated", "stress"}:
-        return _capture_tiered_family(repo_root, family)
+    if family in {"simulation", "calibrated", "stress"}:
+        return _capture_simulation_family(repo_root, family)
     raise ValueError(f"Unknown family: {family}")
 
 

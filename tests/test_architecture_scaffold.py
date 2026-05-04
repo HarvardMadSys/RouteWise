@@ -18,8 +18,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureScaffoldTest(unittest.TestCase):
-    def test_tiered_configs_are_discoverable_without_yaml_dependency(self) -> None:
-        experiment = get_experiment("tiered_capacity")
+    def test_simulation_configs_are_discoverable_without_yaml_dependency(self) -> None:
+        experiment = get_experiment("simulation")
 
         self.assertEqual(
             experiment.list_scenarios(),
@@ -68,11 +68,11 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_experiment_registry_has_expected_packages(self) -> None:
         self.assertEqual(
             available_experiments(),
-            ("estimator_ablation", "tiered_capacity"),
+            ("estimator_ablation", "simulation"),
         )
 
-    def test_tiered_calibrated_scenarios_have_canonical_home(self) -> None:
-        canonical = ROOT_DIR / "experiments" / "tiered_capacity" / "calibrated.py"
+    def test_simulation_calibrated_scenarios_have_canonical_home(self) -> None:
+        canonical = ROOT_DIR / "experiments" / "simulation" / "calibrated.py"
 
         self.assertTrue(canonical.exists())
         self.assertIn("make_calibrated_scenarios", canonical.read_text(encoding="utf-8"))
@@ -184,19 +184,19 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertFalse((ROOT_DIR / "rwsim" / "drivers").exists())
         self.assertFalse((ROOT_DIR / "scripts").exists())
 
-        tiered_suites = (
+        simulation_suites = (
             "run_joint.py",
             "run_joint_mm25_baselines.py",
             "run_stress_tests.py",
             "run_joint_lp_budget_eval.py",
         )
 
-        for relpath in tiered_suites:
-            path = ROOT_DIR / "experiments" / "tiered_capacity" / "suites" / relpath
+        for relpath in simulation_suites:
+            path = ROOT_DIR / "experiments" / "simulation" / "suites" / relpath
             self.assertTrue(path.exists(), relpath)
 
         deleted_import = "leg" + "acy" + ".experiment"
-        for path in (ROOT_DIR / "experiments" / "tiered_capacity" / "suites").glob("*.py"):
+        for path in (ROOT_DIR / "experiments" / "simulation" / "suites").glob("*.py"):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
             self.assertNotIn("scripts.experiments", source, f"{path} should use experiment suites")

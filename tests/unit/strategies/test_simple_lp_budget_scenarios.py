@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from experiments.tiered_capacity.lp_budget_eval import (
+from experiments.simulation.lp_budget_eval import (
     EvaluatedRun,
     RunDiagnostics,
     build_all_scenarios,
     summarize_main_metrics,
 )
-from experiments.tiered_capacity.simple_scenarios import (
+from experiments.simulation.simple_scenarios import (
     SIMPLE_SCENARIOS,
     make_simple_scenarios,
 )

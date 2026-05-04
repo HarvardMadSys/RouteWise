@@ -1,4 +1,4 @@
-"""Orchestrator: run tiered scenarios (S6-S8) for joint vs two-layer comparison.
+"""Orchestrator: run simulation scenarios for joint vs two-layer comparison.
 
 Usage (from project root, with venv active):
     routewise suite joint
@@ -39,8 +39,8 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.tiered_capacity import load_all_world_scenarios
-from experiments.tiered_capacity.plots import (
+from experiments.simulation import load_all_world_scenarios
+from experiments.simulation.plots import (
     make_scenario_plots,
     plot_summary_across_scenarios,
 )

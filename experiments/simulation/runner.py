@@ -1,19 +1,19 @@
-"""Scenario-level orchestration for tiered capacity strategies."""
+"""Scenario-level orchestration for simulation strategies."""
 
 from __future__ import annotations
 
 from rwsim.schemas import Request
 from rwsim.strategies.tiered_impl import TIERED_STRATEGIES, StrategyRun, run_tiered_strategy
-from rwsim.world.scenarios import ScenarioConfig as TieredScenarioConfig
+from rwsim.world.scenarios import ScenarioConfig
 
 
-def run_tiered_scenario(
-    scenario: TieredScenarioConfig,
+def run_simulation_scenario(
+    scenario: ScenarioConfig,
     requests: list[Request],
     seeds: list[int] | None = None,
     strategies: list[str] | None = None,
 ) -> dict[str, list[StrategyRun]]:
-    """Run tiered strategies on a scenario across multiple seeds."""
+    """Run the tier-aware strategy set on one simulation scenario."""
     if seeds is None:
         seeds = [42, 43, 44]
     if strategies is None:
@@ -27,4 +27,4 @@ def run_tiered_scenario(
     return results
 
 
-__all__ = ["run_tiered_scenario"]
+__all__ = ["run_simulation_scenario"]

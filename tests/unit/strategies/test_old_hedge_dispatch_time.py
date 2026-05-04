@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import experiments.tiered_capacity.lp_budget_eval as lp_eval
+import experiments.simulation.lp_budget_eval as lp_eval
 from rwsim.schemas import Request
 from rwsim.world.capacity import ConcurrencyState, ProviderTier
 from rwsim.world.distributions import LogNormal

@@ -29,7 +29,7 @@ Policy taxonomy:
     c_min + p (c_max - c_min)``, probability-target hedge
 
 The ``BudgetRange*`` selector is a hand-port of
-``experiments.tiered_capacity.lp_budget_eval._select_budget_body``
+``experiments.simulation.lp_budget_eval._select_budget_body``
 (``_is_range_budget_variant`` branch). The simulator version is
 distribution-aware (uses ``provider._active_ttft_dist().mean()``); this
 real version uses the empirical rolling profile. A parity test should
@@ -760,7 +760,7 @@ class BudgetRangePolicy(BasePolicy):
     where ``B_p = c_min + (p/100) * (c_max - c_min)``.
 
     Hand-ported from
-    ``experiments.tiered_capacity.lp_budget_eval._select_budget_body``
+    ``experiments.simulation.lp_budget_eval._select_budget_body``
     (the ``_is_range_budget_variant`` branch). The simulator version reads
     distributional means via ``provider._active_ttft_dist().mean()``;
     here we use the empirical ``LatencyProfile.mean_ms``. A parity test

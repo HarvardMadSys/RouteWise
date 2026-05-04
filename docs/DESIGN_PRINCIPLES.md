@@ -86,7 +86,7 @@ All three classes implement the same interface:
     cdf(value) -> float
 
 ``cdf()`` is required for analytical SLO evaluation (see
-``experiments/tiered_capacity/lp_budget_eval.py:_ttft_cdf_ms``); ``p95()``
+``experiments/simulation/lp_budget_eval.py:_ttft_cdf_ms``); ``p95()``
 and ``quantile()`` are required by the tiered SLO filter
 (``rwsim/policies/latency_routers/tiered_filters.provider_p95_at``) so
 non-LogNormal scenarios can flow through the joint pipeline without
@@ -94,7 +94,7 @@ crashing.
 
 **Family default shape.** Each family interprets the same ``shape``
 parameter differently. The defaults in
-``experiments/tiered_capacity/eval_grid._DEFAULT_SHAPE_BY_FAMILY`` are
+``experiments/simulation/eval_grid._DEFAULT_SHAPE_BY_FAMILY`` are
 calibrated so that (a) the tail strictly grows from ``uniform`` to
 ``normal`` to ``heavy_tail`` and (b) ``Normal``'s left clipping at
 ``MIN_LATENCY_MS`` only affects a negligible mass of samples for any
@@ -149,7 +149,7 @@ scatter or a lower envelope, not as a curve indexed by ``p``.
 
 The 10 variants exposed by :data:`PAPER_GRID_VARIANTS` map directly to
 the runnable variant ids understood by
-``experiments.tiered_capacity.lp_budget_eval.run_variant``:
+``experiments.simulation.lp_budget_eval.run_variant``:
 
 | ``p`` | ``no_hedge`` | ``hedge`` |
 |------:|--------------|-----------|
@@ -173,9 +173,9 @@ Three workloads stress different request profiles:
 
 The paper-id column is what appears in figure captions and code that
 talks to the paper grid; the runner-dataset-id column is what
-``experiments.tiered_capacity.lp_budget_eval`` actually loads from disk.
+``experiments.simulation.lp_budget_eval`` actually loads from disk.
 The mapping lives in ``WORKLOAD_DATASET_IDS`` in
-``experiments/tiered_capacity/eval_grid.py`` — keep it as the single
+``experiments/simulation/eval_grid.py`` — keep it as the single
 source of truth so renames stay consistent.
 
 **Workload-as-driver semantics.** The trace contributes only **arrival
@@ -327,5 +327,5 @@ grid stabilises, in this order:
 - Architecture overview: ``docs/ARCHITECTURE.md``
 - Algorithm specification: ``docs/ALGORITHMS.md``
 - Distribution layer: ``rwsim/world/distributions.py``
-- Eval grid factory: ``experiments/tiered_capacity/eval_grid.py``
+- Eval grid factory: ``experiments/simulation/eval_grid.py``
 - Eval grid tests: ``tests/unit/experiments/test_eval_grid.py``

@@ -1,4 +1,4 @@
-"""Materialize tiered capacity configs into runnable world scenarios."""
+"""Materialize simulation configs into runnable world scenarios."""
 
 from __future__ import annotations
 

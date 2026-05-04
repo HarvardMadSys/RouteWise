@@ -1,4 +1,4 @@
-"""Run the sidecar LP-budget evaluation on merged tiered scenarios."""
+"""Run the sidecar LP-budget evaluation on simulation scenarios."""
 
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.tiered_capacity.eval_grid import (  # noqa: E402
+from experiments.simulation.eval_grid import (  # noqa: E402
     PAPER_GRID_VARIANTS,
     PAPER_WORKLOADS,
     WORKLOAD_DATASET_IDS,
     make_eval_grid_scenarios,
 )
-from experiments.tiered_capacity.lp_budget_eval import (  # noqa: E402
+from experiments.simulation.lp_budget_eval import (  # noqa: E402
     BACKUP_EXPLORATION_VARIANTS,
     BACKUP_SCOPES,
     CONTROL_VARIANTS,
@@ -54,7 +54,7 @@ SCENARIO_FAMILIES = (SCENARIO_FAMILY_LEGACY, SCENARIO_FAMILY_EVAL_GRID)
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the sidecar LP-budget evaluation on tiered scenarios."
+        description="Run the sidecar LP-budget evaluation on simulation scenarios."
     )
     parser.add_argument(
         "--scenario-family",
@@ -474,7 +474,7 @@ def _metadata(
         "sidecar_module": str(
             _ROOT
             / "experiments"
-            / "tiered_capacity"
+            / "simulation"
             / "lp_budget_eval.py"
         ),
         "scenario_family": scenario_family,
@@ -541,7 +541,7 @@ def _metadata(
             "not the rolling-profile sample mean. Matches the algorithm spec "
             "T_bar_j(t) = E[T_j(t)] without contaminating the LP objective with "
             "finite-sample estimator noise. See _body_latency_proxy_ms in "
-            "experiments/tiered_capacity/lp_budget_eval.py and "
+            "experiments/simulation/lp_budget_eval.py and "
             "DESIGN_PRINCIPLES.md §1 ('reasoning beats realism')."
         ),
         "hedge_as_probe": (

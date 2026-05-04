@@ -1,7 +1,7 @@
 # Joint Cross-Tier Routing — Design & Results
 
 Post-refactor path note: this document records the design history. The
-canonical implementation now lives under `experiments/tiered_capacity/` and
+canonical implementation now lives under `experiments/simulation/` and
 `rwsim/`
 
 ## Motivation
@@ -19,7 +19,7 @@ providers across all tiers in one step — dominates the two-layer design.
 ## Files
 
 ```
-experiments/tiered_capacity/
+experiments/simulation/
     configs/           S6, S7, S8, S9, unified_pool configs
     experiment.py      Config loading and runner helpers
     materialize.py     Config -> runnable world objects

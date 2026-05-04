@@ -33,7 +33,7 @@ from rwsim.world import (
     LogNormal,
     ProviderTier,
     QuotaState,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     TieredProvider,
     generate_workload,
 )
@@ -59,13 +59,13 @@ def _lognormal_p50_sigma(p50_ms: float, sigma: float = _BASE_SIGMA) -> LogNormal
 def _make_cell_scenario(
     p50_ratio: float,
     saturation: float,
-) -> TieredScenarioConfig:
+) -> ScenarioConfig:
     """Build a single-cell scenario for the grid."""
     sq_p50 = _BASE_SA_P50_MS * p50_ratio
 
     n_requests = int(_QUOTA_SIZE * saturation)
 
-    return TieredScenarioConfig(
+    return ScenarioConfig(
         name=f"cell_r{p50_ratio}_s{saturation}",
         description=(
             f"cell: p50_ratio={p50_ratio}, saturation={saturation}"

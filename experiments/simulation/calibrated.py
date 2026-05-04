@@ -1,4 +1,4 @@
-"""Calibrated tiered scenarios — parameters derived from real measurements.
+"""Calibrated simulation scenarios — parameters derived from real measurements.
 
 All latency and quota parameters are measured from live providers:
   - S_Q: Ollama Cloud glm-4.7:cloud, 60-min probe
@@ -23,7 +23,7 @@ from rwsim.world import (
     LogNormal,
     ProviderTier,
     QuotaState,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     TieredProvider,
 )
 
@@ -150,7 +150,7 @@ def _or_s_a(provider_name: str) -> TieredProvider:
 # ---------------------------------------------------------------------------
 
 
-def make_calibrated_scenarios() -> dict[str, TieredScenarioConfig]:
+def make_calibrated_scenarios() -> dict[str, ScenarioConfig]:
     """S6c/S7c/S8c — same mechanisms as S6/S7/S8 but calibrated parameters."""
     return {
         # -------------------------------------------------------------------
@@ -160,7 +160,7 @@ def make_calibrated_scenarios() -> dict[str, TieredScenarioConfig]:
         # router would route to Ollama and violate SLO on nearly every
         # request.
         # -------------------------------------------------------------------
-        "s6c_interactive": TieredScenarioConfig(
+        "s6c_interactive": ScenarioConfig(
             name="s6c_interactive",
             description=(
                 f"Tight SLO=2s (interactive chatbot). "
@@ -188,7 +188,7 @@ def make_calibrated_scenarios() -> dict[str, TieredScenarioConfig]:
         # joint formulation's value is most visible: a single knob
         # navigates the cost-latency frontier.
         # -------------------------------------------------------------------
-        "s6c_reasoning": TieredScenarioConfig(
+        "s6c_reasoning": ScenarioConfig(
             name="s6c_reasoning",
             description=(
                 "Relaxed SLO=30s (reasoning / batch workload). "
@@ -215,7 +215,7 @@ def make_calibrated_scenarios() -> dict[str, TieredScenarioConfig]:
         # smooth handoff. two_layer cliffs at z=1; joint's psi(z) ramps
         # smoothly and alpha controls when the switch happens.
         # -------------------------------------------------------------------
-        "s7c_quota_depletion": TieredScenarioConfig(
+        "s7c_quota_depletion": ScenarioConfig(
             name="s7c_quota_depletion",
             description=(
                 f"S_Q: Ollama (scaled quota=100), P50={OLLAMA_P50_MS:.0f}ms. "
@@ -240,7 +240,7 @@ def make_calibrated_scenarios() -> dict[str, TieredScenarioConfig]:
         # two_layer queues; joint spills via lambda(u). Measured P99 at
         # c>=2 is 3131ms (~5x P99 at c=1).
         # -------------------------------------------------------------------
-        "s8c_concurrency_saturation": TieredScenarioConfig(
+        "s8c_concurrency_saturation": ScenarioConfig(
             name="s8c_concurrency_saturation",
             description=(
                 "S_C: Featherless (C=1, P50=307ms, P99=662ms single-slot, "

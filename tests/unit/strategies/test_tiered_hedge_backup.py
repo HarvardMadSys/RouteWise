@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from experiments.tiered_capacity.lp_budget_eval import (
+from experiments.simulation.lp_budget_eval import (
     RecentViolationTracker,
     RollingLatencyProfile,
     _pick_probability_target_backup,

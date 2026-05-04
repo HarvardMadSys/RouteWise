@@ -8,7 +8,7 @@ from types import ModuleType
 
 _EXPERIMENT_MODULES = {
     "estimator_ablation": "experiments.estimator_ablation.experiment",
-    "tiered_capacity": "experiments.tiered_capacity.experiment",
+    "simulation": "experiments.simulation.experiment",
 }
 
 

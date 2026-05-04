@@ -1,4 +1,4 @@
-"""Calibrated tiered scenarios using MiniMax-M2.5 measurements across all providers.
+"""Calibrated simulation scenarios using MiniMax-M2.5 measurements across all providers.
 
 All latency parameters come from real concurrency probes conducted on
 2026-04-21 (see experiment/results/minimax_m25_probes/). Using a single
@@ -35,7 +35,7 @@ from rwsim.world import (
     LogNormal,
     ProviderTier,
     QuotaState,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     TieredProvider,
 )
 
@@ -180,7 +180,7 @@ def _or_s_a(label: str) -> TieredProvider:
 # ---------------------------------------------------------------------------
 
 
-def make_mm25_scenarios() -> dict[str, TieredScenarioConfig]:
+def make_mm25_scenarios() -> dict[str, ScenarioConfig]:
     """S6m / S7m / S8m with MiniMax-M2.5 calibrated parameters."""
     return {
         # -------------------------------------------------------------------
@@ -189,7 +189,7 @@ def make_mm25_scenarios() -> dict[str, TieredScenarioConfig]:
         # the joint router must absorb by spilling to S_A. Real measurement
         # shows 50 percent rejection rate at c=2.
         # -------------------------------------------------------------------
-        "s6m_featherless_saturation": TieredScenarioConfig(
+        "s6m_featherless_saturation": ScenarioConfig(
             name="s6m_featherless_saturation",
             description=(
                 f"S_C: Featherless (P50={PROBE['featherless']['p50_ms']:.0f}ms, "
@@ -214,7 +214,7 @@ def make_mm25_scenarios() -> dict[str, TieredScenarioConfig]:
         # joint at alpha=0 should stay on Ollama until psi(z) makes its
         # effective cost exceed S_A's price.
         # -------------------------------------------------------------------
-        "s7m_quota_depletion": TieredScenarioConfig(
+        "s7m_quota_depletion": ScenarioConfig(
             name="s7m_quota_depletion",
             description=(
                 f"S_Q: Ollama (P50={PROBE['ollama']['p50_ms']:.0f}ms, "
@@ -238,7 +238,7 @@ def make_mm25_scenarios() -> dict[str, TieredScenarioConfig]:
         # free provider (Ollama), spill to next-best (Chutes_S_Q), and
         # finally S_A when all subscriptions are exhausted.
         # -------------------------------------------------------------------
-        "s8m_multi_sq_hierarchy": TieredScenarioConfig(
+        "s8m_multi_sq_hierarchy": ScenarioConfig(
             name="s8m_multi_sq_hierarchy",
             description=(
                 "Three S_Q providers with different latency/quota. "

@@ -1,7 +1,7 @@
-"""Sidecar LP-budget evaluation harness for tiered synthetic scenarios.
+"""Sidecar LP-budget evaluation harness for synthetic simulation scenarios.
 
 This module intentionally does not register new strategies in the shared
-registry. It reuses the merged tiered world model and implements an isolated
+registry. It reuses the merged world model and implements an isolated
 evaluation path for the LP formulation pivot study.
 """
 
@@ -20,9 +20,9 @@ from typing import NamedTuple
 import numpy as np
 from scipy.optimize import linprog
 
-from experiments.tiered_capacity import list_scenarios, load_world_scenario
-from experiments.tiered_capacity.minimax_m25 import make_mm25_scenarios
-from experiments.tiered_capacity.simple_scenarios import make_simple_scenarios
+from experiments.simulation import list_scenarios, load_world_scenario
+from experiments.simulation.minimax_m25 import make_mm25_scenarios
+from experiments.simulation.simple_scenarios import make_simple_scenarios
 from rwsim.data import DataLoader
 from rwsim.policies.latency_routers.online_lp import SWRRSampler
 from rwsim.schemas import Request
@@ -34,7 +34,7 @@ from rwsim.strategies.tiered_impl import (
 )
 from rwsim.world import (
     ProviderTier,
-    ScenarioConfig as TieredScenarioConfig,
+    ScenarioConfig,
     StrategyRun,
     TieredProvider,
     calibrate_envelopes,
@@ -1352,7 +1352,7 @@ def _find_latest_safe_hedge_time_ms(
 
 
 def _apply_existing_hedge(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     providers: list[TieredProvider],
     primary: TieredProvider,
     req: Request,
@@ -1432,7 +1432,7 @@ def _apply_existing_hedge(
 
 
 def _apply_probability_target_hedge(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     providers: list[TieredProvider],
     primary: TieredProvider,
     req: Request,
@@ -1583,7 +1583,7 @@ def _apply_probability_target_hedge(
 
 
 def run_variant(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     requests: list[Request],
     variant: str,
     *,
@@ -1791,13 +1791,13 @@ def run_variant(
     return EvaluatedRun(run=run, diagnostics=diagnostics)
 
 
-def build_first_batch_scenarios() -> dict[str, TieredScenarioConfig]:
+def build_first_batch_scenarios() -> dict[str, ScenarioConfig]:
     """Return the mandatory first-batch scenario set for the LP study."""
     scenarios = build_all_scenarios()
     return {name: scenarios[name] for name in FIRST_BATCH_SCENARIOS}
 
 
-def build_all_scenarios() -> dict[str, TieredScenarioConfig]:
+def build_all_scenarios() -> dict[str, ScenarioConfig]:
     """Return every registered synthetic scenario available to the sidecar."""
     scenarios = {name: load_world_scenario(name) for name in list_scenarios()}
     scenarios.update(make_simple_scenarios())
@@ -1852,7 +1852,7 @@ def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
     """Load one real workload dataset for trace-driven synthetic experiments.
 
     Delegates all cache logic — loading, manifest verification, and
-    auto-building — to :mod:`experiments.tiered_capacity.dataset_cache`.
+    auto-building — to :mod:`experiments.simulation.dataset_cache`.
     This ensures the runtime loader never silently accepts a stale pickle
     when the source file has changed.
 
@@ -1864,7 +1864,7 @@ def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
 
     Build caches ahead of time with::
 
-        python -m experiments.tiered_capacity.dataset_cache build
+        python -m experiments.simulation.dataset_cache build
     """
     if dataset_name not in TRACE_WORKLOAD_DATASETS:
         raise ValueError(
@@ -1872,7 +1872,7 @@ def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
             f"Expected one of {TRACE_WORKLOAD_DATASETS!r}."
         )
 
-    from experiments.tiered_capacity.dataset_cache import (
+    from experiments.simulation.dataset_cache import (
         CacheStalenessError,
         build_cache,
         load_cached,
@@ -1903,7 +1903,7 @@ def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
 
 
 def _generate_trace_driven_workload(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     *,
     dataset_name: str,
     seed: int,
@@ -1963,7 +1963,7 @@ def _generate_trace_driven_workload(
 
 
 def generate_scenario_workload(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     *,
     seed: int = 0,
     dataset_name: str = "synthetic",
@@ -2000,7 +2000,7 @@ def generate_scenario_workload(
 
 
 def summarize_main_metrics(
-    scenario: TieredScenarioConfig,
+    scenario: ScenarioConfig,
     evaluated_runs: list[EvaluatedRun],
 ) -> dict[str, object]:
     """Aggregate user-facing metrics across seeds for one variant."""

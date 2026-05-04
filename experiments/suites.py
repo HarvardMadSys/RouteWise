@@ -25,22 +25,22 @@ class SuiteSpec:
 _SUITES: dict[str, SuiteSpec] = {
     "joint": SuiteSpec(
         name="joint",
-        module="experiments.tiered_capacity.suites.run_joint",
-        description="Run tiered joint-vs-two-layer scenarios.",
+        module="experiments.simulation.suites.run_joint",
+        description="Run simulation joint-vs-two-layer scenarios.",
     ),
     "joint_mm25_baselines": SuiteSpec(
         name="joint_mm25_baselines",
-        module="experiments.tiered_capacity.suites.run_joint_mm25_baselines",
+        module="experiments.simulation.suites.run_joint_mm25_baselines",
         description="Run MM25 calibrated baseline scenarios.",
     ),
     "stress": SuiteSpec(
         name="stress",
-        module="experiments.tiered_capacity.suites.run_stress_tests",
-        description="Run tiered stress scenarios.",
+        module="experiments.simulation.suites.run_stress_tests",
+        description="Run simulation stress scenarios.",
     ),
     "joint_lp_budget_eval": SuiteSpec(
         name="joint_lp_budget_eval",
-        module="experiments.tiered_capacity.suites.run_joint_lp_budget_eval",
+        module="experiments.simulation.suites.run_joint_lp_budget_eval",
         description="Run the sidecar LP-budget evaluation.",
     ),
 }

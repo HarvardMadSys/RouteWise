@@ -237,7 +237,7 @@ workload, sample latency, or mutate provider state.
 | `rwsim/policies/cost_routers/round_robin.py` | Deterministic round-robin selector | Baseline only |
 | `rwsim/policies/cost_routers/tiered.py` | Tier priority and cheapest-effective helpers | Current home for two-layer and joint cost helpers |
 | `rwsim/world/shadow_price.py` | Shadow-price primitives | Should become an implementation detail of cost routers |
-| `experiments/tiered_capacity/lp_budget_eval.py` | Sidecar budget variants | Migration source for range-budget semantics; old `v_hat` variants are not the final formula |
+| `experiments/simulation/lp_budget_eval.py` | Sidecar budget variants | Migration source for range-budget semantics; old `v_hat` variants are not the final formula |
 
 #### Unit-Test Contract
 
@@ -362,7 +362,7 @@ If no provider is feasible, the fallback rule must be explicit in metadata.
 | `rwsim/policies/latency_routers/online_lp.py` | LP tail-CDF router and SWRR | Current `lp_mix` / `lp_hedge` base |
 | `rwsim/policies/latency_routers/v2.py` | P50 Pareto-band router | Current `v2_*` base |
 | `rwsim/policies/latency_routers/tiered_filters.py` | Tiered P95 and P50-band filters | Current `joint_*` selectors |
-| `experiments/tiered_capacity/lp_budget_eval.py` | LP cost-budget sidecar | Migration source for `lp_cost_budget` |
+| `experiments/simulation/lp_budget_eval.py` | LP cost-budget sidecar | Migration source for `lp_cost_budget` |
 
 #### Unit-Test Contract
 
@@ -462,7 +462,7 @@ primary or backup latency; the engine samples and executes.
 | Module | Role | Notes |
 | --- | --- | --- |
 | `rwsim/policies/hedgers/smart_economic.py` | Economic, survival, residual, percentile hedge helpers | `SMART_ECONOMIC` is canonical for cost-benefit hedging |
-| `experiments/tiered_capacity/lp_budget_eval.py` | Probability-target and old tiered hedge variants | Migration source for `probability_targeted` and old alias behavior |
+| `experiments/simulation/lp_budget_eval.py` | Probability-target and old tiered hedge variants | Migration source for `probability_targeted` and old alias behavior |
 | `rwsim/strategies/tiered_impl.py` | Current `joint_hedge` behavior | Preserved by golden until behavior-change migration |
 
 #### Unit-Test Contract

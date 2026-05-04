@@ -16,19 +16,19 @@ Usage
 -----
 Build caches for all three trace datasets::
 
-    python -m experiments.tiered_capacity.dataset_cache build
+    python -m experiments.simulation.dataset_cache build
 
 Build for one dataset::
 
-    python -m experiments.tiered_capacity.dataset_cache build --dataset rednote
+    python -m experiments.simulation.dataset_cache build --dataset rednote
 
 Check cache status (includes staleness check)::
 
-    python -m experiments.tiered_capacity.dataset_cache status
+    python -m experiments.simulation.dataset_cache status
 
 Clear caches::
 
-    python -m experiments.tiered_capacity.dataset_cache clear
+    python -m experiments.simulation.dataset_cache clear
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.tiered_capacity.lp_budget_eval import (
+from experiments.simulation.lp_budget_eval import (
     TRACE_WORKLOAD_DATASETS,
     _DATA_LOADER_CONFIG,
     _DATASET_CACHE_ROOT,
@@ -141,7 +141,7 @@ def verify_cache(dataset_name: str, *, quick: bool = False) -> bool:
         # Legacy cache without manifest — force rebuild.
         raise CacheStalenessError(
             f"Cache for {dataset_name!r} has no manifest.  Rebuild with: "
-            f"python -m experiments.tiered_capacity.dataset_cache build "
+            f"python -m experiments.simulation.dataset_cache build "
             f"--dataset {dataset_name} --force"
         )
 
@@ -275,7 +275,7 @@ def load_cached(dataset_name: str) -> tuple:
     if not cache_path.exists():
         raise FileNotFoundError(
             f"No cache for {dataset_name!r} at {cache_path}. "
-            f"Run: python -m experiments.tiered_capacity.dataset_cache build "
+            f"Run: python -m experiments.simulation.dataset_cache build "
             f"--dataset {dataset_name}"
         )
     with cache_path.open("rb") as handle:
@@ -468,7 +468,7 @@ def main() -> None:
         clear_cache(getattr(args, "dataset", None))
 
     else:
-        print("Usage: python -m experiments.tiered_capacity.dataset_cache {build|status|clear}")
+        print("Usage: python -m experiments.simulation.dataset_cache {build|status|clear}")
         sys.exit(1)
 
 

@@ -1,4 +1,4 @@
-"""Plots for the tiered-scenario comparison.
+"""Plots for the simulation scenario comparison.
 
 Produces three views per scenario:
   slo_cost_pareto.png   SLO violation rate vs mean cost, one dot per strategy

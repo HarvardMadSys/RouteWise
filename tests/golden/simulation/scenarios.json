@@ -1,5 +1,5 @@
 {
-  "family": "tiered",
+  "family": "simulation",
   "scenarios": {
     "s6_slow_q_trap": {
       "arrival_process": "poisson",

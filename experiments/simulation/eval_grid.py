@@ -12,7 +12,7 @@ configs or call into the legacy hand-authored scenario files under
 this grid, not as new YAML files.
 
 The paper-grid variant names produced here match the runnable variants
-understood by ``experiments.tiered_capacity.lp_budget_eval.run_variant``
+understood by ``experiments.simulation.lp_budget_eval.run_variant``
 (``budget_range_p{0,25,50,75,100}`` and the ``_hedge`` suffix), so the grid
 plugs directly into the existing runner without an intermediate translation
 layer.
@@ -523,7 +523,7 @@ WORKLOAD_DATASET_IDS: dict[str, str] = {
     "enterprise": "rednote",  # internal trace name
 }
 """Paper-facing workload id → runner dataset id used by
-``experiments.tiered_capacity.lp_budget_eval``."""
+``experiments.simulation.lp_budget_eval``."""
 
 
 def runner_dataset_id(paper_workload: str) -> str:

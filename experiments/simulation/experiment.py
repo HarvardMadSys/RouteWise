@@ -1,4 +1,4 @@
-"""Thin config runner for tiered capacity scenarios."""
+"""Thin config runner for simulation scenarios."""
 
 from __future__ import annotations
 
@@ -14,41 +14,41 @@ from experiments._configs import (
 from rwsim.schemas import ScenarioConfig
 
 
-EXPERIMENT_NAME = "tiered_capacity"
+EXPERIMENT_NAME = "simulation"
 CONFIG_DIR = Path(__file__).with_name("configs")
 
 
 def list_scenarios() -> tuple[str, ...]:
-    """Return available tiered capacity scenario names."""
+    """Return available simulation scenario names."""
     return list_config_names(CONFIG_DIR)
 
 
 def load_scenario(name: str) -> ScenarioConfig:
-    """Load one tiered capacity scenario."""
+    """Load one simulation scenario."""
     return load_named_scenario(CONFIG_DIR, name)
 
 
 def load_all_scenarios() -> tuple[ScenarioConfig, ...]:
-    """Load all tiered capacity scenarios."""
+    """Load all simulation scenarios."""
     return load_all_named_scenarios(CONFIG_DIR)
 
 
 def load_world_scenario(name: str):
-    """Load one tiered capacity scenario as runnable world objects."""
-    from experiments.tiered_capacity.materialize import scenario as materialize_scenario
+    """Load one simulation scenario as runnable world objects."""
+    from experiments.simulation.materialize import scenario as materialize_scenario
 
     return materialize_scenario(load_scenario(name))
 
 
 def load_all_world_scenarios() -> tuple[object, ...]:
-    """Load all tiered capacity scenarios as runnable world objects."""
-    from experiments.tiered_capacity.materialize import scenario as materialize_scenario
+    """Load all simulation scenarios as runnable world objects."""
+    from experiments.simulation.materialize import scenario as materialize_scenario
 
     return tuple(materialize_scenario(item) for item in load_all_scenarios())
 
 
 def run_strategy(scenario_name: str, strategy: str, seed: int = 42) -> dict[str, Any]:
-    """Run one registered strategy on one config-driven tiered scenario."""
+    """Run one registered strategy on one config-driven simulation scenario."""
     from rwsim.runner import run_registered_strategy
     from rwsim.world import generate_workload
 
@@ -67,7 +67,7 @@ def run_strategy(scenario_name: str, strategy: str, seed: int = 42) -> dict[str,
 
 
 def summarize(name: str) -> dict[str, Any]:
-    """Load and summarize one tiered capacity scenario."""
+    """Load and summarize one simulation scenario."""
     return summarize_scenario(load_scenario(name))
 
 

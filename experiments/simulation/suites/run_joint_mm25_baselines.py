@@ -22,7 +22,7 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.tiered_capacity import (  # noqa: E402
+from experiments.simulation import (  # noqa: E402
     make_mm25_scenarios,
 )
 from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
