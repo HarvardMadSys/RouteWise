@@ -58,7 +58,7 @@ from rwsim.policies.latency_routers.tiered_filters import (
 )
 from rwsim.policies.latency_routers import V2Router
 from rwsim.schemas import Request
-from rwsim.world.metrics import StrategyRun
+from rwsim.metrics import StrategyRun
 from rwsim.world.providers import ProviderTier, TieredProvider
 from rwsim.world.scenarios import ScenarioConfig as TieredScenarioConfig
 from rwsim.world.shadow_price import (

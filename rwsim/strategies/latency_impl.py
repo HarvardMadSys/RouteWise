@@ -41,7 +41,7 @@ from rwsim.policies.hedgers import (
 )
 from rwsim.policies.latency_routers import OnlineLatencyRouter, V2Router
 from rwsim.schemas import Request
-from rwsim.world.metrics import StrategyRun
+from rwsim.metrics import StrategyRun
 from rwsim.world.providers import SyntheticProvider
 from rwsim.world.scenarios import ScenarioConfig
 

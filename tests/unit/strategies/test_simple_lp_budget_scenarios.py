@@ -15,7 +15,7 @@ from experiments.simulation.simple_scenarios import (
     make_simple_scenarios,
 )
 from rwsim.world.capacity import ProviderTier
-from rwsim.world.metrics import StrategyRun
+from rwsim.metrics import StrategyRun
 
 
 def test_simple_scenarios_are_registered_in_sidecar() -> None:
