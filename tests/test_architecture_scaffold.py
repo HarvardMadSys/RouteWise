@@ -182,6 +182,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.fail(f"{path} should live under experiments/*/suites")
         self.assertFalse((ROOT_DIR / "replot_phase_diagram.py").exists())
         self.assertFalse((ROOT_DIR / "rwsim" / "drivers").exists())
+        self.assertFalse((ROOT_DIR / "rwsim" / "analyze").exists())
         self.assertFalse((ROOT_DIR / "scripts").exists())
 
         simulation_suites = (
