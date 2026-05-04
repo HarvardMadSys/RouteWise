@@ -50,11 +50,6 @@ RouteWise/
     registry.py
 
   experiments/
-    synthetic_latency/
-      configs/
-      suites/
-      experiment.py
-      README.md
     tiered_capacity/
       configs/
       suites/
@@ -237,7 +232,7 @@ seeds, metrics, and output schemas.
 Experiment directories may be single-file when the experiment is simple:
 
 ```text
-experiments/synthetic_latency/
+experiments/estimator_ablation/
   configs/
   experiment.py
   README.md

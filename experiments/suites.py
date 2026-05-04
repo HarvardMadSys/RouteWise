@@ -23,46 +23,6 @@ class SuiteSpec:
 
 
 _SUITES: dict[str, SuiteSpec] = {
-    "synthetic": SuiteSpec(
-        name="synthetic",
-        module="experiments.synthetic_latency.suites.run_synthetic",
-        description="Run all synthetic latency scenarios.",
-    ),
-    "sanity": SuiteSpec(
-        name="sanity",
-        module="experiments.synthetic_latency.suites.run_sanity_check",
-        description="Run the synthetic latency sanity-check sweep.",
-    ),
-    "alpha_sweep": SuiteSpec(
-        name="alpha_sweep",
-        module="experiments.synthetic_latency.suites.run_alpha_sweep",
-        description="Run the alpha-weighted LP sweep.",
-    ),
-    "alpha_on_sanity": SuiteSpec(
-        name="alpha_on_sanity",
-        module="experiments.synthetic_latency.suites.run_alpha_on_sanity",
-        description="Run alpha-weighted LP on sanity-check scenarios.",
-    ),
-    "pareto": SuiteSpec(
-        name="pareto",
-        module="experiments.synthetic_latency.suites.run_pareto",
-        description="Run Pareto frontier sweeps.",
-    ),
-    "phase_diagram": SuiteSpec(
-        name="phase_diagram",
-        module="experiments.synthetic_latency.suites.run_phase_diagram",
-        description="Run the LP-vs-V2 phase diagram sweep.",
-    ),
-    "phase_diagram_v2": SuiteSpec(
-        name="phase_diagram_v2",
-        module="experiments.synthetic_latency.suites.run_phase_diagram_v2",
-        description="Run the Llama-like phase diagram sweep.",
-    ),
-    "replot_phase_diagram": SuiteSpec(
-        name="replot_phase_diagram",
-        module="experiments.synthetic_latency.suites.replot_phase_diagram",
-        description="Replot the cached phase diagram cells.",
-    ),
     "joint": SuiteSpec(
         name="joint",
         module="experiments.tiered_capacity.suites.run_joint",

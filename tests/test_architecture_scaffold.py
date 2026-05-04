@@ -68,7 +68,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_experiment_registry_has_expected_packages(self) -> None:
         self.assertEqual(
             available_experiments(),
-            ("estimator_ablation", "synthetic_latency", "tiered_capacity"),
+            ("estimator_ablation", "tiered_capacity"),
         )
 
     def test_tiered_calibrated_scenarios_have_canonical_home(self) -> None:
@@ -164,6 +164,9 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_old_experiment_packages_are_removed(self) -> None:
         self.assertFalse((ROOT_DIR / "experiment").exists())
         self.assertFalse((ROOT_DIR / ("leg" + "acy")).exists())
+        self.assertFalse((ROOT_DIR / "experiments" / "latency_phase3").exists())
+        self.assertFalse((ROOT_DIR / "experiments" / "latency_phase4").exists())
+        self.assertFalse((ROOT_DIR / "experiments" / "synthetic_latency").exists())
 
         for path in ROOT_DIR.rglob("*.py"):
             if ".venv" in path.parts:
@@ -181,16 +184,6 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertFalse((ROOT_DIR / "rwsim" / "drivers").exists())
         self.assertFalse((ROOT_DIR / "scripts").exists())
 
-        synthetic_suites = (
-            "run_synthetic.py",
-            "run_sanity_check.py",
-            "run_alpha_sweep.py",
-            "run_alpha_on_sanity.py",
-            "run_pareto.py",
-            "run_phase_diagram.py",
-            "run_phase_diagram_v2.py",
-            "replot_phase_diagram.py",
-        )
         tiered_suites = (
             "run_joint.py",
             "run_joint_mm25_baselines.py",
@@ -198,21 +191,11 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             "run_joint_lp_budget_eval.py",
         )
 
-        for relpath in synthetic_suites:
-            path = ROOT_DIR / "experiments" / "synthetic_latency" / "suites" / relpath
-            self.assertTrue(path.exists(), relpath)
-
         for relpath in tiered_suites:
             path = ROOT_DIR / "experiments" / "tiered_capacity" / "suites" / relpath
             self.assertTrue(path.exists(), relpath)
 
         deleted_import = "leg" + "acy" + ".experiment"
-        for path in (
-            ROOT_DIR / "experiments" / "synthetic_latency" / "suites"
-        ).glob("*.py"):
-            source = path.read_text(encoding="utf-8")
-            self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
-            self.assertNotIn("scripts.experiments", source, f"{path} should use experiment suites")
         for path in (ROOT_DIR / "experiments" / "tiered_capacity" / "suites").glob("*.py"):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn(deleted_import, source, f"{path} should use canonical imports")
@@ -220,18 +203,10 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
     def test_full_sweep_suites_are_registered(self) -> None:
         expected = (
-            "alpha_on_sanity",
-            "alpha_sweep",
             "joint",
             "joint_lp_budget_eval",
             "joint_mm25_baselines",
-            "pareto",
-            "phase_diagram",
-            "phase_diagram_v2",
-            "replot_phase_diagram",
-            "sanity",
             "stress",
-            "synthetic",
         )
 
         self.assertEqual(available_suites(), expected)

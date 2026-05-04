@@ -21,7 +21,6 @@ If the package is not installed, replace `routewise` below with
 
 ```bash
 routewise list
-routewise list --experiment synthetic_latency
 routewise list --experiment tiered_capacity
 routewise list --suites
 ```
@@ -29,14 +28,12 @@ routewise list --suites
 ## Validate Configs
 
 ```bash
-routewise validate synthetic_latency --scenario s1_dominant
 routewise validate tiered_capacity --scenario s6_slow_q_trap
 ```
 
 ## Run One Scenario
 
 ```bash
-routewise run synthetic_latency --scenario s1_dominant --strategy v2_only --seed 42
 routewise run tiered_capacity --scenario s6_slow_q_trap --strategy joint_hedge --seed 42
 ```
 
@@ -48,8 +45,6 @@ code under `rwsim/`.
 Full paper sweeps live under `experiments/*/suites/`:
 
 ```bash
-routewise suite synthetic
-routewise suite sanity
 routewise suite joint
 routewise suite joint_mm25_baselines
 routewise suite stress

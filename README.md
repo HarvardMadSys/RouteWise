@@ -83,7 +83,6 @@ RouteWise/
     scenarios.py
     registry.py
   experiments/
-    synthetic_latency/
     tiered_capacity/
     estimator_ablation/
     offline_stage/
@@ -142,10 +141,8 @@ S7, S8, S9, and `unified_pool` definitions live as YAML configs under
 
 ## Supported scenario families
 
-Golden baselines cover five families:
+Golden baselines cover three active families:
 
-- `latency_synthetic`: S1-S5
-- `latency_sanity`: Step 1-Step 5 sanity suites
 - `tiered`: S6-S9 plus `unified_pool`
 - `calibrated`: MM25 calibrated scenarios
 - `stress`: ST1-ST3
@@ -165,29 +162,6 @@ routewise validate tiered_capacity --scenario s6_slow_q_trap
 routewise run tiered_capacity --scenario s6_slow_q_trap --strategy joint_hedge
 routewise list --suites
 ```
-
-### Latency-only synthetic scenarios
-
-```bash
-routewise suite synthetic
-```
-
-Outputs:
-
-- `outputs/synthetic/<scenario>/summary.json`
-- latency and provider-selection plots for each scenario
-
-### Sanity-check scenarios
-
-```bash
-routewise suite sanity
-```
-
-Outputs:
-
-- `outputs/sanity_check/<step>/summary.json`
-- responsiveness plots
-- auto-generated ground-truth checks for sweep scenarios
 
 ### Tiered scenarios
 

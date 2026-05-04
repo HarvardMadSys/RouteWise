@@ -41,18 +41,7 @@ AUDIT_ROOTS = [
 ]
 
 SEEDS = [42, 43, 44]
-SANITY_N_REQUESTS = 1000
-SANITY_DURATION_SECONDS = 3600.0
-
 FAMILY_SPECS = {
-    "latency_synthetic": {
-        "repo_root": MAIN_ROOT,
-        "output_relpath": Path("latency/synthetic.json"),
-    },
-    "latency_sanity": {
-        "repo_root": MAIN_ROOT,
-        "output_relpath": Path("latency/sanity.json"),
-    },
     "tiered": {
         "repo_root": MAIN_ROOT,
         "output_relpath": Path("tiered/scenarios.json"),
@@ -323,99 +312,6 @@ def _scenario_payload(
     return payload
 
 
-def _capture_latency_synthetic(repo_root: Path) -> dict[str, Any]:
-    """Capture S1-S5 latency scenarios."""
-    _bootstrap_repo(repo_root)
-
-    from experiments.synthetic_latency import load_all_world_scenarios  # noqa: E402
-    from rwsim.runner import LATENCY_STRATEGIES, run_registered_strategy  # noqa: E402
-    from rwsim.world import generate_workload  # noqa: E402
-
-    strategy_names = list(LATENCY_STRATEGIES)
-    scenarios_payload: dict[str, Any] = {}
-    scenarios = {scenario.name: scenario for scenario in load_all_world_scenarios()}
-    for scenario_id, scenario in scenarios.items():
-        requests = generate_workload(
-            n_requests=scenario.n_requests,
-            duration_seconds=scenario.duration_seconds,
-            seed=0,
-            start_time=0.0,
-            arrival_process=scenario.arrival_process,
-        )
-        results = {
-            strategy_name: [
-                run_registered_strategy(scenario, requests, strategy_name, seed=seed)
-                for seed in SEEDS
-            ]
-            for strategy_name in strategy_names
-        }
-        scenarios_payload[scenario_id] = _scenario_payload(
-            scenario,
-            strategy_names,
-            results,
-        )
-
-    return {
-        "family": "latency_synthetic",
-        "seed_order": list(SEEDS),
-        "strategy_order": strategy_names,
-        "strategy_hash": _strategy_hash(strategy_names),
-        "scenarios": _sorted_dict(scenarios_payload),
-    }
-
-
-def _capture_latency_sanity(repo_root: Path) -> dict[str, Any]:
-    """Capture Step 1-Step 5 sanity scenarios."""
-    _bootstrap_repo(repo_root)
-
-    from experiments.synthetic_latency import (  # noqa: E402
-        make_sanity_steps,
-    )
-    from rwsim.runner import LATENCY_STRATEGIES, run_registered_strategy  # noqa: E402
-    from rwsim.world import generate_workload  # noqa: E402
-
-    strategy_names = list(LATENCY_STRATEGIES)
-    steps_payload: dict[str, Any] = {}
-    for step in make_sanity_steps():
-        scenario_payloads: dict[str, Any] = {}
-        for scenario in step.scenarios:
-            requests = generate_workload(
-                n_requests=SANITY_N_REQUESTS,
-                duration_seconds=SANITY_DURATION_SECONDS,
-                seed=0,
-                start_time=0.0,
-                arrival_process="poisson",
-            )
-            results = {
-                strategy_name: [
-                    run_registered_strategy(scenario, requests, strategy_name, seed=seed)
-                    for seed in SEEDS
-                ]
-                for strategy_name in strategy_names
-            }
-            scenario_payloads[scenario.name] = _scenario_payload(
-                scenario,
-                strategy_names,
-                results,
-            )
-        steps_payload[step.step_id] = {
-            "step_id": step.step_id,
-            "description": step.description,
-            "is_sweep": bool(step.is_sweep),
-            "scenarios": _sorted_dict(scenario_payloads),
-        }
-
-    return {
-        "family": "latency_sanity",
-        "seed_order": list(SEEDS),
-        "strategy_order": strategy_names,
-        "strategy_hash": _strategy_hash(strategy_names),
-        "sanity_n_requests": SANITY_N_REQUESTS,
-        "sanity_duration_seconds": SANITY_DURATION_SECONDS,
-        "steps": _sorted_dict(steps_payload),
-    }
-
-
 def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
     """Capture one tiered-family scenario set."""
     _bootstrap_repo(repo_root)
@@ -478,10 +374,6 @@ def _capture_tiered_family(repo_root: Path, family: str) -> dict[str, Any]:
 
 def _capture_family_payload(family: str, repo_root: Path) -> dict[str, Any]:
     """Capture one family in the current process."""
-    if family == "latency_synthetic":
-        return _capture_latency_synthetic(repo_root)
-    if family == "latency_sanity":
-        return _capture_latency_sanity(repo_root)
     if family in {"tiered", "calibrated", "stress"}:
         return _capture_tiered_family(repo_root, family)
     raise ValueError(f"Unknown family: {family}")
