@@ -43,23 +43,38 @@ Rules:
 
 ## 3. Naming conventions
 
-### 3.1 Two independent "Stage" systems — never mix
+### 3.1 Naming for `simulation/` and `offline_stage/`
 
 **Cost Oracle Stages** (in `offline_stage/`, the baseline / lower bound):
 
 - **Stage Q** — quota-only oracle (S_Q + S_A). Greedy by API cost.
 - **Stage QC** — quota + concurrency oracle (S_Q + S_C + S_A). MILP.
 
-**Synthetic Scenarios** (in `simulation/`, the RouteWise evaluation):
+**Simulation sections** (in `simulation/`) — paper-section names, mirrored
+from the Notion **Simulation** page (last synced 2026-05-04). Each maps to
+one file in `experiments/simulation/` per
+[`SIMULATION_SECTION_REFACTOR.md`](SIMULATION_SECTION_REFACTOR.md):
 
-- **S0** — same latency, different cost (3 × S_A)
-- **S1** — same cost, different latency (3 × S_A)
-- **S2** — cost-latency tradeoff (3 × S_A)
-- **S3** — full joint tier (S_A + S_Q + S_C)
+- **§1 Cost layer** (`cost_layer.py`) — same latency / different cost.
+  Sub-experiments roll in scarce-capacity tiers: §1.1 on-demand only,
+  §1.2 + quota, §1.3 + concurrency.
+- **§2 Latency layer** (`latency_layer.py` + `hedging.py`) — same cost /
+  different latency. Sub-experiments sweep distribution family
+  (uniform / normal / heavy_tail / real_world) and overlap (no_overlap /
+  half_overlap). §2.2 adds the Hedging-Explorer on three- and
+  eight-provider configurations.
+- **§3 End-to-end** (`end_to_end.py`) — real-world cost and real-world
+  latency, multi-tier deployments. §3.1 hedging on, §3.2 sweep `p`. The
+  three-provider config is `1 SA + 1 SQ + 1 SC`; the eight-provider config
+  is `6 SA + 1 SQ + 1 SC`.
 
-**Rule:** never say "Stage 1" or "Stage 2" without prefix. Use
-"Cost Oracle Stage Q" or "Synthetic S0". Most past confusion comes from this
-collision.
+**Deprecated naming.** The earlier `S0 / S1 / S2 / S3` scenario tags are
+retired; use the section / sub-experiment names above.
+
+**Rule:** prefix any "stage" reference. `Cost Oracle Stage Q` belongs to
+the offline baseline. Simulator experiments are referred to by their
+section number (`§1.1.4 real-world cost layer`, `§2.2.2 real-world
+hedging`).
 
 ### 3.2 Pending directory renames
 
@@ -75,18 +90,53 @@ Renames defer until naming is signed off. Same procedure as the
 
 ---
 
-## 4. The four-layer experiment plan (5/4 meeting)
+## 4. The four-layer experiment plan (5/4 meeting; mirrored from Notion)
 
 Per Juncheng's 5/4 framing, paper experiments split into four layers, each
-isolating one decision axis. Within `simulation/`, scenarios are organised
-along this axis:
+isolating one decision axis. The detailed sub-experiment tree lives in
+`experiments/simulation/README.md`; this table is the high-level summary.
 
 | Layer | Goal | Setup | Key metrics |
 |---|---|---|---|
-| **Cost layer** | Show RouteWise minimises cost when latency is held equal | same latency / different cost; ShareGPT 1-month workload; subscription count optimisation (1/2/3/4) | per-provider cost, request fraction, TTFT distribution |
-| **Latency layer** | Show RouteWise picks fast providers when cost is held equal | same cost / different latency; 4 distributions (uniform / normal / lognormal / real-world); distribution overlap as ablation knob | mean / P50 / P90 / P99 TTFT |
-| **Hedging** | Show Hedging-Explorer cuts P99 with bounded cost overhead | inside latency layer; probe + moving-average online profile; backup = random non-primary (Explorer style); evaluate trigger at P25 / P50 / P75 / P90 | P99 reduction, hedge trigger rate, cost multiplier |
-| **End-to-end** | Show RouteWise wins on real-world workload | real-world distribution; 3-provider and 8-provider configs | cost vs latency Pareto, SLO violation, tier mix |
+| **§1 Cost layer** | Show RouteWise minimises cost when latency is held equal | same latency / different cost; ShareGPT 1-month workload | per-provider cost, request fraction, TTFT distribution |
+| **§2 Latency layer** | Show RouteWise picks fast providers when cost is held equal | same cost / different latency | mean / P50 / P90 / P99 TTFT |
+| **§2.2 Hedging** | Show Hedging-Explorer cuts P99 with bounded cost overhead | inside latency layer; probe + moving-average online profile; backup = random non-primary (Explorer style); evaluate trigger at P25 / P50 / P75 / P90 | P99 reduction, hedge trigger rate, cost multiplier |
+| **§3 End-to-end** | Show RouteWise wins on real-world workload | real-world distribution; 3-provider and 8-provider configs | cost vs latency Pareto, SLO violation, tier mix |
+
+### Sub-experiment tree
+
+```
+§1 Cost layer
+  1.1 On-demand only (3 providers, costs $1 / $2 / $4 per M tokens):
+      1.1.1 uniform
+      1.1.2 normal
+      1.1.3 heavy_tail
+      1.1.4 real_world  (uses rw8_pooled — shared empirical distribution)
+  1.2 + Quota provider     (one lognormal-like S_Q; sweep #subscriptions)
+  1.3 + Concurrency provider (one lognormal-like S_C; sweep #subscriptions)
+
+§2 Latency layer (same cost, different latency)
+  2.1 No hedging (3 providers):
+      2.1.1 uniform     × {no_overlap, half_overlap}
+      2.1.2 normal      × {no_overlap, half_overlap}
+      2.1.3 heavy_tail  × {no_overlap, half_overlap}
+      2.1.4 real_world  (RW3)
+  2.2 Hedging (3 providers and 8 providers):
+      2.2.1 heavy_tail
+      2.2.2 real_world  (RW3, RW8)
+
+§3 End-to-end (real-world cost and latency)
+  3.1 Hedging on:
+      3-provider: 1 SA + 1 SQ + 1 SC
+      8-provider: 6 SA (RW8) + 1 SQ + 1 SC
+  3.2 Sweep p (LP budget knob)
+      same two configs as §3.1
+  + fraction of requests hitting 429
+```
+
+Latency families come from `rwsim/world/distributions.py`; the real-world
+profiles are the locked pools in
+[`experiments/simulation/profiles/pools.yaml`](../experiments/simulation/profiles/pools.yaml).
 
 ---
 

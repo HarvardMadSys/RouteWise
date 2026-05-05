@@ -132,8 +132,7 @@ tests/
 
 Existing references to these paths in `routewise_cli/main.py`, `README.md`,
 `docs/EXPERIMENT_LAYOUT.md`, `docs/RWSIM_REFACTOR_PLAN.md`,
-`docs/REPRODUCIBILITY.md`, `docs/PAPER_SUBMISSION_EXPERIMENT_PLAN.md` all
-update to the new shape.
+`docs/REPRODUCIBILITY.md` all update to the new shape.
 
 ### 2.3 What stays
 
@@ -212,7 +211,10 @@ Paper question: "When latency is held equal, does RouteWise minimize cost?"
 
 Constants:
 - All providers share identical TTFT distribution with **P50 = 300ms**.
-- API cost ratio: **`$1 / $2 / $4`** per million tokens (provider A / B / C).
+- API input cost ratio: **`$1 / $2 / $4`** per million input tokens
+  (provider A / B / C).
+- API output cost ratio: **`$5 / $10 / $20`** per million output tokens
+  (5× the input price for each provider).
 - Workload: `sharegpt_burstgpt` (the canonical 30-day combined trace).
 - `p` sweep: `P_SWEEP = (0.0, 0.25, 0.5, 0.75, 1.0)`.
 - Policy filter: drop `greedy_latency` (no latency signal across providers).
@@ -223,10 +225,10 @@ Scenarios:
 
 | Scenario | Provider setup |
 |---|---|
-| `cost_layer_uniform` | 3 × S_A, all `Uniform(0.5×P50, 1.5×P50)` = `[150, 450]ms`, cost `$1/$2/$4` |
-| `cost_layer_normal` | 3 × S_A, all `Normal(P50, 0.3×P50)` = `Normal(300, 90)`, cost `$1/$2/$4` |
-| `cost_layer_heavy_tail` | 3 × S_A, all `LogNormal(ln(P50), 0.5)`, cost `$1/$2/$4` |
-| `cost_layer_real_world` | 3 × S_A, all use the same `rw8_pooled` empirical Qwen3/OpenRouter TTFT distribution, cost `$1/$2/$4` |
+| `cost_layer_uniform` | 3 × S_A, all `Uniform(0.5×P50, 1.5×P50)` = `[150, 450]ms`, input `$1/$2/$4`, output `$5/$10/$20` |
+| `cost_layer_normal` | 3 × S_A, all `Normal(P50, 0.3×P50)` = `Normal(300, 90)`, input `$1/$2/$4`, output `$5/$10/$20` |
+| `cost_layer_heavy_tail` | 3 × S_A, all `LogNormal(ln(P50), 0.5)`, input `$1/$2/$4`, output `$5/$10/$20` |
+| `cost_layer_real_world` | 3 × S_A, all use the same `rw8_pooled` empirical Qwen3/OpenRouter TTFT distribution, input `$1/$2/$4`, output `$5/$10/$20` |
 | `cost_layer_quota_q1` | 1 × S_Q + 2 × S_A, base distribution = `LogNormal` |
 | `cost_layer_quota_q2` | 2 × S_Q + 1 × S_A |
 | `cost_layer_quota_q3` | 3 × S_Q + 1 × S_A |
@@ -406,9 +408,11 @@ P50_LADDER_MS: tuple[float, float, float] = (100.0, 300.0, 1000.0)
 """Canonical fast / medium / slow P50 used by latency_layer and any
 section that needs a multi-provider latency ladder."""
 
-COST_RATIO: tuple[float, float, float] = (1.0, 2.0, 4.0)
-"""Canonical cost ratio for the 3-S_A cost-layer scenarios; per-token
-prices are ratio × 1e-6 USD."""
+COST_RATIO_PER_MILLION: tuple[float, float, float] = (1.0, 2.0, 4.0)
+"""Canonical input-token price ratio for the 3-S_A cost-layer scenarios."""
+
+OUTPUT_COST_MULTIPLIER: float = 5.0
+"""Output-token price is 5× input-token price in cost-layer scenarios."""
 
 # NOTE: `construct_overlap_distributions` lives in `latency_layer.py`,
 # not here. Overlap construction is a paper-section-specific concept;
@@ -650,7 +654,9 @@ def test_no_legacy_simulator_imports(self) -> None:
 3. Each scenario has at least one provider and a strictly positive SLO.
 4. `policies_for_section()` is a non-empty subset of all paper-name policies.
 5. (Section-specific) provider invariants:
-   - cost_layer: all S_A providers share the same TTFT distribution; per-token cost ratio is `(1, 2, 4) * 1e-6`.
+   - cost_layer: all S_A providers share the same TTFT distribution; input-token
+     cost ratio is `(1, 2, 4) * 1e-6`; output-token cost ratio is
+     `(5, 10, 20) * 1e-6`.
    - latency_layer: all providers have the same cost; P50 ladder is `(100, 300, 1000)` ms.
    - hedging: at least one provider's distribution is heavy-tail (LogNormal).
    - end_to_end: planning module importable; module does not define `main()` before CLI registration.
@@ -665,7 +671,8 @@ reviewer can trace each parameter back to a decision.
 
 | Decision | Value | Source |
 |---|---|---|
-| cost_layer cost ratio | `$1 / $2 / $4` per million tokens | Notion §1.1 |
+| cost_layer input cost ratio | `$1 / $2 / $4` per million input tokens | Notion §1.1 |
+| cost_layer output cost ratio | `$5 / $10 / $20` per million output tokens (5× input) | Murphy |
 | cost_layer common P50 | `300ms` | Notion §1.1 |
 | cost_layer subscription-count sweep | `{1, 2, 3, 4}` for both quota and concurrency | Murphy + Juncheng 5/4 |
 | cost_layer real-world distribution | `cost_layer_real_world` uses `rw8_pooled` empirical Qwen3/OpenRouter TTFT for all three S_A providers | Murphy |
@@ -814,8 +821,7 @@ Only after Phase 4 closes the coverage gap. Lands:
 - Delete legacy `tests/golden/` subdirs that referenced
   `simulator_grid` / `eval_grid`.
 - Update `README.md`, `docs/EXPERIMENT_LAYOUT.md`,
-  `docs/RWSIM_REFACTOR_PLAN.md`, `docs/REPRODUCIBILITY.md`,
-  `docs/PAPER_SUBMISSION_EXPERIMENT_PLAN.md`.
+  `docs/RWSIM_REFACTOR_PLAN.md`, `docs/REPRODUCIBILITY.md`.
 
 If Phase 5 surfaces a missing capability (e.g. some legacy suite
 feature has no equivalent in the section files), pause and add the
@@ -854,7 +860,7 @@ the following hold:
 - §2 final shape matches the eventual file tree (4 section files; 3
   CLI-registered after Phase 3, all 4 after Phase 4)
 - §3.1 numbers match Notion: P50 ladder `100/300/1000ms`, cost ratio
-  `$1/$2/$4`, overlap regimes `no_overlap` + `half_overlap` only,
+  input `$1/$2/$4` and output `$5/$10/$20`, overlap regimes `no_overlap` + `half_overlap` only,
   simulator runs explorer OFF
 - §5 final CLI surface registers exactly `cost-layer`, `latency-layer`,
   `hedging`, `end-to-end`, `list` — and intermediate phases register

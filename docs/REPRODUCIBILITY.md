@@ -25,22 +25,21 @@ routewise list --experiment simulation
 routewise list --suites
 ```
 
-## Validate Configs
+## Run One Paper Section
+
+The simulator is organised one Python file per paper section. See
+`experiments/simulation/README.md` for the sub-experiment tree
+(§1.1.1 / §1.1.2 / §2.1.1.1 / §3.1 / etc.):
 
 ```bash
-routewise validate simulation --scenario <S0|S1|S2|S3>
+python -m experiments.simulation.cost_layer
+python -m experiments.simulation.latency_layer
+python -m experiments.simulation.hedging
+python -m experiments.simulation.end_to_end
 ```
 
-## Run One Scenario
-
-```bash
-routewise run simulation --scenario <S0|S1|S2|S3> --policy routewise --seed 42
-```
-
-These commands use `experiments/<name>/experiment.py` and reusable simulator
-code under `rwsim/`. Paper-aligned scenario YAMLs (`S0` cost-only / `S1`
-latency-only / `S2` cost-latency / `S3` joint tier) live under
-`experiments/simulation/configs/`; see `docs/EXPERIMENT_LAYOUT.md` §3.1.
+Each runner exposes `--help` for sub-experiment selection (latency family,
+overlap, provider pool, hedging on/off).
 
 ## Run Full Suites
 
@@ -48,12 +47,6 @@ Full paper sweeps live under `experiments/*/suites/`:
 
 ```bash
 routewise suite simulator_grid
-```
-
-Suite-specific arguments are passed after `--`:
-
-```bash
-routewise suite simulator_grid -- --scenario S0
 ```
 
 Generated artifacts should go under `outputs/`.

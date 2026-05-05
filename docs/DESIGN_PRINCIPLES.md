@@ -42,8 +42,10 @@ Three corollaries:
 The full simulator grid is generated from three independent axes plus a
 workload axis. **Do not invent named scenarios outside this grid** — the
 hand-authored ``s6/s7/s8/s9/unified_pool`` YAMLs were dropped on
-2026-05-05; the canonical scenarios are S0-S3 from
-``EXPERIMENT_LAYOUT.md`` §3.1. Every cell of the grid is identified by
+2026-05-05; the canonical layout is the paper-section structure
+(cost / latency / hedging / end-to-end, with sub-experiments §1.1.1 through
+§3.2) documented in ``EXPERIMENT_LAYOUT.md`` §3.1 and Notion's *Simulation*
+page. Every cell of the grid is identified by
 ``(stage, distribution, policy, workload)``.
 
 ### 2.1 Stage (Provider Setup)
@@ -157,8 +159,11 @@ by the eval-grid routing pipeline — the providers in
 ``ProviderSetup.{SAME_COST, COST_LATENCY_TRADEOFF, JOINT_PROVIDER}`` are
 deliberately abstract (``S1_fast`` / ``S2_cheap_slow`` / ``S3_quota_chutes``
 etc.), have no ``supported_models`` constraint, and price every request
-at ``cost_per_token × total_tokens`` regardless of which model the trace
-recorded. Concrete consequences:
+with the simulator provider's configured token prices, not the trace's
+original provider prices. New section-based scenarios use split
+``input_cost_per_token`` / ``output_cost_per_token`` pricing; legacy configs
+that only set ``cost_per_token`` keep blended ``cost_per_token × total_tokens``
+semantics. Concrete consequences:
 
 - For **FreeInference** (12 models) and **Rednote** (8 models),
   per-request costs in the simulator do **not** reflect real per-model
@@ -207,8 +212,8 @@ of the grid, not its behaviour. They run cheaply and must pass before
 any code change lands.
 
 - 12 grid scenarios exist (4 stages × 3 distributions).
-- Stage 1 cells: every provider has the same ``cost_per_token``.
-- Stage 2 cells: at least 3 distinct ``cost_per_token`` values among providers.
+- Stage 1 cells: every provider has the same configured token prices.
+- Stage 2 cells: at least 3 distinct configured token-price points among providers.
 - Stage 3 cells: contain all three tiers (``S_A``, ``S_Q``, ``S_C``) with
   positive quota / concurrency capacity.
 

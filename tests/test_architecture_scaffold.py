@@ -20,10 +20,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 class ArchitectureScaffoldTest(unittest.TestCase):
     def test_simulation_experiment_is_registered(self) -> None:
         # Legacy hand-authored S6/S7/S8/S9/unified_pool scenarios were dropped
-        # in favour of the EXPERIMENT_LAYOUT.md §3.1 paper structure (S0-S3).
-        # The new YAML configs are not yet committed; for now assert only that
-        # the experiment registers cleanly and yields a tuple of scenario
-        # names (possibly empty until S0-S3 land).
+        # in favour of the paper-section structure (cost / latency / hedging /
+        # end-to-end) documented in EXPERIMENT_LAYOUT.md §3.1 and Notion.
+        # The new section runners live in experiments/simulation/*.py; for now
+        # assert only that the experiment registers cleanly and yields a tuple
+        # of scenario names (possibly empty during the section refactor).
         experiment = get_experiment("simulation")
         scenarios = experiment.list_scenarios()
         self.assertIsInstance(scenarios, tuple)

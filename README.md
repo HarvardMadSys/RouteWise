@@ -40,11 +40,14 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
-Run one config-driven scenario (paper S0-S3 YAMLs land in
-`experiments/simulation/configs/`; until then, use the eval_grid suite):
+Run one paper section (cost / latency / hedging / end-to-end). See
+`experiments/simulation/README.md` for the full sub-experiment tree:
 
 ```bash
-routewise run simulation --scenario <S0|S1|S2|S3> --policy routewise --seed 42
+python -m experiments.simulation.cost_layer
+python -m experiments.simulation.latency_layer
+python -m experiments.simulation.hedging
+python -m experiments.simulation.end_to_end
 ```
 
 Run registered suites:
