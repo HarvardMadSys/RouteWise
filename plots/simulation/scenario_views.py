@@ -1,13 +1,16 @@
 """Plots for the simulation scenario comparison.
 
 Produces three views per scenario:
-  slo_cost_pareto.png   SLO violation rate vs mean cost, one dot per strategy
-  provider_mix.png      Stacked bar of tier fractions per strategy
-  cost_over_time.png    Cumulative cost vs time for two_layer vs joint_nohedge
+  slo_cost_pareto.png   SLO violation rate vs mean cost, one dot per policy
+  provider_mix.png      Stacked bar of tier fractions per policy
+  cost_over_time.png    Cumulative cost vs time for selected policies
 
 A summary figure across all scenarios is emitted to `summary.png`.
 
 All figures are saved as PNG (no PDF, per project convention).
+
+Consumes:
+  SimulationRun objects produced by experiments/simulation/* runners.
 """
 
 from __future__ import annotations
@@ -17,60 +20,42 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from rwsim.metrics import StrategyRun
+from plots.palettes import (
+    ROUTER_STRATEGY_COLORS,
+    ROUTER_STRATEGY_LABELS,
+    TIER_COLORS,
+)
+from rwsim.metrics import SimulationRun
 
 
-_STRATEGY_COLORS = {
-    "two_layer": "#1f77b4",
-    "joint_nohedge": "#2ca02c",
-    "joint_hedge": "#17becf",
-    "joint_p50band_nohedge": "#d62728",
-    "joint_p50band_hedge": "#ff7f0e",
-}
-
-_STRATEGY_SHORT = {
-    "two_layer": "two_layer",
-    "joint_nohedge": "joint",
-    "joint_hedge": "joint+hedge",
-    "joint_p50band_nohedge": "joint(p50band)",
-    "joint_p50band_hedge": "joint(p50band)+hedge",
-}
-
-_TIER_COLORS = {
-    "quota": "#2ca02c",         # S_Q green
-    "concurrency": "#9467bd",   # S_C purple
-    "api": "#1f77b4",           # S_A blue
-}
-
-
-def _mean_metric(runs: list[StrategyRun], fn) -> float:
+def _mean_metric(runs: list[SimulationRun], fn) -> float:
     return float(np.mean([fn(r) for r in runs]))
 
 
 def plot_slo_cost_pareto(
     scenario_name: str,
     primary_slo_ms: float,
-    results: dict[str, list[StrategyRun]],
+    results: dict[str, list[SimulationRun]],
     output_path: Path,
 ) -> None:
-    """Scatter of (mean cost, SLO violation rate) per strategy."""
+    """Scatter of (mean cost, SLO violation rate) per policy."""
     fig, ax = plt.subplots(figsize=(6.0, 4.0))
 
-    for strat, runs in results.items():
+    for policy_name, runs in results.items():
         x = _mean_metric(runs, lambda r: r.slo_violation_rate(primary_slo_ms))
         y = _mean_metric(runs, lambda r: r.mean_cost_usd())
         ax.scatter(
             x * 100.0, y,
             s=120,
-            color=_STRATEGY_COLORS.get(strat, "gray"),
-            label=_STRATEGY_SHORT.get(strat, strat),
+            color=ROUTER_STRATEGY_COLORS.get(policy_name, "gray"),
+            label=ROUTER_STRATEGY_LABELS.get(policy_name, policy_name),
             edgecolors="black",
             linewidths=0.8,
             alpha=0.85,
         )
         # Annotate each point.
         ax.annotate(
-            _STRATEGY_SHORT.get(strat, strat),
+            ROUTER_STRATEGY_LABELS.get(policy_name, policy_name),
             xy=(x * 100.0, y),
             xytext=(5, 5),
             textcoords="offset points",
@@ -98,14 +83,14 @@ def plot_slo_cost_pareto(
 
 def plot_provider_mix(
     scenario_name: str,
-    results: dict[str, list[StrategyRun]],
+    results: dict[str, list[SimulationRun]],
     output_path: Path,
 ) -> None:
-    """Stacked bar of tier fractions for each strategy."""
-    strategies = list(results.keys())
-    labels = [_STRATEGY_SHORT.get(s, s) for s in strategies]
+    """Stacked bar of tier fractions for each policy."""
+    policies = list(results.keys())
+    labels = [ROUTER_STRATEGY_LABELS.get(s, s) for s in policies]
 
-    # Gather per-strategy tier fractions (averaged across seeds).
+    # Gather per-policy tier fractions (averaged across seeds).
     tiers = sorted({
         tier
         for runs in results.values()
@@ -114,22 +99,22 @@ def plot_provider_mix(
     })
 
     tier_data: dict[str, list[float]] = {tier: [] for tier in tiers}
-    for strat in strategies:
-        per_run = [r.tier_fractions() for r in results[strat]]
+    for policy_name in policies:
+        per_run = [r.tier_fractions() for r in results[policy_name]]
         for tier in tiers:
             tier_data[tier].append(
                 float(np.mean([tf.get(tier, 0.0) for tf in per_run]))
             )
 
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
-    bottom = np.zeros(len(strategies))
+    bottom = np.zeros(len(policies))
     for tier in tiers:
         vals = np.array(tier_data[tier])
         ax.bar(
             labels, vals,
             bottom=bottom,
             label=tier,
-            color=_TIER_COLORS.get(tier, "gray"),
+            color=TIER_COLORS.get(tier, "gray"),
             edgecolor="white",
             linewidth=0.5,
         )
@@ -148,13 +133,13 @@ def plot_provider_mix(
 
 def plot_cost_over_time(
     scenario_name: str,
-    results: dict[str, list[StrategyRun]],
+    results: dict[str, list[SimulationRun]],
     output_path: Path,
     focus_strategies: list[str] | None = None,
 ) -> None:
-    """Cumulative cost over simulated time, per strategy."""
+    """Cumulative cost over simulated time, per policy."""
     if focus_strategies is None:
-        focus_strategies = ["two_layer", "joint_nohedge", "joint_p50band_nohedge"]
+        focus_strategies = ["greedy_cost", "ablation_lp_only", "routewise"]
 
     fig, ax = plt.subplots(figsize=(6.5, 3.6))
 
@@ -168,8 +153,8 @@ def plot_cost_over_time(
         cum = np.cumsum(r0.cost_usd)
         ax.plot(
             ts / 60.0, cum,
-            label=_STRATEGY_SHORT.get(strat, strat),
-            color=_STRATEGY_COLORS.get(strat, "gray"),
+            label=ROUTER_STRATEGY_LABELS.get(strat, strat),
+            color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
             linewidth=1.8,
         )
 
@@ -187,7 +172,7 @@ def plot_cost_over_time(
 def make_scenario_plots(
     scenario_name: str,
     primary_slo_ms: float,
-    results: dict[str, list[StrategyRun]],
+    results: dict[str, list[SimulationRun]],
     output_dir: Path,
 ) -> None:
     """Emit all three plots for one scenario."""
@@ -207,13 +192,13 @@ def make_scenario_plots(
 
 
 def plot_summary_across_scenarios(
-    scenarios: dict[str, dict[str, list[StrategyRun]]],
+    scenarios: dict[str, dict[str, list[SimulationRun]]],
     primary_slo_ms_map: dict[str, float],
     output_path: Path,
 ) -> None:
-    """One grouped bar chart comparing all strategies across all scenarios.
+    """One grouped bar chart comparing all policies across all scenarios.
 
-    X axis: scenario. Groups of bars per scenario show each strategy's mean
+    X axis: scenario. Groups of bars per scenario show each policy's mean
     cost (left bar cluster) and SLO violation rate (right bar cluster), on
     twin y-axes.
     """
@@ -241,15 +226,15 @@ def plot_summary_across_scenarios(
         ax_cost.bar(
             x + offset, costs,
             width=bar_width,
-            color=_STRATEGY_COLORS.get(strat, "gray"),
-            label=_STRATEGY_SHORT.get(strat, strat),
+            color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
+            label=ROUTER_STRATEGY_LABELS.get(strat, strat),
             edgecolor="white",
             linewidth=0.5,
         )
         ax_slo.bar(
             x + offset, np.array(viols) * 100.0,
             width=bar_width,
-            color=_STRATEGY_COLORS.get(strat, "gray"),
+            color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
             edgecolor="white",
             linewidth=0.5,
         )
@@ -273,7 +258,7 @@ def plot_summary_across_scenarios(
         frameon=False,
     )
 
-    fig.suptitle("Tiered scenarios: cost and SLO violation by strategy", y=1.02)
+    fig.suptitle("Simulation scenarios: cost and SLO violation by policy", y=1.02)
     fig.tight_layout()
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)

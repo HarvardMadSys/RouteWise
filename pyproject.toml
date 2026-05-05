@@ -37,6 +37,8 @@ include = [
   "experiments.*",
   "rwsim",
   "rwsim.*",
+  "plots",
+  "plots.*",
 ]
 
 [tool.pytest.ini_options]
