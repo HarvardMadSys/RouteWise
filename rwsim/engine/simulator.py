@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from rwsim.engine.state import SimulationState
-from rwsim.metrics import SimulationRun
-from rwsim.policies.base import Policy
+from rwsim.metrics import PerRequestRecord, Run, Status
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
-from rwsim.world.providers import Provider
-from rwsim.world.scenarios import ScenarioConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from rwsim.policies.base import Policy
+    from rwsim.world.providers import Provider
+    from rwsim.world.scenarios import ScenarioConfig
 
 
 _HEDGE_REQUEST_ID_OFFSET = 10_000_000
@@ -34,7 +38,7 @@ class Simulator:
         policy: Policy,
         *,
         policy_name: str,
-    ) -> SimulationRun:
+    ) -> Run:
         """Run a policy over pre-loaded requests."""
         rng = np.random.default_rng(self.seed)
         for provider in self.scenario.providers:
@@ -42,49 +46,32 @@ class Simulator:
 
         providers = {provider.name: provider for provider in self.scenario.providers}
         state = SimulationState.from_providers(providers)
-
-        ttft_ms: list[float] = []
-        cost_usd: list[float] = []
-        provider_sel: list[str] = []
-        tier_sel: list[str] = []
-        timestamps: list[float] = []
-        hedge_flags: list[bool] = []
-        rejected: list[bool] = []
-        quota_fraction_used: list[float] = []
-        concurrency_utilization: list[float] = []
+        records: list[PerRequestRecord] = []
 
         for request in requests:
             state.now = float(request.timestamp)
             decision = policy.route(request, state)
             outcome = self._execute_request(request, decision, policy, state, rng)
             policy.observe(request, decision, outcome)
-
-            final_provider = providers.get(outcome.final_provider)
-            ttft_ms.append(outcome.ttft_ms)
-            cost_usd.append(outcome.cost_usd)
-            provider_sel.append(outcome.final_provider)
-            tier_sel.append(final_provider.tier.value if final_provider is not None else "")
-            timestamps.append(float(request.timestamp))
-            hedge_flags.append(outcome.hedge_triggered)
-            rejected.append(outcome.rejected)
-            quota_fraction_used.append(self._max_quota_fraction(providers, state.now))
-            concurrency_utilization.append(self._max_concurrency_utilization(providers, state.now))
+            records.append(
+                self._build_record(
+                    request=request,
+                    decision=decision,
+                    outcome=outcome,
+                    providers=providers,
+                    policy_name=policy_name,
+                )
+            )
 
             user_id = _request_user_id(request)
             if user_id is not None and not outcome.rejected:
                 state.user_last_provider[user_id] = outcome.final_provider
 
-        return SimulationRun(
+        return Run(
+            records=records,
             policy=policy_name,
-            ttft_ms=np.array(ttft_ms),
-            cost_usd=np.array(cost_usd),
-            provider=provider_sel,
-            tier=tier_sel,
-            timestamp=np.array(timestamps),
-            hedge_triggered=np.array(hedge_flags, dtype=bool),
-            quota_fraction_used=np.array(quota_fraction_used),
-            concurrency_utilization=np.array(concurrency_utilization),
-            rejected=np.array(rejected, dtype=bool),
+            scenario_name=self.scenario.name,
+            source="simulation",
         )
 
     def _execute_request(
@@ -132,7 +119,8 @@ class Simulator:
             )
 
         primary.account_request(request.id, now, primary_service_time)
-        billed_cost = primary.marginal_cost(request.total_tokens or 0, now)
+        primary_cost_usd = primary.marginal_cost(request.total_tokens or 0, now)
+        billed_cost = primary_cost_usd
 
         final_provider = primary.name
         final_ttft_ms = primary_ttft_ms
@@ -140,6 +128,8 @@ class Simulator:
         hedge_dispatch: HedgeDispatch | None = None
         backup_ttft_ms: float | None = None
         backup_observed_at: float | None = None
+        backup_cost_usd = 0.0
+        hedge_delay_ms: float | None = None
 
         for elapsed in sorted(decision.hedge_checkpoints):
             elapsed_ms = float(elapsed) * 1000.0
@@ -167,12 +157,15 @@ class Simulator:
                     dispatch_time,
                     backup_service_time,
                 )
-                billed_cost += backup.marginal_cost(request.total_tokens or 0, dispatch_time)
+                backup_cost_usd = backup.marginal_cost(
+                    request.total_tokens or 0,
+                    dispatch_time,
+                )
+                billed_cost += backup_cost_usd
+                hedge_delay_ms = (dispatch_time - now) * 1000.0
                 backup_observed_at = dispatch_time + backup_ttft_ms / 1000.0
                 hedged_ttft = (
-                    (dispatch_time - now) * 1000.0
-                    + self.dispatch_overhead_ms
-                    + backup_ttft_ms
+                    (dispatch_time - now) * 1000.0 + self.dispatch_overhead_ms + backup_ttft_ms
                 )
                 if hedged_ttft < final_ttft_ms:
                     final_ttft_ms = hedged_ttft
@@ -191,9 +184,96 @@ class Simulator:
                 "primary_ttft_ms": primary_ttft_ms,
                 "primary_observed_at": now + primary_ttft_ms / 1000.0,
                 "hedge_provider": hedge_dispatch.backup_provider if hedge_dispatch else None,
+                "hedge_delay_ms": hedge_delay_ms,
                 "backup_ttft_ms": backup_ttft_ms,
                 "backup_observed_at": backup_observed_at,
+                "primary_cost_usd": primary_cost_usd,
+                "backup_cost_usd": backup_cost_usd,
+                "sim_dispatch_overhead_ms": self.dispatch_overhead_ms,
             },
+        )
+
+    def _build_record(
+        self,
+        *,
+        request: Request,
+        decision: RoutingDecision,
+        outcome: RoutingOutcome,
+        providers: dict[str, Provider],
+        policy_name: str,
+    ) -> PerRequestRecord:
+        primary_provider = providers.get(outcome.primary_provider)
+        final_provider = providers.get(outcome.final_provider)
+        backup_name = outcome.metadata.get("hedge_provider") if outcome.hedge_triggered else None
+        backup_provider = providers.get(backup_name) if backup_name else None
+        slo_ms = float(request.slo_ms or self.scenario.primary_slo_ms)
+        backup_cost = outcome.metadata.get("backup_cost_usd")
+        hedge_winner = None
+        if outcome.hedge_triggered:
+            hedge_winner = "backup" if outcome.final_provider == backup_name else "primary"
+
+        metadata: dict[str, object] = {
+            "sim_quota_fraction_used": self._quota_fraction_by_provider(
+                providers,
+                float(request.timestamp),
+            ),
+            "sim_concurrency_utilization": self._concurrency_utilization_by_provider(
+                providers,
+                float(request.timestamp),
+            ),
+        }
+        if "weights" in decision.metadata:
+            metadata["sim_lp_weights"] = decision.metadata["weights"]
+        if "budget" in decision.metadata:
+            metadata["sim_lp_budget"] = decision.metadata["budget"]
+        if "c_eff" in decision.metadata:
+            metadata["sim_c_eff"] = decision.metadata["c_eff"]
+        if final_provider is not None:
+            metadata["sim_true_p99_ms"] = final_provider.true_p99_ms(float(request.timestamp))
+        for key in (
+            "primary_observed_at",
+            "backup_observed_at",
+            "sim_dispatch_overhead_ms",
+        ):
+            if key in outcome.metadata:
+                metadata[key] = outcome.metadata[key]
+        if outcome.error:
+            metadata["sim_error"] = outcome.error
+
+        return PerRequestRecord(
+            request_id=str(outcome.request_id),
+            elapsed_sec=float(request.timestamp),
+            policy=policy_name,
+            prompt_tokens=int(request.request_tokens),
+            completion_tokens_budget=(
+                request.estimated_response_tokens
+                if request.estimated_response_tokens is not None
+                else request.response_tokens
+            ),
+            completion_tokens_actual=None if outcome.rejected else request.response_tokens,
+            primary_provider=outcome.primary_provider,
+            primary_tier=_provider_tier_value(primary_provider),
+            final_provider=outcome.final_provider,
+            final_tier=_provider_tier_value(final_provider),
+            backup_provider=str(backup_name) if backup_name else None,
+            backup_tier=_provider_tier_value(backup_provider) if backup_provider else None,
+            ttft_ms=float(outcome.ttft_ms),
+            e2e_ms=None,
+            primary_local_ttft_ms=outcome.metadata.get("primary_ttft_ms"),
+            backup_local_ttft_ms=(
+                outcome.metadata.get("backup_ttft_ms") if outcome.hedge_triggered else None
+            ),
+            slo_ms=slo_ms,
+            slo_violated=outcome.rejected or float(outcome.ttft_ms) > slo_ms,
+            total_cost_usd=float(outcome.cost_usd),
+            primary_cost_usd=outcome.metadata.get("primary_cost_usd", 0.0),
+            backup_cost_usd=backup_cost if outcome.hedge_triggered else None,
+            hedge_triggered=outcome.hedge_triggered,
+            hedge_delay_ms=outcome.metadata.get("hedge_delay_ms"),
+            hedge_winner=hedge_winner,
+            status=Status.REJECTED if outcome.rejected else Status.SUCCESS,
+            error_class=outcome.error,
+            metadata=metadata,
         )
 
     @staticmethod
@@ -213,6 +293,34 @@ class Simulator:
             if provider.concurrency is not None
         ]
         return float(max(values, default=0.0))
+
+    @staticmethod
+    def _quota_fraction_by_provider(
+        providers: dict[str, Provider],
+        now: float,
+    ) -> dict[str, float]:
+        return {
+            name: float(provider.quota.fraction_used(now))
+            for name, provider in providers.items()
+            if provider.quota is not None
+        }
+
+    @staticmethod
+    def _concurrency_utilization_by_provider(
+        providers: dict[str, Provider],
+        now: float,
+    ) -> dict[str, float]:
+        return {
+            name: float(provider.concurrency.utilization(now))
+            for name, provider in providers.items()
+            if provider.concurrency is not None
+        }
+
+
+def _provider_tier_value(provider: Provider | None) -> str:
+    if provider is None:
+        return ""
+    return provider.tier.value
 
 
 def _sample_service_time(
@@ -241,7 +349,9 @@ def _fallback_provider(providers: Sequence[Provider], now: float) -> Provider | 
     available = [provider for provider in providers if provider.is_available(now)]
     if not available:
         return None
-    return min(available, key=lambda provider: (provider.marginal_cost(1, now), provider.true_p50_ms(now)))
+    return min(
+        available, key=lambda provider: (provider.marginal_cost(1, now), provider.true_p50_ms(now))
+    )
 
 
 def _request_user_id(request: Request) -> str | None:

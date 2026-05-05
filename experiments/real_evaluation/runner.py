@@ -275,7 +275,7 @@ class RealExperimentRunner:
         self._or_base_cfg: TransportConfig | None = self._first_openrouter_cfg()
 
         self._cost_lock = threading.Lock()
-        self._cost_per_policy: dict[str, float] = {n: 0.0 for n in policy_names}
+        self._cost_per_policy: dict[str, float] = dict.fromkeys(policy_names, 0.0)
         self._total_cost_usd: float = 0.0
         self._stop_event = threading.Event()
         # ``threading.local`` must live on the runner instance so each
@@ -844,6 +844,7 @@ class RealExperimentRunner:
             ctx_max_tokens=req.max_tokens,
             decision=decision,
             primary_result=sentinel,
+            slo_ms=self.slo_sec * 1000.0,
             ts=ts,
         )
 
@@ -863,7 +864,9 @@ class RealExperimentRunner:
             ctx_max_tokens=req.max_tokens,
             decision=decision,
             primary_result=result,
-            tier=spec.tier if spec else None,
+            primary_tier=spec.tier if spec else None,
+            final_tier=spec.tier if spec else None,
+            slo_ms=self.slo_sec * 1000.0,
             transport=spec.transport_cfg.transport if spec else None,
         )
 
@@ -876,7 +879,9 @@ class RealExperimentRunner:
         hedged: HedgedResult,
         hedge_delay_sec: float,
     ) -> None:
-        spec = self._spec_by_name.get(decision.primary or "")
+        primary_spec = self._spec_by_name.get(decision.primary or "")
+        backup_spec = self._spec_by_name.get(decision.hedge or "")
+        final_spec = backup_spec if hedged.winner == "backup" else primary_spec
         self.recorder.write_hedged(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -885,8 +890,11 @@ class RealExperimentRunner:
             decision=decision,
             hedged=hedged,
             hedge_delay_sec=hedge_delay_sec,
-            tier=spec.tier if spec else None,
-            transport=spec.transport_cfg.transport if spec else None,
+            primary_tier=primary_spec.tier if primary_spec else None,
+            backup_tier=backup_spec.tier if backup_spec else None,
+            final_tier=final_spec.tier if final_spec else None,
+            slo_ms=self.slo_sec * 1000.0,
+            transport=primary_spec.transport_cfg.transport if primary_spec else None,
         )
 
     # ------------------------------------------------------------------

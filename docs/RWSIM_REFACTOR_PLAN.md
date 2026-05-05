@@ -110,7 +110,7 @@ rwsim/
     __init__.py              # POLICY_CLASSES + build_policy()
 
   metrics/
-    run.py                   # per-request records + SimulationRun aggregate
+    run.py                   # per-request records + Run aggregate (sim + real)
 
 experiments/
   simulation/
@@ -238,7 +238,7 @@ class Simulator:
         requests: Sequence[Request],
         policy: Policy,
         seed: int,
-    ) -> SimulationRun:
+    ) -> Run:
         ...
 ```
 
@@ -306,6 +306,222 @@ Rules:
 
 Do not add `cost_profiles`, prefix-cache state, or estimator history until a
 specific policy needs them and ownership is clear.
+
+### 4.4 Per-request record and Run aggregate
+
+`rwsim/metrics/` carries the canonical per-request record schema for both the
+simulator AND real-evaluation experiments, not just the simulator's output.
+This is the layer paper figures consume; sim-vs-real comparisons (5/4 meeting:
+"real on left, simulation on right") require the two sides to emit the same
+core fields.
+
+```python
+# rwsim/metrics/record.py
+
+class Status(str, Enum):
+    SUCCESS = "SUCCESS"
+    REJECTED = "REJECTED"          # capacity refusal (sim)
+    RATE_LIMITED = "RATE_LIMITED"  # real only
+    ERROR = "ERROR"                # real only (network, timeout, 4xx/5xx)
+
+
+@dataclass
+class PerRequestRecord:
+    """One request as observed by either the simulator or live evaluation.
+
+    Core fields are universal: same name AND same physical meaning on both
+    sides. Per-side extensions live in `metadata`, prefixed with `sim_*` or
+    `real_*` so a merged record's source is unambiguous.
+
+    Time/latency convention: every time-like core field is measured from the
+    primary's dispatch instant (t=0). Wall-clock for real-eval rows goes into
+    `metadata["real_wall_clock_ts"]`.
+    """
+
+    # Identity
+    request_id: str
+    elapsed_sec: float                  # seconds since run start; same physical meaning sim and real
+    policy: str                         # paper-name preset, e.g. "routewise"
+
+    # Workload
+    prompt_tokens: int
+    completion_tokens_budget: int | float | None  # output cap/estimate visible at routing time; used by LP cost estimate
+    completion_tokens_actual: int | None  # observed after generation; what billing uses; None on rejection or pre-completion error
+
+    # Routing decision and outcome
+    primary_provider: str
+    primary_tier: str                   # tier at routing time
+    final_provider: str                 # whose response the user got: == primary if no hedge or primary won
+    final_tier: str                     # tier of final_provider
+    backup_provider: str | None         # only set when hedge dispatched
+    backup_tier: str | None             # tier of backup_provider when hedge dispatched
+
+    # Latency — all times are user-visible, measured from primary's dispatch (t=0)
+    ttft_ms: float                      # USER-VISIBLE TTFT: time from primary dispatch to first response token of `final_provider`. For hedged backup-wins case = hedge_delay_ms + dispatch_overhead_ms + backup_local_ttft_ms. inf on rejection.
+    e2e_ms: float | None                # USER-VISIBLE end-to-end: primary dispatch to last response token. None if sim does not model decode time (boundary decision below).
+    primary_local_ttft_ms: float | None # primary's own TTFT, measured from primary dispatch; None if no provider request was admitted
+    backup_local_ttft_ms: float | None  # backup's own TTFT, measured from backup dispatch; None if no hedge
+    slo_ms: float | None                # SLO threshold for this request; legacy/test rows may be None until Run-level backfill
+    slo_violated: bool                  # canonical SLO result when slo_ms is known; status != SUCCESS or user-visible ttft_ms > slo_ms
+
+    # Cost
+    total_cost_usd: float               # primary_cost + backup_cost (if hedged)
+    primary_cost_usd: float
+    backup_cost_usd: float | None       # None when no hedge
+
+    # Hedging
+    hedge_triggered: bool
+    hedge_delay_ms: float | None        # primary-dispatch -> backup-dispatch; None when no hedge
+    hedge_winner: str | None            # "primary" | "backup" | None when no hedge
+
+    # Status
+    status: Status
+    error_class: str | None = None      # populated for ERROR / RATE_LIMITED
+
+    # Per-side extensions (sim_* keys vs real_* keys)
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+**Why every time-like field is primary-dispatch-relative.** SLO is a user
+deadline. P99 is a user-experience metric. They are only sim/real-comparable
+if both sides emit the same physical quantity. Local-to-each-provider TTFT
+(`primary_local_ttft_ms`, `backup_local_ttft_ms`) stay as separate diagnostic
+fields — they are useful for understanding *why* a hedge won/lost, but the
+canonical SLO/P99 numbers all flow from `ttft_ms`.
+
+**Why three tier fields, not one.** Cost can split across tiers when a hedge
+fires across tiers (e.g. primary on `quota` with zero marginal cost, backup
+on `api` with billed cost). `cost_by_tier()` needs `primary_tier` for
+`primary_cost_usd` and `backup_tier` for `backup_cost_usd`. `final_tier` is
+which provider the user actually saw. All three are cheap; resolving them
+post-hoc from a `Run` would require an out-of-band provider→tier catalog
+that defeats the point of a self-contained record.
+
+**Why split `completion_tokens` into budget vs actual.** Routing-time cost
+estimates use `completion_tokens_budget` (the cap visible to the policy when
+it picks a provider). Billing uses `completion_tokens_actual` (what was
+generated). They are physically different quantities and the gap matters for
+cost-layer ablations (estimator-vs-oracle) and for real billing reconciliation.
+
+**Sim-only metadata keys** (engine populates):
+
+- `sim_lp_weights: dict[str, float]` — LP solution at routing time
+- `sim_lp_budget: float` — `B_p(t)` at routing time
+- `sim_c_eff: dict[str, float]` — effective cost vector at routing time
+- `sim_true_p99_ms: float` — ground-truth provider P99 at decision time
+- `sim_quota_fraction_used: dict[str, float]` — per-provider snapshot
+- `sim_concurrency_utilization: dict[str, float]` — per-provider snapshot
+
+**Real-only metadata keys** (recorder populates):
+
+- `real_retry_count: int`
+- `real_rate_limit_count: int`
+- `real_http_status: int`
+- `real_wall_clock_ts: float` — original wall-clock timestamp for the row
+- `real_transport: str | None` — transport used for the request
+- `real_retry_sleep_ms: float`
+- `real_status: str` — raw transport status before canonicalization
+- `real_lp_status: str | None`
+- `real_lp_weights: dict[str, float] | None`
+- `real_budget_usd: float | None`
+- `real_reference_cost_usd: float | None`
+- `real_tier_mix: dict[str, float] | None`
+
+The `Run` aggregate is the figure-facing surface. Both sim and real produce
+this type:
+
+```python
+# rwsim/metrics/run.py
+
+@dataclass
+class Run:
+    records: list[PerRequestRecord]
+    policy: str
+    scenario_name: str
+    source: Literal["simulation", "real"]
+
+    # SLO / status
+    def slo_violation_rate(self, slo_ms: float | None = None) -> float: ...
+    def status_breakdown(self) -> dict[str, int]: ...
+
+    # User-visible TTFT (the canonical paper number)
+    def mean_ttft_ms(self) -> float: ...
+    def p50_ms(self) -> float: ...
+    def p90_ms(self) -> float: ...
+    def p95_ms(self) -> float: ...
+    def p99_ms(self) -> float: ...
+
+    # End-to-end latency (when populated; sim may emit None per boundary decision below)
+    def mean_e2e_ms(self) -> float: ...     # NaN when no rows have e2e_ms
+    def p50_e2e_ms(self) -> float: ...      # NaN when no rows have e2e_ms
+    def p90_e2e_ms(self) -> float: ...      # NaN when no rows have e2e_ms
+    def p99_e2e_ms(self) -> float: ...      # NaN when no rows have e2e_ms
+
+    # Cost
+    def mean_cost_usd(self) -> float: ...
+    def total_cost_usd(self) -> float: ...
+    def cost_by_tier(self) -> dict[str, float]: ...      # uses primary_tier and backup_tier per record
+    def cost_by_provider(self) -> dict[str, float]: ...  # same — splits across primary/backup providers
+
+    # Hedging
+    def hedge_rate(self) -> float: ...
+    def hedge_winner_rate(self) -> dict[str, float]: ...  # primary/backup win fractions among triggered hedges
+
+    # Routing mix
+    def provider_fractions(self) -> dict[str, float]: ...    # by final_provider
+    def tier_fractions(self) -> dict[str, float]: ...        # by final_tier
+
+    # Vectorised column views, computed lazily for plot code
+    @property
+    def ttft_ms(self) -> np.ndarray: ...                 # user-visible TTFT
+    @property
+    def e2e_ms(self) -> np.ndarray: ...                  # user-visible E2E (NaN where None)
+    @property
+    def cost_usd(self) -> np.ndarray: ...                # total per request
+    @property
+    def hedge_triggered(self) -> np.ndarray: ...
+    @property
+    def elapsed_sec(self) -> np.ndarray: ...             # for rolling windows
+```
+
+`Run` is row-oriented internally (`list[PerRequestRecord]`) but exposes
+column-view properties for vectorised aggregation. The two representations
+are O(n) inter-convertible; do not maintain two separate dataclasses for
+"row" and "column" runs.
+
+Temporary migration surface: `Run.__init__` may accept legacy column kwargs
+(`ttft_ms=`, `cost_usd=`, `provider=`, `timestamp=`, `hedge_triggered=`,
+etc.) while plots/golden/suites are migrated. That path can only compute
+per-record `slo_violated` when the caller also passes `slo_ms`; otherwise
+callers must use `slo_violation_rate(slo_ms=...)` for SLO metrics. Delete
+the column-kwargs constructor after downstream code constructs
+`PerRequestRecord` rows directly.
+
+Plot code (`plots/<section>/*.py`) consumes `Run` and core fields only.
+Per-side extensions in `metadata` are read by diagnostic / appendix figures,
+never by main paper figures, so cross-source plots stay shape-stable.
+
+**Migration note.** The current `SimulationRun` is column-oriented and only
+covers the simulator. Phase 0 of the schema migration:
+
+1. Rename `SimulationRun` → `Run`; keep column-view properties.
+2. Internal storage moves to `list[PerRequestRecord]`.
+3. `experiments/real_evaluation/recorder.py` stops emitting its own per-request
+   CSV schema and writes `PerRequestRecord` rows.
+4. Existing CSV columns in real eval map to core fields; `retry_count` /
+   `rate_limit_count` / `http_status` move into `metadata` with `real_*` prefix.
+
+**Open boundary decisions** (need Murphy + Juncheng review before Phase 0
+implementation):
+
+| Decision | Question |
+|---|---|
+| `e2e_ms` in simulator | Sim today only models TTFT. Either (a) compute `e2e_ms = ttft_ms + completion_tokens_actual / tps_dist.sample()` and populate, or (b) leave `None` for sim and only populate for real. Affects whether E2E paper figures can include simulator points. |
+| `hedge_delay_ms` zero-point | Confirm: measured from primary `route()` return (= primary dispatch instant in sim) → backup dispatch instant. Sim rounds to nearest ms; real records with submillisecond resolution but stored as float ms. |
+| `backup_cost_usd` parity | Sim uses `provider.marginal_cost(prompt_tokens + completion_tokens_actual, now)` — i.e. the existing `marginal_cost(total_tokens, now)` formula matching primary. Real uses provider-billed amount. Confirm both are USD per request and match for the same provider given identical token counts. |
+| `Status` sim coverage | Sim emits only `SUCCESS` and `REJECTED`. `RATE_LIMITED` and `ERROR` are real-only. Confirm sim's "no-capacity fallback succeeded" path maps to `SUCCESS` (not REJECTED). |
+| `metadata` namespacing | Lock `sim_*` / `real_*` prefix. Any other prefix is a contract violation; readers can dispatch on prefix when merging cross-source data. |
+| `completion_tokens_budget` source in sim | For S0–S3 synthetic scenarios, where does the budget come from? Options: (a) the scenario's known `response_tokens` (oracle), (b) a histogram-predictor estimate, (c) `None` (don't model the budget for sim). Affects what cost-layer ablations the simulator can express. |
 
 ---
 
@@ -396,17 +612,37 @@ Deliverables:
 2. Add the minimal `SimulationState` dataclass in `rwsim/engine/state.py`.
 3. Add `RoutingDecision` and `RoutingOutcome` fields needed by the simulator
    in `rwsim/schemas.py`.
-4. Add architecture tests:
-   - Policies expose `route()` and `observe()`.
+4. **Lock the metrics schema contract from §4.4**:
+   - Add `Status`, `PerRequestRecord` to `rwsim/metrics/record.py`.
+   - Replace `SimulationRun` (or `StrategyRun` in pre-368e56d code) with
+     `Run` in `rwsim/metrics/run.py`, wrapping `list[PerRequestRecord]`
+     and exposing the §4.4 aggregation methods + column-view properties.
+   - Resolve the 6 boundary decisions at the end of §4.4 (e2e_ms,
+     hedge_delay_ms zero, backup_cost parity, sim Status coverage,
+     metadata namespacing, completion_tokens_budget source in sim).
+   - This deliverable is a contract change but no behaviour change yet:
+     plot/golden/real-eval recorder still operate on the legacy schema
+     until Phase 1.
+5. Add architecture tests:
+   - Policies expose `route()`, `tick()`, `observe()`.
    - Simulator owns capacity mutation.
    - Experiments import policy presets, not strategy implementations.
-5. Remove target-architecture `Policy`, `Executor`, and `MetricsRecorder`
+   - `Run.records` is `list[PerRequestRecord]` and each record has the
+     §4.4 core fields.
+6. Remove target-architecture `Policy`, `Executor`, and `MetricsRecorder`
    Protocols from `rwsim/engine/`; the engine should import `Policy` from
-   `rwsim/policies/base.py` and emit `SimulationRun` objects from
-   `rwsim/metrics/`.
-6. Update `docs/ALGORITHMS.md` to describe the flat policy contract.
+   `rwsim/policies/base.py` and emit `Run` objects from `rwsim/metrics/`
+   (see §4.4 for the per-request schema and aggregate methods).
+7. Update `docs/ALGORITHMS.md` to describe the flat policy contract and
+   the §4.4 metrics schema.
 
-No behavior changes in Phase 0.
+The metrics schema lands in Phase 0 specifically because it is an
+interface layer: plot code, golden capture, and the real-eval recorder
+all consume it downstream. Letting it slip past Phase 0 means every
+subsequent phase emits or consumes the wrong schema and has to be
+revisited.
+
+No behaviour changes in Phase 0.
 
 ---
 
@@ -466,7 +702,7 @@ File-level plan:
 | `rwsim/policies/composer.py` | delete after preset loader exists |
 | `rwsim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/` | delete after RouteWise/Baseline policies own the useful logic |
 | `rwsim/world/shadow_price.py` | move useful formulas into `rwsim/policies/routewise.py` |
-| `rwsim/metrics/run.py::StrategyRun` | rename to `SimulationRun` |
+| `rwsim/metrics/run.py::SimulationRun` | rename to `Run` (cross-source aggregate per §4.4); rewrite to wrap `list[PerRequestRecord]` with column-view properties. (Already renamed from legacy `StrategyRun` in commit 374f50a.) |
 | `rwsim/world/workload.py` | delete after callers use trace loader/cache |
 | `rwsim/registry.py` | delete |
 
@@ -610,16 +846,27 @@ Rules:
 |---|---|---|
 | 1 | docs | replace 4-stage refactor plan with flat policy contract |
 | 2 | test | lock current golden outputs for migration comparison |
-| 3a | refactor | add flat policy code and SimulationRun with no production callers |
+| 3a | refactor | add flat policy code and Run/PerRequestRecord with no production callers |
 | 3b | refactor | switch callers to `--policy` presets and delete `rwsim/strategies/` |
 | 4 | test | assert no `rwsim.strategies`, `STRATEGY_REGISTRY`, or `--strategy` surface remains |
-| 5 | feat | add EmpiricalDistribution and real-world profile pools |
-| 6 | docs | update architecture and algorithm docs |
+| 5 | refactor | wire simulator engine to emit `PerRequestRecord` rows; replace `SimulationRun` with `Run` (§4.4) |
+| 6 | refactor | wire `experiments/real_evaluation/recorder.py` to emit `PerRequestRecord` rows; map legacy CSV columns to core fields, push retry/rate_limit/http_status to `metadata["real_*"]` |
+| 7 | refactor | switch `plots/`, golden capture, and suite metadata to consume `Run` (delete legacy `mean_cost_usd` array fields, etc.) |
+| 8 | feat | add EmpiricalDistribution and real-world profile pools |
+| 9 | docs | update architecture and algorithm docs |
 
 Commit 3a may add new policy files while old strategies still exist, but no
 production caller may use the new path yet. Commit 3b is the switch: callers
 move to policy presets and the strategy implementation layer is deleted. There
 is no committed state where both engines are selectable at runtime.
+
+Commits 5–7 land the §4.4 metrics schema in three steps: simulator emits the
+new schema first (5), real-evaluation catches up next (6), downstream
+consumers (plots, goldens, suite metadata) flip last (7). Between 5 and 6 the
+real-eval CSV is still the old shape; that is acceptable because no
+production code path joins sim and real records during this window. Commit 7
+is the byte-equivalent gate: golden compare must pass on the new schema
+before merging.
 
 Each behavior-preserving commit must pass:
 
@@ -638,7 +885,7 @@ mixing a fix into the refactor commit.
 | Item | Owner | Blocks |
 |---|---|---|
 | Exact `RoutingDecision` and `RoutingOutcome` fields | Murphy | Phase 0 |
-| `SimulationRun` field list and metric names | Murphy | Phase 0 |
+| `Run` and `PerRequestRecord` field list (§4.4) sign-off | Murphy + Juncheng | Phase 0 |
 | `Policy.tick()` checkpoint schedule semantics | Resolved: policy-declared per request through `RoutingDecision.hedge_checkpoints` | Phase 0 |
 | `HedgeDispatch` shape | Resolved: backup provider plus metadata; one hedge per request | Phase 0 |
 | `user_id` field on `Request` — already present in trace data, or a synthetic per-trace assignment? Affects prefix-cache accounting reproducibility | Murphy | Phase 0 |
