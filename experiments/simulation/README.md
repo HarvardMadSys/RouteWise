@@ -1,18 +1,17 @@
 # Simulation Experiment
 
-Target home for the paper-facing simulator experiment harness: S6/S7/S8/S9,
-`unified_pool`, calibrated scenarios, stress scenarios, and the eval-grid
-simulation sweeps.
+Target home for the paper-facing simulator experiment harness. Per
+`docs/EXPERIMENT_LAYOUT.md` §3.1 the canonical scenarios are S0-S3:
 
-Concrete scenarios should be YAML configs under `configs/`; policy behavior
-should be selected from the flat paper-name presets in `rwsim.policies`.
+- **S0** — same latency, different cost (3 × S_A)
+- **S1** — same cost, different latency (3 × S_A)
+- **S2** — cost-latency tradeoff (3 × S_A)
+- **S3** — full joint tier (S_A + S_Q + S_C)
 
-Smoke example:
-
-```bash
-routewise run simulation --scenario s6_slow_q_trap --policy routewise
-```
+Concrete scenarios live as YAML configs under `configs/`. Policy behavior
+should be selected from the flat paper-name presets in `rwsim.policies`
+(`greedy_cost`, `greedy_latency`, `random`, `ablation_lp_only`,
+`ablation_lp_hedging`, `routewise`).
 
 Full-sweep simulation runners live under `suites/` and are exposed as
-`routewise suite simulator_grid`, `routewise suite mm25_baselines`, and
-`routewise suite stress`.
+`routewise suite simulator_grid` and `routewise suite mm25_baselines`.

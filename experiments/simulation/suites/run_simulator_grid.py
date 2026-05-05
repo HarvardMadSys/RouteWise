@@ -21,16 +21,8 @@ from experiments.simulation.eval_grid import (  # noqa: E402
     make_eval_grid_scenarios,
 )
 from experiments.simulation.lp_budget_eval import (  # noqa: E402
-    BACKUP_EXPLORATION_VARIANTS,
     BACKUP_SCOPES,
-    CONTROL_VARIANTS,
-    FIRST_BATCH_SCENARIOS,
-    HEDGE_ABLATION_VARIANTS,
-    MAIN_VARIANTS,
-    PROVIDER_PERCENTILE_ABLATION_VARIANTS,
     TRACE_WORKLOAD_DATASETS,
-    build_all_scenarios,
-    build_first_batch_scenarios,
     build_hedge_delta,
     canonicalize_variant_name,
     generate_scenario_workload,
@@ -42,29 +34,10 @@ from experiments.simulation.lp_budget_eval import (  # noqa: E402
 OUTPUT_ROOT = _ROOT / "outputs" / "simulator_grid"
 DEFAULT_SEEDS = [42, 43, 44]
 
-# Scenario family identifiers exposed via --scenario-family. The legacy
-# family preserves all pre-existing behaviour; eval_grid switches to the
-# 4-stage × 3-distribution grid declared in eval_grid.py.
-SCENARIO_FAMILY_LEGACY = "legacy"
-SCENARIO_FAMILY_EVAL_GRID = "eval_grid"
-SCENARIO_FAMILIES = (SCENARIO_FAMILY_LEGACY, SCENARIO_FAMILY_EVAL_GRID)
-
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the paper simulator grid evaluation."
-    )
-    parser.add_argument(
-        "--scenario-family",
-        choices=SCENARIO_FAMILIES,
-        default=SCENARIO_FAMILY_LEGACY,
-        help=(
-            "Which scenario family to evaluate. 'legacy' (default) runs the "
-            "hand-authored S6/S7/S8/S9/unified_pool scenarios. 'eval_grid' "
-            "runs the 4-stage x 3-distribution grid defined in eval_grid.py "
-            "and switches the variant / dataset defaults to PAPER_GRID_VARIANTS "
-            "and PAPER_WORKLOADS respectively."
-        ),
     )
     parser.add_argument(
         "--scenario",
@@ -72,9 +45,8 @@ def _parse_args() -> argparse.Namespace:
         dest="scenarios",
         default=[],
         help=(
-            "Scenario name to run. May be repeated. Defaults to the mandatory "
-            "first-batch scenarios for legacy family, or all 12 grid cells for "
-            "the eval_grid family."
+            "Scenario name to run. May be repeated. Defaults to all grid "
+            "cells defined in eval_grid.py."
         ),
     )
     parser.add_argument(
@@ -117,39 +89,6 @@ def _parse_args() -> argparse.Namespace:
         dest="variants",
         default=[],
         help="Variant to run. May be repeated. Defaults to all main variants.",
-    )
-    parser.add_argument(
-        "--skip-controls",
-        action="store_true",
-        help=(
-            "Do not run the deterministic control baselines "
-            "(cheapest_available / fastest_available / quota_first / "
-            "concurrency_first)."
-        ),
-    )
-    parser.add_argument(
-        "--include-provider-percentile-ablation",
-        action="store_true",
-        help=(
-            "Also run the older provider-percentile budget family as an ablation "
-            "or comparator."
-        ),
-    )
-    parser.add_argument(
-        "--include-hedge-ablation",
-        action="store_true",
-        help=(
-            "Also run the minimal 2x2 hedge ablation variants that keep the "
-            "body selector fixed but switch back to the old hedge rule."
-        ),
-    )
-    parser.add_argument(
-        "--include-backup-exploration-ablation",
-        action="store_true",
-        help=(
-            "Also run variants that enable adaptive random backup selection. "
-            "Default *_hedge and *_explorer variants use deterministic backups."
-        ),
     )
     parser.add_argument(
         "--freeze-golden",
@@ -350,17 +289,16 @@ def _plot_tradeoff(
 def _metadata(
     backup_scope: str,
     datasets: list[str],
-    scenario_family: str = SCENARIO_FAMILY_LEGACY,
     active_scenarios: list[str] | None = None,
     active_variants: list[str] | None = None,
     active_seeds: list[int] | None = None,
 ) -> dict[str, object]:
     """Build the run metadata dict.
 
-    The catalogue lists (``main_variants`` etc.) describe what the runner
-    *can* dispatch; the ``active_*`` lists describe what this specific
-    invocation *did* dispatch. Reviewers and artifact evaluators should
-    read the active lists to reconstruct the exact run.
+    The catalogue lists describe what the runner *can* dispatch; the
+    ``active_*`` lists describe what this specific invocation *did* dispatch.
+    Reviewers and artifact evaluators should read the active lists to
+    reconstruct the exact run.
     """
     return {
         "implementation_root": str(_ROOT),
@@ -371,11 +309,9 @@ def _metadata(
             / "simulation"
             / "lp_budget_eval.py"
         ),
-        "scenario_family": scenario_family,
         # ---- catalogue ----------------------------------------------------
         "policies": list(PAPER_GRID_VARIANTS),
         "paper_workloads": list(PAPER_WORKLOADS),
-        "mandatory_first_batch_scenarios": FIRST_BATCH_SCENARIOS,
         # ---- active (what this run actually dispatched) -------------------
         "active_scenarios": list(active_scenarios) if active_scenarios else [],
         "active_variants": list(active_variants) if active_variants else [],
@@ -429,91 +365,28 @@ def _workload_seed(dataset_name: str, scenario_name: str) -> int:
     )
 
 
-def _resolve_scenario_family(
-    args: argparse.Namespace,
-) -> tuple[dict, list[str], list[str], list[str]]:
-    """Return (scenarios, default_scenarios, default_variants, default_datasets).
-
-    Encapsulates the family-specific defaults so ``main`` stays linear.
-    Legacy family preserves the historical defaults exactly; eval_grid
-    swaps the scenario source, the variant list, and the dataset list.
-    """
-    if args.scenario_family == SCENARIO_FAMILY_EVAL_GRID:
-        scenarios = make_eval_grid_scenarios()
-        default_scenarios = sorted(scenarios)
-        default_variants = list(PAPER_GRID_VARIANTS)
-        default_datasets = [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS]
-        return scenarios, default_scenarios, default_variants, default_datasets
-
-    scenarios = build_all_scenarios()
-    return (
-        scenarios,
-        list(FIRST_BATCH_SCENARIOS),
-        list(MAIN_VARIANTS),
-        [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS],
-    )
-
-
 def main() -> None:
     args = _parse_args()
-    scenarios, default_scenarios, default_variants, default_datasets = (
-        _resolve_scenario_family(args)
-    )
+    scenarios = make_eval_grid_scenarios()
+    default_scenarios = sorted(scenarios)
+    default_variants = list(PAPER_GRID_VARIANTS)
+    default_datasets = [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS]
+
     selected_scenarios = args.scenarios or default_scenarios
     seeds = args.seeds or DEFAULT_SEEDS
     datasets = args.datasets or default_datasets
 
-    # Validate that every requested scenario exists in the chosen family;
-    # the misleading KeyError path used to swallow eval_grid name typos.
     unknown = [name for name in selected_scenarios if name not in scenarios]
     if unknown:
         raise SystemExit(
-            f"Unknown scenarios for family={args.scenario_family!r}: {unknown}. "
+            f"Unknown scenarios: {unknown}. "
             f"Available: {sorted(scenarios)}"
         )
 
-    variants = [
+    variants = list(dict.fromkeys(
         canonicalize_variant_name(variant)
         for variant in (args.variants or default_variants)
-    ]
-    # Ablation / control flags only make sense for the legacy family — the
-    # eval_grid variants are deliberately scoped to PAPER_GRID_VARIANTS.
-    if args.scenario_family == SCENARIO_FAMILY_EVAL_GRID:
-        # Only warn when the user *explicitly* passed an include-* ablation
-        # flag, since those defaults are False (so a True value is always
-        # user-set). Don't warn on `--skip-controls` because its default
-        # (False) is shared with "user didn't pass it" — that would emit
-        # noise on every default invocation.
-        explicit_ablation_flags = [
-            name
-            for name, value in (
-                ("--include-hedge-ablation", args.include_hedge_ablation),
-                ("--include-backup-exploration-ablation",
-                 args.include_backup_exploration_ablation),
-                ("--include-provider-percentile-ablation",
-                 args.include_provider_percentile_ablation),
-            )
-            if value
-        ]
-        if explicit_ablation_flags:
-            print(
-                "[run_simulator_grid] eval_grid family ignores "
-                f"{', '.join(explicit_ablation_flags)}; PAPER_GRID_VARIANTS is "
-                f"the canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
-                file=sys.stderr,
-            )
-        # Controls are silently skipped for eval_grid regardless of
-        # --skip-controls because they pollute the Pareto frontier.
-    else:  # SCENARIO_FAMILY_LEGACY
-        if args.include_hedge_ablation:
-            variants.extend(HEDGE_ABLATION_VARIANTS)
-        if args.include_backup_exploration_ablation:
-            variants.extend(BACKUP_EXPLORATION_VARIANTS)
-        if args.include_provider_percentile_ablation:
-            variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
-        if not args.skip_controls:
-            variants.extend(CONTROL_VARIANTS)
-    variants = list(dict.fromkeys(canonicalize_variant_name(variant) for variant in variants))
+    ))
     output_root = args.output_root
 
     output_root.mkdir(parents=True, exist_ok=True)
@@ -522,7 +395,6 @@ def main() -> None:
             _metadata(
                 args.backup_scope,
                 datasets,
-                scenario_family=args.scenario_family,
                 active_scenarios=selected_scenarios,
                 active_variants=variants,
                 active_seeds=seeds,

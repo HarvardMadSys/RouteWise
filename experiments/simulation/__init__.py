@@ -23,7 +23,6 @@ __all__ = [
     "make_mm25_scenarios",
     "make_simple_scenarios",
     "make_calibrated_scenarios",
-    "make_stress_scenarios",
     "run_policy",
     "summarize",
 ]
@@ -43,8 +42,4 @@ def __getattr__(name: str):
         from experiments.simulation import calibrated
 
         return calibrated.make_calibrated_scenarios
-    if name == "make_stress_scenarios":
-        from experiments.simulation import stress
-
-        return stress.make_stress_scenarios
     raise AttributeError(f"module 'experiments.simulation' has no attribute {name!r}")

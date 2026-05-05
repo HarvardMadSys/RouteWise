@@ -26,7 +26,6 @@ BACKUP_EXPLORATION_VARIANTS: tuple[str, ...] = ()
 HEDGE_ABLATION_VARIANTS: tuple[str, ...] = ()
 PROVIDER_PERCENTILE_ABLATION_VARIANTS: tuple[str, ...] = ()
 CONTROL_VARIANTS = ("greedy_cost", "greedy_latency", "random")
-FIRST_BATCH_SCENARIOS = ("unified_pool",)
 TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
 BACKUP_SCOPES = ("any_provider", "cross_tier")
 
@@ -256,12 +255,6 @@ def run_variant(
     return EvaluatedRun(run=run, diagnostics=diagnostics)
 
 
-def build_first_batch_scenarios() -> dict[str, ScenarioConfig]:
-    """Return the mandatory first-batch scenario set."""
-    scenarios = build_all_scenarios()
-    return {name: scenarios[name] for name in FIRST_BATCH_SCENARIOS}
-
-
 def build_all_scenarios() -> dict[str, ScenarioConfig]:
     """Return every registered scenario available to the simulator."""
     scenarios = {name: load_world_scenario(name) for name in list_scenarios()}
@@ -382,7 +375,6 @@ __all__ = [
     "BACKUP_SCOPES",
     "CONTROL_VARIANTS",
     "EvaluatedRun",
-    "FIRST_BATCH_SCENARIOS",
     "HEDGE_ABLATION_VARIANTS",
     "MAIN_VARIANTS",
     "PROVIDER_PERCENTILE_ABLATION_VARIANTS",
@@ -396,7 +388,6 @@ __all__ = [
     "_load_sharegpt_jsonl_requests",
     "_resolve_trace_dataset_path",
     "build_all_scenarios",
-    "build_first_batch_scenarios",
     "build_hedge_delta",
     "canonicalize_variant_name",
     "generate_scenario_workload",

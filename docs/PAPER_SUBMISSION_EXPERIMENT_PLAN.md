@@ -32,8 +32,9 @@ routewise suite mm25_baselines
 routewise suite stress
 ```
 
-Single scenario smoke run:
+Single scenario smoke run (paper scenarios S0/S1/S2/S3, see
+`EXPERIMENT_LAYOUT.md` §3.1):
 
 ```bash
-routewise run simulation --scenario s6_slow_q_trap --policy routewise --seed 42
+routewise run simulation --scenario <S0|S1|S2|S3> --policy routewise --seed 42
 ```

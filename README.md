@@ -40,10 +40,11 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
-Run one config-driven scenario:
+Run one config-driven scenario (paper S0-S3 YAMLs land in
+`experiments/simulation/configs/`; until then, use the eval_grid suite):
 
 ```bash
-routewise run simulation --scenario s6_slow_q_trap --policy routewise --seed 42
+routewise run simulation --scenario <S0|S1|S2|S3> --policy routewise --seed 42
 ```
 
 Run registered suites:
@@ -52,7 +53,6 @@ Run registered suites:
 routewise list --suites
 routewise suite simulator_grid
 routewise suite mm25_baselines
-routewise suite stress
 ```
 
 ## Python Entrypoints

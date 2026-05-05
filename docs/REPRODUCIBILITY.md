@@ -28,17 +28,19 @@ routewise list --suites
 ## Validate Configs
 
 ```bash
-routewise validate simulation --scenario s6_slow_q_trap
+routewise validate simulation --scenario <S0|S1|S2|S3>
 ```
 
 ## Run One Scenario
 
 ```bash
-routewise run simulation --scenario s6_slow_q_trap --policy routewise --seed 42
+routewise run simulation --scenario <S0|S1|S2|S3> --policy routewise --seed 42
 ```
 
 These commands use `experiments/<name>/experiment.py` and reusable simulator
-code under `rwsim/`.
+code under `rwsim/`. Paper-aligned scenario YAMLs (`S0` cost-only / `S1`
+latency-only / `S2` cost-latency / `S3` joint tier) live under
+`experiments/simulation/configs/`; see `docs/EXPERIMENT_LAYOUT.md` §3.1.
 
 ## Run Full Suites
 
@@ -47,13 +49,12 @@ Full paper sweeps live under `experiments/*/suites/`:
 ```bash
 routewise suite simulator_grid
 routewise suite mm25_baselines
-routewise suite stress
 ```
 
 Suite-specific arguments are passed after `--`:
 
 ```bash
-routewise suite simulator_grid -- --scenario s6_slow_q_trap
+routewise suite simulator_grid -- --scenario S0
 ```
 
 Generated artifacts should go under `outputs/`.

@@ -28,11 +28,6 @@ _SUITES: dict[str, SuiteSpec] = {
         module="experiments.simulation.suites.run_mm25_baselines",
         description="Run MM25 calibrated baseline scenarios.",
     ),
-    "stress": SuiteSpec(
-        name="stress",
-        module="experiments.simulation.suites.run_stress_tests",
-        description="Run simulation stress scenarios.",
-    ),
     "simulator_grid": SuiteSpec(
         name="simulator_grid",
         module="experiments.simulation.suites.run_simulator_grid",

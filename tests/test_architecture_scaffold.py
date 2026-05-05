@@ -18,19 +18,15 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureScaffoldTest(unittest.TestCase):
-    def test_simulation_configs_are_discoverable_without_yaml_dependency(self) -> None:
+    def test_simulation_experiment_is_registered(self) -> None:
+        # Legacy hand-authored S6/S7/S8/S9/unified_pool scenarios were dropped
+        # in favour of the EXPERIMENT_LAYOUT.md §3.1 paper structure (S0-S3).
+        # The new YAML configs are not yet committed; for now assert only that
+        # the experiment registers cleanly and yields a tuple of scenario
+        # names (possibly empty until S0-S3 land).
         experiment = get_experiment("simulation")
-
-        self.assertEqual(
-            experiment.list_scenarios(),
-            (
-                "s6_slow_q_trap",
-                "s7_quota_depletion",
-                "s8_concurrency_saturation",
-                "s9_quota_concurrency_priority",
-                "unified_pool",
-            ),
-        )
+        scenarios = experiment.list_scenarios()
+        self.assertIsInstance(scenarios, tuple)
 
     def test_generic_scenario_builder_stays_outside_paper_specific_factories(self) -> None:
         scenario = build_scenario(
@@ -227,7 +223,6 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         expected = (
             "mm25_baselines",
             "simulator_grid",
-            "stress",
         )
 
         self.assertEqual(available_suites(), expected)

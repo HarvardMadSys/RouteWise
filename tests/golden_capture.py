@@ -50,10 +50,6 @@ FAMILY_SPECS = {
         "repo_root": MAIN_ROOT,
         "output_relpath": Path("calibrated/mm25.json"),
     },
-    "stress": {
-        "repo_root": MAIN_ROOT,
-        "output_relpath": Path("stress/scenarios.json"),
-    },
 }
 
 
@@ -330,12 +326,6 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
         )
 
         scenario_factory = make_mm25_scenarios
-    elif family == "stress":
-        from experiments.simulation import (  # noqa: E402
-            make_stress_scenarios,
-        )
-
-        scenario_factory = make_stress_scenarios
     else:
         raise ValueError(f"Unsupported simulation family: {family}")
 
@@ -371,7 +361,7 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
 
 def _capture_family_payload(family: str, repo_root: Path) -> dict[str, Any]:
     """Capture one family in the current process."""
-    if family in {"simulation", "calibrated", "stress"}:
+    if family in {"simulation", "calibrated"}:
         return _capture_simulation_family(repo_root, family)
     raise ValueError(f"Unknown family: {family}")
 

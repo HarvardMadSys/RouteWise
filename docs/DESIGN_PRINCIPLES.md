@@ -40,9 +40,11 @@ Three corollaries:
 ## 2. The Three Orthogonal Axes
 
 The full simulator grid is generated from three independent axes plus a
-workload axis. **Do not invent named scenarios outside this grid** —
-``s6_slow_q_trap``-style hand-authored YAMLs are deprecated for new work.
-Every cell of the grid is identified by ``(stage, distribution, policy, workload)``.
+workload axis. **Do not invent named scenarios outside this grid** — the
+hand-authored ``s6/s7/s8/s9/unified_pool`` YAMLs were dropped on
+2026-05-05; the canonical scenarios are S0-S3 from
+``EXPERIMENT_LAYOUT.md`` §3.1. Every cell of the grid is identified by
+``(stage, distribution, policy, workload)``.
 
 ### 2.1 Stage (Provider Setup)
 
