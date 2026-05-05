@@ -52,7 +52,6 @@ class Simulator:
         rejected: list[bool] = []
         quota_fraction_used: list[float] = []
         concurrency_utilization: list[float] = []
-        shadow_price_q: list[float] = []
 
         for request in requests:
             state.now = float(request.timestamp)
@@ -70,7 +69,6 @@ class Simulator:
             rejected.append(outcome.rejected)
             quota_fraction_used.append(self._max_quota_fraction(providers, state.now))
             concurrency_utilization.append(self._max_concurrency_utilization(providers, state.now))
-            shadow_price_q.append(float(outcome.metadata.get("shadow_price_q", 0.0)))
 
             user_id = _request_user_id(request)
             if user_id is not None and not outcome.rejected:
@@ -86,7 +84,6 @@ class Simulator:
             hedge_triggered=np.array(hedge_flags, dtype=bool),
             quota_fraction_used=np.array(quota_fraction_used),
             concurrency_utilization=np.array(concurrency_utilization),
-            shadow_price_q=np.array(shadow_price_q),
             rejected=np.array(rejected, dtype=bool),
         )
 

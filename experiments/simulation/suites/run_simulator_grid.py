@@ -24,12 +24,10 @@ from experiments.simulation.lp_budget_eval import (  # noqa: E402
     BACKUP_EXPLORATION_VARIANTS,
     BACKUP_SCOPES,
     CONTROL_VARIANTS,
-    EXPLORER_VARIANTS,
     FIRST_BATCH_SCENARIOS,
     HEDGE_ABLATION_VARIANTS,
     MAIN_VARIANTS,
     PROVIDER_PERCENTILE_ABLATION_VARIANTS,
-    SHADOW_PRICE_ABLATION_VARIANTS,
     TRACE_WORKLOAD_DATASETS,
     build_all_scenarios,
     build_first_batch_scenarios,
@@ -154,17 +152,6 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--include-shadow-price-ablation",
-        action="store_true",
-        help=(
-            "Also run the shadow-price ablation: ``original_lp_rawcost*`` "
-            "uses raw marginal cost (zero for S_Q / S_C subscription tiers) "
-            "instead of effective_cost. Pair with ``original_lp*`` to "
-            "isolate the contribution of ψ(z) / λ(u) shadow prices. Stays "
-            "off by default so legacy main runs are not polluted."
-        ),
-    )
-    parser.add_argument(
         "--freeze-golden",
         action="store_true",
         help="Write a sidecar golden snapshot under outputs/simulator_grid/golden/.",
@@ -276,61 +263,18 @@ def _build_delta_rows(
     summary: dict[str, dict[str, object]],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    # Paper-level ablation deltas. Each pair answers one paper question:
+    #   greedy_cost  vs routewise            : does RouteWise beat the cost baseline?
+    #   greedy_latency vs routewise          : does RouteWise beat the latency baseline?
+    #   random vs routewise                  : does RouteWise beat random routing?
+    #   ablation_lp_only vs ablation_lp_hedging : does hedging help on top of LP?
+    #   ablation_lp_hedging vs routewise     : does explorer help on top of hedging?
     pairs = [
-        ("original_lp", "original_lp_hedge"),
-        ("original_lp_hedge", "original_lp_explorer"),
-        ("original_lp_hedge", "original_lp_hedge_randombackup"),
-        ("original_lp_explorer", "original_lp_explorer_randombackup"),
-        ("original_lp", "original_lp_oldhedge"),
-        ("budget_body_p25", "budget_body_p25_hedge"),
-        ("budget_body_p50", "budget_body_p50_hedge"),
-        ("budget_body_p75", "budget_body_p75_hedge"),
-        ("budget_range_p0", "budget_range_p0_hedge"),
-        ("budget_range_p0_hedge", "budget_range_p0_explorer"),
-        ("budget_range_p0_hedge", "budget_range_p0_hedge_randombackup"),
-        ("budget_range_p0_explorer", "budget_range_p0_explorer_randombackup"),
-        ("budget_range_p25", "budget_range_p25_hedge"),
-        ("budget_range_p25_hedge", "budget_range_p25_explorer"),
-        ("budget_range_p25_hedge", "budget_range_p25_hedge_randombackup"),
-        ("budget_range_p25_explorer", "budget_range_p25_explorer_randombackup"),
-        ("budget_range_p50", "budget_range_p50_hedge"),
-        ("budget_range_p50_hedge", "budget_range_p50_explorer"),
-        ("budget_range_p50_hedge", "budget_range_p50_hedge_randombackup"),
-        ("budget_range_p50_explorer", "budget_range_p50_explorer_randombackup"),
-        ("budget_range_p75", "budget_range_p75_hedge"),
-        ("budget_range_p75_hedge", "budget_range_p75_explorer"),
-        ("budget_range_p75_hedge", "budget_range_p75_hedge_randombackup"),
-        ("budget_range_p75_explorer", "budget_range_p75_explorer_randombackup"),
-        ("budget_range_p75", "budget_range_p75_oldhedge"),
-        ("budget_range_p100", "budget_range_p100_hedge"),
-        ("budget_range_p100_hedge", "budget_range_p100_explorer"),
-        ("budget_range_p100_hedge", "budget_range_p100_hedge_randombackup"),
-        ("budget_range_p100_explorer", "budget_range_p100_explorer_randombackup"),
-        ("budget_vhat_t25", "budget_vhat_t25_hedge"),
-        ("budget_vhat_t25_hedge", "budget_vhat_t25_explorer"),
-        ("budget_vhat_t25_hedge", "budget_vhat_t25_hedge_randombackup"),
-        ("budget_vhat_t25_explorer", "budget_vhat_t25_explorer_randombackup"),
-        ("budget_vhat_t50", "budget_vhat_t50_hedge"),
-        ("budget_vhat_t50_hedge", "budget_vhat_t50_explorer"),
-        ("budget_vhat_t50_hedge", "budget_vhat_t50_hedge_randombackup"),
-        ("budget_vhat_t50_explorer", "budget_vhat_t50_explorer_randombackup"),
-        ("budget_vhat_t75", "budget_vhat_t75_hedge"),
-        ("budget_vhat_t75_hedge", "budget_vhat_t75_explorer"),
-        ("budget_vhat_t75_hedge", "budget_vhat_t75_hedge_randombackup"),
-        ("budget_vhat_t75_explorer", "budget_vhat_t75_explorer_randombackup"),
-        ("budget_vhat_t75", "budget_vhat_t75_oldhedge"),
-        ("budget_vhat_t100", "budget_vhat_t100_hedge"),
-        ("budget_vhat_t100_hedge", "budget_vhat_t100_explorer"),
-        ("budget_vhat_t100_hedge", "budget_vhat_t100_hedge_randombackup"),
-        ("budget_vhat_t100_explorer", "budget_vhat_t100_explorer_randombackup"),
-        ("budget_vhat_t150", "budget_vhat_t150_hedge"),
-        ("budget_vhat_t150_hedge", "budget_vhat_t150_explorer"),
-        ("budget_vhat_t150_hedge", "budget_vhat_t150_hedge_randombackup"),
-        ("budget_vhat_t150_explorer", "budget_vhat_t150_explorer_randombackup"),
-        ("budget_vhat_t200", "budget_vhat_t200_hedge"),
-        ("budget_vhat_t200_hedge", "budget_vhat_t200_explorer"),
-        ("budget_vhat_t200_hedge", "budget_vhat_t200_hedge_randombackup"),
-        ("budget_vhat_t200_explorer", "budget_vhat_t200_explorer_randombackup"),
+        ("greedy_cost", "routewise"),
+        ("greedy_latency", "routewise"),
+        ("random", "routewise"),
+        ("ablation_lp_only", "ablation_lp_hedging"),
+        ("ablation_lp_hedging", "routewise"),
     ]
     for baseline, comparison in pairs:
         if baseline not in summary or comparison not in summary:
@@ -349,71 +293,22 @@ def _build_delta_rows(
 
 
 def _style_for_variant(variant: str) -> tuple[str, str]:
+    """Return (color, marker) for a paper-name policy preset.
+
+    Kept in sync with ``plots/palettes.py::ROUTER_STRATEGY_COLORS``. Inlined so
+    this suite stays runnable without depending on the top-level ``plots``
+    package, which is a separate paper-figures concern.
+    """
     variant = canonicalize_variant_name(variant)
-    random_backup = variant.endswith("_randombackup")
-    style_variant = variant[:-len("_randombackup")] if random_backup else variant
-    colors = {
-        "original_lp": "#1f1f1f",
-        "original_lp_hedge": "#1f1f1f",
-        "original_lp_explorer": "#1f1f1f",
-        "original_lp_oldhedge": "#1f1f1f",
-        "budget_body_p25": "#1f77b4",
-        "budget_body_p25_hedge": "#1f77b4",
-        "budget_body_p50": "#2ca02c",
-        "budget_body_p50_hedge": "#2ca02c",
-        "budget_body_p75": "#d62728",
-        "budget_body_p75_hedge": "#d62728",
-        "budget_range_p0": "#1f77b4",
-        "budget_range_p0_hedge": "#1f77b4",
-        "budget_range_p0_explorer": "#1f77b4",
-        "budget_range_p25": "#2ca02c",
-        "budget_range_p25_hedge": "#2ca02c",
-        "budget_range_p25_explorer": "#2ca02c",
-        "budget_range_p50": "#d62728",
-        "budget_range_p50_hedge": "#d62728",
-        "budget_range_p50_explorer": "#d62728",
-        "budget_range_p75": "#9467bd",
-        "budget_range_p75_hedge": "#9467bd",
-        "budget_range_p75_explorer": "#9467bd",
-        "budget_range_p75_oldhedge": "#9467bd",
-        "budget_range_p100": "#8c564b",
-        "budget_range_p100_hedge": "#8c564b",
-        "budget_range_p100_explorer": "#8c564b",
-        "budget_vhat_t25": "#ff7f0e",
-        "budget_vhat_t25_hedge": "#ff7f0e",
-        "budget_vhat_t25_explorer": "#ff7f0e",
-        "budget_vhat_t50": "#9467bd",
-        "budget_vhat_t50_hedge": "#9467bd",
-        "budget_vhat_t50_explorer": "#9467bd",
-        "budget_vhat_t75": "#8c564b",
-        "budget_vhat_t75_hedge": "#8c564b",
-        "budget_vhat_t75_explorer": "#8c564b",
-        "budget_vhat_t75_oldhedge": "#8c564b",
-        "budget_vhat_t100": "#e377c2",
-        "budget_vhat_t100_hedge": "#e377c2",
-        "budget_vhat_t100_explorer": "#e377c2",
-        "budget_vhat_t150": "#7f7f7f",
-        "budget_vhat_t150_hedge": "#7f7f7f",
-        "budget_vhat_t150_explorer": "#7f7f7f",
-        "budget_vhat_t200": "#bcbd22",
-        "budget_vhat_t200_hedge": "#bcbd22",
-        "budget_vhat_t200_explorer": "#bcbd22",
-        "cheapest_available": "#7f7f7f",
-        "fastest_available": "#17becf",
-        "quota_first": "#bcbd22",
-        "concurrency_first": "#e377c2",
+    style = {
+        "greedy_cost":         ("#1f77b4", "o"),
+        "greedy_latency":      ("#2ca02c", "o"),
+        "random":              ("#7f8c8d", "o"),
+        "ablation_lp_only":    ("#d62728", "X"),
+        "ablation_lp_hedging": ("#ff7f0e", "X"),
+        "routewise":           ("#9467bd", "P"),
     }
-    if random_backup:
-        marker = "*"
-    elif variant.endswith("_oldhedge"):
-        marker = "^"
-    elif variant.endswith("_explorer"):
-        marker = "P"
-    elif variant.endswith("_hedge"):
-        marker = "X"
-    else:
-        marker = "o"
-    return colors.get(style_variant, "#8c564b"), marker
+    return style.get(variant, ("#8c564b", "s"))
 
 
 def _plot_tradeoff(
@@ -477,49 +372,39 @@ def _metadata(
             / "lp_budget_eval.py"
         ),
         "scenario_family": scenario_family,
-        # ---- catalogue (everything the runner knows about) ---------------
-        "main_variants": MAIN_VARIANTS,
-        "explorer_variants": EXPLORER_VARIANTS,
-        "backup_exploration_variants": BACKUP_EXPLORATION_VARIANTS,
-        "hedge_ablation_variants": HEDGE_ABLATION_VARIANTS,
-        "provider_percentile_ablation_variants": PROVIDER_PERCENTILE_ABLATION_VARIANTS,
-        "shadow_price_ablation_variants": SHADOW_PRICE_ABLATION_VARIANTS,
-        "control_variants": CONTROL_VARIANTS,
-        "mandatory_first_batch_scenarios": FIRST_BATCH_SCENARIOS,
-        "paper_grid_variants": list(PAPER_GRID_VARIANTS),
+        # ---- catalogue ----------------------------------------------------
+        "policies": list(PAPER_GRID_VARIANTS),
         "paper_workloads": list(PAPER_WORKLOADS),
+        "mandatory_first_batch_scenarios": FIRST_BATCH_SCENARIOS,
         # ---- active (what this run actually dispatched) -------------------
         "active_scenarios": list(active_scenarios) if active_scenarios else [],
         "active_variants": list(active_variants) if active_variants else [],
         "active_seeds": list(active_seeds) if active_seeds else [],
         "datasets": datasets,
-        "old_selector": (
-            "min sum_j pi_j * c_eff_j subject to sum_j pi_j * F_j(SLO) >= 0.99 "
-            "with relaxation targets 0.98 / 0.95 / 0.90 and best-effort fallback"
+        "backup_scope": backup_scope,
+        # ---- algorithm contract (RouteWise paper §3) ----------------------
+        "cost_router": (
+            "Effective cost per provider j: c_eff = marginal API cost (S_A) | "
+            "psi(z) = L * (U/L)^z (S_Q quota shadow price) | "
+            "lambda(u) = U * u^alpha (S_C concurrency shadow price)."
         ),
-        "new_selector": (
-            "Canonical budget_range_p* selector: min sum_j pi_j * Tbar_j subject to "
+        "latency_router": (
+            "LP-TTFT-budget: min sum_j pi_j * Tbar_j subject to "
             "sum_j pi_j * c_eff_j <= c_min + p * (c_max - c_min), "
-            "where c_min/c_max are the current feasible provider cost envelope"
+            "where c_min/c_max are the current feasible-provider cost envelope "
+            "and p in [0, 1] is the cost-latency Pareto knob (default 0.75)."
         ),
         "hedge_rule": (
-            "Dispatch backup at the latest wait time t such that "
-            "P(not violate | t) + P(violate | t) * P(backup succeeds) >= 0.99, "
-            "with dispatch overhead delta = 50 ms"
+            "Probability-target: dispatch backup at the latest in-flight "
+            "checkpoint t such that P(not violate | t) + P(violate | t) * "
+            "P(backup succeeds in remaining SLO budget) >= 0.99, with dispatch "
+            "overhead delta = 50 ms. Checkpoints are P25/P50/P75/P90 of SLO."
         ),
-        "ablation_selector": (
-            "Comparator only: min sum_j pi_j * Tbar_j subject to "
-            "sum_j pi_j * c_eff_j <= percentile_tau({c_eff_j over feasible providers})"
-        ),
-        "range_budget_assumption": (
-            "Canonical LP-TTFT-budget variants use p in [0, 1] as an interpretable "
-            "cost-latency knob over the feasible c_eff range for each request"
-        ),
-        "legacy_v_hat_i_assumption": (
-            "Legacy budget_vhat_t* comparison variants still use v_hat_i as the "
-            "estimated per-request API price anchor, computed from the cheapest "
-            "SLO-safe S_A provider at the current time; if no SLO-safe S_A exists, "
-            "it falls back to the cheapest S_A provider"
+        "explorer_rule": (
+            "When a hedge fires under the `routewise` preset, the backup's "
+            "observed TTFT is fed back into the policy's rolling latency "
+            "profile (hedge-as-probe). The `ablation_lp_hedging` preset "
+            "disables this feedback loop."
         ),
         "workload_mode": (
             "Trace-driven replay only. The runner replays the full trace at "
@@ -528,28 +413,10 @@ def _metadata(
         ),
         "trace_timing_mode": "natural_full_trace",
         "lp_tbar_source": (
-            "ground-truth analytical expected TTFT from the provider's active "
-            "distribution at decision time (shift_time / ttft_dist_after aware), "
-            "not the rolling-profile sample mean. Matches the algorithm spec "
-            "T_bar_j(t) = E[T_j(t)] without contaminating the LP objective with "
-            "finite-sample estimator noise. See _body_latency_proxy_ms in "
-            "experiments/simulation/lp_budget_eval.py and "
-            "DESIGN_PRINCIPLES.md §1 ('reasoning beats realism')."
-        ),
-        "hedge_as_probe": (
-            "Enabled only for explicit *_explorer variants: when a hedge fires, "
-            "the backup TTFT sample is fed back into the rolling profile. "
-            "*_hedge variants are hedge-only and do not update the backup profile."
-        ),
-        "active_probing": "disabled (deleted on 2026-04-29; see lp_budget_eval.py top comment)",
-        "backup_scope": backup_scope,
-        "backup_selection_policy": (
-            "Default *_hedge and *_explorer variants use deterministic "
-            "safe-cheapest / fastest-fallback backup selection. Explicit "
-            "*_randombackup variants enable the adaptive random-backup branch. "
-            "The canonical backup candidate set is any available non-primary "
-            "provider. backup_scope=cross_tier is an explicit tier-separation "
-            "ablation. Oldhedge variants retain the historical fastest-backup rule."
+            "Ground-truth analytical expected TTFT from the provider's active "
+            "distribution at decision time, not the rolling-profile sample "
+            "mean. Matches the algorithm spec T_bar_j(t) = E[T_j(t)] without "
+            "contaminating the LP objective with finite-sample estimator noise."
         ),
     }
 
@@ -625,27 +492,16 @@ def main() -> None:
                  args.include_backup_exploration_ablation),
                 ("--include-provider-percentile-ablation",
                  args.include_provider_percentile_ablation),
-                ("--include-shadow-price-ablation",
-                 args.include_shadow_price_ablation),
             )
             if value
         ]
         if explicit_ablation_flags:
-            # Shadow-price ablation IS still meaningful under eval_grid
-            # (it's the cleanest way to isolate ψ(z)/λ(u) value on
-            # Stage 3 cells), so honour it even though the other ablation
-            # flags don't apply. Warn about the others only.
-            other_flags = [f for f in explicit_ablation_flags
-                           if f != "--include-shadow-price-ablation"]
-            if other_flags:
-                print(
-                    "[run_simulator_grid] eval_grid family ignores "
-                    f"{', '.join(other_flags)}; PAPER_GRID_VARIANTS is the "
-                    f"canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
-                    file=sys.stderr,
-                )
-        if args.include_shadow_price_ablation:
-            variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
+            print(
+                "[run_simulator_grid] eval_grid family ignores "
+                f"{', '.join(explicit_ablation_flags)}; PAPER_GRID_VARIANTS is "
+                f"the canonical {len(PAPER_GRID_VARIANTS)}-variant set.",
+                file=sys.stderr,
+            )
         # Controls are silently skipped for eval_grid regardless of
         # --skip-controls because they pollute the Pareto frontier.
     else:  # SCENARIO_FAMILY_LEGACY
@@ -655,8 +511,6 @@ def main() -> None:
             variants.extend(BACKUP_EXPLORATION_VARIANTS)
         if args.include_provider_percentile_ablation:
             variants.extend(PROVIDER_PERCENTILE_ABLATION_VARIANTS)
-        if args.include_shadow_price_ablation:
-            variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
         if not args.skip_controls:
             variants.extend(CONTROL_VARIANTS)
     variants = list(dict.fromkeys(canonicalize_variant_name(variant) for variant in variants))

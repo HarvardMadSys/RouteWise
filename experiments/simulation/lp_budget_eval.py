@@ -22,11 +22,9 @@ from rwsim.world.scenarios import ScenarioConfig
 
 
 MAIN_VARIANTS = tuple(POLICIES)
-SHADOW_PRICE_ABLATION_VARIANTS: tuple[str, ...] = ()
 BACKUP_EXPLORATION_VARIANTS: tuple[str, ...] = ()
 HEDGE_ABLATION_VARIANTS: tuple[str, ...] = ()
 PROVIDER_PERCENTILE_ABLATION_VARIANTS: tuple[str, ...] = ()
-EXPLORER_VARIANTS: tuple[str, ...] = ("routewise",)
 CONTROL_VARIANTS = ("greedy_cost", "greedy_latency", "random")
 FIRST_BATCH_SCENARIOS = ("unified_pool",)
 TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
@@ -384,13 +382,11 @@ __all__ = [
     "BACKUP_SCOPES",
     "CONTROL_VARIANTS",
     "EvaluatedRun",
-    "EXPLORER_VARIANTS",
     "FIRST_BATCH_SCENARIOS",
     "HEDGE_ABLATION_VARIANTS",
     "MAIN_VARIANTS",
     "PROVIDER_PERCENTILE_ABLATION_VARIANTS",
     "RunDiagnostics",
-    "SHADOW_PRICE_ABLATION_VARIANTS",
     "TRACE_WORKLOAD_DATASETS",
     "_DATASET_CACHE_ROOT",
     "_DATA_LOADER_CONFIG",

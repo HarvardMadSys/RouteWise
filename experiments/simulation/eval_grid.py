@@ -397,9 +397,6 @@ LP only, LP plus hedging, and full RouteWise with explorer enabled."""
 LP_COMPARISON_VARIANTS: tuple[str, ...] = PAPER_GRID_VARIANTS
 """Compatibility export for older suite code; no historical LP names remain."""
 
-SHADOW_PRICE_ABLATION_VARIANTS: tuple[str, ...] = ()
-"""Shadow pricing is internal RouteWise logic, not a top-level policy preset."""
-
 
 # ---------------------------------------------------------------------------
 # Axis 4: workloads
@@ -531,7 +528,6 @@ def assert_grid_invariants(scenarios: dict[str, ScenarioConfig] | None = None) -
 
 __all__ = [
     "LP_COMPARISON_VARIANTS",
-    "SHADOW_PRICE_ABLATION_VARIANTS",
     "LatencyFamily",
     "PAPER_GRID_VARIANTS",
     "PAPER_WORKLOADS",

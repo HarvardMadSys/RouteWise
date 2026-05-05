@@ -186,7 +186,6 @@ def _seed_run_payload(run: Any, slo_thresholds_ms: list[float]) -> dict[str, Any
         "tier",
         "quota_fraction_used",
         "concurrency_utilization",
-        "shadow_price_q",
         "rejected",
     ]:
         field_value = getattr(run, field_name, None)

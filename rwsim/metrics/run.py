@@ -50,7 +50,6 @@ class SimulationRun:
     tier: list[str] = field(default_factory=list)
     quota_fraction_used: np.ndarray = field(default_factory=lambda: np.array([]))
     concurrency_utilization: np.ndarray = field(default_factory=lambda: np.array([]))
-    shadow_price_q: np.ndarray = field(default_factory=lambda: np.array([]))
     rejected: np.ndarray = field(default_factory=lambda: np.array([]))
 
     def slo_violation_rate(self, slo_ms: float) -> float:
