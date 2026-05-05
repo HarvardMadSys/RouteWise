@@ -81,11 +81,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if not providers:
             raise ValueError("No providers configured for RouteWisePolicy.")
 
-        L, U = calibrate_envelopes(list(state.providers.values()))
+        L, U = calibrate_envelopes(list(state.providers.values()), request=request)
         c_eff = {
             provider.name: effective_cost(
                 provider,
-                request.total_tokens or 0,
+                request,
                 state.now,
                 U=U,
                 L=L,
@@ -244,7 +244,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         return min(
             candidates,
             key=lambda provider: (
-                provider.marginal_cost(request.total_tokens or 0, state.now),
+                provider.marginal_cost_for_request(request, state.now),
                 provider.true_mean_ms(state.now),
                 provider.name,
             ),
@@ -286,7 +286,7 @@ def concurrency_shadow_price(
 
 def effective_cost(
     provider: Provider,
-    total_tokens: int,
+    request: Request,
     now: float,
     *,
     U: float,
@@ -295,7 +295,7 @@ def effective_cost(
 ) -> float:
     """RouteWise effective request cost."""
     return (
-        provider.marginal_cost(total_tokens, now)
+        provider.marginal_cost_for_request(request, now)
         + quota_shadow_price(provider, now, U=U, L=L)
         + concurrency_shadow_price(provider, now, U=U, alpha=concurrency_alpha)
     )
@@ -303,14 +303,28 @@ def effective_cost(
 
 def calibrate_envelopes(
     providers: list[Provider],
-    typical_tokens: int = 200,
+    request: Request | None = None,
+    typical_request_tokens: int = 100,
+    typical_response_tokens: int = 100,
     floor_ratio: float = 1e-3,
 ) -> tuple[float, float]:
     """Compute (L, U) from API provider prices."""
     api_costs = [
-        provider.cost_per_token * typical_tokens
+        (
+            provider.marginal_cost_for_request(request, 0.0)
+            if request is not None
+            else provider.token_cost(
+                request_tokens=typical_request_tokens,
+                response_tokens=typical_response_tokens,
+                total_tokens=typical_request_tokens + typical_response_tokens,
+            )
+        )
         for provider in providers
-        if provider.tier == ProviderTier.S_A and provider.cost_per_token > 0
+        if provider.tier == ProviderTier.S_A
+        and (
+            provider.effective_input_cost_per_token > 0
+            or provider.effective_output_cost_per_token > 0
+        )
     ]
     if not api_costs:
         return (1e-6, 1e-3)

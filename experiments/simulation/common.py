@@ -31,6 +31,7 @@ OUTPUT_DIR = ROOT_DIR / "outputs" / "simulation"
 
 P_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
 COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
+OUTPUT_COST_MULTIPLIER = 5.0
 COST_LAYER_P50_MS = 300.0
 DEFAULT_SEEDS = (42, 43, 44)
 DEFAULT_WORKLOAD = "sharegpt_burstgpt"
@@ -112,13 +113,21 @@ def make_api_provider(
     name: str,
     *,
     cost_per_million_tokens: float,
+    output_cost_per_million_tokens: float | None = None,
     latency_family: str,
     p50_ms: float = COST_LAYER_P50_MS,
 ) -> TieredProvider:
     """Build an on-demand API provider."""
+    output_price = (
+        cost_per_million_tokens * OUTPUT_COST_MULTIPLIER
+        if output_cost_per_million_tokens is None
+        else output_cost_per_million_tokens
+    )
     return TieredProvider(
         name=name,
         cost_per_token=cost_per_million_tokens / 1_000_000.0,
+        input_cost_per_token=cost_per_million_tokens / 1_000_000.0,
+        output_cost_per_token=output_price / 1_000_000.0,
         ttft_dist=make_ttft_distribution(latency_family, p50_ms),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_A,
@@ -444,6 +453,7 @@ __all__ = [
     "COST_RATIO_PER_MILLION",
     "DEFAULT_SEEDS",
     "DEFAULT_WORKLOAD",
+    "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
     "P_SWEEP",
     "load_workload",

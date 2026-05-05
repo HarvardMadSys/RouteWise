@@ -44,6 +44,8 @@ class ProviderConfig:
     cost_per_token: float
     ttft_distribution: DistributionConfig
     tps_distribution: DistributionConfig | None = None
+    input_cost_per_token: float | None = None
+    output_cost_per_token: float | None = None
     quota_size: int | None = None
     quota_window_sec: float | None = None
     concurrency_limit: int | None = None
@@ -175,11 +177,11 @@ class SimulationResult:
 
 __all__ = [
     "DistributionConfig",
+    "HedgeDispatch",
     "MetricRecord",
     "ProviderConfig",
     "ProviderTier",
     "Request",
-    "HedgeDispatch",
     "RoutingDecision",
     "RoutingOutcome",
     "ScenarioConfig",

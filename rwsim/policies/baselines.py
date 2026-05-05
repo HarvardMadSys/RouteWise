@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from rwsim.engine.state import SimulationState
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.schemas import Request, RoutingDecision
-from rwsim.world.providers import Provider
+
+if TYPE_CHECKING:
+    from rwsim.engine.state import SimulationState
+    from rwsim.world.providers import Provider
 
 
 @dataclass
@@ -37,7 +40,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
             primary = min(
                 providers,
                 key=lambda provider: (
-                    provider.marginal_cost(request.total_tokens or 0, state.now),
+                    provider.marginal_cost_for_request(request, state.now),
                     provider.true_mean_ms(state.now),
                     provider.name,
                 ),
@@ -47,7 +50,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
                 providers,
                 key=lambda provider: (
                     provider.true_mean_ms(state.now),
-                    provider.marginal_cost(request.total_tokens or 0, state.now),
+                    provider.marginal_cost_for_request(request, state.now),
                     provider.name,
                 ),
             )
@@ -62,7 +65,14 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
 
 def cheapest_provider(providers: list[Provider] | tuple[Provider, ...]) -> Provider:
     """Return the cheapest provider by marginal token price."""
-    return min(providers, key=lambda provider: (provider.cost_per_token, provider.name))
+    return min(
+        providers,
+        key=lambda provider: (
+            provider.effective_input_cost_per_token,
+            provider.effective_output_cost_per_token,
+            provider.name,
+        ),
+    )
 
 
 __all__ = ["BaselinePolicy", "cheapest_provider"]

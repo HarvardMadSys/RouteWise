@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
 from rwsim.world.distributions import LatencyDistribution, LogNormal
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @dataclass
@@ -28,6 +30,8 @@ class Provider:
     ttft_dist: LatencyDistribution
     tps_dist: LatencyDistribution
     tier: ProviderTier = ProviderTier.S_A
+    input_cost_per_token: float | None = None
+    output_cost_per_token: float | None = None
     quota: QuotaState | None = None
     concurrency: ConcurrencyState | None = None
     service_time_dist: LatencyDistribution | None = None
@@ -72,8 +76,39 @@ class Provider:
         """Analytical mean TTFT in ms."""
         return self._active_ttft_dist(current_time).mean()
 
+    @property
+    def effective_input_cost_per_token(self) -> float:
+        """Input-token price, falling back to the legacy blended token price."""
+        if self.input_cost_per_token is not None:
+            return self.input_cost_per_token
+        return self.cost_per_token
+
+    @property
+    def effective_output_cost_per_token(self) -> float:
+        """Output-token price, falling back to the legacy blended token price."""
+        if self.output_cost_per_token is not None:
+            return self.output_cost_per_token
+        return self.cost_per_token
+
+    def token_cost(
+        self,
+        *,
+        request_tokens: int | float,
+        response_tokens: int | float,
+        total_tokens: int | float | None = None,
+    ) -> float:
+        """Cost in USD for token counts, preserving legacy blended pricing when needed."""
+        if self.input_cost_per_token is None and self.output_cost_per_token is None:
+            if total_tokens is None:
+                total_tokens = float(request_tokens) + float(response_tokens)
+            return self.cost_per_token * float(total_tokens)
+        return (
+            self.effective_input_cost_per_token * float(request_tokens)
+            + self.effective_output_cost_per_token * float(response_tokens)
+        )
+
     def cost_per_request(self, total_tokens: int) -> float:
-        """Cost in USD for a request with the given token count."""
+        """Cost in USD for a request with only total-token count available."""
         return self.cost_per_token * total_tokens
 
     def is_available(self, now: float) -> bool:
@@ -94,6 +129,25 @@ class Provider:
         if self.tier == ProviderTier.S_A:
             return self.cost_per_token * total_tokens
         return 0.0
+
+    def marginal_cost_for_request(self, request, now: float) -> float:
+        """Real USD cost for routing a concrete request to this provider."""
+        del now
+        if self.tier != ProviderTier.S_A:
+            return 0.0
+
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        response_tokens = getattr(request, "response_tokens", None)
+        if response_tokens is None:
+            response_tokens = getattr(request, "estimated_response_tokens", None)
+        total_tokens = getattr(request, "total_tokens", None)
+        if response_tokens is None:
+            response_tokens = max(int(total_tokens or 0) - request_tokens, 0)
+        return self.token_cost(
+            request_tokens=request_tokens,
+            response_tokens=float(response_tokens),
+            total_tokens=total_tokens,
+        )
 
     def account_request(
         self,

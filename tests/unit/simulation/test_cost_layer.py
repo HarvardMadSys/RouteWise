@@ -34,6 +34,16 @@ def test_cost_layer_on_demand_providers_hold_latency_constant_and_vary_cost():
     assert [provider.tier for provider in scenario.providers] == [ProviderTier.S_A] * 3
     assert [provider.true_p50_ms() for provider in scenario.providers] == [300.0, 300.0, 300.0]
     assert [provider.cost_per_token for provider in scenario.providers] == [1e-6, 2e-6, 4e-6]
+    assert [provider.effective_input_cost_per_token for provider in scenario.providers] == [
+        1e-6,
+        2e-6,
+        4e-6,
+    ]
+    assert [provider.effective_output_cost_per_token for provider in scenario.providers] == [
+        5e-6,
+        10e-6,
+        20e-6,
+    ]
 
 
 def test_cost_layer_real_world_uses_one_pooled_latency_distribution():
@@ -41,6 +51,11 @@ def test_cost_layer_real_world_uses_one_pooled_latency_distribution():
 
     assert [provider.tier for provider in scenario.providers] == [ProviderTier.S_A] * 3
     assert [provider.cost_per_token for provider in scenario.providers] == [1e-6, 2e-6, 4e-6]
+    assert [provider.effective_output_cost_per_token for provider in scenario.providers] == [
+        5e-6,
+        10e-6,
+        20e-6,
+    ]
     assert len({id(provider.ttft_dist) for provider in scenario.providers}) == 1
     assert scenario.providers[0].ttft_dist.label == "qwen3_24h/rw8_pooled"
     assert 500.0 < scenario.providers[0].true_p50_ms() < 1500.0
@@ -77,7 +92,7 @@ def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
     assert run.policy == "offline"
     assert run.provider_fractions() == {"api_cheap": 1.0}
     assert run.mean_cost_usd() == sum(
-        request.total_tokens * 1e-6 for request in requests
+        request.request_tokens * 1e-6 + request.response_tokens * 5e-6 for request in requests
     ) / len(requests)
 
 

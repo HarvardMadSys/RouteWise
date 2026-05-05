@@ -110,6 +110,10 @@ def _provider_metadata(provider: Any) -> dict[str, Any]:
         "name": provider.name,
         "cost_per_token": float(provider.cost_per_token),
         "cost_per_m_tokens": float(provider.cost_per_token * 1e6),
+        "input_cost_per_token": float(provider.effective_input_cost_per_token),
+        "input_cost_per_m_tokens": float(provider.effective_input_cost_per_token * 1e6),
+        "output_cost_per_token": float(provider.effective_output_cost_per_token),
+        "output_cost_per_m_tokens": float(provider.effective_output_cost_per_token * 1e6),
         "p50_ms": float(provider.true_p50_ms()),
         "p99_ms": float(provider.true_p99_ms()),
     }

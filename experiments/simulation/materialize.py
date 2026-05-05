@@ -65,6 +65,8 @@ def provider(config: ProviderConfig) -> TieredProvider:
     return TieredProvider(
         name=config.name,
         cost_per_token=config.cost_per_token,
+        input_cost_per_token=config.input_cost_per_token,
+        output_cost_per_token=config.output_cost_per_token,
         ttft_dist=ttft_dist,
         tps_dist=tps_dist,
         tier=tier,

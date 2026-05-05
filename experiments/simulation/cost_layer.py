@@ -13,6 +13,7 @@ from experiments.simulation.common import (
     COST_RATIO_PER_MILLION,
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
+    OUTPUT_COST_MULTIPLIER,
     OUTPUT_DIR,
     P_SWEEP,
     make_api_provider,
@@ -205,7 +206,8 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         name=f"cost_layer_{family}",
         description=(
             "Cost-layer on-demand API scenario: identical TTFT distribution "
-            f"({family}, P50={COST_LAYER_P50_MS:.0f}ms), cost ratio $1/$2/$4 per million tokens."
+            f"({family}, P50={COST_LAYER_P50_MS:.0f}ms), input cost ratio $1/$2/$4 "
+            "and output cost ratio $5/$10/$20 per million tokens."
         ),
         providers=providers,
         arrival_process="trace",
@@ -219,6 +221,10 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         TieredProvider(
             name="api_cheap",
             cost_per_token=COST_RATIO_PER_MILLION[0] / 1_000_000.0,
+            input_cost_per_token=COST_RATIO_PER_MILLION[0] / 1_000_000.0,
+            output_cost_per_token=(
+                COST_RATIO_PER_MILLION[0] * OUTPUT_COST_MULTIPLIER / 1_000_000.0
+            ),
             ttft_dist=ttft_dist,
             tps_dist=make_tps_distribution(),
             tier=ProviderTier.S_A,
@@ -226,6 +232,10 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         TieredProvider(
             name="api_mid",
             cost_per_token=COST_RATIO_PER_MILLION[1] / 1_000_000.0,
+            input_cost_per_token=COST_RATIO_PER_MILLION[1] / 1_000_000.0,
+            output_cost_per_token=(
+                COST_RATIO_PER_MILLION[1] * OUTPUT_COST_MULTIPLIER / 1_000_000.0
+            ),
             ttft_dist=ttft_dist,
             tps_dist=make_tps_distribution(),
             tier=ProviderTier.S_A,
@@ -233,6 +243,10 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         TieredProvider(
             name="api_expensive",
             cost_per_token=COST_RATIO_PER_MILLION[2] / 1_000_000.0,
+            input_cost_per_token=COST_RATIO_PER_MILLION[2] / 1_000_000.0,
+            output_cost_per_token=(
+                COST_RATIO_PER_MILLION[2] * OUTPUT_COST_MULTIPLIER / 1_000_000.0
+            ),
             ttft_dist=ttft_dist,
             tps_dist=make_tps_distribution(),
             tier=ProviderTier.S_A,
@@ -242,7 +256,8 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         name=REAL_WORLD_SCENARIO,
         description=(
             "Cost-layer real-world API scenario: identical pooled Qwen3/OpenRouter "
-            "TTFT distribution (rw8_pooled), cost ratio $1/$2/$4 per million tokens."
+            "TTFT distribution (rw8_pooled), input cost ratio $1/$2/$4 and "
+            "output cost ratio $5/$10/$20 per million tokens."
         ),
         providers=providers,
         arrival_process="trace",
@@ -402,7 +417,7 @@ def _offline_record(
     provider: TieredProvider,
 ) -> PerRequestRecord:
     ttft_ms = provider.true_p50_ms(float(request.timestamp))
-    cost_usd = provider.marginal_cost(request.total_tokens or 0, float(request.timestamp))
+    cost_usd = provider.marginal_cost_for_request(request, float(request.timestamp))
     return PerRequestRecord(
         request_id=str(request.id),
         elapsed_sec=float(request.timestamp),
@@ -433,11 +448,18 @@ def _cheapest_api_provider(providers: list[TieredProvider]) -> TieredProvider | 
     api_providers = [provider for provider in providers if provider.tier == ProviderTier.S_A]
     if not api_providers:
         return None
-    return min(api_providers, key=lambda provider: (provider.cost_per_token, provider.name))
+    return min(
+        api_providers,
+        key=lambda provider: (
+            provider.effective_input_cost_per_token,
+            provider.effective_output_cost_per_token,
+            provider.name,
+        ),
+    )
 
 
 def _api_cost(provider: TieredProvider, request: Request) -> float:
-    return provider.marginal_cost(request.total_tokens or 0, float(request.timestamp))
+    return provider.marginal_cost_for_request(request, float(request.timestamp))
 
 
 def _offline_service_time_sec(provider: TieredProvider, request: Request) -> float:

@@ -6,8 +6,7 @@ module only converts generic dictionaries into shared schema objects.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rwsim.schemas import (
     DistributionConfig,
@@ -17,6 +16,9 @@ from rwsim.schemas import (
     ShiftEvent,
     WorkloadConfig,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 def load_scenario_config(path: str) -> ScenarioConfig:
@@ -57,6 +59,16 @@ def _provider(value: ProviderConfig | Mapping[str, Any]) -> ProviderConfig:
         cost_per_token=float(value.get("cost_per_token", 0.0)),
         ttft_distribution=_distribution(value["ttft_distribution"]),
         tps_distribution=_distribution(value.get("tps_distribution")),
+        input_cost_per_token=(
+            None
+            if value.get("input_cost_per_token") is None
+            else float(value["input_cost_per_token"])
+        ),
+        output_cost_per_token=(
+            None
+            if value.get("output_cost_per_token") is None
+            else float(value["output_cost_per_token"])
+        ),
         quota_size=value.get("quota_size"),
         quota_window_sec=value.get("quota_window_sec"),
         concurrency_limit=value.get("concurrency_limit"),

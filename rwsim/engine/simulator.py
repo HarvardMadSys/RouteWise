@@ -119,7 +119,7 @@ class Simulator:
             )
 
         primary.account_request(request.id, now, primary_service_time)
-        primary_cost_usd = primary.marginal_cost(request.total_tokens or 0, now)
+        primary_cost_usd = primary.marginal_cost_for_request(request, now)
         billed_cost = primary_cost_usd
 
         final_provider = primary.name
@@ -157,10 +157,7 @@ class Simulator:
                     dispatch_time,
                     backup_service_time,
                 )
-                backup_cost_usd = backup.marginal_cost(
-                    request.total_tokens or 0,
-                    dispatch_time,
-                )
+                backup_cost_usd = backup.marginal_cost_for_request(request, dispatch_time)
                 billed_cost += backup_cost_usd
                 hedge_delay_ms = (dispatch_time - now) * 1000.0
                 backup_observed_at = dispatch_time + backup_ttft_ms / 1000.0
