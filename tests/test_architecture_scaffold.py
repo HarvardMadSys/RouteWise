@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import unittest
 from pathlib import Path
@@ -226,6 +227,22 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(available_suites(), expected)
         for name in expected:
             self.assertTrue(get_suite(name).module.startswith("experiments."))
+
+    def test_section_simulator_phase0_surface_is_registered_incrementally(self) -> None:
+        from routewise_cli.main import SIMULATOR_SECTIONS
+
+        self.assertEqual(SIMULATOR_SECTIONS, {"cost-layer": "experiments.simulation.cost_layer"})
+        for module_name in (
+            "experiments.simulation.cost_layer",
+            "experiments.simulation.latency_layer",
+            "experiments.simulation.hedging",
+            "experiments.simulation.end_to_end",
+        ):
+            module = importlib.import_module(module_name)
+            self.assertTrue(hasattr(module, "SECTION_NAME"))
+
+        end_to_end = importlib.import_module("experiments.simulation.end_to_end")
+        self.assertFalse(hasattr(end_to_end, "main"))
 
 
 if __name__ == "__main__":

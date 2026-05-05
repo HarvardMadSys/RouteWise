@@ -5,17 +5,21 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import linprog
 
-from rwsim.engine.state import SimulationState
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
-from rwsim.world.providers import Provider
+
+if TYPE_CHECKING:
+    from rwsim.engine.state import SimulationState
+    from rwsim.world.providers import Provider
 
 _LP_EPS = 1e-9
+_COST_TIEBREAK_MS = 1e-3
 _DEFAULT_HEDGE_CHECKPOINTS = (0.25, 0.50, 0.75, 0.90)
 _HEDGE_SUCCESS_TARGET = 0.99
 _DISPATCH_OVERHEAD_MS = 50.0
@@ -99,14 +103,14 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         budget = c_min + self.p * (c_max - c_min)
 
         success, vector = _solve_lp(
-            objective=[tbar[name] for name in names],
+            objective=_cost_tiebroken_objective(
+                [tbar[name] for name in names],
+                [c_eff[name] for name in names],
+            ),
             upper_constraint=[c_eff[name] for name in names],
             upper_bound=budget,
         )
-        if success and vector is not None:
-            weights = _normalize_weights(names, vector)
-        else:
-            weights = {}
+        weights = _normalize_weights(names, vector) if success and vector is not None else {}
         if not weights:
             best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
             weights = {best.name: 1.0}
@@ -336,6 +340,26 @@ def _solve_lp(
     return True, result.x
 
 
+def _cost_tiebroken_objective(
+    latency_objective_ms: list[float],
+    effective_costs: list[float],
+) -> list[float]:
+    """Prefer lower effective cost when LP latency objectives are equal."""
+    if len(latency_objective_ms) != len(effective_costs):
+        raise ValueError("latency objective and cost arrays must have the same length")
+    if not latency_objective_ms:
+        return []
+
+    latencies = np.asarray(latency_objective_ms, dtype=float)
+    costs = np.asarray(effective_costs, dtype=float)
+    cost_span = float(costs.max() - costs.min())
+    if cost_span <= _LP_EPS:
+        return [float(value) for value in latencies]
+
+    normalized_costs = (costs - costs.min()) / cost_span
+    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+
+
 def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
     weights = {
         name: float(vector[idx])
@@ -378,8 +402,8 @@ def _combined_success_probability(
 
 
 __all__ = [
-    "RouteWisePolicy",
     "RollingLatencyProfile",
+    "RouteWisePolicy",
     "calibrate_envelopes",
     "concurrency_shadow_price",
     "effective_cost",

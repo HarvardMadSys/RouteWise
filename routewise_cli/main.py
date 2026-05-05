@@ -8,11 +8,17 @@ must not depend on experiment recipes.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
+import sys
 from typing import Any
 
 from experiments import available_experiments, get_experiment
 from experiments.suites import available_suites, get_suite, run_suite
+
+SIMULATOR_SECTIONS = {
+    "cost-layer": "experiments.simulation.cost_layer",
+}
 
 
 def _json_dump(payload: Any) -> str:
@@ -53,6 +59,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Arguments passed through to the suite after an optional -- separator.",
     )
 
+    simulator_parser = subparsers.add_parser("simulator", help="Run section-based simulator experiments.")
+    simulator_subparsers = simulator_parser.add_subparsers(dest="simulator_command")
+    simulator_subparsers.add_parser("list", help="List registered simulator sections.")
+    for section_name in SIMULATOR_SECTIONS:
+        section_parser = simulator_subparsers.add_parser(section_name, help=f"Run {section_name}.")
+        section_parser.add_argument(
+            "section_args",
+            nargs=argparse.REMAINDER,
+            help="Arguments passed through to the section after an optional -- separator.",
+        )
+
     return parser
 
 
@@ -76,8 +93,13 @@ def _list_payload(experiment_name: str | None, *, suites: bool) -> dict[str, Any
 
 def main(argv: list[str] | None = None) -> int:
     """Run the RouteWise CLI."""
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if len(raw_args) >= 2 and raw_args[0] == "simulator" and raw_args[1] in SIMULATOR_SECTIONS:
+        module = importlib.import_module(SIMULATOR_SECTIONS[raw_args[1]])
+        return int(module.main(raw_args[2:]))
+
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_args)
 
     if args.command == "list":
         print(_json_dump(_list_payload(args.experiment, suites=args.suites)))
@@ -121,6 +143,17 @@ def main(argv: list[str] | None = None) -> int:
         if suite_args and suite_args[0] == "--":
             suite_args = suite_args[1:]
         return run_suite(args.suite, suite_args)
+
+    if args.command == "simulator":
+        if args.simulator_command == "list":
+            print(_json_dump({"sections": tuple(SIMULATOR_SECTIONS)}))
+            return 0
+        if args.simulator_command in SIMULATOR_SECTIONS:
+            section_args = args.section_args
+            if section_args and section_args[0] == "--":
+                section_args = section_args[1:]
+            module = importlib.import_module(SIMULATOR_SECTIONS[args.simulator_command])
+            return int(module.main(section_args))
 
     parser.print_help()
     return 2
