@@ -7,9 +7,9 @@ It exists to let real-online experiments call the same algorithm shapes
 as the simulator without forcing a premature unification of three
 incompatible policy frameworks (``rwsim.policies``, the
 ``lp_budget_eval`` sidecar, and these phase6-derived classes). When the
-canonical policy pipeline in ``rwsim.policies.composer`` is mature
-enough to express both the legacy and current paper methods, this
-module should be retired or re-grounded on it.
+canonical policy pipeline in ``rwsim.policies`` is mature enough to express
+the live-evaluation harness, this module should be retired or re-grounded
+on it.
 
 Policy taxonomy:
 
@@ -19,10 +19,6 @@ Policy taxonomy:
   - ``CheapestFixedPolicy``   : always cheapest available
   - ``FastestFixedPolicy``    : always lowest empirical-P50 available
   - ``QuotaFirstPolicy`` / ``ConcurrencyFirstPolicy`` : tier-priority heuristics
-
-* **Legacy / reference** (historical RouteWise iterations, kept for A/B):
-  - ``OriginalLPHedgePolicy``        : ``LP-CDF`` (min cost s.t. SLO attainment)
-  - ``BudgetedVhatHedgePolicy``      : ``LP-TTFT-budget`` with ``vhat`` anchor
 
 * **Current paper line** (``LP-TTFT-budget`` + ``Hedge-ProbTarget``):
   - ``BudgetRangeHedgePolicy(p)`` : range-normalized cost budget ``B_p =
@@ -167,40 +163,6 @@ def _body_latency_proxy_ms(state: ProviderState, now: float) -> tuple[float, boo
     if median is not None:
         return float(median), True
     return float("inf"), True
-
-
-def slo_safe_anchor_cost(
-    states: dict[str, ProviderState],
-    ctx: RequestContext,
-    slo_sec: float,
-    now: float,
-    *,
-    cdf_target: float = 0.9,
-) -> float:
-    """Empirical ``v_hat_i``: cheapest SLO-safe S_A request cost.
-
-    A provider is "SLO-safe" when its rolling-profile CDF at the SLO
-    threshold is >= ``cdf_target``. Falls back to cheapest S_A overall
-    when no profile data is available, mirroring the simulator's
-    ``_predicted_api_cost_anchor`` fallback chain.
-    """
-    api_states = [s for s in states.values() if s.spec.tier == "api"]
-    if not api_states:
-        return 0.0
-
-    slo_threshold_ms = slo_sec * 1000.0
-    safe: list[tuple[float, ProviderState]] = []
-    for st in api_states:
-        if st.profile.cdf_at(slo_threshold_ms, now) >= cdf_target:
-            cost = request_cost_for_spec(st.spec, ctx)
-            safe.append((cost, st))
-    if safe:
-        safe.sort(key=lambda pair: pair[0])
-        return float(safe[0][0])
-
-    costs = [(request_cost_for_spec(st.spec, ctx), st) for st in api_states]
-    costs.sort(key=lambda pair: pair[0])
-    return float(costs[0][0])
 
 
 def _solve_simplex_lp(
@@ -564,191 +526,6 @@ class ConcurrencyFirstPolicy(TierFirstPolicy):
 
 
 # ---------------------------------------------------------------------------
-# Legacy LP-CDF — kept for A/B vs current paper line.
-# ---------------------------------------------------------------------------
-
-
-class OriginalLPHedgePolicy(BasePolicy):
-    """``LP-CDF``: ``min sum_j pi_j c_eff_j  s.t.  sum_j pi_j F_j(SLO) >= rho``."""
-
-    name = "original_lp_hedge"
-    use_hedge = True
-
-    def __init__(
-        self,
-        specs: list[ProviderSpec],
-        slo_ms: float,
-        profile_window_sec: float = PROFILE_WINDOW_SEC,
-        slo_target: float = HEDGE_SUCCESS_TARGET,
-    ) -> None:
-        super().__init__(specs, slo_ms, profile_window_sec)
-        self._slo_target = slo_target
-
-    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
-        feasible = [s for s in self.states.values() if s.is_available(now)]
-        if not feasible:
-            return RoutingDecision(primary=None, notes="none_available")
-
-        L, U = calibrate_envelopes(
-            self.specs, ctx.prompt_tokens, ctx.completion_tokens_budget
-        )
-        request_costs = {
-            s.spec.name: request_cost_for_spec(s.spec, ctx) for s in feasible
-        }
-        c_eff = {
-            s.spec.name: effective_cost(
-                s, request_costs[s.spec.name], now, U=U, L=L
-            )
-            for s in feasible
-        }
-        slo_threshold_ms = self.slo_sec * 1000.0
-        f_at_slo = {
-            s.spec.name: s.profile.cdf_at(slo_threshold_ms, now) for s in feasible
-        }
-
-        for relax in (self._slo_target, 0.95, 0.90, 0.0):
-            weights = self._solve_relaxed_lp(feasible, c_eff, f_at_slo, relax)
-            if weights:
-                primary = _sample_weighted(
-                    weights, rng=random.Random(int(now * 1e6))
-                )
-                return RoutingDecision(
-                    primary=primary,
-                    lp_weights=weights,
-                    lp_status=f"optimal_f{relax:.2f}",
-                    reference_cost_usd=U,
-                    c_eff_map=c_eff,
-                    tier_mix=_tier_mix_from_weights(weights, self.states),
-                    notes=f"original_lp_f{relax:.2f}",
-                )
-
-        best = min(feasible, key=lambda s: c_eff[s.spec.name])
-        return RoutingDecision(
-            primary=best.spec.name,
-            lp_weights={best.spec.name: 1.0},
-            lp_status="best_effort",
-            c_eff_map=c_eff,
-            notes="original_lp_best_effort",
-        )
-
-    @staticmethod
-    def _solve_relaxed_lp(
-        feasible: list[ProviderState],
-        c_eff: dict[str, float],
-        f_at_slo: dict[str, float],
-        slo_target: float,
-    ) -> dict[str, float] | None:
-        if not feasible:
-            return None
-        names = [s.spec.name for s in feasible]
-        n = len(names)
-        objective = np.array([c_eff[name] for name in names], dtype=float)
-        # SLO attainment >= rho rewritten as -F·pi <= -rho.
-        A_ub = np.array([[-f_at_slo[name] for name in names]], dtype=float)
-        b_ub = np.array([-slo_target], dtype=float)
-        A_eq = np.ones((1, n), dtype=float)
-        b_eq = np.array([1.0], dtype=float)
-        bounds = [(0.0, 1.0) for _ in range(n)]
-        try:
-            result = linprog(
-                c=objective,
-                A_ub=A_ub,
-                b_ub=b_ub,
-                A_eq=A_eq,
-                b_eq=b_eq,
-                bounds=bounds,
-                method="highs",
-            )
-        except Exception:
-            return None
-        if not result.success:
-            return None
-        return _normalize_weights(names, np.asarray(result.x, dtype=float))
-
-
-# ---------------------------------------------------------------------------
-# Legacy LP-TTFT-budget with vhat anchor — kept for A/B vs range-budget.
-# ---------------------------------------------------------------------------
-
-
-class BudgetedVhatHedgePolicy(BasePolicy):
-    """``LP-TTFT-budget`` variant anchored on ``tau * v_hat``.
-
-    The ``v_hat`` anchor is the cheapest SLO-safe S_A request cost. This was
-    the formulation in the original Phase 6 SA-only experiment. Kept here
-    for A/B comparison against the range-budget variant.
-    """
-
-    name = "budget_vhat_t100_hedge"
-    use_hedge = True
-
-    def __init__(
-        self,
-        specs: list[ProviderSpec],
-        slo_ms: float,
-        profile_window_sec: float = PROFILE_WINDOW_SEC,
-        tau: float = 1.0,
-    ) -> None:
-        super().__init__(specs, slo_ms, profile_window_sec)
-        self.tau = tau
-        self.name = f"budget_vhat_t{int(tau * 100)}_hedge"
-
-    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
-        feasible = [s for s in self.states.values() if s.is_available(now)]
-        if not feasible:
-            return RoutingDecision(primary=None, notes="none_available")
-
-        L, U = calibrate_envelopes(
-            self.specs, ctx.prompt_tokens, ctx.completion_tokens_budget
-        )
-        request_costs = {
-            s.spec.name: request_cost_for_spec(s.spec, ctx) for s in feasible
-        }
-        c_eff = {
-            s.spec.name: effective_cost(
-                s, request_costs[s.spec.name], now, U=U, L=L
-            )
-            for s in feasible
-        }
-        tbar: dict[str, float] = {}
-        for s in feasible:
-            mean_ms, _ = _body_latency_proxy_ms(s, now)
-            if not math.isfinite(mean_ms):
-                mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-            tbar[s.spec.name] = mean_ms
-
-        v_hat = slo_safe_anchor_cost(self.states, ctx, self.slo_sec, now)
-        budget = self.tau * v_hat
-
-        names = [s.spec.name for s in feasible]
-        success, vector = _solve_simplex_lp(
-            objective=[tbar[name] for name in names],
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
-        )
-        if success and vector is not None:
-            weights = _normalize_weights(names, vector)
-            if weights:
-                primary = _sample_weighted(
-                    weights, rng=random.Random(int(now * 1e6))
-                )
-                return RoutingDecision(
-                    primary=primary,
-                    lp_weights=weights,
-                    lp_status="optimal",
-                    budget_usd=float(budget),
-                    reference_cost_usd=float(v_hat),
-                    c_eff_map=c_eff,
-                    tier_mix=_tier_mix_from_weights(weights, self.states),
-                    notes=self.name,
-                )
-
-        return _fallback_in_budget(
-            feasible, c_eff, budget, v_hat, fallback_label="vhat"
-        )
-
-
-# ---------------------------------------------------------------------------
 # Current paper line: LP-RangeBudget + Hedge-ProbTarget.
 # ---------------------------------------------------------------------------
 
@@ -895,17 +672,14 @@ def build_policy(
     specs: list[ProviderSpec],
     slo_ms: float,
     profile_window_sec: float = PROFILE_WINDOW_SEC,
-    **kwargs,
 ) -> BasePolicy:
     """Construct one policy by name.
 
     Recognized names:
       * Baselines: ``openrouter_auto``, ``sort_latency``, ``cheapest_fixed``,
         ``fastest_fixed``, ``quota_first``, ``concurrency_first``
-      * Legacy LP-CDF: ``original_lp_hedge``
-      * Legacy vhat budget: ``budget_vhat_t<NN>_hedge`` (NN ∈ {25, 50, 75, 100})
-      * Current paper line: ``budget_range_p<PP>`` and
-        ``budget_range_p<PP>_hedge`` (PP ∈ [0, 100])
+      * Paper line: ``budget_range_p<PP>`` and
+        ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
     """
     common = dict(specs=specs, slo_ms=slo_ms, profile_window_sec=profile_window_sec)
     if name == "openrouter_auto":
@@ -928,15 +702,6 @@ def build_policy(
         return QuotaFirstPolicy(**common)
     if name == "concurrency_first":
         return ConcurrencyFirstPolicy(**common)
-    if name == "original_lp_hedge":
-        return OriginalLPHedgePolicy(**common, **kwargs)
-
-    if name.startswith("budget_vhat_t") and name.endswith("_hedge"):
-        try:
-            tau_pct = int(name[len("budget_vhat_t") : -len("_hedge")])
-        except ValueError as exc:
-            raise ValueError(f"Bad budget_vhat name: {name!r}") from exc
-        return BudgetedVhatHedgePolicy(**common, tau=tau_pct / 100.0)
 
     if name.startswith("budget_range_p") and name.endswith("_hedge"):
         try:
@@ -958,7 +723,6 @@ __all__ = [
     "BasePolicy",
     "BudgetRangeHedgePolicy",
     "BudgetRangePolicy",
-    "BudgetedVhatHedgePolicy",
     "CheapestFixedPolicy",
     "ConcurrencyFirstPolicy",
     "FastestFixedPolicy",
@@ -972,7 +736,6 @@ __all__ = [
     "OpenRouterAutoPolicy",
     "OpenRouterCheapestFixedPolicy",
     "OpenRouterFastestFixedPolicy",
-    "OriginalLPHedgePolicy",
     "QuotaFirstPolicy",
     "RequestContext",
     "RoutingDecision",
@@ -985,5 +748,4 @@ __all__ = [
     "compute_hedge_time_sec",
     "request_cost_for_spec",
     "select_safe_cheapest_backup",
-    "slo_safe_anchor_cost",
 ]

@@ -31,14 +31,12 @@ from experiments.real_evaluation.inventory import (
 from experiments.real_evaluation.policies import (
     BasePolicy,
     BudgetRangeHedgePolicy,
-    BudgetedVhatHedgePolicy,
     CheapestFixedPolicy,
     ConcurrencyFirstPolicy,
     FastestFixedPolicy,
     OpenRouterAutoPolicy,
     OpenRouterCheapestFixedPolicy,
     OpenRouterFastestFixedPolicy,
-    OriginalLPHedgePolicy,
     QuotaFirstPolicy,
     RequestContext,
     RoutingDecision,
@@ -48,7 +46,6 @@ from experiments.real_evaluation.policies import (
     build_policy,
     compute_hedge_time_sec,
     select_safe_cheapest_backup,
-    slo_safe_anchor_cost,
 )
 from experiments.real_evaluation.recorder import (
     CSV_FIELDS,
@@ -81,7 +78,6 @@ __all__ = [
     "BasePolicy",
     "BaseTransport",
     "BudgetRangeHedgePolicy",
-    "BudgetedVhatHedgePolicy",
     "CSV_FIELDS",
     "CheapestFixedPolicy",
     "ConcurrencyFirstPolicy",
@@ -94,7 +90,6 @@ __all__ = [
     "OpenRouterAutoPolicy",
     "OpenRouterCheapestFixedPolicy",
     "OpenRouterFastestFixedPolicy",
-    "OriginalLPHedgePolicy",
     "PROFILE_WINDOW_SEC",
     "ProviderSpec",
     "ProviderState",
@@ -128,5 +123,4 @@ __all__ = [
     "select_safe_cheapest_backup",
     "send_hedged_request",
     "send_request",
-    "slo_safe_anchor_cost",
 ]

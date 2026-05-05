@@ -103,63 +103,35 @@ without revisiting both invariants.
 
 ### 2.3 Policy Variant
 
-The policy axis is ``5 p values × 2 hedge modes = 10 variants``:
+The simulator exposes six paper-name policy presets:
 
-- ``p ∈ {0, 0.25, 0.5, 0.75, 1.0}`` — cost-budget percentile in
-  ``B_p(i, t) = c_min + p * (c_max - c_min)``. ``p=0`` means "spend
-  nothing extra above the cheapest provider", ``p=1`` means "ignore cost,
-  minimise latency". Sweeping ``p`` traces the Pareto frontier.
-- ``hedge_mode ∈ {no_hedge, hedge}`` — binary ablation. ``no_hedge`` is
-  the latency-router-only baseline; ``hedge`` adds probability-targeted
-  hedging.
+| Preset | Role |
+|--------|------|
+| ``greedy_cost`` | Baseline: cheapest available provider |
+| ``greedy_latency`` | Baseline: fastest available provider |
+| ``random`` | Baseline: random available provider |
+| ``ablation_lp_only`` | RouteWise LP body router only |
+| ``ablation_lp_hedging`` | LP body router + probability-target hedging |
+| ``routewise`` | Full RouteWise: LP + hedging + hedge-as-probe explorer |
 
-**Explorer is intentionally excluded from the simulator paper grid.**
-Per Juncheng's directive (2026-04-22 / 2026-04-28), the production
-design assumes an active system where hedging fires often enough that
-its backup requests serve as free latency probes — so the simulator
-paper line does not model a separate active-probing stream. In a
-stationary simulator, ``hedge_as_probe`` (explorer) adds no visible
-routing signal beyond ``hedge`` because provider distributions do not
-drift. Showing both in figures would waste space. Explorer's
-contribution lives in two places that are **not** the simulator grid:
-
-1. **Operational simplicity** — system design claim, qualitative.
-2. **Drift robustness** — quantitative, requires a separate non-stationary
-   scenario with no active-probing path (provider shift mid-run, metrics
-   on profile freshness and post-drift adaptation delay) or real-experiment
-   data. Dedicated-probing comparisons belong only in a separate real/debug
-   harness that accounts for probe cost, capacity, and observation time.
-
-Encoding this directive: :data:`PAPER_HEDGE_MODES` =
-``("no_hedge", "hedge")`` only. The `variant_name()` constructor still
-accepts ``"explorer"`` for ad-hoc / drift experiments, but the grid
-factory does not reach for it.
+The final three presets are the RouteWise method family. They are deliberately
+named by paper role, not by older runnable variant ids. The implementation
+still has a cost-budget knob ``p`` inside ``RouteWisePolicy`` (default ``p=0.75``), but ``p`` is a
+parameter of the policy, not a top-level simulator policy name. A dedicated
+``p`` sweep may add explicit presets later if the paper needs a Pareto curve;
+the committed paper surface remains the six names above.
 
 **``p`` controls allowed budget, not realised cost.** The LP constraint
 is ``Σ π_j × c_eff_j ≤ B_p``, an inequality. Higher ``p`` *permits* more
 spending; it does not *force* more spending. In Stage 2 the realised
-cost happens to grow monotonically with ``p`` because the providers are
-designed clean (3 S_A points spaced 1:2:4, latency inversely ordered) so
-the only way to lower latency is to spend more. In Stage 3 the realised
-cost is **not** monotone in ``p``: with quota / concurrency tiers in the
-mix, a wider budget can let the LP pick a mix that is simultaneously
-faster *and* cheaper (e.g. swapping S_A for S_C, which is free at the
-margin). When plotting Stage 3 results, treat ``(cost, latency)`` as a
-scatter or a lower envelope, not as a curve indexed by ``p``.
+cost often grows with ``p`` because the providers are designed clean
+(latency inversely ordered with cost). In Stage 3 the realised cost is
+not guaranteed to be monotone: with quota / concurrency tiers in the mix,
+a wider budget can let the LP pick a mix that is simultaneously faster
+and cheaper.
 
-The 10 variants exposed by :data:`PAPER_GRID_VARIANTS` map directly to
-the runnable variant ids understood by
-``experiments.simulation.lp_budget_eval.run_variant``:
-
-| ``p`` | ``no_hedge`` | ``hedge`` |
-|------:|--------------|-----------|
-| 0.0   | ``budget_range_p0``   | ``budget_range_p0_hedge``   |
-| 0.25  | ``budget_range_p25``  | ``budget_range_p25_hedge``  |
-| 0.5   | ``budget_range_p50``  | ``budget_range_p50_hedge``  |
-| 0.75  | ``budget_range_p75``  | ``budget_range_p75_hedge``  |
-| 1.0   | ``budget_range_p100`` | ``budget_range_p100_hedge`` |
-
-10 variants × 4 stages × 3 distributions = **120 simulator configurations**.
+6 policies × 4 stages × 3 distributions = **72 simulator configurations**
+per workload.
 
 ### 2.4 Workload (4th Axis)
 
@@ -247,17 +219,17 @@ These describe how the algorithm *should* behave qualitatively. They are
 shadow-price interaction (``ψ(z)`` versus ``λ(u)``), arrival pattern, and
 capacity caps — all of which need the simulator to run end-to-end.
 
-| Stage | p | Qualitative expectation |
-|------:|---|--------------------------|
-| 1 | any | All 10 variants collapse to the same routing (``c_min = c_max`` makes ``B_p`` independent of ``p``); mass concentrates on the fastest provider |
-| 2 | 0   | Mass concentrates on the cheapest provider (LP cost budget shrinks to ``c_min``) |
-| 2 | 1   | Mass concentrates on the fastest provider (cost constraint vanishes) |
-| 2 | 0.5 | Mass spreads; **realised cost is monotone in ``p``** because providers are clean (1:2:4 cost / inverse latency) |
-| 3 | 0   | Mass favours subscription tiers (``S_Q`` and ``S_C`` free at the margin); exact split between ``S_Q`` and ``S_C`` depends on ``ψ(z)`` vs ``λ(u)`` interaction and is workload-dependent |
-| 3 | 1   | Mass favours fast providers across all tiers, **subject to** capacity caps (``S_C`` ≤ its concurrency limit; spillover to ``S_A`` once full) |
-| 3 | any | Capacity caps are respected (no provider exceeds quota or concurrency limit) **but realised cost is NOT required to be monotone in ``p``** — see §2.3 above |
-| All | hedging | ``hedge`` materially reduces P99 / SLO violations only when baseline P99 is close to or above SLO. When the no-hedge baseline already meets SLO comfortably, hedge fires near-zero and looks identical to no_hedge — **this is correct silence, not a bug** |
-| All | explorer | In stationary scenarios (the eval grid), ``explorer`` is expected to match ``hedge`` on body metrics. Validating explorer's positive value requires drift / freshness scenarios, not the base grid |
+| Stage | Surface | Qualitative expectation |
+|------:|---------|--------------------------|
+| 1 | any policy | Equal provider cost makes the LP budget constraint non-discriminating; RouteWise should concentrate mass on the fastest provider, matching ``greedy_latency`` on routing when capacity is unconstrained |
+| 2 | optional internal ``p=0`` sweep | Mass concentrates on the cheapest provider because the LP cost budget shrinks to ``c_min`` |
+| 2 | optional internal ``p=1`` sweep | Mass concentrates on the fastest provider because the cost constraint vanishes |
+| 2 | optional internal ``p`` sweep | Mass spreads between cheap and fast providers; **realised cost is monotone in ``p``** because providers are clean (1:2:4 cost / inverse latency) |
+| 3 | optional internal ``p=0`` sweep | Mass favours subscription tiers (``S_Q`` and ``S_C`` free at the margin); exact split between ``S_Q`` and ``S_C`` depends on ``ψ(z)`` vs ``λ(u)`` interaction and is workload-dependent |
+| 3 | optional internal ``p=1`` sweep | Mass favours fast providers across all tiers, **subject to** capacity caps (``S_C`` ≤ its concurrency limit; spillover to ``S_A`` once full) |
+| 3 | any RouteWise policy | Capacity caps are respected (no provider exceeds quota or concurrency limit) **but realised cost is NOT required to be monotone in ``p``** — see §2.3 above |
+| All | ``ablation_lp_hedging`` | Hedging materially reduces P99 / SLO violations only when the LP-only baseline is close to or above SLO. When LP-only already meets SLO comfortably, hedge fires near-zero and looks identical to LP-only — **this is correct silence, not a bug** |
+| All | ``routewise`` | In stationary scenarios (the eval grid), the explorer is expected to match hedging on body metrics. Validating explorer's positive value requires drift / freshness scenarios, not the base grid |
 
 Encoding these as fail-on-violation tests is premature: an unexpected
 result should trigger investigation (calibration? bug? real?), not an
