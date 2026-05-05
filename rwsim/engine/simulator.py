@@ -347,7 +347,12 @@ def _fallback_provider(providers: Sequence[Provider], now: float) -> Provider | 
     if not available:
         return None
     return min(
-        available, key=lambda provider: (provider.marginal_cost(1, now), provider.true_p50_ms(now))
+        available,
+        key=lambda provider: (
+            provider.effective_input_cost_per_token,
+            provider.effective_output_cost_per_token,
+            provider.true_p50_ms(now),
+        ),
     )
 
 

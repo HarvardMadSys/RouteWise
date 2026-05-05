@@ -146,6 +146,8 @@ def make_quota_provider(
     return TieredProvider(
         name=name,
         cost_per_token=0.0,
+        input_cost_per_token=0.0,
+        output_cost_per_token=0.0,
         ttft_dist=make_ttft_distribution(latency_family, p50_ms),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_Q,
@@ -164,6 +166,8 @@ def make_concurrency_provider(
     return TieredProvider(
         name=name,
         cost_per_token=0.0,
+        input_cost_per_token=0.0,
+        output_cost_per_token=0.0,
         ttft_dist=make_ttft_distribution(latency_family, p50_ms),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_C,
