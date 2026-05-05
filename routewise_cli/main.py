@@ -20,6 +20,10 @@ SIMULATOR_SECTIONS = {
     "cost-layer": "experiments.simulation.cost_layer",
 }
 
+SIMULATOR_SECTION_DESCRIPTIONS = {
+    "cost-layer": "paper §3.2 — same latency / different cost",
+}
+
 
 def _json_dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
@@ -91,12 +95,43 @@ def _list_payload(experiment_name: str | None, *, suites: bool) -> dict[str, Any
     return {"experiments": available_experiments(), "suites": available_suites()}
 
 
+def _simulator_list_payload() -> dict[str, Any]:
+    sections: list[dict[str, Any]] = []
+    for name, module_name in SIMULATOR_SECTIONS.items():
+        module = importlib.import_module(module_name)
+        list_scenarios = getattr(module, "list_scenarios", None)
+        policies_for_section = getattr(module, "policies_for_section", None)
+        sections.append(
+            {
+                "name": name,
+                "module": module_name,
+                "description": SIMULATOR_SECTION_DESCRIPTIONS.get(name, ""),
+                "scenarios": list(list_scenarios() if callable(list_scenarios) else ()),
+                "policies": list(policies_for_section() if callable(policies_for_section) else ()),
+            }
+        )
+    return {"sections": sections}
+
+
+def _dispatch_simulator(raw_args: list[str]) -> int | None:
+    if not raw_args or raw_args[0] != "simulator" or len(raw_args) < 2:
+        return None
+    command = raw_args[1]
+    if command == "list":
+        print(_json_dump(_simulator_list_payload()))
+        return 0
+    if command in SIMULATOR_SECTIONS:
+        module = importlib.import_module(SIMULATOR_SECTIONS[command])
+        return int(module.main(raw_args[2:]))
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the RouteWise CLI."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    if len(raw_args) >= 2 and raw_args[0] == "simulator" and raw_args[1] in SIMULATOR_SECTIONS:
-        module = importlib.import_module(SIMULATOR_SECTIONS[raw_args[1]])
-        return int(module.main(raw_args[2:]))
+    simulator_result = _dispatch_simulator(raw_args)
+    if simulator_result is not None:
+        return simulator_result
 
     parser = _build_parser()
     args = parser.parse_args(raw_args)
@@ -143,17 +178,6 @@ def main(argv: list[str] | None = None) -> int:
         if suite_args and suite_args[0] == "--":
             suite_args = suite_args[1:]
         return run_suite(args.suite, suite_args)
-
-    if args.command == "simulator":
-        if args.simulator_command == "list":
-            print(_json_dump({"sections": tuple(SIMULATOR_SECTIONS)}))
-            return 0
-        if args.simulator_command in SIMULATOR_SECTIONS:
-            section_args = args.section_args
-            if section_args and section_args[0] == "--":
-                section_args = section_args[1:]
-            module = importlib.import_module(SIMULATOR_SECTIONS[args.simulator_command])
-            return int(module.main(section_args))
 
     parser.print_help()
     return 2

@@ -240,6 +240,8 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         ):
             module = importlib.import_module(module_name)
             self.assertTrue(hasattr(module, "SECTION_NAME"))
+            self.assertTrue(hasattr(module, "list_scenarios"))
+            self.assertTrue(hasattr(module, "make_scenarios"))
 
         end_to_end = importlib.import_module("experiments.simulation.end_to_end")
         self.assertFalse(hasattr(end_to_end, "main"))

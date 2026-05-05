@@ -14,4 +14,15 @@ PLANNED_SCENARIOS = (
     "end_to_end_rw8_no_hedge",
 )
 
-__all__ = ["PLANNED_SCENARIOS", "SECTION_NAME"]
+
+def list_scenarios() -> tuple[str, ...]:
+    """Return planned scenario names for the unregistered end-to-end section."""
+    return PLANNED_SCENARIOS
+
+
+def make_scenarios() -> dict[str, object]:
+    """Return no scenarios until empirical provider profiles are wired."""
+    return {}
+
+
+__all__ = ["PLANNED_SCENARIOS", "SECTION_NAME", "list_scenarios", "make_scenarios"]

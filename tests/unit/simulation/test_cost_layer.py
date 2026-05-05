@@ -59,4 +59,7 @@ def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert routewise_main(["simulator", "list"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload == {"sections": ["cost-layer"]}
+    assert payload["sections"][0]["name"] == "cost-layer"
+    assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
+    assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
+    assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]

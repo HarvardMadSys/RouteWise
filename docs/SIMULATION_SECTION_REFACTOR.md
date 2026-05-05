@@ -100,7 +100,7 @@ routewise_cli/
 
 tests/
   golden/
-    cost_layer/<scenario>.json
+    cost_layer/scenarios.json
     latency_layer/<scenario>.json
     hedging/<scenario>.json
     # end_to_end/ added in a follow-up commit when scenarios are real
@@ -548,11 +548,7 @@ Layout:
 ```text
 tests/golden/
   cost_layer/                # appears in Phase 0/1
-    cost_layer_uniform.json
-    cost_layer_normal.json
-    cost_layer_heavy_tail.json
-    cost_layer_quota_q1..q4.json
-    cost_layer_concurrency_c1..c4.json
+    scenarios.json           # smoke golden: all scenarios, all policies, 32 requests
   latency_layer/             # appears in Phase 2
     latency_layer_uniform_no_overlap.json
     latency_layer_uniform_half_overlap.json
@@ -705,14 +701,15 @@ Invariants enforced across all phases:
 Lands together:
 
 - `experiments/simulation/common.py` — provider builders, workload
-  loader, `P_SWEEP`, `P50_LADDER_MS`, `COST_RATIO` constants,
-  `run_section()` dispatch, `section_main()` factory.
+  loader, `P_SWEEP`, `COST_RATIO_PER_MILLION` constants, and
+  `run_section()` dispatch.
 - `experiments/simulation/cost_layer.py` — full module per §3.1, with
   `main()` defined.
 - Planning modules (no `main()`, no CLI registration) for
   `experiments/simulation/{latency_layer,hedging,end_to_end}.py` —
-  each exposes `SECTION_NAME` and, at most, `list_scenarios() -> ()` so
-  architecture tests can find them.
+  each exposes `SECTION_NAME`, `list_scenarios()`, and
+  `make_scenarios()` so architecture tests can find them. End-to-end
+  may list planned scenario names, but still has no public `main()`.
 - `routewise_cli/main.py` adds the `simulator` subcommand and
   registers only `cost-layer` + `list`.
 - Architecture tests in §6.2 (the `test_end_to_end_is_not_cli_registered`
@@ -723,16 +720,24 @@ Legacy stays alive: `eval_grid.py`, `lp_budget_eval.py`,
 unchanged. New `simulator` subcommand and old `suite` subcommand
 co-exist for these phases.
 
-Goldens this phase: `tests/golden/cost_layer/*.json` only. No deletion
-of legacy goldens yet.
+Goldens this phase: `tests/golden/cost_layer/scenarios.json` only. It
+is a smoke golden captured by `tests/golden_capture.py --families
+cost_layer`: all cost-layer scenarios and policy names, 3 seeds, fixed
+32-request workload prefix. No deletion of legacy goldens yet.
 
 ### Phase 1 — Cost-layer fully runnable
 
 Same code surface as Phase 0; this is the "verify in real use" phase.
-Run `routewise simulator cost-layer` end-to-end, regenerate goldens,
-compare results against equivalent legacy `simulator_grid` outputs to
-catch numerical regressions. Fix anything that drifts; commit with
-either zero new code or the minimal fix.
+Run `routewise simulator cost-layer` on a bounded trace slice, regenerate
+the cost-layer smoke golden, and compare it with
+`tests/golden_capture.py --mode compare --families cost_layer`. Full
+30-day paper runs are not committed as normal goldens because the trace
+is multi-GB and the full section sweep is intentionally heavy.
+
+When preparing paper figures, run the full trace out-of-band and compare
+high-level metrics against the smoke golden shape plus any equivalent
+legacy `simulator_grid` output still available. Fix anything that drifts
+for code reasons; commit with either zero new code or the minimal fix.
 
 If §7 numbers (P50 = 300ms, cost = $1/$2/$4, etc.) produce surprising
 results, stop and re-litigate before proceeding to Phase 2.

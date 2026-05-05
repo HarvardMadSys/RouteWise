@@ -37,11 +37,16 @@ AUDIT_ROOTS = [root for root in [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT] if
 
 SEEDS = [42, 43, 44]
 FAMILY_SPECS = {
+    "cost_layer": {
+        "repo_root": MAIN_ROOT,
+        "output_relpath": Path("cost_layer/scenarios.json"),
+    },
     "simulation": {
         "repo_root": MAIN_ROOT,
         "output_relpath": Path("simulation/scenarios.json"),
     },
 }
+COST_LAYER_GOLDEN_MAX_REQUESTS = 32
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -309,8 +314,60 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
     }
 
 
+def _capture_cost_layer_family(repo_root: Path) -> dict[str, Any]:
+    """Capture a deterministic cost-layer smoke baseline."""
+    _bootstrap_repo(repo_root)
+
+    from experiments.simulation.common import (
+        P_SWEEP,
+        load_workload,
+        make_routewise_presets,
+        run_policy,
+    )
+    from experiments.simulation.cost_layer import make_scenarios, policies_for_section
+
+    policy_names = list(policies_for_section(P_SWEEP))
+    presets = make_routewise_presets(p_values=P_SWEEP, include_hedging=False)
+    requests = load_workload(
+        dataset="sharegpt_burstgpt",
+        max_requests=COST_LAYER_GOLDEN_MAX_REQUESTS,
+    )
+    scenarios_payload: dict[str, Any] = {}
+    for scenario_id, scenario in make_scenarios().items():
+        results = {
+            policy_name: [
+                run_policy(
+                    scenario,
+                    requests,
+                    policy_name,
+                    presets=presets,
+                    seed=seed,
+                )
+                for seed in SEEDS
+            ]
+            for policy_name in policy_names
+        }
+        scenarios_payload[scenario_id] = _scenario_payload(
+            scenario,
+            policy_names,
+            results,
+        )
+
+    return {
+        "family": "cost_layer",
+        "golden_scope": "smoke",
+        "max_requests": COST_LAYER_GOLDEN_MAX_REQUESTS,
+        "seed_order": list(SEEDS),
+        "policy_order": policy_names,
+        "policy_hash": _policy_hash(policy_names),
+        "scenarios": _sorted_dict(scenarios_payload),
+    }
+
+
 def _capture_family_payload(family: str, repo_root: Path) -> dict[str, Any]:
     """Capture one family in the current process."""
+    if family == "cost_layer":
+        return _capture_cost_layer_family(repo_root)
     if family == "simulation":
         return _capture_simulation_family(repo_root, family)
     raise ValueError(f"Unknown family: {family}")
