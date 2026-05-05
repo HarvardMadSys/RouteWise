@@ -47,23 +47,17 @@ def load_all_world_scenarios() -> tuple[object, ...]:
     return tuple(materialize_scenario(item) for item in load_all_scenarios())
 
 
-def run_strategy(scenario_name: str, strategy: str, seed: int = 42) -> dict[str, Any]:
-    """Run one registered strategy on one config-driven simulation scenario."""
-    from rwsim.runner import run_registered_strategy
-    from rwsim.world import generate_workload
+def run_policy(scenario_name: str, policy: str, seed: int = 42) -> dict[str, Any]:
+    """Run one policy on one config-driven simulation scenario."""
+    from rwsim.runner import run_policy as run_named_policy
 
     scenario = load_world_scenario(scenario_name)
-    requests = generate_workload(
-        scenario.n_requests,
-        scenario.duration_seconds,
-        seed=seed,
-        arrival_process=scenario.arrival_process,
-    )
+    requests = _load_requests(scenario_name)
     for provider in scenario.providers:
         provider.reset_state()
 
-    run = run_registered_strategy(scenario, requests, strategy, seed=seed)
-    return _summarize_run(scenario_name, strategy, seed, run, scenario.primary_slo_ms)
+    run = run_named_policy(scenario, requests, policy, seed=seed)
+    return _summarize_run(scenario_name, policy, seed, run, scenario.primary_slo_ms)
 
 
 def summarize(name: str) -> dict[str, Any]:
@@ -73,14 +67,14 @@ def summarize(name: str) -> dict[str, Any]:
 
 def _summarize_run(
     scenario_name: str,
-    strategy: str,
+    policy: str,
     seed: int,
     run,
     primary_slo_ms: float,
 ) -> dict[str, Any]:
     return {
         "scenario": scenario_name,
-        "strategy": strategy,
+        "policy": policy,
         "seed": seed,
         "n_requests": len(run.provider),
         "slo_violation_rate": run.slo_violation_rate(primary_slo_ms),
@@ -93,6 +87,19 @@ def _summarize_run(
     }
 
 
+def _load_requests(scenario_name: str):
+    """Load requests for a config-driven scenario from trace data."""
+    from experiments.simulation.lp_budget_eval import generate_scenario_workload
+
+    schema_scenario = load_scenario(scenario_name)
+    source = schema_scenario.workload.source
+    return generate_scenario_workload(
+        load_world_scenario(scenario_name),
+        seed=schema_scenario.workload.seed,
+        dataset_name=source,
+    )
+
+
 __all__ = [
     "CONFIG_DIR",
     "EXPERIMENT_NAME",
@@ -101,6 +108,6 @@ __all__ = [
     "load_all_world_scenarios",
     "load_scenario",
     "load_world_scenario",
-    "run_strategy",
+    "run_policy",
     "summarize",
 ]

@@ -6,10 +6,10 @@ description: >-
 primary_slo_ms: 2000.0
 slo_thresholds_ms: [1000.0, 2000.0, 3000.0, 5000.0]
 workload:
-  source: synthetic
+  source: burstgpt
   n_requests: 3000
   duration_seconds: 1000.0
-  arrival_process: poisson
+  arrival_process: trace
   seed: 0
   input_tokens: 100
   output_token_distribution:

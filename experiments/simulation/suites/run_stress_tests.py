@@ -1,4 +1,4 @@
-"""Run stress-test scenarios (ST1-ST3) for the joint router.
+"""Run stress-test scenarios (ST1-ST3) for paper policy presets.
 
 Usage:
     routewise suite stress
@@ -26,39 +26,31 @@ import sys
 import time
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.simulation.plots import (
-    plot_provider_mix,
-    plot_slo_cost_pareto,
-)
-from experiments.simulation import (
-    make_stress_scenarios,
-)
-from rwsim.runner import run_registered_strategy
-from rwsim.metrics import StrategyRun
-from rwsim.world import generate_workload
+from experiments.simulation import make_stress_scenarios
+from experiments.simulation.lp_budget_eval import generate_scenario_workload
+from rwsim.metrics import SimulationRun
+from rwsim.runner import POLICIES, run_policy
 
 
 SEEDS = [42, 43, 44]
 OUTPUT_ROOT = _ROOT / "outputs" / "stress"
 
-# Focus: two_layer as baseline + current joint router variants.
-FOCUS_STRATEGIES = ["two_layer", "joint_nohedge", "joint_hedge"]
+FOCUS_POLICIES = ["greedy_cost", "ablation_lp_only", "ablation_lp_hedging", "routewise"]
 
 
-def _avg(runs: list[StrategyRun], fn) -> float:
+def _avg(runs: list[SimulationRun], fn) -> float:
     return float(np.mean([fn(r) for r in runs]))
 
 
-def build_summary(scenario, results: dict[str, list[StrategyRun]]) -> dict:
+def build_summary(scenario, results: dict[str, list[SimulationRun]]) -> dict:
     summary: dict = {}
-    for strat, runs in results.items():
+    for policy_name, runs in results.items():
         entry: dict = {}
         for slo in scenario.slo_thresholds_ms:
             key = f"slo_violation_rate_{int(slo)}ms"
@@ -77,104 +69,8 @@ def build_summary(scenario, results: dict[str, list[StrategyRun]]) -> dict:
         entry["tier_fractions"] = {
             t: float(np.mean(fs)) for t, fs in sorted(frac_lists.items())
         }
-        summary[strat] = entry
+        summary[policy_name] = entry
     return summary
-
-
-def plot_tier_over_time(
-    scenario_name: str,
-    results: dict[str, list[StrategyRun]],
-    output_path: Path,
-    focus_strategies: list[str],
-) -> None:
-    """Stacked area plot of tier selection fractions over simulated time."""
-    fig, axes = plt.subplots(
-        len(focus_strategies), 1,
-        figsize=(10, 2.8 * len(focus_strategies)),
-        sharex=True,
-    )
-    if len(focus_strategies) == 1:
-        axes = [axes]
-
-    tier_colors = {"quota": "#2ca02c", "concurrency": "#9467bd", "api": "#1f77b4"}
-    tier_order = ["quota", "concurrency", "api"]
-
-    for ax, strat in zip(axes, focus_strategies):
-        if strat not in results:
-            continue
-        r = results[strat][0]
-        if len(r.timestamp) == 0:
-            continue
-        mids, fracs = r.tier_fractions_over_time(window_sec=300.0)
-
-        # Build stacked arrays in tier_order.
-        arr = np.array([
-            fracs.get(t, np.zeros(len(mids))) for t in tier_order
-        ])
-
-        times_min = np.array(mids) / 60.0
-        ax.stackplot(
-            times_min,
-            arr,
-            labels=tier_order,
-            colors=[tier_colors[t] for t in tier_order],
-            alpha=0.85,
-        )
-        ax.set_ylabel("fraction")
-        ax.set_title(f"{strat}")
-        ax.legend(loc="upper right", fontsize=8, frameon=False)
-        ax.set_ylim(0, 1.0)
-
-    axes[-1].set_xlabel("Simulated time (min)")
-    fig.suptitle(f"{scenario_name}: tier selection over time", y=1.01)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
-
-
-def plot_quota_over_time(
-    scenario_name: str,
-    results: dict[str, list[StrategyRun]],
-    output_path: Path,
-    focus_strategies: list[str],
-) -> None:
-    """Plot quota fraction used (z) over time for ST3 (multi-day rollover)."""
-    fig, ax = plt.subplots(figsize=(10, 3.6))
-    colors = {
-        "two_layer": "#1f77b4",
-        "joint_nohedge": "#2ca02c",
-        "joint_hedge": "#17becf",
-    }
-
-    for strat in focus_strategies:
-        if strat not in results:
-            continue
-        r = results[strat][0]
-        if len(r.quota_fraction_used) == 0:
-            continue
-        t_hours = (r.timestamp - r.timestamp[0]) / 3600.0
-        ax.plot(
-            t_hours, r.quota_fraction_used,
-            label=strat,
-            color=colors.get(strat, "gray"),
-            linewidth=1.4,
-            alpha=0.85,
-        )
-
-    # Mark day boundaries.
-    for day in range(1, 4):
-        ax.axvline(day * 24, color="gray", linestyle="--", linewidth=0.7, alpha=0.5)
-
-    ax.set_xlabel("Simulated time (hours)")
-    ax.set_ylabel("Quota fraction used (z)")
-    ax.set_title(f"{scenario_name}: S_Q quota usage across days")
-    ax.legend(fontsize=9, frameon=False)
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(0, 1.05)
-
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
 
 
 def main() -> None:
@@ -191,28 +87,26 @@ def main() -> None:
         out_dir = OUTPUT_ROOT / scenario_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        requests = generate_workload(
-            n_requests=scenario.n_requests,
-            duration_seconds=scenario.duration_seconds,
+        requests = generate_scenario_workload(
+            scenario,
             seed=0,
-            start_time=0.0,
-            arrival_process=scenario.arrival_process,
+            dataset_name="burstgpt",
         )
-        print(f"  Generated {len(requests)} requests")
+        print(f"  Loaded {len(requests)} trace requests")
 
         t0 = time.perf_counter()
         results = {
-            strategy: [
-                run_registered_strategy(scenario, requests, strategy, seed=seed)
+            policy_name: [
+                run_policy(scenario, requests, policy_name, seed=seed)
                 for seed in SEEDS
             ]
-            for strategy in FOCUS_STRATEGIES
+            for policy_name in FOCUS_POLICIES
         }
         elapsed = time.perf_counter() - t0
-        print(f"  All strategies done in {elapsed:.1f}s")
+        print(f"  All policies done in {elapsed:.1f}s")
 
-        for strategy in FOCUS_STRATEGIES:
-            runs = results[strategy]
+        for policy_name in FOCUS_POLICIES:
+            runs = results[policy_name]
             viol = _avg(
                 runs, lambda r: r.slo_violation_rate(scenario.primary_slo_ms)
             )
@@ -222,7 +116,7 @@ def main() -> None:
             p50 = _avg(runs, lambda r: r.p50_ms())
             p99 = _avg(runs, lambda r: r.p99_ms())
             print(
-                f"  [{strategy:<20s}]  "
+                f"  [{policy_name:<20s}]  "
                 f"SLO({scenario.primary_slo_ms:.0f}ms)={viol:.1%}  "
                 f"cost={cost:.2e}  P50={p50:.0f}ms  P99={p99:.0f}ms  "
                 f"tiers=[{tier_str}]"
@@ -231,25 +125,6 @@ def main() -> None:
         summary = build_summary(scenario, results)
         with open(out_dir / "summary.json", "w") as f:
             json.dump(summary, f, indent=2)
-
-        # Plots
-        plot_slo_cost_pareto(
-            scenario_id, scenario.primary_slo_ms,
-            results, out_dir / "slo_cost_pareto.png",
-        )
-        plot_provider_mix(scenario_id, results, out_dir / "provider_mix.png")
-
-        # Scenario-specific plots
-        if scenario_id == "st2_s_q_degradation":
-            plot_tier_over_time(
-                scenario_id, results, out_dir / "tier_over_time.png",
-                FOCUS_STRATEGIES,
-            )
-        if scenario_id == "st3_multi_day_rollover":
-            plot_quota_over_time(
-                scenario_id, results, out_dir / "quota_over_time.png",
-                FOCUS_STRATEGIES,
-            )
 
         print(f"  Results saved to {out_dir}/")
 

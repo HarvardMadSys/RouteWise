@@ -1,6 +1,4 @@
-"""Run baseline strategies (two_layer + joint variants without alpha) on
-MiniMax-M2.5 calibrated scenarios, so the alpha sweep has an apples-to-
-apples baseline to compare against.
+"""Run paper policy presets on MiniMax-M2.5 calibrated scenarios.
 
 Usage:
     routewise suite mm25_baselines
@@ -23,11 +21,9 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.simulation import (  # noqa: E402
-    make_mm25_scenarios,
-)
-from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
-from rwsim.world import generate_workload  # noqa: E402
+from experiments.simulation import make_mm25_scenarios  # noqa: E402
+from experiments.simulation.lp_budget_eval import generate_scenario_workload  # noqa: E402
+from rwsim.runner import POLICIES, run_policy  # noqa: E402
 
 
 DEFAULT_OUTPUT_ROOT = _ROOT / "outputs" / "mm25_baselines"
@@ -46,6 +42,11 @@ def _parse_args() -> argparse.Namespace:
             "Directory where baseline outputs should be written. Defaults to "
             "outputs/mm25_baselines under the worktree root."
         ),
+    )
+    parser.add_argument(
+        "--dataset",
+        default="burstgpt",
+        help="Trace workload dataset to replay. Default: burstgpt.",
     )
     return parser.parse_args()
 
@@ -92,27 +93,25 @@ def main() -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     for scenario_id, scenario in scenarios.items():
         print(f"\n=== {scenario_id} ===")
-        requests = generate_workload(
-            n_requests=scenario.n_requests,
-            duration_seconds=scenario.duration_seconds,
+        requests = generate_scenario_workload(
+            scenario,
             seed=0,
-            start_time=0.0,
-            arrival_process=scenario.arrival_process,
+            dataset_name=args.dataset,
         )
 
         results = {}
-        for strat in TIERED_STRATEGIES:
+        for policy_name in POLICIES:
             t0 = time.perf_counter()
             runs = [
-                run_registered_strategy(scenario, requests, strat, seed=seed)
+                run_policy(scenario, requests, policy_name, seed=seed)
                 for seed in SEEDS
             ]
             elapsed = time.perf_counter() - t0
             s = summarize(runs, scenario)
-            results[strat] = s
+            results[policy_name] = s
             tier_s = ", ".join(f"{k}={v:.0%}" for k, v in s["tier_fractions"].items())
             print(
-                f"  {strat:<24s} cost={s['mean_cost_usd']:.2e}  "
+                f"  {policy_name:<24s} cost={s['mean_cost_usd']:.2e}  "
                 f"P50={s['p50_ms']:.0f}ms  P99={s['p99_ms']:.0f}ms  "
                 f"viol@SLO={s.get(f'slo_violation_rate_{int(scenario.primary_slo_ms)}ms', 0):.1%}  "
                 f"[{tier_s}]  ({elapsed:.1f}s)"

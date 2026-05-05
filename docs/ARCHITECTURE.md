@@ -1,376 +1,118 @@
 # RouteWise Simulator Architecture
 
-This document defines the target repository architecture for RouteWise
-simulation and paper experiments. The goal is to make the codebase composable:
-each module should behave like a small, testable building block with a clear
-contract.
+This document describes the current simulator architecture after the flat
+policy refactor.
 
-The root package boundary is explicit: `rwsim/` is the simulator package and
-`experiments/` contains reproducible paper experiment recipes. Historical
-paper-era code has been moved into those canonical homes.
+## Core Boundary
 
-## Target Layout
+The simulator has three runtime layers:
+
+1. **World** (`rwsim/world/`): provider metadata, latency distributions, quota
+   state, and concurrency state.
+2. **Engine** (`rwsim/engine/`): request loop, admission/accounting, primary
+   and backup execution, and in-flight policy callbacks.
+3. **Policy** (`rwsim/policies/`): routing decisions and policy-owned learning
+   state.
+
+Metrics are output types, not execution logic, and live under `rwsim/metrics/`.
+
+## Target Tree
 
 ```text
-RouteWise/
-  rwsim/
-    data/
-      loader.py
-    world/
-      distributions.py
-      providers.py
-      workload.py
-      quota.py
-      concurrency.py
-    engine/
-      simulator.py
-      state.py
-      events.py
-    offline/
-      schemas.py
-      cost.py
-      quota.py
-      window_quota.py
-      cache.py
-      simulator.py
-      strategy.py
-    policies/
-      value_estimators/
-      cost_routers/
-      latency_routers/
-      hedgers/
-      base.py
-      composer.py
-    metrics/
-      aggregate.py
-      run.py
-      slo.py
+rwsim/
+  schemas.py
+  scenarios.py
+  runner.py
+  data/
+    loader.py
+  engine/
+    simulator.py
+    state.py
+  metrics/
+    run.py
+  policies/
+    base.py
+    baselines.py
+    routewise.py
+    __init__.py
+  world/
+    capacity.py
+    distributions.py
+    empirical.py
+    providers.py
     scenarios.py
-    schemas.py
-    registry.py
-
-  experiments/
-    simulation/
-      configs/
-      suites/
-      experiment.py
-      README.md
-    estimator_ablation/
-      configs/
-      experiment.py
-      README.md
-    offline_stage/
-      configs/
-      config.py
-      strategies/
-      README.md
-
-  routewise_cli/
-    main.py
-
-  tests/
-    unit/
-    integration/
-    golden/
-
-  outputs/
-
-  docs/
-    ARCHITECTURE.md
-    ALGORITHMS.md
 ```
 
-## Layer Responsibilities
+The following old implementation surfaces are intentionally absent:
 
-### `rwsim/`
+- `rwsim/strategies/`
+- `rwsim/policies/composer.py`
+- `rwsim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/`
+- `rwsim/world/shadow_price.py`
+- `rwsim/world/workload.py`
+- `rwsim/registry.py`
 
-`rwsim/` is the core RouteWise simulator package. It contains reusable building
-blocks for evaluating routing policies under controlled workloads and provider
-constraints.
+## Policy Contract
 
-The expected core contract is:
-
-```text
-scenario + policy + seed -> simulation result
-```
-
-`rwsim/` should contain:
-
-- Provider, quota, concurrency, workload, and latency distribution models.
-- Trace data loaders used by experiments.
-- A shared simulation engine and execution state.
-- Policy stage interfaces and reusable policy implementations.
-- Metric streams, aggregation, and standard result schemas.
-- Generic scenario types and config builders.
-
-`rwsim/` should not contain:
-
-- Paper-specific S6/S7/S8/unified-pool scenario definitions.
-- Command-line argument parsing.
-- Experiment orchestration.
-- Paper figure paths.
-- Experiment output directory decisions.
-- Plotting logic that is only meaningful for a specific paper experiment.
-- Experiment-specific analysis modules.
-
-### `rwsim/scenarios.py`
-
-`rwsim/scenarios.py` may define generic scenario types and config builders:
-
-- `build_scenario(config)`
-- `load_scenario_config(path)`
-
-Shared schema objects such as `ScenarioConfig`, `ProviderConfig`,
-`WorkloadConfig`, and `ShiftEvent` live in `rwsim/schemas.py`.
-
-It must not define concrete paper scenarios such as:
-
-- `make_s6_slow_q_trap()`
-- `make_s7_quota_depletion()`
-- `make_unified_pool_scenario()`
-
-Concrete paper scenarios belong in experiment configs, for example:
-
-```text
-experiments/simulation/configs/s6_slow_q_trap.yaml
-experiments/simulation/configs/unified_pool.yaml
-```
-
-### `rwsim/engine/`
-
-`rwsim/engine/` owns the simulation loop. Policies should make routing
-decisions; they should not each run their own request loop, update global
-state, or manually assemble result arrays.
-
-Target shape:
+Policies implement:
 
 ```python
-class Simulator:
-    def run(self, scenario, policy, seed):
-        for request in scenario.workload:
-            decision = policy.route(request, self.state)
-            outcome = self.execute(decision, request)
-            self.state.update(outcome)
-            self.metrics.record(request, decision, outcome)
-        return self.metrics.result()
+class Policy(Protocol):
+    def route(self, request, state) -> RoutingDecision: ...
+    def tick(self, request, decision, elapsed, state) -> HedgeDispatch | None: ...
+    def observe(self, request, decision, outcome) -> None: ...
 ```
 
-This should replace the current pattern where many `_run_*` functions each
-implement their own loop, state updates, and metrics collection.
+`route()` chooses the primary provider and declares any hedge checkpoints in
+`RoutingDecision.hedge_checkpoints`.
 
-### `rwsim/offline/`
+`tick()` is called while a request is still in flight. This is required for
+RouteWise hedging because success probability must be re-evaluated at multiple
+checkpoints as queue depth, capacity, and observed profiles change.
 
-`rwsim/offline/` owns the paper-used offline/stage primitives that predate the
-new streaming engine:
+`observe()` updates policy-owned learning state after completion.
 
-- Offline request, provider, and routing-decision schemas.
-- Cost calculation for subscription and API baselines.
-- Daily and fixed-window quota managers.
-- Dataset and ILP result cache helpers.
-- The historical offline replay simulator and routing-strategy base class.
+## State Ownership
 
-This package is canonical for reproducibility, but it is still an intermediate
-migration layer. New policy work should prefer the staged pipeline under
-`rwsim/policies/`; existing offline/stage strategies should be moved here or
-into `experiments/offline_stage/` only until they are decomposed into policy
-stages.
+`SimulationState` contains world state visible to every policy:
 
-### `rwsim/policies/`
+- current simulated time
+- provider mapping
+- capacity view
+- prefix-cache user/provider memory
 
-`rwsim/policies/` should be organized by pipeline stage, not by one strategy
-per file.
+Policy-specific quantities stay inside the policy implementation. RouteWise
+shadow prices, latency profiles, LP weights, and hedge/explorer decisions live
+inside `rwsim/policies/routewise.py`.
 
-Target shape:
+## Presets
 
-```text
-policies/
-  value_estimators/
-  cost_routers/
-  latency_routers/
-  hedgers/
-  base.py
-  composer.py
-```
+The public simulator policy presets are:
 
-The intended abstraction is:
+- `greedy_cost`
+- `greedy_latency`
+- `random`
+- `ablation_lp_only`
+- `ablation_lp_hedging`
+- `routewise`
 
-```text
-value estimation + cost routing + latency control + hedging
-```
+`rwsim.policies.build_policy()` is the only preset builder. There is no runtime
+compatibility layer for historical strategy names.
 
-Strategies such as `lp_explorer`, `lp_explorer_no_probe`, `joint_hedge`, and
-`joint_nohedge` should become pipeline configurations where possible, not
-separate implementations with duplicated loops.
+## Workloads
 
-### `rwsim/schemas.py`
+Main simulator experiments are trace-driven. `rwsim/world/` does not generate
+request streams. Experiment runners load trace data through
+`experiments.simulation.lp_budget_eval.generate_scenario_workload()` and
+`rwsim/data/loader.py`.
 
-`rwsim/schemas.py` should hold cross-boundary schemas that are shared across
-world, engine, policies, metrics, and experiments.
+## Offline Stage
 
-Likely examples:
+The older offline/stage experiment remains separate:
 
-- `Request`
-- `ProviderConfig`
-- `ScenarioConfig`
-- `RoutingDecision`
-- `RoutingOutcome`
-- `SimulationResult`
+- reusable offline primitives live under `rwsim/offline/`
+- offline experiment strategies live under `experiments/offline_stage/`
+- offline-only predictors live under `experiments/offline_stage/value_estimators/`
 
-Types that are local to one module should stay local. `schemas.py` must not
-become a dumping ground.
-
-During migration, duplicate concepts such as current `ProviderConfig` and
-runtime `Provider` representations should be reconciled into one coherent
-model.
-
-### `experiments/`
-
-`experiments/` contains reproducible paper experiment recipes. An experiment
-combines simulator building blocks with fixed configs, policy pipelines,
-seeds, metrics, and output schemas.
-
-Experiment directories may be single-file when the experiment is simple:
-
-```text
-experiments/estimator_ablation/
-  configs/
-  experiment.py
-  README.md
-```
-
-If an experiment becomes large, it may split into `run.py`, `analyze.py`, and
-`plot.py`. That split is optional, not mandatory.
-
-Experiment code may write outputs, but only under `outputs/`.
-
-### `experiments/*/suites/`
-
-`experiments/*/suites/` contains full-sweep paper runners that are still larger
-than a single config-driven `experiment.run(...)` call. These modules are
-experiment-layer code, not simulator core.
-
-Suites may orchestrate grids, plots, cached result reuse, and output paths.
-They may import `rwsim/`, but `rwsim/` must never import them. A suite should
-be deleted or collapsed into `experiment.py` once the corresponding workflow is
-fully config-driven.
-
-### `routewise_cli/`
-
-`routewise_cli/` is the application entrypoint. It intentionally sits outside
-`rwsim/` because it connects the simulator library to experiment recipes.
-
-Allowed responsibilities:
-
-- Listing config-driven experiments and full-sweep suites.
-- Loading and validating experiment configs.
-- Dispatching one scenario/strategy run.
-- Dispatching a full-sweep suite.
-
-Forbidden responsibilities:
-
-- Owning routing algorithms.
-- Owning simulator state or request loops.
-- Encoding paper scenario definitions directly in CLI parsing.
-
-### `tests/`
-
-`tests/` proves that both individual building blocks and assembled experiment
-paths work.
-
-The intended split is:
-
-- `tests/unit/`: fast tests for individual modules.
-- `tests/integration/`: small end-to-end scenarios.
-- `tests/golden/`: slow regression baselines that protect refactors from
-  changing behavior.
-
-### `outputs/`
-
-`outputs/` contains generated experiment artifacts and is ignored by git.
-
-Typical contents include:
-
-- Config snapshots.
-- Metadata such as timestamp, git commit, seed set, and environment.
-- Raw per-request or per-seed results.
-- Aggregated summaries.
-- Figures and tables.
-- Logs and debug dumps.
-
-## Dependency Direction
-
-Dependencies must flow downward:
-
-```text
-routewise_cli -> experiments -> rwsim
-tests         -> rwsim / experiments / routewise_cli
-```
-
-Forbidden dependencies:
-
-- `rwsim` must not import `experiments`.
-- `rwsim` must not import `routewise_cli`.
-- `experiments` must not import `routewise_cli`.
-- `rwsim` must not depend on generated files in `outputs/`.
-- `experiments` must not depend on generated files in `outputs/` as source
-  inputs unless the dependency is explicit and documented.
-
-## Migration Plan
-
-Migration should be incremental and behavior-preserving.
-
-Current status:
-
-- `rwsim/world/` owns the leaf world primitives: distributions, capacity state,
-  providers, workload generation, scenario containers, shadow pricing, and run
-  metrics.
-- `rwsim/data/` owns reusable trace-data loading helpers used by experiments.
-- `rwsim/strategies/registry.py` owns the canonical strategy registry surface.
-- `rwsim/strategies/latency_impl.py` and `rwsim/strategies/tiered_impl.py`
-  own the reproduced strategy loops.
-- `rwsim/policies/` now owns the migrated latency routers, hedgers, value
-  estimators, and initial cost-router selectors. Remaining work is to move
-  full request-loop execution into `rwsim/engine/` behind the composer.
-- `experiments/simulation/configs/` owns S6/S7/S8/S9/`unified_pool`
-  scenario definitions and can run one registered strategy through
-  `routewise run ...`.
-- `experiments/*/suites/` owns full-sweep paper runners that have not yet been
-  collapsed into config-driven `experiment.run(...)` calls.
-- `routewise_cli/` owns the installable `routewise` console entrypoint and is
-  the only layer that should dispatch across both experiments and suites.
-
-Recommended order:
-
-1. Keep current golden baselines green.
-2. Use this architecture document and `docs/ALGORITHMS.md` as the migration
-   contract.
-3. Move leaf modules first, starting with distributions and workload.
-4. Add unit tests for each moved module.
-5. Move provider, quota, concurrency, shadow price, and metric primitives.
-6. Extract the shared simulation engine.
-7. Move policies behind stage interfaces.
-8. Convert concrete paper scenarios into config-driven experiments.
-9. Convert `experiments/*/suites/` full-sweep runners into config-driven
-   experiment entrypoints, then delete the suite modules that become redundant.
-
-Each migration step should preserve:
-
-```bash
-python tests/golden_capture.py --mode compare
-```
-
-Behavior changes should be reviewed as research changes, not hidden inside
-structural refactors.
-
-## File-Level Contract
-
-Every non-trivial module should have an explicit contract:
-
-- What are the inputs?
-- What are the outputs?
-- Is the module deterministic?
-- Does it have side effects?
-- What unit or integration test proves it works?
-
-This rule is more important than the directory structure. The directory layout
-only helps enforce the contract.
+This keeps offline research code from reintroducing policy-stage directories
+under the online simulator package.

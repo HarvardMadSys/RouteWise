@@ -1,4 +1,4 @@
-"""Unified provider definitions for the synthetic simulator."""
+"""Unified provider definitions for the RouteWise simulator."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from rwsim.world.distributions import LatencyDistribution, LogNormal
 
 @dataclass
 class Provider:
-    """Unified synthetic provider covering API, quota, concurrency, and drift.
+    """Unified provider covering API, quota, concurrency, and drift.
 
     Distribution fields use :class:`~rwsim.world.distributions.LatencyDistribution`
     (a Protocol) rather than ``LogNormal`` directly. The legacy YAML loader
@@ -67,6 +67,10 @@ class Provider:
     def true_p99_ms(self, current_time: float = 0.0) -> float:
         """Analytical P99 TTFT in ms."""
         return self._active_ttft_dist(current_time).p99()
+
+    def true_mean_ms(self, current_time: float = 0.0) -> float:
+        """Analytical mean TTFT in ms."""
+        return self._active_ttft_dist(current_time).mean()
 
     def cost_per_request(self, total_tokens: int) -> float:
         """Cost in USD for a request with the given token count."""

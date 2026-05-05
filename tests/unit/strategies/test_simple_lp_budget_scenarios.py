@@ -15,7 +15,7 @@ from experiments.simulation.simple_scenarios import (
     make_simple_scenarios,
 )
 from rwsim.world.capacity import ProviderTier
-from rwsim.metrics import StrategyRun
+from rwsim.metrics import SimulationRun
 
 
 def test_simple_scenarios_are_registered_in_sidecar() -> None:
@@ -56,8 +56,8 @@ def test_slow_cheap_scenario_has_opposed_cost_latency_order() -> None:
 def test_provider_mix_aggregation_counts_missing_seed_as_zero() -> None:
     scenario = make_simple_scenarios()["simple_slow_cheap_fast_expensive"]
     runs = [
-        StrategyRun(
-            strategy="test",
+        SimulationRun(
+            policy="test",
             ttft_ms=np.array([1.0, 1.0]),
             cost_usd=np.array([1.0, 1.0]),
             provider=["a", "a"],
@@ -65,8 +65,8 @@ def test_provider_mix_aggregation_counts_missing_seed_as_zero() -> None:
             hedge_triggered=np.array([False, False]),
             tier=["api", "api"],
         ),
-        StrategyRun(
-            strategy="test",
+        SimulationRun(
+            policy="test",
             ttft_ms=np.array([1.0, 1.0]),
             cost_usd=np.array([1.0, 1.0]),
             provider=["b", "b"],

@@ -31,6 +31,7 @@ from experiments.simulation.dataset_cache import (
 from experiments.simulation.lp_budget_eval import (
     TRACE_WORKLOAD_DATASETS,
     _dataset_cache_path,
+    _load_sharegpt_jsonl_requests,
 )
 
 
@@ -95,6 +96,51 @@ def test_build_and_load_roundtrip(_synthetic_source):
     assert isinstance(requests[0], Request)
     assert requests[0].request_tokens == 10
     assert requests[-1].request_tokens == 59
+
+
+def test_jsonl_loader_preserves_optional_model_and_session(tmp_path: Path):
+    """Simulator JSONL may carry BurstGPT model/session metadata."""
+    jsonl = tmp_path / "burstgpt_like.jsonl"
+    jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "arrived_at": 100.0,
+                        "session_id": "conv-1",
+                        "num_prefill_tokens": 10,
+                        "num_decode_tokens": 20,
+                        "model": "GPT-4",
+                        "prompt_text": "Hello",
+                        "response_text": "Hi",
+                        "sharegpt_conversation_id": "sg-1",
+                        "sharegpt_turn_index": 0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "arrived_at": 105.0,
+                        "session_id": "api:7",
+                        "num_prefill_tokens": 11,
+                        "num_decode_tokens": 21,
+                        "model": "ChatGPT",
+                    }
+                ),
+            ]
+        )
+    )
+
+    requests = _load_sharegpt_jsonl_requests(jsonl)
+
+    assert requests[0].model == "GPT-4"
+    assert requests[0].metadata["session_id"] == "conv-1"
+    assert requests[0].metadata["prompt_text"] == "Hello"
+    assert requests[0].metadata["response_text"] == "Hi"
+    assert requests[0].metadata["sharegpt_conversation_id"] == "sg-1"
+    assert requests[0].metadata["sharegpt_turn_index"] == 0
+    assert requests[1].timestamp == 5.0
+    assert requests[1].model == "ChatGPT"
+    assert requests[1].metadata["session_id"] == "api:7"
 
 
 def test_build_skips_existing(_synthetic_source, capsys):
@@ -286,11 +332,6 @@ def test_ensure_caches_builds_missing(_synthetic_source, capsys):
     ensure_caches(["sharegpt"])
     captured2 = capsys.readouterr()
     assert "[ok]" in captured2.out
-
-
-def test_ensure_caches_skips_synthetic(_synthetic_source):
-    """'synthetic' is silently ignored."""
-    ensure_caches(["synthetic"])  # should not raise
 
 
 def test_ensure_caches_rejects_unknown():

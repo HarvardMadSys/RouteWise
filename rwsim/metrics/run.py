@@ -1,10 +1,4 @@
-"""Per-request simulation result container and basic aggregations.
-
-`StrategyRun` is the canonical output of a single (scenario, strategy, seed)
-execution. It owns per-request arrays plus light helpers (P50/P99, hedge rate,
-provider/tier mix). Heavier aggregation (CIs, multi-seed roll-up) belongs in a
-future ``rwsim/metrics/aggregates.py``.
-"""
+"""Per-request simulation result container and basic aggregations."""
 
 from __future__ import annotations
 
@@ -44,10 +38,10 @@ def _rolling_fraction_series(
 
 
 @dataclass
-class StrategyRun:
-    """Per-request results for one strategy on one scenario."""
+class SimulationRun:
+    """Per-request results for one policy on one scenario."""
 
-    strategy: str
+    policy: str
     ttft_ms: np.ndarray
     cost_usd: np.ndarray
     provider: list[str]
@@ -70,6 +64,10 @@ class StrategyRun:
     def p50_ms(self) -> float:
         """Return P50 TTFT."""
         return float(np.percentile(self.ttft_ms, 50))
+
+    def p90_ms(self) -> float:
+        """Return P90 TTFT."""
+        return float(np.percentile(self.ttft_ms, 90))
 
     def p99_ms(self) -> float:
         """Return P99 TTFT."""
@@ -110,4 +108,4 @@ class StrategyRun:
         return _rolling_fraction_series(self.tier, self.timestamp, window_sec)
 
 
-__all__ = ["StrategyRun"]
+__all__ = ["SimulationRun"]

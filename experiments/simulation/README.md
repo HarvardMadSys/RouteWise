@@ -5,12 +5,12 @@ Target home for the paper-facing simulator experiment harness: S6/S7/S8/S9,
 simulation sweeps.
 
 Concrete scenarios should be YAML configs under `configs/`; policy behavior
-should be assembled from `rwsim.policies` pipeline aliases.
+should be selected from the flat paper-name presets in `rwsim.policies`.
 
 Smoke example:
 
 ```bash
-routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge
+routewise run simulation --scenario s6_slow_q_trap --policy routewise
 ```
 
 Full-sweep simulation runners live under `suites/` and are exposed as

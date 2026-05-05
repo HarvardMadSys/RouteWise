@@ -363,8 +363,6 @@ def ensure_caches(
         may not exist.
     """
     for name in datasets:
-        if name == "synthetic":
-            continue  # no cache needed for synthetic
         if name not in TRACE_WORKLOAD_DATASETS:
             raise ValueError(
                 f"Unknown dataset: {name!r}. "

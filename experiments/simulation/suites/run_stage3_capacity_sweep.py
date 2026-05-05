@@ -122,14 +122,12 @@ def _run_job(spec: CapacityJobSpec) -> CapacityJobResult:
             stage3_concurrency_limit=spec.concurrency_limit,
         )
 
-        # Trace-driven workloads use the full natural trace, so the seed is
-        # currently unused. Keep a stable seed for compatibility with the
-        # synthetic path and to avoid accidental per-capacity resampling if
-        # this runner is extended later.
+        # Trace-driven workloads use the full natural trace. Keep a stable
+        # seed in the call signature to make future sampling changes explicit.
         wl_seed = sum(
             (i + 1) * ord(c)
             for i, c in enumerate(f"{spec.dataset_name}:stage3_capacity")
-        ) if spec.dataset_name != "synthetic" else 0
+        )
 
         workload = generate_scenario_workload(
             scenario,
@@ -413,13 +411,11 @@ def main() -> None:
         print(f"\n  (dry run - {n_jobs} jobs would be dispatched)")
         return
 
-    trace_datasets = [d for d in datasets if d != "synthetic"]
-    if trace_datasets:
-        from experiments.simulation.dataset_cache import ensure_caches
+    from experiments.simulation.dataset_cache import ensure_caches
 
-        print("Warming dataset caches...")
-        ensure_caches(trace_datasets)
-        print()
+    print("Warming dataset caches...")
+    ensure_caches(datasets)
+    print()
 
     _write_metadata(
         output_root,

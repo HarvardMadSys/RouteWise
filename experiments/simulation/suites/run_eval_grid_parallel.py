@@ -18,11 +18,6 @@ Run a single dataset for smoke-testing::
     python -m experiments.simulation.suites.run_eval_grid_parallel \\
         --jobs 4 --seeds 42 --dataset sharegpt
 
-Include the shadow-price ablation::
-
-    python -m experiments.simulation.suites.run_eval_grid_parallel \\
-        --jobs 6 --seeds 42 43 44 --include-shadow-price-ablation
-
 Pre-build caches first (recommended for first run)::
 
     python -m experiments.simulation.dataset_cache build
@@ -62,12 +57,10 @@ def _worker_imports():
     from experiments.simulation.eval_grid import (  # noqa: F811
         PAPER_GRID_VARIANTS,
         PAPER_WORKLOADS,
-        SHADOW_PRICE_ABLATION_VARIANTS as GRID_SHADOW_ABLATION,
         WORKLOAD_DATASET_IDS,
         make_eval_grid_scenarios,
     )
     from experiments.simulation.lp_budget_eval import (  # noqa: F811
-        SHADOW_PRICE_ABLATION_VARIANTS,
         build_hedge_delta,
         canonicalize_variant_name,
         generate_scenario_workload,
@@ -80,7 +73,6 @@ def _worker_imports():
         "PAPER_GRID_VARIANTS": PAPER_GRID_VARIANTS,
         "PAPER_WORKLOADS": PAPER_WORKLOADS,
         "WORKLOAD_DATASET_IDS": WORKLOAD_DATASET_IDS,
-        "SHADOW_PRICE_ABLATION_VARIANTS": SHADOW_PRICE_ABLATION_VARIANTS,
         "make_eval_grid_scenarios": make_eval_grid_scenarios,
         "build_hedge_delta": build_hedge_delta,
         "canonicalize_variant_name": canonicalize_variant_name,
@@ -128,12 +120,8 @@ class JobResult:
 # ---------------------------------------------------------------------------
 
 _DELTA_PAIRS = [
-    ("original_lp", "original_lp_hedge"),
-    *[
-        (f"budget_range_p{p}", f"budget_range_p{p}_hedge")
-        for p in (0, 25, 50, 75, 100)
-    ],
-    ("original_lp_rawcost", "original_lp_rawcost_hedge"),
+    ("ablation_lp_only", "ablation_lp_hedging"),
+    ("ablation_lp_hedging", "routewise"),
 ]
 
 
@@ -154,7 +142,7 @@ def _run_job(spec: JobSpec) -> JobResult:
         wl_seed = sum(
             (i + 1) * ord(c)
             for i, c in enumerate(f"{spec.dataset_name}:{spec.scenario_name}")
-        ) if spec.dataset_name != "synthetic" else 0
+        )
 
         workload = mods["generate_scenario_workload"](
             scenario,
@@ -469,11 +457,6 @@ def _parse_args() -> argparse.Namespace:
         help=f"Output directory.  Default: {DEFAULT_OUTPUT_ROOT}",
     )
     parser.add_argument(
-        "--include-shadow-price-ablation",
-        action="store_true",
-        help="Also run the shadow-price ablation (original_lp_rawcost*).",
-    )
-    parser.add_argument(
         "--backup-scope",
         choices=["any_provider", "cross_tier"],
         default="any_provider",
@@ -498,10 +481,6 @@ def main() -> None:
         WORKLOAD_DATASET_IDS,
         make_eval_grid_scenarios,
     )
-    from experiments.simulation.lp_budget_eval import (
-        SHADOW_PRICE_ABLATION_VARIANTS,
-    )
-
     scenarios_map = make_eval_grid_scenarios()
     selected_scenarios = args.scenarios or sorted(scenarios_map)
     seeds = tuple(args.seeds or DEFAULT_SEEDS)
@@ -514,8 +493,6 @@ def main() -> None:
 
     # Build variant list.
     variants = list(PAPER_GRID_VARIANTS)
-    if args.include_shadow_price_ablation:
-        variants.extend(SHADOW_PRICE_ABLATION_VARIANTS)
     variants = tuple(dict.fromkeys(variants))  # deduplicate, preserve order
 
     output_root = args.output_root
@@ -561,13 +538,11 @@ def main() -> None:
     # worker can load from pickle without touching the raw source.  This
     # prevents the race where N workers all parse the same 14 GB CSV and
     # fight over the same .pkl.tmp file.
-    trace_datasets = [d for d in datasets if d != "synthetic"]
-    if trace_datasets:
-        from experiments.simulation.dataset_cache import ensure_caches
+    from experiments.simulation.dataset_cache import ensure_caches
 
-        print("Warming dataset caches...")
-        ensure_caches(trace_datasets)
-        print()
+    print("Warming dataset caches...")
+    ensure_caches(datasets)
+    print()
 
     # --- Write metadata --------------------------------------------------
     _write_metadata(

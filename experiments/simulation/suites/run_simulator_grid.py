@@ -83,12 +83,11 @@ def _parse_args() -> argparse.Namespace:
         "--dataset",
         action="append",
         dest="datasets",
-        choices=["synthetic", *TRACE_WORKLOAD_DATASETS],
+        choices=list(TRACE_WORKLOAD_DATASETS),
         default=[],
         help=(
-            "Workload dataset to use. May be repeated. Defaults to built-in "
-            "synthetic workload generation. Use freeinference / rednote / "
-            "sharegpt for trace-driven synthetic evaluation."
+            "Trace workload dataset to use. May be repeated. Defaults to the "
+            "paper trace workload set."
         ),
     )
     # Note: ``--trace-replay-natural`` was removed on 2026-04-29. Trace
@@ -523,16 +522,9 @@ def _metadata(
             "it falls back to the cheapest S_A provider"
         ),
         "workload_mode": (
-            "synthetic generator (Poisson with LogNormal output tokens) for "
-            "--dataset synthetic; for trace-driven datasets (sharegpt / "
-            "freeinference / rednote) the runner replays the **full** trace at "
-            "natural arrival timestamps with no slicing, no rescaling, no load "
-            "scaling. The simulated time span varies by workload (sharegpt 7d, "
-            "freeinference 89d, rednote 83d). The earlier scaled-replay path "
-            "(contiguous-slice 2000 requests + rescale to scenario.duration_seconds) "
-            "was removed on 2026-04-29 because its compression artefacts (1.2× "
-            "sharegpt, 11.5× freeinference, 73× rednote) fabricated capacity "
-            "stress that does not exist in production."
+            "Trace-driven replay only. The runner replays the full trace at "
+            "natural arrival timestamps with no slicing, no rescaling, and no "
+            "load scaling."
         ),
         "trace_timing_mode": "natural_full_trace",
         "lp_tbar_source": (
@@ -564,8 +556,6 @@ def _metadata(
 
 def _workload_seed(dataset_name: str, scenario_name: str) -> int:
     """Return a stable workload-selection seed for one dataset/scenario pair."""
-    if dataset_name == "synthetic":
-        return 0
     return sum(
         (index + 1) * ord(ch)
         for index, ch in enumerate(f"{dataset_name}:{scenario_name}")
@@ -588,9 +578,13 @@ def _resolve_scenario_family(
         default_datasets = [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS]
         return scenarios, default_scenarios, default_variants, default_datasets
 
-    # Legacy: untouched behaviour.
     scenarios = build_all_scenarios()
-    return scenarios, list(FIRST_BATCH_SCENARIOS), list(MAIN_VARIANTS), ["synthetic"]
+    return (
+        scenarios,
+        list(FIRST_BATCH_SCENARIOS),
+        list(MAIN_VARIANTS),
+        [WORKLOAD_DATASET_IDS[w] for w in PAPER_WORKLOADS],
+    )
 
 
 def main() -> None:
@@ -688,10 +682,8 @@ def main() -> None:
     all_delta_rows: list[dict[str, object]] = []
     golden_snapshot: dict[str, object] = {}
 
-    use_flat_synthetic_layout = len(datasets) == 1 and datasets[0] == "synthetic"
-
     for dataset_name in datasets:
-        dataset_root = output_root if use_flat_synthetic_layout else output_root / dataset_name
+        dataset_root = output_root / dataset_name
         dataset_root.mkdir(parents=True, exist_ok=True)
 
         for scenario_name in selected_scenarios:

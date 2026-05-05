@@ -1,255 +1,85 @@
-# RouteWise Synthetic Simulator
+# RouteWise Simulator
 
-This repository contains the synthetic simulator used to evaluate routing
-algorithms for RouteWise.
+This repository contains the trace-driven simulator and experiment harness used
+to evaluate RouteWise routing policies.
 
-After the 2026-04-22 refactor, the simulator is organized around a single
-world model and multiple routing algorithms:
+## Current Architecture
 
-- One shared world model for providers, capacity state, shadow prices,
-  workloads, scenarios, and metrics.
-- Multiple routing strategies registered as plugins and evaluated on the
-  same scenarios.
-- Paper experiment code lives under `experiments/`; reusable simulator code
-  lives under `rwsim/`.
+The simulator code is organized around one engine and a flat policy interface:
 
-The old `experiment/` package and compatibility package surfaces have been removed.
+- `rwsim/engine/`: request loop, capacity accounting, in-flight hedge ticks
+- `rwsim/world/`: providers, quota/concurrency state, latency distributions
+- `rwsim/data/`: trace workload loaders
+- `rwsim/policies/`: flat policy presets and implementations
+- `rwsim/metrics/`: `SimulationRun` result container and aggregations
+- `experiments/`: paper configs, suites, and offline-stage workflows
 
-## Quick start
+The old `rwsim/strategies/` layer and stage directories under
+`rwsim/policies/` have been removed. Policy presets are:
+
+- `greedy_cost`
+- `greedy_latency`
+- `random`
+- `ablation_lp_only`
+- `ablation_lp_hedging`
+- `routewise`
+
+## Quick Start
 
 From the repository root:
 
 ```bash
 source .venv/bin/activate
+python -m pip install -e .
 ```
 
-Download raw workload traces if they are not already present:
+Prepare trace workload data when needed:
 
 ```bash
-scripts/download_workloads.sh
+python3 scripts/prepare_workload.py --days 30
+python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
-The downloader is idempotent and skips existing verified files under
-`data/full/`.
+Run one config-driven scenario:
 
-Core regression check:
+```bash
+routewise run simulation --scenario s6_slow_q_trap --policy routewise --seed 42
+```
+
+Run registered suites:
+
+```bash
+routewise list --suites
+routewise suite simulator_grid
+routewise suite mm25_baselines
+routewise suite stress
+```
+
+## Python Entrypoints
+
+```python
+from rwsim import POLICIES, run_policy
+from rwsim.metrics import SimulationRun
+from rwsim.policies import build_policy
+from rwsim.world import Provider, ScenarioConfig
+```
+
+## Verification
+
+Fast structural and unit checks:
+
+```bash
+pytest -q -m "not slow"
+```
+
+Golden comparison remains available for full regression runs:
 
 ```bash
 python tests/golden_capture.py --mode compare
 ```
 
-Optional pytest wrapper:
+## Documentation
 
-```bash
-pytest tests/test_golden.py -m slow
-```
-
-## What is canonical now
-
-Use `rwsim/` as the canonical package surface for new code:
-
-- `rwsim/world/`: shared world model
-- `rwsim/data/`: reusable trace dataset loaders
-- `rwsim/offline/`: paper offline/stage simulation primitives
-- `rwsim/policies/`: target pipeline-stage policy decomposition
-- `rwsim/strategies/`: registered strategy surface
-- `rwsim/runner.py`: shared strategy dispatch
-
-Historical paper workflows have canonical homes under `experiments/`.
-Reusable primitives live in `rwsim/`.
-
-The target architecture and algorithm decomposition are documented in:
-
-- `docs/ARCHITECTURE.md`
-- `docs/ALGORITHMS.md`
+- `docs/RWSIM_REFACTOR_PLAN.md`
+- `docs/EXPERIMENT_LAYOUT.md`
 - `docs/REPRODUCIBILITY.md`
-
-Config-driven experiment recipes now live under `experiments/`. The official
-application entrypoint is outside `rwsim/`:
-
-```bash
-python -m routewise_cli.main list --experiment simulation
-```
-
-## Repository layout
-
-```text
-RouteWise/
-  README.md
-  docs/
-    ARCHITECTURE.md
-    ALGORITHMS.md
-  rwsim/
-    world/
-    data/
-    engine/
-    offline/
-    policies/
-    metrics/
-    strategies/
-    runner.py
-    schemas.py
-    scenarios.py
-    registry.py
-  experiments/
-    simulation/
-    estimator_ablation/
-    offline_stage/
-  routewise_cli/
-  tests/
-    golden/
-    golden_capture.py
-    test_golden.py
-  outputs/
-```
-
-### `rwsim/world`
-
-The shared world model includes:
-
-- `distributions.py`: `LogNormal`
-- `providers.py`: unified provider hierarchy
-- `capacity.py`: quota and concurrency state
-- `scenarios.py`: shared `ScenarioConfig`
-- `shadow_price.py`: quota and concurrency shadow pricing
-- `workload.py`: request generation
-
-### `rwsim/metrics`
-
-The shared metrics package includes:
-
-- `run.py`: shared `StrategyRun`
-
-### `rwsim/strategies`
-
-Strategies are registered through a shared registry. The current families are:
-
-- `baseline`: `cheapest_fixed`, `fastest_fixed`, `round_robin`,
-  `oracle_per_window`
-- `lp`: `lp_mix`, `lp_hedge`, `lp_explorer`, `lp_explorer_no_probe`
-- `v2`: `v2_only`, `v2_p50_hedge`, `v2_explorer`, `v2_explorer_no_probe`
-- `tiered`: `two_layer`, `joint_nohedge`, `joint_hedge`,
-  `joint_p50band_nohedge`, `joint_p50band_hedge`
-
-New strategies should be added through the shared registry instead of adding
-new ad hoc dispatch logic.
-
-### `rwsim/policies`
-
-The migration target splits routing policy code by pipeline stage:
-
-- `value_estimators/`
-- `cost_routers/`
-- `latency_routers/`
-- `hedgers/`
-- `composer.py`
-
-Current strategy aliases are mapped to these stages in
-`rwsim/policies/composer.py` and documented in `docs/ALGORITHMS.md`.
-
-### `rwsim/scenarios.py`
-
-`rwsim/scenarios.py` is reserved for generic scenario builders. Concrete S6,
-S7, S8, S9, and `unified_pool` definitions live as YAML configs under
-`experiments/simulation/configs/`.
-
-## Supported scenario families
-
-Golden baselines cover three active families:
-
-- `simulation`: S6-S9 plus `unified_pool`
-- `calibrated`: MM25 calibrated scenarios
-- `stress`: ST1-ST3
-
-All golden artifacts are stored under `tests/golden/`.
-
-## Running experiments
-
-Use `routewise run` for one config-driven scenario/strategy and
-`routewise suite` for full paper sweeps. If the package is not installed in
-editable mode, use `python -m routewise_cli.main ...` with the same arguments.
-
-```bash
-routewise list
-routewise list --experiment simulation
-routewise validate simulation --scenario s6_slow_q_trap
-routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge
-routewise list --suites
-```
-
-### Simulator Grid
-
-```bash
-routewise suite simulator_grid
-```
-
-Outputs:
-
-- `outputs/simulator_grid/<dataset>/<scenario>/results.csv`
-- `outputs/simulator_grid/<dataset>/<scenario>/summary_main.csv`
-- aggregate result tables and diagnostic plots
-
-### MM25 Baselines
-
-```bash
-routewise suite mm25_baselines
-```
-
-### Stress scenarios
-
-```bash
-routewise suite stress
-```
-
-Outputs:
-
-- `outputs/stress/<scenario>/summary.json`
-- stress-specific plots such as tier-over-time or quota-over-time
-
-## Canonical Python entrypoints
-
-For new code, prefer the `rwsim` namespace:
-
-```python
-from rwsim import LATENCY_STRATEGIES, TIERED_STRATEGIES, run_registered_strategy
-from rwsim.metrics import StrategyRun
-from rwsim.world import Provider, ScenarioConfig
-```
-
-## Verification discipline
-
-Any structural change to the simulator should satisfy all of the following:
-
-1. `python tests/golden_capture.py --mode compare` stays green.
-2. No algorithm decision logic changes unless the change is explicitly a
-   research change rather than a refactor.
-
-## Known Algorithm Caveats
-
-These remaining behavioral issues were intentionally not mixed into the
-structural refactor:
-
-- In `rwsim/policies/latency_routers/tiered_filters.py`, `provider_p95_at()` checks
-  `hasattr(provider, "_active_dist")`.
-- Stress scenario `st2_s_q_degradation` uses `TieredProvider` with
-  `shift_time` and `ttft_dist_after`, not `ShiftingProvider`.
-- As a result, request sampling can observe degradation while the
-  strategy-side P95 filter still sees the pre-shift profile.
-- EMA, histogram, and oracle value estimators assume completed requests have
-  non-empty `response_tokens`, even though `Request.response_tokens` is typed
-  as optional.
-
-These should be handled as separate behavioral fixes, not as part of the
-structural refactor.
-
-## Notes on Layout
-
-- `rwsim/` is the canonical package surface for new development.
-- Offline/stage core types, config loading, quota/cost/cache, and simulator
-  code now live in `rwsim/offline/` and `experiments/offline_stage/`.
-- Offline/stage paper strategies now live in
-  `experiments/offline_stage/strategies/`.
-- The OpenRouter latency profiling probe now lives at
-  `experiments/offline_stage/latency_profiling.py`.
-- Full-sweep runner modules live under `experiments/*/suites/`; the repository
-  root and `scripts/` no longer contain experiment entrypoints.

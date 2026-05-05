@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from rwsim.offline.cost import CostCalculator
 from rwsim.offline.schemas import Request, RoutingDecision
-from rwsim.policies.value_estimators import (
+from experiments.offline_stage.value_estimators import (
     EMAOutputPredictor,
     HistogramDurationPredictor,
     HistogramOutputPredictor,

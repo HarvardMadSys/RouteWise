@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass, field
 
 from rwsim.offline.schemas import Request, RoutingDecision
-from rwsim.policies.value_estimators import EMAOutputPredictor, OutputTokenPredictor
+from experiments.offline_stage.value_estimators import EMAOutputPredictor, OutputTokenPredictor
 from experiments.offline_stage.strategies.online.base import OnlineStrategy
 
 logger = logging.getLogger(__name__)

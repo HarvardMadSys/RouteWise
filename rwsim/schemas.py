@@ -54,16 +54,16 @@ class ProviderConfig:
 
 @dataclass(frozen=True)
 class WorkloadConfig:
-    """Static workload-generation configuration."""
+    """Static trace-workload configuration."""
 
     n_requests: int
     duration_seconds: float
-    arrival_process: str = "poisson"
+    arrival_process: str = "trace"
     seed: int = 0
     start_time: float = 0.0
     input_tokens: int = 100
     output_token_distribution: DistributionConfig | None = None
-    source: str = "synthetic"
+    source: str = "trace"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -127,8 +127,15 @@ class RoutingDecision:
     """Policy decision for one request."""
 
     primary_provider: str
-    hedge_provider: str | None = None
-    hedge_after_ms: float | None = None
+    hedge_checkpoints: tuple[float, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HedgeDispatch:
+    """In-flight hedge dispatch requested by a policy checkpoint."""
+
+    backup_provider: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -172,6 +179,7 @@ __all__ = [
     "ProviderConfig",
     "ProviderTier",
     "Request",
+    "HedgeDispatch",
     "RoutingDecision",
     "RoutingOutcome",
     "ScenarioConfig",

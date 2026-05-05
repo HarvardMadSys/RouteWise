@@ -1,16 +1,8 @@
-"""Canonical package entrypoint for the RouteWise simulator.
-
-Strategy exports are loaded lazily so dependency-light modules such as
-``rwsim.schemas`` can be imported before the scientific stack is installed.
-"""
+"""Canonical package entrypoint for the RouteWise simulator."""
 
 from __future__ import annotations
 
-_RUNNER_EXPORTS = {
-    "LATENCY_STRATEGIES",
-    "TIERED_STRATEGIES",
-    "run_registered_strategy",
-}
+_RUNNER_EXPORTS = {"POLICIES", "run_policy"}
 
 _SCHEMA_EXPORTS = {
     "DistributionConfig",
@@ -22,8 +14,9 @@ _SCHEMA_EXPORTS = {
     "RoutingOutcome",
     "ScenarioConfig",
     "ShiftEvent",
-    "SimulationResult",
     "WorkloadConfig",
+    "HedgeDispatch",
+    "SimulationResult",
 }
 
 __all__ = sorted(_RUNNER_EXPORTS | _SCHEMA_EXPORTS)

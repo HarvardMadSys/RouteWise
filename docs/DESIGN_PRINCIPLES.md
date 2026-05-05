@@ -85,12 +85,10 @@ All three classes implement the same interface:
     std() -> float
     cdf(value) -> float
 
-``cdf()`` is required for analytical SLO evaluation (see
-``experiments/simulation/lp_budget_eval.py:_ttft_cdf_ms``); ``p95()``
-and ``quantile()`` are required by the tiered SLO filter
-(``rwsim/policies/latency_routers/tiered_filters.provider_p95_at``) so
-non-LogNormal scenarios can flow through the joint pipeline without
-crashing.
+``cdf()`` is required for analytical SLO evaluation in RouteWise hedging;
+``p50()``, ``p95()``, ``p99()``, and ``quantile()`` keep provider code
+distribution-agnostic so non-LogNormal scenarios can flow through the same
+policy implementation without special cases.
 
 **Family default shape.** Each family interprets the same ``shape``
 parameter differently. The defaults in
@@ -167,7 +165,7 @@ Three workloads stress different request profiles:
 
 | Paper id | Runner dataset id | Source | Profile |
 |----------|-------------------|--------|---------|
-| ``sharegpt_burstgpt`` | ``sharegpt`` | ShareGPT prompts × BurstGPT arrivals | Standard chatbot, moderate output lengths |
+| ``sharegpt_burstgpt`` | ``burstgpt`` | BurstGPT 30-day arrivals/token counts + reused ShareGPT text | Standard chatbot, moderate output lengths |
 | ``freeinference``     | ``freeinference`` | FreeInference logs | Multi-model, high variance in I/O |
 | ``enterprise``        | ``rednote`` | RedNote enterprise logs | Long output, low variance, high CV in arrivals |
 

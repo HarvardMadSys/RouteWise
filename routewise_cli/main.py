@@ -39,10 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("experiment", choices=available_experiments())
     validate_parser.add_argument("--scenario")
 
-    run_parser = subparsers.add_parser("run", help="Run one config-driven scenario/strategy.")
+    run_parser = subparsers.add_parser("run", help="Run one config-driven scenario/policy.")
     run_parser.add_argument("experiment", choices=available_experiments())
     run_parser.add_argument("--scenario", required=True)
-    run_parser.add_argument("--strategy", required=True)
+    run_parser.add_argument("--policy", required=True)
     run_parser.add_argument("--seed", type=int, default=42)
 
     suite_parser = subparsers.add_parser("suite", help="Run a registered full-sweep suite.")
@@ -107,10 +107,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         experiment = get_experiment(args.experiment)
-        if not hasattr(experiment, "run_strategy"):
+        if not hasattr(experiment, "run_policy"):
             raise SystemExit(f"experiment {args.experiment!r} does not support run yet")
         try:
-            payload = experiment.run_strategy(args.scenario, args.strategy, seed=args.seed)
+            payload = experiment.run_policy(args.scenario, args.policy, seed=args.seed)
         except RuntimeError as exc:
             raise SystemExit(f"error: {exc}") from exc
         print(_json_dump(payload))

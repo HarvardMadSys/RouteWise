@@ -1,4 +1,4 @@
-"""Canonical world-model exports for the synthetic simulator.
+"""Canonical world-model exports for provider and latency primitives.
 
 Exports are resolved lazily so dependency-light modules such as
 ``rwsim.world.capacity`` can be imported before the scientific stack is
@@ -18,16 +18,12 @@ _EXPORT_MODULES = {
     "LogNormal": "rwsim.world.distributions",
     "Normal": "rwsim.world.distributions",
     "Uniform": "rwsim.world.distributions",
+    "EmpiricalDistribution": "rwsim.world.empirical",
     "Provider": "rwsim.world.providers",
     "ShiftingProvider": "rwsim.world.providers",
     "SyntheticProvider": "rwsim.world.providers",
     "TieredProvider": "rwsim.world.providers",
     "ScenarioConfig": "rwsim.world.scenarios",
-    "calibrate_envelopes": "rwsim.world.shadow_price",
-    "concurrency_shadow_price": "rwsim.world.shadow_price",
-    "effective_cost": "rwsim.world.shadow_price",
-    "quota_shadow_price": "rwsim.world.shadow_price",
-    "generate_workload": "rwsim.world.workload",
 }
 
 __all__ = sorted(_EXPORT_MODULES)

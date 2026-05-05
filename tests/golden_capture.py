@@ -72,9 +72,9 @@ def _sorted_dict(input_map: dict[str, Any]) -> dict[str, Any]:
     return {key: input_map[key] for key in sorted(input_map)}
 
 
-def _strategy_hash(strategy_names: list[str]) -> str:
-    """Return a stable digest for the ordered strategy list."""
-    return _sha256_text("\0".join(strategy_names))
+def _policy_hash(policy_names: list[str]) -> str:
+    """Return a stable digest for the ordered policy list."""
+    return _sha256_text("\0".join(policy_names))
 
 
 def _float_array_digest(values: Any) -> str:
@@ -277,10 +277,10 @@ def _aggregate_seed_runs(
 
 def _scenario_payload(
     scenario: Any,
-    strategy_names: list[str],
+    policy_names: list[str],
     results: dict[str, list[Any]],
 ) -> dict[str, Any]:
-    """Serialize one scenario and all strategy results."""
+    """Serialize one scenario and all policy results."""
     payload: dict[str, Any] = {
         "name": scenario.name,
         "description": scenario.description,
@@ -296,16 +296,16 @@ def _scenario_payload(
                 for provider in scenario.providers
             }
         ),
-        "strategy_order": list(strategy_names),
-        "strategy_hash": _strategy_hash(strategy_names),
-        "strategies": _sorted_dict(
+        "policy_order": list(policy_names),
+        "policy_hash": _policy_hash(policy_names),
+        "policies": _sorted_dict(
             {
-                strategy_name: _aggregate_seed_runs(
-                    results[strategy_name],
+                policy_name: _aggregate_seed_runs(
+                    results[policy_name],
                     SEEDS,
                     [float(value) for value in scenario.slo_thresholds_ms],
                 )
-                for strategy_name in strategy_names
+                for policy_name in policy_names
             }
         ),
     }
@@ -316,8 +316,8 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
     """Capture one simulation scenario set."""
     _bootstrap_repo(repo_root)
 
-    from rwsim.runner import TIERED_STRATEGIES, run_registered_strategy  # noqa: E402
-    from rwsim.world import generate_workload  # noqa: E402
+    from experiments.simulation.lp_budget_eval import generate_scenario_workload  # noqa: E402
+    from rwsim.runner import POLICIES, run_policy  # noqa: E402
 
     if family == "simulation":
         from experiments.simulation import load_all_world_scenarios  # noqa: E402
@@ -340,34 +340,32 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
     else:
         raise ValueError(f"Unsupported simulation family: {family}")
 
-    strategy_names = list(TIERED_STRATEGIES)
+    policy_names = list(POLICIES)
     scenarios_payload: dict[str, Any] = {}
     for scenario_id, scenario in scenario_factory().items():
-        requests = generate_workload(
-            n_requests=scenario.n_requests,
-            duration_seconds=scenario.duration_seconds,
+        requests = generate_scenario_workload(
+            scenario,
             seed=0,
-            start_time=0.0,
-            arrival_process=scenario.arrival_process,
+            dataset_name="burstgpt",
         )
         results = {
-            strategy_name: [
-                run_registered_strategy(scenario, requests, strategy_name, seed=seed)
+            policy_name: [
+                run_policy(scenario, requests, policy_name, seed=seed)
                 for seed in SEEDS
             ]
-            for strategy_name in strategy_names
+            for policy_name in policy_names
         }
         scenarios_payload[scenario_id] = _scenario_payload(
             scenario,
-            strategy_names,
+            policy_names,
             results,
         )
 
     return {
         "family": family,
         "seed_order": list(SEEDS),
-        "strategy_order": strategy_names,
-        "strategy_hash": _strategy_hash(strategy_names),
+        "policy_order": policy_names,
+        "policy_hash": _policy_hash(policy_names),
         "scenarios": _sorted_dict(scenarios_payload),
     }
 

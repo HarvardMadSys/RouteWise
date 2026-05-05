@@ -34,7 +34,7 @@ routewise validate simulation --scenario s6_slow_q_trap
 ## Run One Scenario
 
 ```bash
-routewise run simulation --scenario s6_slow_q_trap --strategy joint_hedge --seed 42
+routewise run simulation --scenario s6_slow_q_trap --policy routewise --seed 42
 ```
 
 These commands use `experiments/<name>/experiment.py` and reusable simulator

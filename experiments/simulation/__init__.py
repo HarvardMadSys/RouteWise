@@ -8,7 +8,7 @@ from experiments.simulation.experiment import (
     load_all_world_scenarios,
     load_scenario,
     load_world_scenario,
-    run_strategy,
+    run_policy,
     summarize,
 )
 
@@ -24,7 +24,7 @@ __all__ = [
     "make_simple_scenarios",
     "make_calibrated_scenarios",
     "make_stress_scenarios",
-    "run_strategy",
+    "run_policy",
     "summarize",
 ]
 

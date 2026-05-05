@@ -72,12 +72,12 @@ def _workload(value: WorkloadConfig | Mapping[str, Any]) -> WorkloadConfig:
     return WorkloadConfig(
         n_requests=int(value["n_requests"]),
         duration_seconds=float(value["duration_seconds"]),
-        arrival_process=str(value.get("arrival_process", "poisson")),
+        arrival_process=str(value.get("arrival_process", "trace")),
         seed=int(value.get("seed", 0)),
         start_time=float(value.get("start_time", 0.0)),
         input_tokens=int(value.get("input_tokens", 100)),
         output_token_distribution=_distribution(value.get("output_token_distribution")),
-        source=str(value.get("source", "synthetic")),
+        source=str(value.get("source", "trace")),
         metadata=dict(value.get("metadata", {})),
     )
 

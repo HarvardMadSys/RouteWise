@@ -1,30 +1,21 @@
 """Eval grid factory for the simulator paper experiments.
 
-The simulator evaluation is generated from three orthogonal axes plus a
-workload axis. This module builds the ``stage × latency_family`` cross
-product (12 scenarios; 4 stages × 3 distributions), exposes the canonical 10-variant policy list, and
-declares the workload list. See ``docs/DESIGN_PRINCIPLES.md`` for the full
-design rationale.
+The simulator evaluation is generated from provider setup, latency family, and
+workload axes. This module builds the ``stage × latency_family`` cross product
+(12 scenarios; 4 stages × 3 distributions), exposes the six paper-name policy
+presets, and declares the workload list. See ``docs/DESIGN_PRINCIPLES.md`` for
+the full design rationale.
 
 This module is intentionally self-contained: it does **not** load YAML
 configs or call into the legacy hand-authored scenario files under
 ``configs/``. New experimental questions should be expressed as cells in
 this grid, not as new YAML files.
 
-The paper-grid variant names produced here match the runnable variants
-understood by ``experiments.simulation.lp_budget_eval.run_variant``
-(``budget_range_p{0,25,50,75,100}`` and the ``_hedge`` suffix), so the grid
-plugs directly into the existing runner without an intermediate translation
-layer.
-
 Public surface:
 
 - :class:`LatencyFamily` — enum of distribution families
 - :class:`ProviderSetup` — enum of provider-setup stages
-- :data:`PAPER_P_VALUES` — the 5 cost-budget percentiles
-- :data:`PAPER_HEDGE_MODES` — no_hedge / hedge (explorer is excluded by design;
-  see PAPER_HEDGE_MODES docstring for the rationale)
-- :data:`PAPER_GRID_VARIANTS` — the 10 runnable variant names
+- :data:`PAPER_GRID_VARIANTS` — the six runnable paper-name policy presets
 - :data:`PAPER_WORKLOADS` — paper-facing workload identifiers
 - :data:`WORKLOAD_DATASET_IDS` — paper id → runner dataset id
 - :func:`make_eval_grid_scenarios` — builds the 12 scenarios (4 stages × 3 distributions)
@@ -387,122 +378,27 @@ def make_stage3_capacity_scenarios(
 
 
 # ---------------------------------------------------------------------------
-# Axis 3: policy variants
+# Axis 3: policy presets
 # ---------------------------------------------------------------------------
 
-# The cost-budget percentiles ``p`` used in the LP latency router.
-# Following the paper convention ``B_p = c_min + p * (c_max - c_min)``,
-# ``p=0`` minimises cost (always cheapest) and ``p=1`` ignores cost
-# (minimise latency). Sweeping these values traces the Pareto frontier.
-PAPER_P_VALUES: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
-
-# Two hedge modes — explorer is intentionally excluded from the simulator
-# grid. Per Juncheng's directive (2026-04-22 / 2026-04-28), the production
-# design uses hedge-as-probe so probing is "free" in an active system; in
-# a stationary simulator the dedicated-probing and hedge-as-probe paths
-# converge to the same routing decisions. Showing both in figures wastes
-# space without conveying signal. Explorer's value (operational
-# simplicity + drift robustness) belongs to the real-experiment narrative,
-# not the simulator grid.
-PAPER_HEDGE_MODES: tuple[str, ...] = ("no_hedge", "hedge")
-
-
-def _p_to_pct(p: float) -> int:
-    """Convert a paper-facing p value (0.0–1.0) to the integer percentage
-    used in the existing variant naming (``budget_range_p25`` etc.)."""
-    pct_float = p * 100.0
-    pct = int(round(pct_float))
-    if not math.isclose(pct_float, pct, abs_tol=1e-9):
-        raise ValueError(
-            f"p={p!r} cannot be expressed as a whole-number percentage; "
-            "extend PAPER_P_VALUES or _p_to_pct if you need finer p values."
-        )
-    return pct
-
-
-_VALID_HEDGE_MODES: frozenset[str] = frozenset(("no_hedge", "hedge", "explorer"))
-
-
-def variant_name(p: float, hedge_mode: str) -> str:
-    """Canonical variant name: matches what ``lp_budget_eval.run_variant`` accepts.
-
-    Mapping:
-
-    - ``hedge_mode="no_hedge"`` → ``budget_range_p{pct}``
-    - ``hedge_mode="hedge"``    → ``budget_range_p{pct}_hedge``
-    - ``hedge_mode="explorer"`` → ``budget_range_p{pct}_explorer``
-
-    Note: this constructor accepts ``"explorer"`` so callers can build
-    runnable explorer ids on demand (e.g. for ad-hoc experiments). The
-    paper grid (:data:`PAPER_HEDGE_MODES`) only contains
-    ``("no_hedge", "hedge")`` — see that constant's docstring for why
-    explorer is excluded from the paper-facing variant list.
-    """
-    if hedge_mode not in _VALID_HEDGE_MODES:
-        raise ValueError(
-            f"Unknown hedge mode: {hedge_mode!r}. "
-            f"Expected one of {sorted(_VALID_HEDGE_MODES)}."
-        )
-    pct = _p_to_pct(p)
-    base = f"budget_range_p{pct}"
-    if hedge_mode == "no_hedge":
-        return base
-    return f"{base}_{hedge_mode}"
-
-
-PAPER_GRID_VARIANTS: tuple[str, ...] = tuple(
-    variant_name(p, mode) for p in PAPER_P_VALUES for mode in PAPER_HEDGE_MODES
+PAPER_GRID_VARIANTS: tuple[str, ...] = (
+    "greedy_cost",
+    "greedy_latency",
+    "random",
+    "ablation_lp_only",
+    "ablation_lp_hedging",
+    "routewise",
 )
-"""Canonical 10-variant policy list = 5 p × 2 hedge modes (no_hedge, hedge).
+"""Canonical six-policy simulator surface.
 
-Explorer (``hedge_as_probe``) is intentionally **not** included. In a
-stationary simulator with the active-system probing assumption (probing
-piggy-backs on hedging at no extra cost), explorer and hedge produce
-identical routing — showing both wastes figure space. Explorer's value
-is documented separately as a system-design contribution validated by
-real-experiment data, not by simulator grid sweeps."""
+The first three are baselines. The final three are RouteWise ablations:
+LP only, LP plus hedging, and full RouteWise with explorer enabled."""
 
+LP_COMPARISON_VARIANTS: tuple[str, ...] = PAPER_GRID_VARIANTS
+"""Compatibility export for older suite code; no historical LP names remain."""
 
-# Variants used to compare the paper's new ``budget_range_p*`` LP family
-# against the previous ``original_lp*`` SLO-anchored LP family.
-#
-# Old objective:  min Σ π_j × c_eff_j  s.t.  Σ π_j × F_j(SLO) ≥ ρ
-#                 (parameterised by SLO satisfaction target ρ)
-# New objective:  min Σ π_j × Tbar_j   s.t.  Σ π_j × c_eff_j ≤ B_p
-#                 (parameterised by cost-budget percentile p)
-#
-# Both families produce points on the cost-latency Pareto plane. This
-# constant exists so a single comparison run can plot all 12 points
-# together and let reviewers see whether the new family dominates,
-# matches, or diverges from the old one. See DESIGN_PRINCIPLES.md
-# (forthcoming "lp comparison" finding) for the empirical result.
-LP_COMPARISON_VARIANTS: tuple[str, ...] = (
-    "original_lp",
-    "original_lp_hedge",
-    *PAPER_GRID_VARIANTS,
-)
-"""12-variant comparison list = 2 original_lp (no_hedge / hedge) +
-10 budget_range_p*. Explorer is excluded for the same reason as
-:data:`PAPER_GRID_VARIANTS` — see that docstring.
-
-All entries are runnable ids accepted by ``lp_budget_eval.run_variant``."""
-
-
-SHADOW_PRICE_ABLATION_VARIANTS: tuple[str, ...] = (
-    "original_lp_rawcost",
-    "original_lp_rawcost_hedge",
-)
-"""Shadow-price ablation set: ``original_lp`` with raw marginal cost
-instead of ``effective_cost``. Pair with ``original_lp*`` to isolate the
-contribution of ψ(z) / λ(u) shadow prices in Stage 3.
-
-Explorer variant of rawcost is dropped for the same reason explorer is
-out of :data:`PAPER_GRID_VARIANTS` (active-system / stationary simulator
-makes hedge-as-probe redundant with dedicated probing). For Stage 2
-(S_A only) the rawcost and effective-cost selectors should produce
-identical routing because ``marginal_cost ≡ effective_cost`` for S_A.
-The shadow-price benefit only shows up in Stage 3, where rawcost treats
-S_Q and S_C as zero-cost (no quota / concurrency penalty)."""
+SHADOW_PRICE_ABLATION_VARIANTS: tuple[str, ...] = ()
+"""Shadow pricing is internal RouteWise logic, not a top-level policy preset."""
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +414,7 @@ paper text and figure captions."""
 WORKLOAD_DATASET_IDS: dict[str, str] = {
     # Paper display name             → runner dataset id (must match
     # ``lp_budget_eval.TRACE_WORKLOAD_DATASETS``).
-    "sharegpt_burstgpt": "sharegpt",  # ShareGPT prompts × BurstGPT arrivals
+    "sharegpt_burstgpt": "burstgpt",  # BurstGPT 30d arrivals + reused ShareGPT text
     "freeinference": "freeinference",
     "enterprise": "rednote",  # internal trace name
 }
@@ -638,8 +534,6 @@ __all__ = [
     "SHADOW_PRICE_ABLATION_VARIANTS",
     "LatencyFamily",
     "PAPER_GRID_VARIANTS",
-    "PAPER_HEDGE_MODES",
-    "PAPER_P_VALUES",
     "PAPER_WORKLOADS",
     "ProviderSetup",
     "WORKLOAD_DATASET_IDS",
@@ -650,5 +544,4 @@ __all__ = [
     "make_ttft_distribution",
     "runner_dataset_id",
     "stage3_capacity_scenario_name",
-    "variant_name",
 ]

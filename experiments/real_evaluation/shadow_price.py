@@ -1,6 +1,6 @@
 """Shadow-price functions for real-eval tiered providers.
 
-This module **mirrors the formulas** in :mod:`rwsim.world.shadow_price` but
+This module **mirrors the formulas** in :mod:`rwsim.policies.routewise` but
 operates on :class:`experiments.real_evaluation.inventory.ProviderState`
 instead of ``rwsim.world.providers.TieredProvider``. The two implementations
 must stay in lock-step:
@@ -10,7 +10,7 @@ must stay in lock-step:
 - ``effective_cost``            : ``marginal + q_sp + c_sp [+ lat_term]``
 - ``calibrate_envelopes``       : ``U = max api cost``, ``L = max(U*floor_ratio, 1e-9)``
 
-If you change a formula here, change it in ``rwsim.world.shadow_price`` too,
+If you change a formula here, change it in ``rwsim.policies.routewise`` too,
 and update the parity test (``tests/unit/real_evaluation/test_shadow_price_parity.py``).
 """
 
@@ -36,7 +36,7 @@ def quota_shadow_price(
     so a provider declared as ``tier="quota"`` with an additional
     ``concurrency_limit`` (e.g. Ollama_SQ) still receives a quota
     shadow price *and* a separate concurrency shadow price. This
-    diverges from :mod:`rwsim.world.shadow_price`, which gates on
+    diverges from :mod:`rwsim.policies.routewise`, which gates on
     ``ProviderTier.S_Q`` exclusively. The simulator's parity test
     therefore only holds for tier-pure providers.
     """
@@ -124,7 +124,7 @@ def calibrate_envelopes(
     """Compute ``(L, U)`` envelopes from API providers in the inventory.
 
     ``U`` is the most expensive API request cost; ``L = max(U * floor_ratio, 1e-9)``.
-    Mirrors :func:`rwsim.world.shadow_price.calibrate_envelopes` (the simulator
+    Mirrors :func:`rwsim.policies.routewise.calibrate_envelopes` (the simulator
     version uses ``cost_per_token * typical_tokens`` since its providers expose
     a per-token rate; we use ``input + output`` linear pricing because that's
     what real provider APIs charge).
