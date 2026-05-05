@@ -16,6 +16,7 @@ def test_cost_layer_scenarios_match_section_contract():
         "cost_layer_uniform",
         "cost_layer_normal",
         "cost_layer_heavy_tail",
+        "cost_layer_real_world",
         "cost_layer_quota_q1",
         "cost_layer_quota_q2",
         "cost_layer_quota_q3",
@@ -33,6 +34,17 @@ def test_cost_layer_on_demand_providers_hold_latency_constant_and_vary_cost():
     assert [provider.tier for provider in scenario.providers] == [ProviderTier.S_A] * 3
     assert [provider.true_p50_ms() for provider in scenario.providers] == [300.0, 300.0, 300.0]
     assert [provider.cost_per_token for provider in scenario.providers] == [1e-6, 2e-6, 4e-6]
+
+
+def test_cost_layer_real_world_uses_one_pooled_latency_distribution():
+    scenario = cost_layer.make_scenarios()["cost_layer_real_world"]
+
+    assert [provider.tier for provider in scenario.providers] == [ProviderTier.S_A] * 3
+    assert [provider.cost_per_token for provider in scenario.providers] == [1e-6, 2e-6, 4e-6]
+    assert len({id(provider.ttft_dist) for provider in scenario.providers}) == 1
+    assert scenario.providers[0].ttft_dist.label == "qwen3_24h/rw8_pooled"
+    assert 500.0 < scenario.providers[0].true_p50_ms() < 1500.0
+    assert scenario.providers[0].true_p99_ms() > scenario.providers[0].true_p50_ms()
 
 
 def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
@@ -98,5 +110,6 @@ def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert payload["sections"][0]["name"] == "cost-layer"
     assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
     assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
+    assert "cost_layer_real_world" in payload["sections"][0]["scenarios"]
     assert "offline" in payload["sections"][0]["policies"]
     assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]

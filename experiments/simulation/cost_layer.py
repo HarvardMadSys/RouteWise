@@ -19,19 +19,22 @@ from experiments.simulation.common import (
     make_concurrency_provider,
     make_quota_provider,
     make_routewise_presets,
+    make_tps_distribution,
     routewise_lp_policy_name,
     run_section,
 )
+from experiments.simulation.real_profiles import load_pooled_distribution
 from rwsim.metrics import PerRequestRecord, Run, Status
 from rwsim.world.capacity import ProviderTier
+from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
     from rwsim.schemas import Request
-    from rwsim.world.providers import TieredProvider
 
 SECTION_NAME = "cost-layer"
 OFFLINE_POLICY = "offline"
+REAL_WORLD_SCENARIO = "cost_layer_real_world"
 
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
 _QUOTA_SIZE_PER_PROVIDER = 2_000
@@ -49,6 +52,8 @@ def make_scenarios() -> dict[str, ScenarioConfig]:
     for family in _SYNTHETIC_FAMILIES:
         scenario = _make_api_cost_scenario(family)
         scenarios[scenario.name] = scenario
+    real_world = _make_real_world_api_cost_scenario()
+    scenarios[real_world.name] = real_world
     for count in range(1, 5):
         quota = _make_quota_scenario(count)
         scenarios[quota.name] = quota
@@ -201,6 +206,43 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         description=(
             "Cost-layer on-demand API scenario: identical TTFT distribution "
             f"({family}, P50={COST_LAYER_P50_MS:.0f}ms), cost ratio $1/$2/$4 per million tokens."
+        ),
+        providers=providers,
+        arrival_process="trace",
+        primary_slo_ms=2000.0,
+    )
+
+
+def _make_real_world_api_cost_scenario() -> ScenarioConfig:
+    ttft_dist = load_pooled_distribution("rw8_pooled")
+    providers = [
+        TieredProvider(
+            name="api_cheap",
+            cost_per_token=COST_RATIO_PER_MILLION[0] / 1_000_000.0,
+            ttft_dist=ttft_dist,
+            tps_dist=make_tps_distribution(),
+            tier=ProviderTier.S_A,
+        ),
+        TieredProvider(
+            name="api_mid",
+            cost_per_token=COST_RATIO_PER_MILLION[1] / 1_000_000.0,
+            ttft_dist=ttft_dist,
+            tps_dist=make_tps_distribution(),
+            tier=ProviderTier.S_A,
+        ),
+        TieredProvider(
+            name="api_expensive",
+            cost_per_token=COST_RATIO_PER_MILLION[2] / 1_000_000.0,
+            ttft_dist=ttft_dist,
+            tps_dist=make_tps_distribution(),
+            tier=ProviderTier.S_A,
+        ),
+    ]
+    return ScenarioConfig(
+        name=REAL_WORLD_SCENARIO,
+        description=(
+            "Cost-layer real-world API scenario: identical pooled Qwen3/OpenRouter "
+            "TTFT distribution (rw8_pooled), cost ratio $1/$2/$4 per million tokens."
         ),
         providers=providers,
         arrival_process="trace",

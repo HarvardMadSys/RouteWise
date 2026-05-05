@@ -226,6 +226,7 @@ Scenarios:
 | `cost_layer_uniform` | 3 × S_A, all `Uniform(0.5×P50, 1.5×P50)` = `[150, 450]ms`, cost `$1/$2/$4` |
 | `cost_layer_normal` | 3 × S_A, all `Normal(P50, 0.3×P50)` = `Normal(300, 90)`, cost `$1/$2/$4` |
 | `cost_layer_heavy_tail` | 3 × S_A, all `LogNormal(ln(P50), 0.5)`, cost `$1/$2/$4` |
+| `cost_layer_real_world` | 3 × S_A, all use the same `rw8_pooled` empirical Qwen3/OpenRouter TTFT distribution, cost `$1/$2/$4` |
 | `cost_layer_quota_q1` | 1 × S_Q + 2 × S_A, base distribution = `LogNormal` |
 | `cost_layer_quota_q2` | 2 × S_Q + 1 × S_A |
 | `cost_layer_quota_q3` | 3 × S_Q + 1 × S_A |
@@ -236,9 +237,9 @@ Scenarios:
 | `cost_layer_concurrency_c4` | 4 × S_C + 1 × S_A |
 
 The `_q1..q4` and `_c1..c4` scenarios answer the subscription-count
-optimization question. Real-world distribution scenarios for cost layer
-are explicitly **not** included this round; they wait for the
-EmpiricalDistribution wire follow-up.
+optimization question. `cost_layer_real_world` is the real-world counterpart
+for §1.1.4; it keeps the cost-layer invariant by using one pooled empirical
+latency distribution for all three S_A providers.
 
 #### `latency_layer.py`
 
@@ -495,7 +496,8 @@ Sections (paper-aligned):
 
 Scenarios per section:
   cost-layer:        cost_layer_uniform, cost_layer_normal, cost_layer_heavy_tail,
-                     cost_layer_quota_q1..q4, cost_layer_concurrency_c1..c4
+                     cost_layer_real_world, cost_layer_quota_q1..q4,
+                     cost_layer_concurrency_c1..c4
   latency-layer:     latency_layer_uniform_no_overlap, latency_layer_uniform_half_overlap,
                      latency_layer_normal_no_overlap, latency_layer_normal_half_overlap,
                      latency_layer_heavy_tail_no_overlap, latency_layer_heavy_tail_half_overlap
@@ -666,7 +668,7 @@ reviewer can trace each parameter back to a decision.
 | cost_layer cost ratio | `$1 / $2 / $4` per million tokens | Notion §1.1 |
 | cost_layer common P50 | `300ms` | Notion §1.1 |
 | cost_layer subscription-count sweep | `{1, 2, 3, 4}` for both quota and concurrency | Murphy + Juncheng 5/4 |
-| cost_layer real-world distribution | **deferred** to EmpiricalDistribution wire follow-up; not in this refactor | Murphy |
+| cost_layer real-world distribution | `cost_layer_real_world` uses `rw8_pooled` empirical Qwen3/OpenRouter TTFT for all three S_A providers | Murphy |
 | latency_layer P50 ladder | `100ms / 300ms / 1000ms` (10× geometric) | Notion §2.1 + 5/4 stage1 spec |
 | latency_layer overlap regimes | `no_overlap` + `half_overlap` only (two regimes, not three) | Notion §2.1 |
 | latency_layer p sweep | not the dominant axis here; default `p = 0.75`. Add sweep only if a paper figure asks | Murphy |
