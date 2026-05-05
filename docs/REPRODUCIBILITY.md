@@ -21,8 +21,7 @@ If the package is not installed, replace `routewise` below with
 
 ```bash
 routewise list
-routewise list --experiment simulation
-routewise list --suites
+routewise simulator list
 ```
 
 ## Run One Paper Section
@@ -32,22 +31,11 @@ The simulator is organised one Python file per paper section. See
 (§1.1.1 / §1.1.2 / §2.1.1.1 / §3.1 / etc.):
 
 ```bash
-python -m experiments.simulation.cost_layer
-python -m experiments.simulation.latency_layer
-python -m experiments.simulation.hedging
-python -m experiments.simulation.end_to_end
+routewise simulator cost-layer
 ```
 
-Each runner exposes `--help` for sub-experiment selection (latency family,
-overlap, provider pool, hedging on/off).
-
-## Run Full Suites
-
-Full paper sweeps live under `experiments/*/suites/`:
-
-```bash
-routewise suite simulator_grid
-```
+Each section runner exposes `--help` for sub-experiment selection. Legacy
+full-sweep suites were removed; section commands are the paper-facing surface.
 
 Generated artifacts should go under `outputs/`.
 

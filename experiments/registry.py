@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from importlib import import_module
-from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 
 _EXPERIMENT_MODULES = {
     "estimator_ablation": "experiments.estimator_ablation.experiment",
-    "simulation": "experiments.simulation.experiment",
 }
 
 

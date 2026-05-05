@@ -14,7 +14,6 @@ import sys
 from typing import Any
 
 from experiments import available_experiments, get_experiment
-from experiments.suites import available_suites, get_suite, run_suite
 
 SIMULATOR_SECTIONS = {
     "cost-layer": "experiments.simulation.cost_layer",
@@ -33,13 +32,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="routewise", description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
 
-    list_parser = subparsers.add_parser("list", help="List experiments, scenarios, and suites.")
+    list_parser = subparsers.add_parser("list", help="List config-driven experiments.")
     list_parser.add_argument("--experiment", choices=available_experiments())
-    list_parser.add_argument(
-        "--suites",
-        action="store_true",
-        help="List full-sweep suites instead of config-driven scenarios.",
-    )
 
     describe_parser = subparsers.add_parser("describe", help="Describe one scenario config.")
     describe_parser.add_argument("experiment", choices=available_experiments())
@@ -55,14 +49,6 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--policy", required=True)
     run_parser.add_argument("--seed", type=int, default=42)
 
-    suite_parser = subparsers.add_parser("suite", help="Run a registered full-sweep suite.")
-    suite_parser.add_argument("suite", choices=available_suites())
-    suite_parser.add_argument(
-        "suite_args",
-        nargs=argparse.REMAINDER,
-        help="Arguments passed through to the suite after an optional -- separator.",
-    )
-
     simulator_parser = subparsers.add_parser("simulator", help="Run section-based simulator experiments.")
     simulator_subparsers = simulator_parser.add_subparsers(dest="simulator_command")
     simulator_subparsers.add_parser("list", help="List registered simulator sections.")
@@ -77,22 +63,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _list_payload(experiment_name: str | None, *, suites: bool) -> dict[str, Any]:
-    if suites:
-        return {
-            "suites": [
-                {
-                    "name": name,
-                    "module": get_suite(name).module,
-                    "description": get_suite(name).description,
-                }
-                for name in available_suites()
-            ]
-        }
+def _list_payload(experiment_name: str | None) -> dict[str, Any]:
     if experiment_name is not None:
         experiment = get_experiment(experiment_name)
         return {"experiment": experiment_name, "scenarios": experiment.list_scenarios()}
-    return {"experiments": available_experiments(), "suites": available_suites()}
+    return {"experiments": available_experiments()}
 
 
 def _simulator_list_payload() -> dict[str, Any]:
@@ -137,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_args)
 
     if args.command == "list":
-        print(_json_dump(_list_payload(args.experiment, suites=args.suites)))
+        print(_json_dump(_list_payload(args.experiment)))
         return 0
 
     if args.command == "describe":
@@ -172,12 +147,6 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"error: {exc}") from exc
         print(_json_dump(payload))
         return 0
-
-    if args.command == "suite":
-        suite_args = args.suite_args
-        if suite_args and suite_args[0] == "--":
-            suite_args = suite_args[1:]
-        return run_suite(args.suite, suite_args)
 
     parser.print_help()
     return 2

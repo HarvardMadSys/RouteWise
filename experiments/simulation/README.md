@@ -134,14 +134,11 @@ experiments/simulation/
   end_to_end.py        # §3
   common.py            # provider builders, workload loading, summary helpers
   profiles/            # real-world latency artifacts (RW3 / RW8 / rw8_pooled)
-  suites/              # full-sweep CLI entry points
 ```
 
-Per-section runners are invoked directly:
+Implemented section runners are invoked through the CLI:
 
 ```bash
-python -m experiments.simulation.cost_layer
-python -m experiments.simulation.latency_layer
-python -m experiments.simulation.hedging
-python -m experiments.simulation.end_to_end
+routewise simulator list
+routewise simulator cost-layer
 ```

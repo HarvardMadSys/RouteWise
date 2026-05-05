@@ -2,7 +2,7 @@
 
 This directory is the target home for reproducible paper experiments.
 
-Each experiment should combine:
+Config-driven experiment packages should combine:
 
 - configs under `configs/`,
 - a thin experiment runner,
@@ -10,22 +10,18 @@ Each experiment should combine:
 - metric definitions,
 - output schema decisions.
 
-Core simulation logic belongs in `rwsim/`, not here. The application CLI lives
-in `routewise_cli/` and dispatches into this package.
+The simulator paper line is section-driven instead of config-driven. Its
+entrypoints live directly under `experiments/simulation/`.
 
-Use the CLI to inspect config-driven entrypoints:
+Use the CLI to inspect available entrypoints:
 
 ```bash
-routewise list --experiment simulation
-routewise list --suites
+routewise list
+routewise simulator list
 ```
 
 Earlier latency-phase replay packages were retired; the current paper-facing
 simulator method lives under `simulation/`.
-
-Full-sweep paper runners live under `experiments/*/suites/`. They are allowed
-to orchestrate grids, plots, and output paths, but they should not own reusable
-simulator logic.
 
 `offline_stage/` owns the paper offline/stage configuration and config loader.
 The reusable offline simulator primitives live in `rwsim/offline/`; the

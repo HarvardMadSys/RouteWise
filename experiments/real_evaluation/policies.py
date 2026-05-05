@@ -6,7 +6,7 @@ This module is a **real-eval adapter**, NOT a long-term routing system.
 It exists to let real-online experiments call the same algorithm shapes
 as the simulator without forcing a premature unification of three
 incompatible policy frameworks (``rwsim.policies``, the
-``lp_budget_eval`` sidecar, and these phase6-derived classes). When the
+historical simulator-grid sidecar, and these phase6-derived classes). When the
 canonical policy pipeline in ``rwsim.policies`` is mature enough to express
 the live-evaluation harness, this module should be retired or re-grounded
 on it.
@@ -24,12 +24,9 @@ Policy taxonomy:
   - ``BudgetRangeHedgePolicy(p)`` : range-normalized cost budget ``B_p =
     c_min + p (c_max - c_min)``, probability-target hedge
 
-The ``BudgetRange*`` selector is a hand-port of
-``experiments.simulation.lp_budget_eval._select_budget_body``
-(``_is_range_budget_variant`` branch). The simulator version is
-distribution-aware (uses ``provider._active_ttft_dist().mean()``); this
-real version uses the empirical rolling profile. A parity test should
-pin the two to the same outputs given matched inputs.
+The ``BudgetRange*`` selector is a hand-port from the retired simulator-grid
+range-budget selector. The simulator version was distribution-aware; this real
+version uses the empirical rolling profile.
 """
 
 from __future__ import annotations
@@ -39,7 +36,7 @@ import math
 import random
 import threading
 from dataclasses import dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import linprog
@@ -54,6 +51,9 @@ from experiments.real_evaluation.shadow_price import (
     effective_cost,
     request_marginal_cost,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 LP_EPS: float = 1e-9
 HEDGE_SUCCESS_TARGET: float = 0.99
@@ -536,12 +536,9 @@ class BudgetRangePolicy(BasePolicy):
     Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_p``
     where ``B_p = c_min + (p/100) * (c_max - c_min)``.
 
-    Hand-ported from
-    ``experiments.simulation.lp_budget_eval._select_budget_body``
-    (the ``_is_range_budget_variant`` branch). The simulator version reads
-    distributional means via ``provider._active_ttft_dist().mean()``;
-    here we use the empirical ``LatencyProfile.mean_ms``. A parity test
-    should pin both to identical outputs given matched inputs.
+    Hand-ported from the retired simulator-grid range-budget selector. The
+    simulator version read distributional means from provider distributions;
+    here we use the empirical ``LatencyProfile.mean_ms``.
     """
 
     use_hedge = False
@@ -681,7 +678,7 @@ def build_policy(
       * Paper line: ``budget_range_p<PP>`` and
         ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
     """
-    common = dict(specs=specs, slo_ms=slo_ms, profile_window_sec=profile_window_sec)
+    common = {"specs": specs, "slo_ms": slo_ms, "profile_window_sec": profile_window_sec}
     if name == "openrouter_auto":
         return OpenRouterAutoPolicy(**common)
     if name == "sort_latency":
@@ -720,12 +717,6 @@ def build_policy(
 
 
 __all__ = [
-    "BasePolicy",
-    "BudgetRangeHedgePolicy",
-    "BudgetRangePolicy",
-    "CheapestFixedPolicy",
-    "ConcurrencyFirstPolicy",
-    "FastestFixedPolicy",
     "HEDGE_DISPATCH_OVERHEAD_SEC",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
@@ -733,6 +724,13 @@ __all__ = [
     "OR_SORT_PRICE_SENTINEL",
     "OR_SORT_SENTINEL_TO_MODE",
     "OR_SORT_THROUGHPUT_SENTINEL",
+    "UNPROFILED_LATENCY_PENALTY_MS",
+    "BasePolicy",
+    "BudgetRangeHedgePolicy",
+    "BudgetRangePolicy",
+    "CheapestFixedPolicy",
+    "ConcurrencyFirstPolicy",
+    "FastestFixedPolicy",
     "OpenRouterAutoPolicy",
     "OpenRouterCheapestFixedPolicy",
     "OpenRouterFastestFixedPolicy",
@@ -743,7 +741,6 @@ __all__ = [
     "SortPricePolicy",
     "SortThroughputPolicy",
     "TierFirstPolicy",
-    "UNPROFILED_LATENCY_PENALTY_MS",
     "build_policy",
     "compute_hedge_time_sec",
     "request_cost_for_spec",

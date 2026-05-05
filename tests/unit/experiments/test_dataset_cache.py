@@ -8,32 +8,23 @@ Also covers the source-fingerprint manifest and staleness detection.
 from __future__ import annotations
 
 import json
-import pickle
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from rwsim.schemas import Request
-
 from experiments.simulation.dataset_cache import (
+    TRACE_WORKLOAD_DATASETS,
     CacheStalenessError,
+    _load_sharegpt_jsonl_requests,
+    _manifest_path,
+    _read_manifest,
     build_cache,
     cache_status,
     clear_cache,
     ensure_caches,
     load_cached,
     verify_cache,
-    _manifest_path,
-    _read_manifest,
-    _source_fingerprint,
 )
-from experiments.simulation.lp_budget_eval import (
-    TRACE_WORKLOAD_DATASETS,
-    _dataset_cache_path,
-    _load_sharegpt_jsonl_requests,
-)
-
+from rwsim.schemas import Request
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,7 +32,7 @@ from experiments.simulation.lp_budget_eval import (
 
 
 @pytest.fixture
-def _synthetic_source(tmp_path: Path, monkeypatch):
+def _synthetic_source(tmp_path, monkeypatch):
     """Create a tiny JSONL file and patch the resolution functions so
     ``build_cache`` sees it as the "sharegpt" raw source."""
     jsonl = tmp_path / "sharegpt_test.jsonl"
@@ -55,17 +46,7 @@ def _synthetic_source(tmp_path: Path, monkeypatch):
 
     cache_root = tmp_path / "cache"
 
-    # Patch the two functions / constants that control path resolution
-    # in lp_budget_eval so the cache module picks up our fake source.
-    monkeypatch.setattr(
-        "experiments.simulation.lp_budget_eval._resolve_trace_dataset_path",
-        lambda name: jsonl if name == "sharegpt" else None,
-    )
-    monkeypatch.setattr(
-        "experiments.simulation.lp_budget_eval._DATASET_CACHE_ROOT",
-        cache_root,
-    )
-    # Also patch the dataset_cache module's re-import of these.
+    # Patch the path hooks that control source and cache resolution.
     monkeypatch.setattr(
         "experiments.simulation.dataset_cache._resolve_trace_dataset_path",
         lambda name: jsonl if name == "sharegpt" else None,
@@ -98,7 +79,7 @@ def test_build_and_load_roundtrip(_synthetic_source):
     assert requests[-1].request_tokens == 59
 
 
-def test_jsonl_loader_preserves_optional_model_and_session(tmp_path: Path):
+def test_jsonl_loader_preserves_optional_model_and_session(tmp_path):
     """Simulator JSONL may carry BurstGPT model/session metadata."""
     jsonl = tmp_path / "burstgpt_like.jsonl"
     jsonl.write_text(
@@ -170,10 +151,6 @@ def test_load_cached_raises_if_no_cache(tmp_path, monkeypatch):
         "experiments.simulation.dataset_cache._DATASET_CACHE_ROOT",
         tmp_path / "empty",
     )
-    monkeypatch.setattr(
-        "experiments.simulation.lp_budget_eval._DATASET_CACHE_ROOT",
-        tmp_path / "empty",
-    )
     with pytest.raises(FileNotFoundError, match="No cache"):
         load_cached("sharegpt")
 
@@ -207,7 +184,6 @@ def test_cache_status_keys():
 
 
 def test_cache_status_reflects_build(_synthetic_source):
-    _, cache_root, _ = _synthetic_source
     status_before = cache_status()
     assert not status_before["sharegpt"]["cache_exists"]
 
@@ -225,7 +201,6 @@ def test_cache_status_reflects_build(_synthetic_source):
 
 def test_manifest_written_on_build(_synthetic_source):
     """build_cache writes a sidecar .manifest.json with SHA-256."""
-    _, cache_root, _ = _synthetic_source
     build_cache("sharegpt", force=True)
 
     manifest = _read_manifest("sharegpt")
@@ -250,7 +225,6 @@ def test_verify_cache_quick(_synthetic_source):
 
 def test_verify_cache_no_manifest(_synthetic_source):
     """Cache without manifest raises CacheStalenessError."""
-    _, cache_root, _ = _synthetic_source
     build_cache("sharegpt", force=True)
     # Delete manifest to simulate legacy cache.
     _manifest_path("sharegpt").unlink()
@@ -261,7 +235,7 @@ def test_verify_cache_no_manifest(_synthetic_source):
 
 def test_verify_cache_size_mismatch(_synthetic_source):
     """If source file size changes, staleness is detected."""
-    _, cache_root, jsonl = _synthetic_source
+    _, _, jsonl = _synthetic_source
     build_cache("sharegpt", force=True)
 
     # Append data to change file size.
@@ -278,7 +252,7 @@ def test_verify_cache_sha256_mismatch(_synthetic_source):
     Writing new content also updates mtime, so the quick check (size +
     mtime) fires first.  Both quick and full should raise.
     """
-    _, cache_root, jsonl = _synthetic_source
+    _, _, jsonl = _synthetic_source
     build_cache("sharegpt", force=True)
 
     # Rewrite with same byte count but different content.
@@ -297,7 +271,7 @@ def test_verify_cache_sha256_mismatch(_synthetic_source):
 
 def test_build_auto_rebuilds_stale(_synthetic_source, capsys):
     """build_cache without force rebuilds if manifest shows staleness."""
-    _, cache_root, jsonl = _synthetic_source
+    _, _, jsonl = _synthetic_source
     build_cache("sharegpt", force=True)
 
     # Change source size to trigger staleness.

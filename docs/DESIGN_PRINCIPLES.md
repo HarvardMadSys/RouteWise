@@ -94,14 +94,10 @@ All three classes implement the same interface:
 distribution-agnostic so non-LogNormal scenarios can flow through the same
 policy implementation without special cases.
 
-**Family default shape.** Each family interprets the same ``shape``
-parameter differently. The defaults in
-``experiments/simulation/eval_grid._DEFAULT_SHAPE_BY_FAMILY`` are
-calibrated so that (a) the tail strictly grows from ``uniform`` to
-``normal`` to ``heavy_tail`` and (b) ``Normal``'s left clipping at
-``MIN_LATENCY_MS`` only affects a negligible mass of samples for any
-P50 used by the grid. Do not change a single number in this table
-without revisiting both invariants.
+**Family default shape.** Section runners own their paper-specific latency
+parameters. Synthetic cost-layer helpers keep same-latency scenarios in
+``experiments/simulation/cost_layer.py``; latency-overlap scenarios belong in
+``experiments/simulation/latency_layer.py``.
 
 ### 2.3 Policy Variant
 
@@ -145,12 +141,9 @@ Three workloads stress different request profiles:
 | ``freeinference``     | ``freeinference`` | FreeInference logs | Multi-model, high variance in I/O |
 | ``enterprise``        | ``rednote`` | RedNote enterprise logs | Long output, low variance, high CV in arrivals |
 
-The paper-id column is what appears in figure captions and code that
-talks to the paper grid; the runner-dataset-id column is what
-``experiments.simulation.lp_budget_eval`` actually loads from disk.
-The mapping lives in ``WORKLOAD_DATASET_IDS`` in
-``experiments/simulation/eval_grid.py`` — keep it as the single
-source of truth so renames stay consistent.
+The paper-id column is what appears in figure captions and code that talks to
+the paper sections; section runners load workloads through
+``experiments.simulation.common.load_workload``.
 
 **Workload-as-driver semantics.** The trace contributes only **arrival
 timestamps and request/response token counts**. The ``model`` column on
@@ -304,5 +297,4 @@ grid stabilises, in this order:
 - Architecture overview: ``docs/ARCHITECTURE.md``
 - Algorithm specification: ``docs/ALGORITHMS.md``
 - Distribution layer: ``rwsim/world/distributions.py``
-- Eval grid factory: ``experiments/simulation/eval_grid.py``
-- Eval grid tests: ``tests/unit/experiments/test_eval_grid.py``
+- Simulator section runners: ``experiments/simulation/{cost_layer,latency_layer,hedging,end_to_end}.py``

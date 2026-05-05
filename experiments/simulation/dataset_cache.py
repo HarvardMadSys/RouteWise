@@ -46,16 +46,89 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from experiments.simulation.lp_budget_eval import (
-    TRACE_WORKLOAD_DATASETS,
-    _DATA_LOADER_CONFIG,
-    _DATASET_CACHE_ROOT,
-    _TRACE_DATASET_PATHS,
-    _dataset_cache_path,
-    _load_sharegpt_jsonl_requests,
-    _resolve_trace_dataset_path,
-)
 from rwsim.data import DataLoader
+from rwsim.schemas import Request
+
+TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
+
+_TRACE_DATA_ROOT = _ROOT / "data"
+_DATASET_CACHE_ROOT = _ROOT / "outputs" / "cache" / "dataset"
+_DATA_LOADER_CONFIG = {"dataset": {}}
+
+_TRACE_DATASET_PATHS = {
+    "freeinference": [
+        _TRACE_DATA_ROOT / "freeinference.csv",
+        _TRACE_DATA_ROOT / "freeinference_logs.csv",
+    ],
+    "rednote": [
+        _TRACE_DATA_ROOT / "enterprise.csv",
+        _TRACE_DATA_ROOT / "rednote_logs.csv",
+    ],
+    "burstgpt": [
+        _TRACE_DATA_ROOT / "burstgpt_30d.jsonl",
+    ],
+    "sharegpt": [
+        _TRACE_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
+        _TRACE_DATA_ROOT / "sharegpt_burstgpt" / "sharegpt_prompts_7d.jsonl",
+        _TRACE_DATA_ROOT / "sharegpt_burstgpt" / "converted.csv",
+    ],
+}
+
+
+def _resolve_trace_dataset_path(dataset_name: str) -> Path | None:
+    """Return the first available canonical path for one trace dataset."""
+    for candidate in _TRACE_DATASET_PATHS.get(dataset_name, []):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _dataset_cache_path(dataset_name: str) -> Path:
+    return _DATASET_CACHE_ROOT / f"{dataset_name}.pkl"
+
+
+def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
+    """Load ShareGPT-style JSONL trace records into Request objects."""
+    requests: list[Request] = []
+    first_timestamp: float | None = None
+    with filepath.open() as handle:
+        for idx, line in enumerate(handle):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            timestamp = float(record["arrived_at"])
+            if first_timestamp is None:
+                first_timestamp = timestamp
+            request_tokens = int(record["num_prefill_tokens"])
+            response_tokens = int(record["num_decode_tokens"])
+            total_tokens = request_tokens + response_tokens
+            if total_tokens <= 0:
+                continue
+            metadata = {
+                key: record[key]
+                for key in (
+                    "session_id",
+                    "prompt_text",
+                    "response_text",
+                    "sharegpt_conversation_id",
+                    "sharegpt_turn_index",
+                    "log_type",
+                    "elapsed_time_sec",
+                )
+                if key in record
+            }
+            requests.append(
+                Request(
+                    id=idx,
+                    timestamp=float(timestamp - first_timestamp),
+                    request_tokens=request_tokens,
+                    response_tokens=response_tokens,
+                    total_tokens=total_tokens,
+                    model=str(record.get("model") or "sharegpt"),
+                    metadata=metadata,
+                )
+            )
+    return requests
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +531,7 @@ def main() -> None:
             if full and info["cache_exists"]:
                 try:
                     verify_cache(name, quick=False)
-                    print(f"                       SHA-256 verified OK")
+                    print("                       SHA-256 verified OK")
                 except CacheStalenessError as exc:
                     print(f"                       SHA-256 MISMATCH: {exc}")
 

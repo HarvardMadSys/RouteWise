@@ -103,8 +103,7 @@ compatibility layer for historical strategy names.
 
 Main simulator experiments are trace-driven. `rwsim/world/` does not generate
 request streams. Experiment runners load trace data through
-`experiments.simulation.lp_budget_eval.generate_scenario_workload()` and
-`rwsim/data/loader.py`.
+`experiments.simulation.common.load_workload()` and `rwsim/data/loader.py`.
 
 ## Offline Stage
 

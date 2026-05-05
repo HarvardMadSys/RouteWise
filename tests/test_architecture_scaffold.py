@@ -7,9 +7,8 @@ import inspect
 import unittest
 from pathlib import Path
 
-from experiments import available_experiments, get_experiment
+from experiments import available_experiments
 from experiments._configs import summarize_scenario
-from experiments.suites import available_suites, get_suite
 from rwsim.policies import available_policies, build_policy
 from rwsim.scenarios import build_scenario
 from rwsim.schemas import ProviderTier, Request
@@ -18,17 +17,6 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureScaffoldTest(unittest.TestCase):
-    def test_simulation_experiment_is_registered(self) -> None:
-        # Legacy hand-authored S6/S7/S8/S9/unified_pool scenarios were dropped
-        # in favour of the paper-section structure (cost / latency / hedging /
-        # end-to-end) documented in EXPERIMENT_LAYOUT.md §3.1 and Notion.
-        # The new section runners live in experiments/simulation/*.py; for now
-        # assert only that the experiment registers cleanly and yields a tuple
-        # of scenario names (possibly empty during the section refactor).
-        experiment = get_experiment("simulation")
-        scenarios = experiment.list_scenarios()
-        self.assertIsInstance(scenarios, tuple)
-
     def test_generic_scenario_builder_stays_outside_paper_specific_factories(self) -> None:
         scenario = build_scenario(
             {
@@ -75,7 +63,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_experiment_registry_has_expected_packages(self) -> None:
         self.assertEqual(
             available_experiments(),
-            ("estimator_ablation", "simulation"),
+            ("estimator_ablation",),
         )
 
     def test_request_schema_keeps_convenience_properties(self) -> None:
@@ -133,6 +121,16 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             ROOT_DIR / "rwsim" / "policies" / "cost_routers",
             ROOT_DIR / "rwsim" / "policies" / "latency_routers",
             ROOT_DIR / "rwsim" / "policies" / "hedgers",
+            ROOT_DIR / "experiments" / "suites.py",
+            ROOT_DIR / "experiments" / "simulation" / "configs",
+            ROOT_DIR / "experiments" / "simulation" / "suites",
+            ROOT_DIR / "experiments" / "simulation" / "eval_grid.py",
+            ROOT_DIR / "experiments" / "simulation" / "experiment.py",
+            ROOT_DIR / "experiments" / "simulation" / "lp_budget_eval.py",
+            ROOT_DIR / "experiments" / "simulation" / "materialize.py",
+            ROOT_DIR / "experiments" / "simulation" / "runner.py",
+            ROOT_DIR / "experiments" / "simulation" / "scenarios.py",
+            ROOT_DIR / "tests" / "golden" / "simulation",
         )
         for path in deleted_paths:
             self.assertFalse(path.exists(), str(path))
@@ -147,6 +145,10 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             "from rwsim.policies." + "latency_routers",
             "from rwsim.policies." + "hedgers",
             "from rwsim.world import generate_" + "workload",
+            "from experiments.simulation." + "eval_grid",
+            "from experiments.simulation." + "lp_budget_eval",
+            "from experiments.simulation." + "materialize",
+            "experiments.simulation." + "suites",
         )
         for dirname in ("rwsim", "experiments", "routewise_cli", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
@@ -221,13 +223,6 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(type(ema.predict(request)).__name__, "QuantilePrediction")
         self.assertEqual(OracleOutputPredictor().predict(request).q50, 64.0)
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
-
-    def test_full_sweep_suites_are_registered(self) -> None:
-        expected = ("simulator_grid",)
-
-        self.assertEqual(available_suites(), expected)
-        for name in expected:
-            self.assertTrue(get_suite(name).module.startswith("experiments."))
 
     def test_section_simulator_phase0_surface_is_registered_incrementally(self) -> None:
         from routewise_cli.main import SIMULATOR_SECTIONS

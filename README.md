@@ -40,21 +40,12 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
-Run one paper section (cost / latency / hedging / end-to-end). See
-`experiments/simulation/README.md` for the full sub-experiment tree:
+Run the implemented simulator paper sections. See
+`experiments/simulation/README.md` for the target sub-experiment tree:
 
 ```bash
-python -m experiments.simulation.cost_layer
-python -m experiments.simulation.latency_layer
-python -m experiments.simulation.hedging
-python -m experiments.simulation.end_to_end
-```
-
-Run registered suites:
-
-```bash
-routewise list --suites
-routewise suite simulator_grid
+routewise simulator list
+routewise simulator cost-layer
 ```
 
 ## Python Entrypoints
