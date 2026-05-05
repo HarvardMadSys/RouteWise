@@ -27,18 +27,13 @@ from typing import Any
 
 import numpy as np
 
-
 SCRIPT_PATH = Path(__file__).resolve()
 MAIN_ROOT = SCRIPT_PATH.parents[1]
 WORKSPACE_ROOT = MAIN_ROOT.parent
 JOINT_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint"
 JOINT_LP_BUDGET_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint-wt-lp-budget"
 DEFAULT_GOLDEN_ROOT = MAIN_ROOT / "tests" / "golden"
-AUDIT_ROOTS = [
-    root
-    for root in [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT]
-    if root.exists()
-]
+AUDIT_ROOTS = [root for root in [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT] if root.exists()]
 
 SEEDS = [42, 43, 44]
 FAMILY_SPECS = {
@@ -84,6 +79,15 @@ def _bool_array_digest(values: Any) -> str:
 def _string_list_digest(values: list[str]) -> str:
     """Return a stable digest for an ordered string list."""
     return _sha256_text("\0".join(values))
+
+
+def _metadata_numeric_value(value: Any) -> float:
+    """Collapse scalar or per-provider metadata into one stable numeric value."""
+    if value is None:
+        return 0.0
+    if isinstance(value, dict):
+        return float(max((float(item) for item in value.values()), default=0.0))
+    return float(value)
 
 
 def _bootstrap_repo(repo_root: Path) -> None:
@@ -134,20 +138,8 @@ def _provider_metadata(provider: Any) -> dict[str, Any]:
 
 def _seed_run_payload(run: Any, slo_thresholds_ms: list[float]) -> dict[str, Any]:
     """Serialize one seeded strategy execution."""
-    hedge_rate = (
-        float(run.hedge_rate())
-        if hasattr(run, "hedge_rate")
-        else float(np.mean(np.asarray(run.hedge_triggered, dtype=np.bool_)))
-    )
-    if hasattr(run, "provider_fractions"):
-        provider_fractions = {
-            name: float(frac) for name, frac in run.provider_fractions().items()
-        }
-    else:
-        provider_fractions = {
-            name: float(run.provider.count(name) / len(run.provider))
-            for name in sorted(set(run.provider))
-        }
+    records = run.records
+    provider_fractions = {name: float(frac) for name, frac in run.provider_fractions().items()}
     payload: dict[str, Any] = {
         "metrics": {
             f"slo_violation_rate_{int(slo)}ms": float(run.slo_violation_rate(slo))
@@ -156,42 +148,39 @@ def _seed_run_payload(run: Any, slo_thresholds_ms: list[float]) -> dict[str, Any
         "mean_cost_usd": float(run.mean_cost_usd()),
         "p50_ms": float(run.p50_ms()),
         "p99_ms": float(run.p99_ms()),
-        "hedge_rate": hedge_rate,
+        "hedge_rate": float(run.hedge_rate()),
         "provider_fractions": _sorted_dict(provider_fractions),
         "digests": {
-            "timestamp": _float_array_digest(run.timestamp),
-            "ttft_ms": _float_array_digest(run.ttft_ms),
-            "cost_usd": _float_array_digest(run.cost_usd),
-            "provider": _string_list_digest(run.provider),
-            "hedge_triggered": _bool_array_digest(run.hedge_triggered),
+            "timestamp": _float_array_digest([record.elapsed_sec for record in records]),
+            "ttft_ms": _float_array_digest([record.ttft_ms for record in records]),
+            "cost_usd": _float_array_digest([record.total_cost_usd for record in records]),
+            "provider": _string_list_digest([record.final_provider for record in records]),
+            "hedge_triggered": _bool_array_digest([record.hedge_triggered for record in records]),
         },
     }
 
-    if hasattr(run, "tier_fractions"):
-        tier_fractions = {
-            name: float(frac) for name, frac in run.tier_fractions().items()
-        }
-        if tier_fractions:
-            payload["tier_fractions"] = _sorted_dict(tier_fractions)
+    tier_fractions = {name: float(frac) for name, frac in run.tier_fractions().items()}
+    if tier_fractions:
+        payload["tier_fractions"] = _sorted_dict(tier_fractions)
+        payload["digests"]["tier"] = _string_list_digest([record.final_tier for record in records])
 
-    for field_name in [
-        "tier",
-        "quota_fraction_used",
-        "concurrency_utilization",
-        "rejected",
-    ]:
-        field_value = getattr(run, field_name, None)
-        if field_value is None:
-            continue
-        arr = np.asarray(field_value)
-        if arr.size == 0:
-            continue
-        if arr.dtype == np.bool_:
-            payload["digests"][field_name] = _bool_array_digest(arr)
-        elif np.issubdtype(arr.dtype, np.number):
-            payload["digests"][field_name] = _float_array_digest(arr)
-        else:
-            payload["digests"][field_name] = _string_list_digest(list(field_value))
+    quota_fraction_used = [
+        _metadata_numeric_value(record.metadata.get("sim_quota_fraction_used"))
+        for record in records
+    ]
+    if any(value != 0.0 for value in quota_fraction_used):
+        payload["digests"]["quota_fraction_used"] = _float_array_digest(quota_fraction_used)
+
+    concurrency_utilization = [
+        _metadata_numeric_value(record.metadata.get("sim_concurrency_utilization"))
+        for record in records
+    ]
+    if any(value != 0.0 for value in concurrency_utilization):
+        payload["digests"]["concurrency_utilization"] = _float_array_digest(concurrency_utilization)
+
+    rejected = [record.status.value == "REJECTED" for record in records]
+    if any(rejected):
+        payload["digests"]["rejected"] = _bool_array_digest(rejected)
 
     return payload
 
@@ -215,29 +204,11 @@ def _aggregate_seed_runs(
     aggregate["mean_cost_usd"] = float(np.mean([run.mean_cost_usd() for run in runs]))
     aggregate["p50_ms"] = float(np.mean([run.p50_ms() for run in runs]))
     aggregate["p99_ms"] = float(np.mean([run.p99_ms() for run in runs]))
-    aggregate["hedge_rate"] = float(
-        np.mean(
-            [
-                (
-                    float(run.hedge_rate())
-                    if hasattr(run, "hedge_rate")
-                    else float(np.mean(np.asarray(run.hedge_triggered, dtype=np.bool_)))
-                )
-                for run in runs
-            ]
-        )
-    )
+    aggregate["hedge_rate"] = float(np.mean([run.hedge_rate() for run in runs]))
 
     provider_fraction_lists: dict[str, list[float]] = {}
     for run in runs:
-        provider_fractions = (
-            run.provider_fractions()
-            if hasattr(run, "provider_fractions")
-            else {
-                name: float(run.provider.count(name) / len(run.provider))
-                for name in sorted(set(run.provider))
-            }
-        )
+        provider_fractions = run.provider_fractions()
         for provider_name, fraction in provider_fractions.items():
             provider_fraction_lists.setdefault(provider_name, []).append(float(fraction))
     aggregate["provider_fractions"] = _sorted_dict(
@@ -247,18 +218,14 @@ def _aggregate_seed_runs(
         }
     )
 
-    if hasattr(runs[0], "tier_fractions"):
-        tier_fraction_lists: dict[str, list[float]] = {}
-        for run in runs:
-            for tier_name, fraction in run.tier_fractions().items():
-                tier_fraction_lists.setdefault(tier_name, []).append(float(fraction))
-        if tier_fraction_lists:
-            aggregate["tier_fractions"] = _sorted_dict(
-                {
-                    tier_name: float(np.mean(values))
-                    for tier_name, values in tier_fraction_lists.items()
-                }
-            )
+    tier_fraction_lists: dict[str, list[float]] = {}
+    for run in runs:
+        for tier_name, fraction in run.tier_fractions().items():
+            tier_fraction_lists.setdefault(tier_name, []).append(float(fraction))
+    if tier_fraction_lists:
+        aggregate["tier_fractions"] = _sorted_dict(
+            {tier_name: float(np.mean(values)) for tier_name, values in tier_fraction_lists.items()}
+        )
 
     return {
         "aggregate": aggregate,
@@ -282,10 +249,7 @@ def _scenario_payload(
         "slo_thresholds_ms": [float(value) for value in scenario.slo_thresholds_ms],
         "provider_names": list(scenario.provider_names),
         "providers": _sorted_dict(
-            {
-                provider.name: _provider_metadata(provider)
-                for provider in scenario.providers
-            }
+            {provider.name: _provider_metadata(provider) for provider in scenario.providers}
         ),
         "policy_order": list(policy_names),
         "policy_hash": _policy_hash(policy_names),
@@ -307,15 +271,14 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
     """Capture one simulation scenario set."""
     _bootstrap_repo(repo_root)
 
-    from experiments.simulation.lp_budget_eval import generate_scenario_workload  # noqa: E402
-    from rwsim.runner import POLICIES, run_policy  # noqa: E402
+    from experiments.simulation.lp_budget_eval import generate_scenario_workload
+    from rwsim.runner import POLICIES, run_policy
 
     if family == "simulation":
-        from experiments.simulation import load_all_world_scenarios  # noqa: E402
+        from experiments.simulation import load_all_world_scenarios
 
-        scenario_factory = lambda: {
-            scenario.name: scenario for scenario in load_all_world_scenarios()
-        }
+        def scenario_factory() -> dict[str, Any]:
+            return {scenario.name: scenario for scenario in load_all_world_scenarios()}
     else:
         raise ValueError(f"Unsupported simulation family: {family}")
 
@@ -328,10 +291,7 @@ def _capture_simulation_family(repo_root: Path, family: str) -> dict[str, Any]:
             dataset_name="burstgpt",
         )
         results = {
-            policy_name: [
-                run_policy(scenario, requests, policy_name, seed=seed)
-                for seed in SEEDS
-            ]
+            policy_name: [run_policy(scenario, requests, policy_name, seed=seed) for seed in SEEDS]
             for policy_name in policy_names
         }
         scenarios_payload[scenario_id] = _scenario_payload(
@@ -494,8 +454,7 @@ def _compare_json(
 
     if type(expected) is not type(actual):
         diffs.append(
-            f"{path}: expected type {type(expected).__name__}, "
-            f"got {type(actual).__name__}"
+            f"{path}: expected type {type(expected).__name__}, got {type(actual).__name__}"
         )
         return
 

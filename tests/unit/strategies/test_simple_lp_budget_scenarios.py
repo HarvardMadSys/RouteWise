@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from experiments.simulation.lp_budget_eval import (
     EvaluatedRun,
     RunDiagnostics,
@@ -14,8 +12,8 @@ from experiments.simulation.simple_scenarios import (
     SIMPLE_SCENARIOS,
     make_simple_scenarios,
 )
+from rwsim.metrics import PerRequestRecord, Run
 from rwsim.world.capacity import ProviderTier
-from rwsim.metrics import SimulationRun
 
 
 def test_simple_scenarios_are_registered_in_sidecar() -> None:
@@ -56,23 +54,13 @@ def test_slow_cheap_scenario_has_opposed_cost_latency_order() -> None:
 def test_provider_mix_aggregation_counts_missing_seed_as_zero() -> None:
     scenario = make_simple_scenarios()["simple_slow_cheap_fast_expensive"]
     runs = [
-        SimulationRun(
+        _fake_run(
             policy="test",
-            ttft_ms=np.array([1.0, 1.0]),
-            cost_usd=np.array([1.0, 1.0]),
-            provider=["a", "a"],
-            timestamp=np.array([0.0, 1.0]),
-            hedge_triggered=np.array([False, False]),
-            tier=["api", "api"],
+            providers=["a", "a"],
         ),
-        SimulationRun(
+        _fake_run(
             policy="test",
-            ttft_ms=np.array([1.0, 1.0]),
-            cost_usd=np.array([1.0, 1.0]),
-            provider=["b", "b"],
-            timestamp=np.array([0.0, 1.0]),
-            hedge_triggered=np.array([False, False]),
-            tier=["api", "api"],
+            providers=["b", "b"],
         ),
     ]
     evaluated = [
@@ -83,3 +71,29 @@ def test_provider_mix_aggregation_counts_missing_seed_as_zero() -> None:
     summary = summarize_main_metrics(scenario, evaluated)
 
     assert summary["provider_mix"] == {"a": 0.5, "b": 0.5}
+
+
+def _fake_run(policy: str, providers: list[str]) -> Run:
+    records = [
+        PerRequestRecord(
+            request_id=str(idx),
+            elapsed_sec=float(idx),
+            policy=policy,
+            prompt_tokens=100,
+            completion_tokens_budget=50,
+            completion_tokens_actual=50,
+            primary_provider=provider,
+            primary_tier="api",
+            final_provider=provider,
+            final_tier="api",
+            ttft_ms=1.0,
+            e2e_ms=None,
+            primary_local_ttft_ms=1.0,
+            slo_ms=100.0,
+            slo_violated=False,
+            total_cost_usd=1.0,
+            primary_cost_usd=1.0,
+        )
+        for idx, provider in enumerate(providers)
+    ]
+    return Run(records=records, policy=policy)

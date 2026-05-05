@@ -10,12 +10,12 @@ A summary figure across all scenarios is emitted to `summary.png`.
 All figures are saved as PNG (no PDF, per project convention).
 
 Consumes:
-  SimulationRun objects produced by experiments/simulation/* runners.
+  Run objects produced by experiments/simulation/* runners.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,17 +25,21 @@ from plots.palettes import (
     ROUTER_STRATEGY_LABELS,
     TIER_COLORS,
 )
-from rwsim.metrics import SimulationRun
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from rwsim.metrics import Run
 
 
-def _mean_metric(runs: list[SimulationRun], fn) -> float:
+def _mean_metric(runs: list[Run], fn) -> float:
     return float(np.mean([fn(r) for r in runs]))
 
 
 def plot_slo_cost_pareto(
     scenario_name: str,
     primary_slo_ms: float,
-    results: dict[str, list[SimulationRun]],
+    results: dict[str, list[Run]],
     output_path: Path,
 ) -> None:
     """Scatter of (mean cost, SLO violation rate) per policy."""
@@ -45,7 +49,8 @@ def plot_slo_cost_pareto(
         x = _mean_metric(runs, lambda r: r.slo_violation_rate(primary_slo_ms))
         y = _mean_metric(runs, lambda r: r.mean_cost_usd())
         ax.scatter(
-            x * 100.0, y,
+            x * 100.0,
+            y,
             s=120,
             color=ROUTER_STRATEGY_COLORS.get(policy_name, "gray"),
             label=ROUTER_STRATEGY_LABELS.get(policy_name, policy_name),
@@ -83,7 +88,7 @@ def plot_slo_cost_pareto(
 
 def plot_provider_mix(
     scenario_name: str,
-    results: dict[str, list[SimulationRun]],
+    results: dict[str, list[Run]],
     output_path: Path,
 ) -> None:
     """Stacked bar of tier fractions for each policy."""
@@ -91,27 +96,21 @@ def plot_provider_mix(
     labels = [ROUTER_STRATEGY_LABELS.get(s, s) for s in policies]
 
     # Gather per-policy tier fractions (averaged across seeds).
-    tiers = sorted({
-        tier
-        for runs in results.values()
-        for r in runs
-        for tier in r.tier_fractions().keys()
-    })
+    tiers = sorted({tier for runs in results.values() for r in runs for tier in r.tier_fractions()})
 
     tier_data: dict[str, list[float]] = {tier: [] for tier in tiers}
     for policy_name in policies:
         per_run = [r.tier_fractions() for r in results[policy_name]]
         for tier in tiers:
-            tier_data[tier].append(
-                float(np.mean([tf.get(tier, 0.0) for tf in per_run]))
-            )
+            tier_data[tier].append(float(np.mean([tf.get(tier, 0.0) for tf in per_run])))
 
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     bottom = np.zeros(len(policies))
     for tier in tiers:
         vals = np.array(tier_data[tier])
         ax.bar(
-            labels, vals,
+            labels,
+            vals,
             bottom=bottom,
             label=tier,
             color=TIER_COLORS.get(tier, "gray"),
@@ -133,7 +132,7 @@ def plot_provider_mix(
 
 def plot_cost_over_time(
     scenario_name: str,
-    results: dict[str, list[SimulationRun]],
+    results: dict[str, list[Run]],
     output_path: Path,
     focus_strategies: list[str] | None = None,
 ) -> None:
@@ -147,12 +146,14 @@ def plot_cost_over_time(
         if strat not in results:
             continue
         r0 = results[strat][0]  # first seed is representative
-        if len(r0.timestamp) == 0:
+        if not r0.records:
             continue
-        ts = r0.timestamp - r0.timestamp[0]  # normalize to 0
-        cum = np.cumsum(r0.cost_usd)
+        elapsed = np.asarray([record.elapsed_sec for record in r0.records], dtype=float)
+        ts = elapsed - elapsed[0]  # normalize to 0
+        cum = np.cumsum([record.total_cost_usd for record in r0.records])
         ax.plot(
-            ts / 60.0, cum,
+            ts / 60.0,
+            cum,
             label=ROUTER_STRATEGY_LABELS.get(strat, strat),
             color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
             linewidth=1.8,
@@ -172,27 +173,31 @@ def plot_cost_over_time(
 def make_scenario_plots(
     scenario_name: str,
     primary_slo_ms: float,
-    results: dict[str, list[SimulationRun]],
+    results: dict[str, list[Run]],
     output_dir: Path,
 ) -> None:
     """Emit all three plots for one scenario."""
     output_dir.mkdir(parents=True, exist_ok=True)
     plot_slo_cost_pareto(
-        scenario_name, primary_slo_ms, results,
+        scenario_name,
+        primary_slo_ms,
+        results,
         output_dir / "slo_cost_pareto.png",
     )
     plot_provider_mix(
-        scenario_name, results,
+        scenario_name,
+        results,
         output_dir / "provider_mix.png",
     )
     plot_cost_over_time(
-        scenario_name, results,
+        scenario_name,
+        results,
         output_dir / "cost_over_time.png",
     )
 
 
 def plot_summary_across_scenarios(
-    scenarios: dict[str, dict[str, list[SimulationRun]]],
+    scenarios: dict[str, dict[str, list[Run]]],
     primary_slo_ms_map: dict[str, float],
     output_path: Path,
 ) -> None:
@@ -206,7 +211,10 @@ def plot_summary_across_scenarios(
     strategies = list(next(iter(scenarios.values())).keys())
 
     fig, (ax_cost, ax_slo) = plt.subplots(
-        1, 2, figsize=(11.0, 4.0), sharex=True,
+        1,
+        2,
+        figsize=(11.0, 4.0),
+        sharex=True,
     )
 
     n = len(strategies)
@@ -219,12 +227,13 @@ def plot_summary_across_scenarios(
         for sid in scenario_ids:
             runs = scenarios[sid][strat]
             costs.append(_mean_metric(runs, lambda r: r.mean_cost_usd()))
-            viols.append(_mean_metric(
-                runs, lambda r, s=sid: r.slo_violation_rate(primary_slo_ms_map[s])
-            ))
+            viols.append(
+                _mean_metric(runs, lambda r, s=sid: r.slo_violation_rate(primary_slo_ms_map[s]))
+            )
         offset = (j - (n - 1) / 2.0) * bar_width
         ax_cost.bar(
-            x + offset, costs,
+            x + offset,
+            costs,
             width=bar_width,
             color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
             label=ROUTER_STRATEGY_LABELS.get(strat, strat),
@@ -232,7 +241,8 @@ def plot_summary_across_scenarios(
             linewidth=0.5,
         )
         ax_slo.bar(
-            x + offset, np.array(viols) * 100.0,
+            x + offset,
+            np.array(viols) * 100.0,
             width=bar_width,
             color=ROUTER_STRATEGY_COLORS.get(strat, "gray"),
             edgecolor="white",

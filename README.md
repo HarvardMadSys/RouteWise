@@ -11,7 +11,7 @@ The simulator code is organized around one engine and a flat policy interface:
 - `rwsim/world/`: providers, quota/concurrency state, latency distributions
 - `rwsim/data/`: trace workload loaders
 - `rwsim/policies/`: flat policy presets and implementations
-- `rwsim/metrics/`: `SimulationRun` result container and aggregations
+- `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
 - `experiments/`: paper configs, suites, and offline-stage workflows
 
 The old `rwsim/strategies/` layer and stage directories under
@@ -58,7 +58,7 @@ routewise suite simulator_grid
 
 ```python
 from rwsim import POLICIES, run_policy
-from rwsim.metrics import SimulationRun
+from rwsim.metrics import PerRequestRecord, Run
 from rwsim.policies import build_policy
 from rwsim.world import Provider, ScenarioConfig
 ```

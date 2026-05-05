@@ -471,40 +471,20 @@ class Run:
     def provider_fractions(self) -> dict[str, float]: ...    # by final_provider
     def tier_fractions(self) -> dict[str, float]: ...        # by final_tier
 
-    # Vectorised column views, computed lazily for plot code
-    @property
-    def ttft_ms(self) -> np.ndarray: ...                 # user-visible TTFT
-    @property
-    def e2e_ms(self) -> np.ndarray: ...                  # user-visible E2E (NaN where None)
-    @property
-    def cost_usd(self) -> np.ndarray: ...                # total per request
-    @property
-    def hedge_triggered(self) -> np.ndarray: ...
-    @property
-    def elapsed_sec(self) -> np.ndarray: ...             # for rolling windows
 ```
 
-`Run` is row-oriented internally (`list[PerRequestRecord]`) but exposes
-column-view properties for vectorised aggregation. The two representations
-are O(n) inter-convertible; do not maintain two separate dataclasses for
-"row" and "column" runs.
-
-Temporary migration surface: `Run.__init__` may accept legacy column kwargs
-(`ttft_ms=`, `cost_usd=`, `provider=`, `timestamp=`, `hedge_triggered=`,
-etc.) while plots/golden/suites are migrated. That path can only compute
-per-record `slo_violated` when the caller also passes `slo_ms`; otherwise
-callers must use `slo_violation_rate(slo_ms=...)` for SLO metrics. Delete
-the column-kwargs constructor after downstream code constructs
-`PerRequestRecord` rows directly.
+`Run` is row-oriented internally (`list[PerRequestRecord]`). Do not expose a
+second column-oriented public API such as `run.ttft_ms`, `run.cost_usd`, or
+`run.provider`; plot and golden code should either use the aggregate methods
+above or read `run.records` explicitly.
 
 Plot code (`plots/<section>/*.py`) consumes `Run` and core fields only.
 Per-side extensions in `metadata` are read by diagnostic / appendix figures,
 never by main paper figures, so cross-source plots stay shape-stable.
 
-**Migration note.** The current `SimulationRun` is column-oriented and only
-covers the simulator. Phase 0 of the schema migration:
+**Migration note.** Phase 0 of the schema migration:
 
-1. Rename `SimulationRun` → `Run`; keep column-view properties.
+1. Keep only `Run`; do not keep a `SimulationRun` alias.
 2. Internal storage moves to `list[PerRequestRecord]`.
 3. `experiments/real_evaluation/recorder.py` stops emitting its own per-request
    CSV schema and writes `PerRequestRecord` rows.
@@ -614,15 +594,14 @@ Deliverables:
    in `rwsim/schemas.py`.
 4. **Lock the metrics schema contract from §4.4**:
    - Add `Status`, `PerRequestRecord` to `rwsim/metrics/record.py`.
-   - Replace `SimulationRun` (or `StrategyRun` in pre-368e56d code) with
-     `Run` in `rwsim/metrics/run.py`, wrapping `list[PerRequestRecord]`
-     and exposing the §4.4 aggregation methods + column-view properties.
+   - Keep only `Run` in `rwsim/metrics/run.py`, wrapping
+     `list[PerRequestRecord]` and exposing only the §4.4 aggregation methods.
    - Resolve the 6 boundary decisions at the end of §4.4 (e2e_ms,
      hedge_delay_ms zero, backup_cost parity, sim Status coverage,
      metadata namespacing, completion_tokens_budget source in sim).
-   - This deliverable is a contract change but no behaviour change yet:
-     plot/golden/real-eval recorder still operate on the legacy schema
-     until Phase 1.
+   - This deliverable is a contract change: plot/golden/real-eval recorder
+     call sites must consume `Run(records=...)`, aggregate methods, or
+     `run.records` directly before merge. No legacy schema bridge remains.
 5. Add architecture tests:
    - Policies expose `route()`, `tick()`, `observe()`.
    - Simulator owns capacity mutation.
@@ -702,7 +681,7 @@ File-level plan:
 | `rwsim/policies/composer.py` | delete after preset loader exists |
 | `rwsim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/` | delete after RouteWise/Baseline policies own the useful logic |
 | `rwsim/world/shadow_price.py` | move useful formulas into `rwsim/policies/routewise.py` |
-| `rwsim/metrics/run.py::SimulationRun` | rename to `Run` (cross-source aggregate per §4.4); rewrite to wrap `list[PerRequestRecord]` with column-view properties. (Already renamed from legacy `StrategyRun` in commit 374f50a.) |
+| `rwsim/metrics/run.py` | expose only `Run` (cross-source aggregate per §4.4), backed by `list[PerRequestRecord]`; no `SimulationRun` alias or public column-view compatibility surface. |
 | `rwsim/world/workload.py` | delete after callers use trace loader/cache |
 | `rwsim/registry.py` | delete |
 
@@ -849,7 +828,7 @@ Rules:
 | 3a | refactor | add flat policy code and Run/PerRequestRecord with no production callers |
 | 3b | refactor | switch callers to `--policy` presets and delete `rwsim/strategies/` |
 | 4 | test | assert no `rwsim.strategies`, `STRATEGY_REGISTRY`, or `--strategy` surface remains |
-| 5 | refactor | wire simulator engine to emit `PerRequestRecord` rows; replace `SimulationRun` with `Run` (§4.4) |
+| 5 | refactor | wire simulator engine to emit `PerRequestRecord` rows and expose only `Run` (§4.4) |
 | 6 | refactor | wire `experiments/real_evaluation/recorder.py` to emit `PerRequestRecord` rows; map legacy CSV columns to core fields, push retry/rate_limit/http_status to `metadata["real_*"]` |
 | 7 | refactor | switch `plots/`, golden capture, and suite metadata to consume `Run` (delete legacy `mean_cost_usd` array fields, etc.) |
 | 8 | feat | add EmpiricalDistribution and real-world profile pools |

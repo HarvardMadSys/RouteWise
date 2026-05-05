@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from experiments._configs import (
     list_config_names,
@@ -11,7 +11,9 @@ from experiments._configs import (
     load_named_scenario,
     summarize_scenario,
 )
-from rwsim.schemas import ScenarioConfig
+
+if TYPE_CHECKING:
+    from rwsim.schemas import ScenarioConfig
 
 
 EXPERIMENT_NAME = "simulation"
@@ -76,14 +78,14 @@ def _summarize_run(
         "scenario": scenario_name,
         "policy": policy,
         "seed": seed,
-        "n_requests": len(run.provider),
+        "n_requests": len(run.records),
         "slo_violation_rate": run.slo_violation_rate(primary_slo_ms),
         "mean_cost_usd": run.mean_cost_usd(),
         "p50_ms": run.p50_ms(),
         "p99_ms": run.p99_ms(),
         "hedge_rate": run.hedge_rate(),
         "provider_fractions": run.provider_fractions(),
-        "tier_fractions": run.tier_fractions() if hasattr(run, "tier_fractions") else {},
+        "tier_fractions": run.tier_fractions(),
     }
 
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
+import pytest
 
-from rwsim.metrics import PerRequestRecord, Run, SimulationRun, Status
+from rwsim.metrics import PerRequestRecord, Run, Status
 
 
 def test_run_cost_by_tier_attributes_primary_and_backup_costs() -> None:
@@ -44,15 +44,13 @@ def test_run_cost_by_tier_attributes_primary_and_backup_costs() -> None:
     assert run.mean_e2e_ms() == 400.0
 
 
-def test_simulation_run_legacy_columns_still_work() -> None:
-    run = SimulationRun(
-        policy="legacy",
-        ttft_ms=np.array([10.0, 20.0]),
-        cost_usd=np.array([0.1, 0.3]),
-        provider=["a", "b"],
-        timestamp=np.array([0.0, 1.0]),
-        hedge_triggered=np.array([False, True]),
-        tier=["api", "quota"],
+def test_run_aggregates_records_without_column_constructor() -> None:
+    run = Run(
+        records=[
+            _record("r1", ttft_ms=10.0, final_provider="a", final_tier="api"),
+            _record("r2", ttft_ms=20.0, final_provider="b", final_tier="quota"),
+        ],
+        policy="records",
     )
 
     assert len(run.records) == 2
@@ -60,31 +58,69 @@ def test_simulation_run_legacy_columns_still_work() -> None:
     assert run.provider_fractions() == {"a": 0.5, "b": 0.5}
 
 
-def test_legacy_columns_only_compute_slo_violations_with_explicit_slo() -> None:
-    run_without_slo = SimulationRun(
-        policy="legacy",
-        ttft_ms=np.array([50.0, 200.0]),
-        cost_usd=np.array([0.1, 0.1]),
-        provider=["a", "a"],
-        timestamp=np.array([0.0, 1.0]),
-        hedge_triggered=np.array([False, False]),
-        rejected=np.array([False, True]),
+def test_run_has_no_legacy_column_surface() -> None:
+    run = Run(records=[_record("r1", ttft_ms=10.0)], policy="records")
+
+    for name in (
+        "ttft_ms",
+        "cost_usd",
+        "provider",
+        "timestamp",
+        "hedge_triggered",
+        "tier",
+        "quota_fraction_used",
+        "concurrency_utilization",
+        "rejected",
+    ):
+        assert not hasattr(run, name)
+
+    with pytest.raises(TypeError):
+        Run(
+            # type: ignore[call-arg]
+            ttft_ms=[10.0],
+            cost_usd=[0.1],
+            provider=["api_a"],
+        )
+
+
+def test_slo_violation_rate_uses_record_flags_or_explicit_slo() -> None:
+    run = Run(
+        records=[
+            _record("r1", ttft_ms=50.0, slo_violated=False),
+            _record("r2", ttft_ms=200.0, status=Status.REJECTED, slo_violated=True),
+        ],
+        policy="records",
     )
 
-    assert [record.slo_violated for record in run_without_slo.records] == [False, False]
-    assert run_without_slo.slo_violation_rate() == 0.0
-    assert run_without_slo.slo_violation_rate(100.0) == 0.5
+    assert run.slo_violation_rate() == 0.5
+    assert run.slo_violation_rate(100.0) == 0.5
 
-    run_with_slo = SimulationRun(
-        policy="legacy",
-        ttft_ms=np.array([50.0, 200.0]),
-        cost_usd=np.array([0.1, 0.1]),
-        provider=["a", "a"],
-        timestamp=np.array([0.0, 1.0]),
-        hedge_triggered=np.array([False, False]),
-        rejected=np.array([False, False]),
+
+def _record(
+    request_id: str,
+    *,
+    ttft_ms: float,
+    final_provider: str = "api_a",
+    final_tier: str = "api",
+    status: Status = Status.SUCCESS,
+    slo_violated: bool = False,
+) -> PerRequestRecord:
+    return PerRequestRecord(
+        request_id=request_id,
+        elapsed_sec=0.0,
+        policy="records",
+        prompt_tokens=100,
+        completion_tokens_budget=50,
+        completion_tokens_actual=40,
+        primary_provider=final_provider,
+        primary_tier=final_tier,
+        final_provider=final_provider,
+        final_tier=final_tier,
+        ttft_ms=ttft_ms,
+        primary_local_ttft_ms=ttft_ms,
         slo_ms=100.0,
+        slo_violated=slo_violated,
+        total_cost_usd=0.1,
+        primary_cost_usd=0.1,
+        status=status,
     )
-
-    assert [record.slo_violated for record in run_with_slo.records] == [False, True]
-    assert run_with_slo.slo_violation_rate() == 0.5

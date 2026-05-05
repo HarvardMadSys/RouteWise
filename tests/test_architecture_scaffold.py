@@ -13,7 +13,6 @@ from rwsim.policies import available_policies, build_policy
 from rwsim.scenarios import build_scenario
 from rwsim.schemas import ProviderTier, Request
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -154,12 +153,14 @@ class ArchitectureScaffoldTest(unittest.TestCase):
                     self.assertNotIn(token, source, f"{path} still references {token}")
 
     def test_metrics_have_canonical_home(self) -> None:
+        import rwsim.metrics
         import rwsim.world
-        from rwsim.metrics import SimulationRun
+        from rwsim.metrics import Run
 
         self.assertTrue((ROOT_DIR / "rwsim" / "metrics" / "run.py").exists())
         self.assertFalse((ROOT_DIR / "rwsim" / "world" / "metrics.py").exists())
-        self.assertEqual(SimulationRun.__module__, "rwsim.metrics.run")
+        self.assertEqual(Run.__module__, "rwsim.metrics.run")
+        self.assertNotIn("SimulationRun", rwsim.metrics.__all__)
         self.assertNotIn("SimulationRun", rwsim.world.__all__)
 
     def test_policy_contract_supports_in_flight_ticks(self) -> None:
@@ -220,9 +221,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
 
     def test_full_sweep_suites_are_registered(self) -> None:
-        expected = (
-            "simulator_grid",
-        )
+        expected = ("simulator_grid",)
 
         self.assertEqual(available_suites(), expected)
         for name in expected:

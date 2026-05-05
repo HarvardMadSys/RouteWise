@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass, field
-from functools import lru_cache
-import json
+from functools import cache
 from pathlib import Path
-import pickle
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from experiments.simulation import list_scenarios, load_world_scenario
 from experiments.simulation.simple_scenarios import make_simple_scenarios
 from rwsim.data import DataLoader
-from rwsim.metrics import SimulationRun
 from rwsim.runner import POLICIES, run_policy
 from rwsim.schemas import Request
-from rwsim.world.scenarios import ScenarioConfig
+
+if TYPE_CHECKING:
+    from rwsim.metrics import Run
+    from rwsim.world.scenarios import ScenarioConfig
 
 
 MAIN_VARIANTS = tuple(POLICIES)
@@ -74,7 +76,7 @@ class RunDiagnostics:
 class EvaluatedRun:
     """One seed of one policy on one scenario."""
 
-    run: SimulationRun
+    run: Run
     diagnostics: RunDiagnostics
 
 
@@ -150,7 +152,7 @@ def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
     return requests
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_trace_dataset_requests(dataset_name: str) -> tuple[Request, ...]:
     """Load one real workload dataset from cache or raw trace."""
     if dataset_name not in TRACE_WORKLOAD_DATASETS:
@@ -275,7 +277,7 @@ def summarize_main_metrics(
     summary = {
         "scenario": scenario.name,
         "seeds": [item.diagnostics.seed for item in evaluated_runs],
-        "mean_ttft_ms": float(np.mean([float(np.mean(run.ttft_ms)) for run in runs])),
+        "mean_ttft_ms": float(np.mean([run.mean_ttft_ms() for run in runs])),
         "mean_cost_usd": mean_cost_usd,
         "p50_ms": float(np.mean([run.p50_ms() for run in runs])),
         "p90_ms": float(np.mean([run.p90_ms() for run in runs])),
@@ -299,8 +301,7 @@ def summarize_main_metrics(
 def summarize_diagnostics(evaluated_runs: list[EvaluatedRun]) -> dict[str, object]:
     """Aggregate diagnostics across seeds."""
     seed_summaries = {
-        str(item.diagnostics.seed): item.diagnostics.to_summary_dict()
-        for item in evaluated_runs
+        str(item.diagnostics.seed): item.diagnostics.to_summary_dict() for item in evaluated_runs
     }
     return {
         "seeds": seed_summaries,
@@ -323,9 +324,7 @@ def summarize_diagnostics(evaluated_runs: list[EvaluatedRun]) -> dict[str, objec
         "explorer_feedback_count": 0,
         "backup_selection_counts": {},
         "mean_backup_random_prob": 0.0,
-        "total_decisions": int(
-            sum(item.diagnostics.total_decisions for item in evaluated_runs)
-        ),
+        "total_decisions": int(sum(item.diagnostics.total_decisions for item in evaluated_runs)),
     }
 
 
@@ -343,7 +342,7 @@ def build_hedge_delta(
     }
 
 
-def _mean_provider_fraction(runs: list[SimulationRun]) -> dict[str, float]:
+def _mean_provider_fraction(runs: list[Run]) -> dict[str, float]:
     provider_names = sorted(
         {provider_name for run in runs for provider_name in run.provider_fractions()}
     )
@@ -353,7 +352,7 @@ def _mean_provider_fraction(runs: list[SimulationRun]) -> dict[str, float]:
     }
 
 
-def _mean_tier_fraction(runs: list[SimulationRun]) -> dict[str, float]:
+def _mean_tier_fraction(runs: list[Run]) -> dict[str, float]:
     tier_names = sorted({tier_name for run in runs for tier_name in run.tier_fractions()})
     return {
         name: float(np.mean([run.tier_fractions().get(name, 0.0) for run in runs]))
@@ -372,15 +371,15 @@ __all__ = [
     "BACKUP_EXPLORATION_VARIANTS",
     "BACKUP_SCOPES",
     "CONTROL_VARIANTS",
-    "EvaluatedRun",
     "HEDGE_ABLATION_VARIANTS",
     "MAIN_VARIANTS",
     "PROVIDER_PERCENTILE_ABLATION_VARIANTS",
-    "RunDiagnostics",
     "TRACE_WORKLOAD_DATASETS",
     "_DATASET_CACHE_ROOT",
     "_DATA_LOADER_CONFIG",
     "_TRACE_DATASET_PATHS",
+    "EvaluatedRun",
+    "RunDiagnostics",
     "_body_latency_proxy_ms",
     "_dataset_cache_path",
     "_load_sharegpt_jsonl_requests",

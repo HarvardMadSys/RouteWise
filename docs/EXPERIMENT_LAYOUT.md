@@ -127,8 +127,8 @@ These are settled. Don't reopen unless evidence changes.
 - **Metrics module is a top-level boundary** — `rwsim/metrics/` (not
   `rwsim/world/metrics.py`) owns the simulation result schema and
   aggregation. `world/` only owns provider / quota / concurrency /
-  distribution / scenario. `SimulationRun` and per-request output protocol
-  belong in `rwsim/metrics/run.py`; `rwsim/world/metrics.py` is removed.
+  distribution / scenario. `Run` and per-request output protocol belong in
+  `rwsim/metrics/run.py`; `rwsim/world/metrics.py` is removed.
 
 ---
 
