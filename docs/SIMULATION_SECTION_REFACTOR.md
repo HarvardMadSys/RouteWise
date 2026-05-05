@@ -216,6 +216,8 @@ Constants:
 - Workload: `sharegpt_burstgpt` (the canonical 30-day combined trace).
 - `p` sweep: `P_SWEEP = (0.0, 0.25, 0.5, 0.75, 1.0)`.
 - Policy filter: drop `greedy_latency` (no latency signal across providers).
+  Include `offline`, the offline cost-only baseline with full trace
+  knowledge. It is section-local, not an online `Policy`.
 
 Scenarios:
 
@@ -722,8 +724,9 @@ co-exist for these phases.
 
 Goldens this phase: `tests/golden/cost_layer/scenarios.json` only. It
 is a smoke golden captured by `tests/golden_capture.py --families
-cost_layer`: all cost-layer scenarios and policy names, 3 seeds, fixed
-32-request workload prefix. No deletion of legacy goldens yet.
+cost_layer`: all cost-layer scenarios and policy names, including the
+section-local `offline` baseline, 3 seeds, fixed 32-request workload
+prefix. No deletion of legacy goldens yet.
 
 ### Phase 1 — Cost-layer fully runnable
 

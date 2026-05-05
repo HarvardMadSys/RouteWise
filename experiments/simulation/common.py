@@ -20,6 +20,8 @@ from rwsim.world.distributions import LogNormal, Normal, Uniform
 from rwsim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     from rwsim.metrics import Run
     from rwsim.world.scenarios import ScenarioConfig
 
@@ -330,6 +332,7 @@ def run_section(
     policies: tuple[str, ...],
     presets: dict[str, dict[str, Any]],
     seeds: tuple[int, ...],
+    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]] | None = None,
     workload_dataset: str = DEFAULT_WORKLOAD,
     duration_sec: float | None = None,
     max_requests: int | None = None,
@@ -344,15 +347,20 @@ def run_section(
         max_requests=max_requests,
     )
     rows: list[dict[str, Any]] = []
+    local_runners = section_runners or {}
     for scenario in scenarios.values():
         for policy in policies:
             runs = [
-                run_policy(
-                    scenario,
-                    requests,
-                    policy,
-                    presets=presets,
-                    seed=seed,
+                (
+                    local_runners[policy](scenario, requests, seed)
+                    if policy in local_runners
+                    else run_policy(
+                        scenario,
+                        requests,
+                        policy,
+                        presets=presets,
+                        seed=seed,
+                    )
                 )
                 for seed in seeds
             ]

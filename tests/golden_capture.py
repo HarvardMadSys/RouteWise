@@ -324,7 +324,12 @@ def _capture_cost_layer_family(repo_root: Path) -> dict[str, Any]:
         make_routewise_presets,
         run_policy,
     )
-    from experiments.simulation.cost_layer import make_scenarios, policies_for_section
+    from experiments.simulation.cost_layer import (
+        OFFLINE_POLICY,
+        make_scenarios,
+        policies_for_section,
+        run_offline_policy,
+    )
 
     policy_names = list(policies_for_section(P_SWEEP))
     presets = make_routewise_presets(p_values=P_SWEEP, include_hedging=False)
@@ -336,12 +341,16 @@ def _capture_cost_layer_family(repo_root: Path) -> dict[str, Any]:
     for scenario_id, scenario in make_scenarios().items():
         results = {
             policy_name: [
-                run_policy(
-                    scenario,
-                    requests,
-                    policy_name,
-                    presets=presets,
-                    seed=seed,
+                (
+                    run_offline_policy(scenario, requests, seed)
+                    if policy_name == OFFLINE_POLICY
+                    else run_policy(
+                        scenario,
+                        requests,
+                        policy_name,
+                        presets=presets,
+                        seed=seed,
+                    )
                 )
                 for seed in SEEDS
             ]

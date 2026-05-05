@@ -42,6 +42,7 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
     assert policies == (
         "greedy_cost",
         "random",
+        "offline",
         "ablation_lp_only_p0",
         "ablation_lp_only_p75",
         "ablation_lp_only_p100",
@@ -55,6 +56,41 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
     }
 
 
+def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
+    scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
+    requests = common.load_workload(max_requests=3)
+
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    assert run.policy == "offline"
+    assert run.provider_fractions() == {"api_cheap": 1.0}
+    assert run.mean_cost_usd() == sum(
+        request.total_tokens * 1e-6 for request in requests
+    ) / len(requests)
+
+
+def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
+    scenario = cost_layer.make_scenarios()["cost_layer_quota_q1"]
+    requests = common.load_workload(max_requests=5)
+
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    assert run.policy == "offline"
+    assert run.provider_fractions() == {"quota_1": 1.0}
+    assert run.mean_cost_usd() == 0.0
+
+
+def test_offline_cost_baseline_can_use_concurrency_capacity():
+    scenario = cost_layer.make_scenarios()["cost_layer_concurrency_c1"]
+    requests = common.load_workload(max_requests=5)
+
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    assert run.policy == "offline"
+    assert run.provider_fractions() == {"concurrency_1": 1.0}
+    assert run.mean_cost_usd() == 0.0
+
+
 def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert routewise_main(["simulator", "list"]) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -62,4 +98,5 @@ def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert payload["sections"][0]["name"] == "cost-layer"
     assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
     assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
+    assert "offline" in payload["sections"][0]["policies"]
     assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]
