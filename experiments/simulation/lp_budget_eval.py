@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from experiments.simulation import list_scenarios, load_world_scenario
-from experiments.simulation.simple_scenarios import make_simple_scenarios
 from rwsim.data import DataLoader
 from rwsim.runner import POLICIES, run_policy
 from rwsim.schemas import Request
@@ -258,9 +257,7 @@ def run_variant(
 
 def build_all_scenarios() -> dict[str, ScenarioConfig]:
     """Return every registered scenario available to the simulator."""
-    scenarios = {name: load_world_scenario(name) for name in list_scenarios()}
-    scenarios.update(make_simple_scenarios())
-    return scenarios
+    return {name: load_world_scenario(name) for name in list_scenarios()}
 
 
 def summarize_main_metrics(
