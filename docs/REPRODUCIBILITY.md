@@ -48,7 +48,6 @@ Full paper sweeps live under `experiments/*/suites/`:
 
 ```bash
 routewise suite simulator_grid
-routewise suite mm25_baselines
 ```
 
 Suite-specific arguments are passed after `--`:

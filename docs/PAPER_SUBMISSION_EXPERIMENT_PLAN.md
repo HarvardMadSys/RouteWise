@@ -28,8 +28,6 @@ Use:
 
 ```bash
 routewise suite simulator_grid
-routewise suite mm25_baselines
-routewise suite stress
 ```
 
 Single scenario smoke run (paper scenarios S0/S1/S2/S3, see

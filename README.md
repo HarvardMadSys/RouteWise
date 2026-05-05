@@ -52,7 +52,6 @@ Run registered suites:
 ```bash
 routewise list --suites
 routewise suite simulator_grid
-routewise suite mm25_baselines
 ```
 
 ## Python Entrypoints

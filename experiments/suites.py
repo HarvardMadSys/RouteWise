@@ -23,11 +23,6 @@ class SuiteSpec:
 
 
 _SUITES: dict[str, SuiteSpec] = {
-    "mm25_baselines": SuiteSpec(
-        name="mm25_baselines",
-        module="experiments.simulation.suites.run_mm25_baselines",
-        description="Run MM25 calibrated baseline scenarios.",
-    ),
     "simulator_grid": SuiteSpec(
         name="simulator_grid",
         module="experiments.simulation.suites.run_simulator_grid",

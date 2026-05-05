@@ -12,8 +12,7 @@ Scope: RouteWise.
 
 ## _active_dist hasattr
 
-- `RouteWise/experiments/simulation/lp_budget_eval.py`: `    elif hasattr(provider, "_active_dist"):`
-- `RouteWise/rwsim/policies/latency_routers/tiered_filters.py`: `    elif hasattr(provider, "_active_dist"):`
+- No matches found.
 
 ## quota hasattr
 

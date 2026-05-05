@@ -221,7 +221,6 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
     def test_full_sweep_suites_are_registered(self) -> None:
         expected = (
-            "mm25_baselines",
             "simulator_grid",
         )
 

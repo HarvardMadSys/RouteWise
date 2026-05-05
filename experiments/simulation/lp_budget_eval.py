@@ -12,7 +12,6 @@ import pickle
 import numpy as np
 
 from experiments.simulation import list_scenarios, load_world_scenario
-from experiments.simulation.minimax_m25 import make_mm25_scenarios
 from experiments.simulation.simple_scenarios import make_simple_scenarios
 from rwsim.data import DataLoader
 from rwsim.metrics import SimulationRun
@@ -259,7 +258,6 @@ def build_all_scenarios() -> dict[str, ScenarioConfig]:
     """Return every registered scenario available to the simulator."""
     scenarios = {name: load_world_scenario(name) for name in list_scenarios()}
     scenarios.update(make_simple_scenarios())
-    scenarios.update(make_mm25_scenarios())
     return scenarios
 
 

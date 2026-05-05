@@ -13,5 +13,5 @@ should be selected from the flat paper-name presets in `rwsim.policies`
 (`greedy_cost`, `greedy_latency`, `random`, `ablation_lp_only`,
 `ablation_lp_hedging`, `routewise`).
 
-Full-sweep simulation runners live under `suites/` and are exposed as
-`routewise suite simulator_grid` and `routewise suite mm25_baselines`.
+The full-sweep simulation runner lives under `suites/` and is exposed as
+`routewise suite simulator_grid`.

@@ -1,0 +1,18 @@
+{
+  "family": "simulation",
+  "policy_hash": "5429d624fddaa1b72e2cd4b6a88e8a3b4cfbb3636ac0edfa0322cdbdaf689c66",
+  "policy_order": [
+    "greedy_cost",
+    "greedy_latency",
+    "random",
+    "ablation_lp_only",
+    "ablation_lp_hedging",
+    "routewise"
+  ],
+  "scenarios": {},
+  "seed_order": [
+    42,
+    43,
+    44
+  ]
+}
