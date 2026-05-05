@@ -1,0 +1,43 @@
+# Real-world latency profiles for simulator S_A experiments.
+#
+# Source artifact provenance is in qwen3_24h.json. Cost is intentionally not
+# represented here; each paper section owns its own cost model.
+
+schema_version: 1
+model: qwen3_235b
+source: qwen3_24h
+artifact: qwen3_24h.npz
+metadata: qwen3_24h.json
+
+pools:
+  rw3:
+    description: "Small real-world S_A pool with clear latency spread."
+    providers:
+      - WandB
+      - DeepInfra
+      - Novita
+
+  rw8:
+    description: "Larger real-world OpenRouter S_A pool with realistic overlap."
+    providers:
+      - WandB
+      - DeepInfra
+      - Google
+      - Alibaba
+      - Novita
+      - Cerebras
+      - SiliconFlow
+      - AtlasCloud
+
+pooled:
+  rw8_pooled:
+    description: "All RW8 samples concatenated into one shared latency distribution."
+    source_providers:
+      - WandB
+      - DeepInfra
+      - Google
+      - Alibaba
+      - Novita
+      - Cerebras
+      - SiliconFlow
+      - AtlasCloud
