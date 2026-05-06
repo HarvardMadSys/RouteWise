@@ -295,11 +295,11 @@ subscriptions:
     concurrency_limit: 4
     supported_models:
       llama-3.3-70b-instruct:
-        multiplier: 4
+        concurrency_cost: 4
       glm-4.6:
-        multiplier: 4
+        concurrency_cost: 4
       deepseek-r1:
-        multiplier: 4
+        concurrency_cost: 4
 
   # Option 2: Featherless AI Scale ($75/mo, C=8)
   featherless_scale:
@@ -308,11 +308,11 @@ subscriptions:
     concurrency_limit: 8
     supported_models:
       llama-3.3-70b-instruct:
-        multiplier: 2
+        concurrency_cost: 2
       glm-4.6:
-        multiplier: 2
+        concurrency_cost: 2
       deepseek-r1:
-        multiplier: 2
+        concurrency_cost: 2
 
   # Option 3: Local GPU (sunk cost $0, C=8)
   # Hardware already purchased, marginal cost = $0
@@ -321,29 +321,29 @@ subscriptions:
     monthly_fee: 0.0
     concurrency_limit: 8
     supported_models:
-      # 70B+ models (multiplier=4)
+      # 70B+ models (concurrency_cost=4)
       llama-3.3-70b-instruct:
-        multiplier: 4
+        concurrency_cost: 4
       llama-4-maverick:
-        multiplier: 4
+        concurrency_cost: 4
       glm-4.6:
-        multiplier: 4
+        concurrency_cost: 4
       glm-4.5:
-        multiplier: 4
+        concurrency_cost: 4
       glm-4.7:
-        multiplier: 4
+        concurrency_cost: 4
       deepseek-r1:
-        multiplier: 4
-      # 30B models (multiplier=2)
+        concurrency_cost: 4
+      # 30B models (concurrency_cost=2)
       qwen3-coder-30b:
-        multiplier: 2
+        concurrency_cost: 2
       minimax-m2:
-        multiplier: 2
-      # Small models (multiplier=1)
+        concurrency_cost: 2
+      # Small models (concurrency_cost=1)
       llama-4-scout:
-        multiplier: 1
+        concurrency_cost: 1
       glm-4.5-air:
-        multiplier: 1
+        concurrency_cost: 1
 
 # Output settings
 output:

@@ -311,7 +311,8 @@ class GreedyOnlineStrategy(RoutingStrategy):
         # Online state
         self.current_day = -1
         self.daily_used = 0
-        self.active_slots: list[tuple[int, int]] = []  # (finish_time, slots_used)
+        self.active_sc_requests: list[tuple[int, int]] = []
+        # (finish_time, concurrency_cost)
 
         # Load model compatibility from config
         subscriptions = self.config.get("subscriptions", {})
@@ -325,16 +326,16 @@ class GreedyOnlineStrategy(RoutingStrategy):
         featherless_models = featherless_config.get("supported_models", {})
 
         self.sc_supported_models: set[str] = set()
-        self.sc_multipliers: dict[str, int] = {}
+        self.sc_concurrency_costs: dict[str, int] = {}
 
         if isinstance(featherless_models, dict):
             for model, props in featherless_models.items():
                 self.sc_supported_models.add(model)
-                self.sc_multipliers[model] = props.get("multiplier", 1)
+                self.sc_concurrency_costs[model] = props.get("concurrency_cost", 1)
         elif isinstance(featherless_models, list):
             self.sc_supported_models = set(featherless_models)
             for model in featherless_models:
-                self.sc_multipliers[model] = 1
+                self.sc_concurrency_costs[model] = 1
 
     @property
     def name(self) -> str:
@@ -351,7 +352,7 @@ class GreedyOnlineStrategy(RoutingStrategy):
             )
         self.current_day = -1
         self.daily_used = 0
-        self.active_slots = []
+        self.active_sc_requests = []
 
     def route(self, request: Request) -> RoutingDecision:
         """Route request using online greedy decision with model compatibility."""
@@ -363,10 +364,10 @@ class GreedyOnlineStrategy(RoutingStrategy):
             self.quota_manager.reset_if_new_day(request.day)
 
         # Update active slots (remove finished)
-        self.active_slots = [
-            (ft, slots) for ft, slots in self.active_slots if ft > request.timestamp
+        self.active_sc_requests = [
+            (ft, cost) for ft, cost in self.active_sc_requests if ft > request.timestamp
         ]
-        current_usage = sum(slots for _, slots in self.active_slots)
+        current_usage = sum(cost for _, cost in self.active_sc_requests)
 
         # Check model compatibility
         sq_compatible = (not self.sq_supported_models) or (
@@ -375,7 +376,7 @@ class GreedyOnlineStrategy(RoutingStrategy):
         sc_compatible = (not self.sc_supported_models) or (
             request.model in self.sc_supported_models
         )
-        multiplier = self.sc_multipliers.get(request.model, 1) if sc_compatible else 1
+        concurrency_cost = self.sc_concurrency_costs.get(request.model, 1) if sc_compatible else 1
 
         # Decision: S_Q first (if compatible), then S_C (if compatible), then API
         if sq_compatible and self.daily_used < self.daily_quota:
@@ -389,9 +390,9 @@ class GreedyOnlineStrategy(RoutingStrategy):
                 quota_used=1,
                 timestamp=request.timestamp,
             )
-        elif sc_compatible and current_usage + multiplier <= self.concurrency_limit:
+        elif sc_compatible and current_usage + concurrency_cost <= self.concurrency_limit:
             finish_time = request.timestamp + int(request.latency_seconds)
-            self.active_slots.append((finish_time, multiplier))
+            self.active_sc_requests.append((finish_time, concurrency_cost))
             self.subscription_used += 1
             return RoutingDecision(
                 request=request,

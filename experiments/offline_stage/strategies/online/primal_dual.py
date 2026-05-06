@@ -19,9 +19,9 @@ import logging
 import math
 from dataclasses import dataclass, field
 
-from rwsim.offline.schemas import Request, RoutingDecision
-from experiments.offline_stage.value_estimators import EMAOutputPredictor, OutputTokenPredictor
 from experiments.offline_stage.strategies.online.base import OnlineStrategy
+from experiments.offline_stage.value_estimators import EMAOutputPredictor, OutputTokenPredictor
+from rwsim.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
 
@@ -272,15 +272,15 @@ class QueuedRequest:
 
     request: Request
     value: float  # API cost (savings if served)
-    weight: int  # Concurrency slots consumed
+    concurrency_cost: int  # Concurrency cost units consumed
     duration: float  # Estimated processing time
     arrival_time: float  # When it entered the queue
     deadline: float | None = None  # Optional SLO deadline
 
     @property
     def value_density(self) -> float:
-        """Value per unit resource (slot-second)."""
-        denominator = self.weight * self.duration
+        """Value per unit resource (concurrency-cost-second)."""
+        denominator = self.concurrency_cost * self.duration
         if denominator <= 0:
             return float("inf")
         return self.value / denominator
@@ -299,23 +299,25 @@ class CAPQConcurrencyManager:
         total_capacity: int,
         queue_capacity: int = 0,
         supported_models: dict[str, int] | None = None,
-        default_weight: int = 1,
+        default_concurrency_cost: int = 1,
     ):
         """Initialize concurrency manager.
 
         Args:
-            total_capacity: Total concurrency slots C_total
+            total_capacity: Total concurrency allotment C_total
             queue_capacity: Queue size K (0 = no queue, immediate decision)
-            supported_models: Dict of model -> weight (None = all models, weight=1)
-            default_weight: Default weight for unknown models
+            supported_models: Dict of model -> concurrency cost
+                (None = all models, cost=1)
+            default_concurrency_cost: Default concurrency cost for unknown models
         """
         self.C_total = total_capacity
         self.K = queue_capacity
         self.supported_models = supported_models or {}
-        self.default_weight = default_weight
+        self.default_concurrency_cost = default_concurrency_cost
 
         # State
-        self.active_requests: list[tuple[float, int, int]] = []  # (finish_time, req_id, weight)
+        self.active_requests: list[tuple[float, int, int]] = []
+        # (finish_time, req_id, concurrency_cost)
         self.queue: list[QueuedRequest] = []
 
         logger.debug(
@@ -327,11 +329,11 @@ class CAPQConcurrencyManager:
         self.active_requests = []
         self.queue = []
 
-    def get_weight(self, model: str | None) -> int:
-        """Get concurrency weight for a model."""
+    def get_concurrency_cost(self, model: str | None) -> int:
+        """Get concurrency cost for a model."""
         if model is None:
-            return self.default_weight
-        return self.supported_models.get(model, self.default_weight)
+            return self.default_concurrency_cost
+        return self.supported_models.get(model, self.default_concurrency_cost)
 
     def is_compatible(self, request: Request) -> bool:
         """Check if request model is compatible with S_C."""
@@ -342,16 +344,16 @@ class CAPQConcurrencyManager:
     def update_state(self, current_time: float) -> None:
         """Update state: remove finished requests."""
         self.active_requests = [
-            (ft, rid, w) for ft, rid, w in self.active_requests if ft > current_time
+            (ft, rid, cost) for ft, rid, cost in self.active_requests if ft > current_time
         ]
 
-    def get_active_weight(self) -> int:
-        """Get total weight of active requests."""
-        return sum(w for _, _, w in self.active_requests)
+    def get_active_concurrency_cost(self) -> int:
+        """Get total concurrency cost of active requests."""
+        return sum(cost for _, _, cost in self.active_requests)
 
-    def has_capacity(self, weight: int) -> bool:
-        """Check if there's capacity for a request with given weight."""
-        return self.get_active_weight() + weight <= self.C_total
+    def has_capacity(self, concurrency_cost: int) -> bool:
+        """Check if there's capacity for a request with given concurrency cost."""
+        return self.get_active_concurrency_cost() + concurrency_cost <= self.C_total
 
     def get_congestion_price(self) -> float:
         """Get current congestion price (shadow price lambda).
@@ -362,7 +364,7 @@ class CAPQConcurrencyManager:
             inf if at capacity with no queue
         """
         # If we have capacity, price is 0
-        if self.get_active_weight() < self.C_total:
+        if self.get_active_concurrency_cost() < self.C_total:
             return 0.0
 
         # If queue not full, price is 0
@@ -385,25 +387,25 @@ class CAPQConcurrencyManager:
             duration: Estimated processing duration
 
         Returns:
-            lambda * weight * duration, or inf if not compatible
+            lambda * concurrency_cost * duration, or inf if not compatible
         """
         if not self.is_compatible(request):
             return float("inf")
 
-        weight = self.get_weight(request.model)
+        concurrency_cost = self.get_concurrency_cost(request.model)
         lambda_t = self.get_congestion_price()
 
-        return lambda_t * weight * duration
+        return lambda_t * concurrency_cost * duration
 
     def can_admit(self, request: Request, value: float, duration: float) -> bool:
         """Check if request can be admitted (has capacity or can evict)."""
         if not self.is_compatible(request):
             return False
 
-        weight = self.get_weight(request.model)
+        concurrency_cost = self.get_concurrency_cost(request.model)
 
         # Direct execution possible
-        if self.has_capacity(weight):
+        if self.has_capacity(concurrency_cost):
             return True
 
         # Queue has space
@@ -412,7 +414,8 @@ class CAPQConcurrencyManager:
 
         # Can evict if our density is higher
         if self.queue:
-            our_density = value / (weight * duration) if weight * duration > 0 else float("inf")
+            denominator = concurrency_cost * duration
+            our_density = value / denominator if denominator > 0 else float("inf")
             min_density = min(qr.value_density for qr in self.queue)
             return our_density > min_density
 
@@ -432,19 +435,19 @@ class CAPQConcurrencyManager:
         Returns:
             (status, evicted_request) where status is 'immediate', 'queued', or 'rejected'
         """
-        weight = self.get_weight(request.model)
+        concurrency_cost = self.get_concurrency_cost(request.model)
 
         # Try immediate execution
-        if self.has_capacity(weight):
+        if self.has_capacity(concurrency_cost):
             finish_time = current_time + duration
-            self.active_requests.append((finish_time, request.id, weight))
+            self.active_requests.append((finish_time, request.id, concurrency_cost))
             return "immediate", None
 
         # Try queue
         queued_req = QueuedRequest(
             request=request,
             value=value,
-            weight=weight,
+            concurrency_cost=concurrency_cost,
             duration=duration,
             arrival_time=current_time,
         )
@@ -491,7 +494,9 @@ class CAPQConcurrencyManager:
 
         # Add to active
         finish_time = current_time + best_qr.duration
-        self.active_requests.append((finish_time, best_qr.request.id, best_qr.weight))
+        self.active_requests.append(
+            (finish_time, best_qr.request.id, best_qr.concurrency_cost)
+        )
 
         return best_qr
 
@@ -506,7 +511,7 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
 
     Evaluates net gain for each service and selects the best:
     - G_Q = value - theta_Q (for S_Q)
-    - G_C = value - theta_C * weight * duration (for S_C)
+    - G_C = value - theta_C * concurrency_cost * duration (for S_C)
     - G_A = 0 (for API)
 
     Supports both Stage 1 (S_Q only) and Stage 2 (S_Q + S_C) through configuration.
@@ -573,7 +578,7 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
             self.sc_manager = CAPQConcurrencyManager(
                 total_capacity=concurrency_limit,
                 queue_capacity=queue_capacity,
-                supported_models=self.sc_multipliers if self.sc_multipliers else None,
+                supported_models=self.sc_concurrency_costs if self.sc_concurrency_costs else None,
             )
 
         # Initialize predictors for online estimation (no data leakage)
@@ -659,7 +664,7 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
             self._update_sc_state(current_time)
             if self.sc_manager:
                 self.sc_manager.update_state(current_time)
-                # Schedule queued requests when slots become free
+                # Schedule queued requests when capacity becomes free
                 self._schedule_from_queue(current_time)
 
         # 1. Estimate value using predictor (NO DATA LEAKAGE)
@@ -726,7 +731,6 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
                 # but slot occupancy in trace replay should reflect real completion time.
                 actual_duration = request.latency_seconds
                 actual_finish = current_time + actual_duration
-                weight = self.sc_manager.get_weight(request.model)
                 self.sc_manager.active_requests = [
                     (ft, rid, w) if rid != request.id else (actual_finish, rid, w)
                     for ft, rid, w in self.sc_manager.active_requests
@@ -777,7 +781,7 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
         )
 
     def _schedule_from_queue(self, current_time: float) -> None:
-        """Schedule queued requests when slots become free.
+        """Schedule queued requests when capacity becomes free.
 
         This method should be called after update_state to check if
         any previously blocked requests can now be scheduled.
@@ -788,8 +792,8 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
         # Keep scheduling while we have capacity and queued requests
         while True:
             # Check if we have any capacity
-            active_weight = self.sc_manager.get_active_weight()
-            if active_weight >= self.sc_manager.C_total:
+            active_usage = self.sc_manager.get_active_concurrency_cost()
+            if active_usage >= self.sc_manager.C_total:
                 break  # No capacity
 
             # Try to schedule from queue

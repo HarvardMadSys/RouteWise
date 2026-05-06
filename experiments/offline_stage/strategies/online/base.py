@@ -12,8 +12,8 @@ import logging
 from abc import abstractmethod
 
 from rwsim.offline.cost import CostCalculator
-from rwsim.offline.schemas import Request, RoutingDecision
 from rwsim.offline.quota import QuotaManager
+from rwsim.offline.schemas import Request, RoutingDecision
 from rwsim.offline.strategy import RoutingStrategy
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class OnlineStrategy(RoutingStrategy):
         # Concurrency state (only initialized if S_C enabled - strict gating)
         if self.sc_enabled:
             self._active_requests: list[tuple[float, int, int]] = []
-            # (finish_time, request_id, slots_used)
+            # (finish_time, request_id, concurrency_cost)
         else:
             self._active_requests = None  # type: ignore
 
@@ -109,20 +109,20 @@ class OnlineStrategy(RoutingStrategy):
             featherless_models = sc_config.get("supported_models", {})
 
             self.sc_supported_models: set[str] = set()
-            self.sc_multipliers: dict[str, int] = {}
+            self.sc_concurrency_costs: dict[str, int] = {}
 
             if isinstance(featherless_models, dict):
                 for model, props in featherless_models.items():
                     self.sc_supported_models.add(model)
-                    self.sc_multipliers[model] = props.get("multiplier", 1)
+                    self.sc_concurrency_costs[model] = props.get("concurrency_cost", 1)
             elif isinstance(featherless_models, list):
                 self.sc_supported_models = set(featherless_models)
                 for model in featherless_models:
-                    self.sc_multipliers[model] = 1
+                    self.sc_concurrency_costs[model] = 1
         else:
             # Strict gating: no S_C model tracking in Stage1
             self.sc_supported_models = set()
-            self.sc_multipliers = {}
+            self.sc_concurrency_costs = {}
 
     def _init_thresholds(self) -> None:
         """Compute interpretable base thresholds.
@@ -142,7 +142,7 @@ class OnlineStrategy(RoutingStrategy):
 
         if self.sc_enabled:
             # Cost per second of concurrency
-            # monthly_fee / (30 days * 86400 seconds * C slots)
+            # monthly_fee / (30 days * 86400 seconds * C capacity units)
             self.thresholds["sc"] = self.sc_monthly_fee / (30.0 * 86400.0 * self.concurrency_limit)
             logger.debug(f"S_C threshold: ${self.thresholds['sc']:.9f}/second")
 
@@ -201,11 +201,11 @@ class OnlineStrategy(RoutingStrategy):
 
         # Remove finished requests
         self._active_requests = [
-            (ft, req_id, slots) for ft, req_id, slots in self._active_requests if ft > current_time
+            (ft, req_id, cost) for ft, req_id, cost in self._active_requests if ft > current_time
         ]
 
     def _sc_available(self, request: Request) -> bool:
-        """Check if S_C has available slots for the request.
+        """Check if S_C has available capacity for the request.
 
         This is a strict Stage2 operation - always returns False if S_C disabled.
 
@@ -222,15 +222,14 @@ class OnlineStrategy(RoutingStrategy):
         if self.sc_supported_models and request.model not in self.sc_supported_models:
             return False
 
-        # Get slots needed for this request
-        slots_needed = self.sc_multipliers.get(request.model, 1)
+        concurrency_cost = self.sc_concurrency_costs.get(request.model, 1)
 
         # Check concurrency availability
-        current_usage = sum(slots for _, _, slots in self._active_requests)
-        return current_usage + slots_needed <= self.concurrency_limit
+        current_usage = sum(cost for _, _, cost in self._active_requests)
+        return current_usage + concurrency_cost <= self.concurrency_limit
 
     def _use_sc(self, request: Request) -> None:
-        """Occupy S_C slot(s) for the request.
+        """Occupy S_C concurrency capacity for the request.
 
         This is a strict Stage2 operation - no-op if S_C is disabled.
 
@@ -240,22 +239,22 @@ class OnlineStrategy(RoutingStrategy):
         if not self.sc_enabled:
             return  # Strict gating
 
-        slots_needed = self.sc_multipliers.get(request.model, 1)
+        concurrency_cost = self.sc_concurrency_costs.get(request.model, 1)
         duration = request.latency_seconds
         finish_time = request.timestamp + duration
 
-        self._active_requests.append((finish_time, request.id, slots_needed))
+        self._active_requests.append((finish_time, request.id, concurrency_cost))
         self.subscription_used += 1
 
     def _get_sc_current_usage(self) -> int:
-        """Get current S_C slot usage.
+        """Get current S_C concurrency capacity usage.
 
         Returns:
-            Number of slots currently in use (0 if S_C disabled)
+            Number of concurrency cost units currently in use (0 if S_C disabled)
         """
         if not self.sc_enabled:
             return 0
-        return sum(slots for _, _, slots in self._active_requests)
+        return sum(cost for _, _, cost in self._active_requests)
 
     # ========== Cost Calculation ==========
 

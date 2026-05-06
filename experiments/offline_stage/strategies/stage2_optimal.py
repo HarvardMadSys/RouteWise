@@ -43,7 +43,7 @@ class ILPParams:
     latency_slo: int | None  # Max queueing delay in slots (0=zero-wait, None=unlimited)
     sq_supported_models: set[str]
     sc_supported_models: set[str]
-    sc_multipliers: dict[str, int]
+    sc_concurrency_costs: dict[str, int]
     model_pricing: dict | None
     api_provider_input_price: float
     api_provider_output_price: float
@@ -128,8 +128,8 @@ def _solve_day_ilp_worker(
         (not params.sc_supported_models) or (models[i] in params.sc_supported_models)
         for i in range(n)
     ]
-    multipliers = [
-        params.sc_multipliers.get(models[i], 1) if sc_compatible[i] else 1 for i in range(n)
+    concurrency_costs = [
+        params.sc_concurrency_costs.get(models[i], 1) if sc_compatible[i] else 1 for i in range(n)
     ]
 
     # Decision variables
@@ -187,7 +187,7 @@ def _solve_day_ilp_worker(
 
     for t in range(T):
         prob += (
-            pulp.lpSum(z.get((i, t), 0) * multipliers[i] for i in range(n) if (i, t) in z)
+            pulp.lpSum(z.get((i, t), 0) * concurrency_costs[i] for i in range(n) if (i, t) in z)
             <= params.concurrency_limit
         )
 
@@ -313,20 +313,20 @@ class ILPOptimalStrategy(RoutingStrategy):
         sc_config = self.config.get("active_sc_subscription", {})
         featherless_models = sc_config.get("supported_models", {})
 
-        # Build supported models set and multiplier dict
+        # Build supported models set and concurrency_cost dict
         self.sc_supported_models: set[str] = set()
-        self.sc_multipliers: dict[str, int] = {}
+        self.sc_concurrency_costs: dict[str, int] = {}
 
         if isinstance(featherless_models, dict):
-            # New format: {model: {multiplier: N}}
+            # New format: {model: {concurrency_cost: N}}
             for model, props in featherless_models.items():
                 self.sc_supported_models.add(model)
-                self.sc_multipliers[model] = props.get("multiplier", 1)
+                self.sc_concurrency_costs[model] = props.get("concurrency_cost", 1)
         elif isinstance(featherless_models, list):
             # Old format: [model1, model2, ...]
             self.sc_supported_models = set(featherless_models)
             for model in featherless_models:
-                self.sc_multipliers[model] = 1
+                self.sc_concurrency_costs[model] = 1
 
         # Log configuration
         if self.sq_supported_models or self.sc_supported_models:
@@ -334,7 +334,7 @@ class ILPOptimalStrategy(RoutingStrategy):
             logger.info(f"  S_Q (Chutes): {len(self.sq_supported_models)} models")
             logger.info(
                 f"  S_C (Featherless): {len(self.sc_supported_models)} models, "
-                f"multipliers: {self.sc_multipliers}"
+                f"concurrency_costs: {self.sc_concurrency_costs}"
             )
 
     @property
@@ -422,7 +422,7 @@ class ILPOptimalStrategy(RoutingStrategy):
             latency_slo=self.latency_slo,
             sq_supported_models=self.sq_supported_models,
             sc_supported_models=self.sc_supported_models,
-            sc_multipliers=self.sc_multipliers,
+            sc_concurrency_costs=self.sc_concurrency_costs,
             model_pricing=self.config.get("model_pricing"),
             api_provider_input_price=api_provider.input_price_per_1k,
             api_provider_output_price=api_provider.output_price_per_1k,

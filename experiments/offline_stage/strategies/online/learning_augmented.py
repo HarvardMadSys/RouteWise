@@ -16,8 +16,7 @@ import logging
 import math
 from dataclasses import dataclass
 
-from rwsim.offline.cost import CostCalculator
-from rwsim.offline.schemas import Request, RoutingDecision
+from experiments.offline_stage.strategies.online.base import OnlineStrategy
 from experiments.offline_stage.value_estimators import (
     EMAOutputPredictor,
     HistogramDurationPredictor,
@@ -25,8 +24,9 @@ from experiments.offline_stage.value_estimators import (
     OutputTokenPredictor,
     QuantilePrediction,
 )
+from rwsim.offline.cost import CostCalculator
 from rwsim.offline.quota import QuotaManager
-from experiments.offline_stage.strategies.online.base import OnlineStrategy
+from rwsim.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
 
@@ -465,7 +465,8 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
         self.ema_predictor = EMAOutputPredictor()
 
         # S_C state (simple tracking without queue for now)
-        self._sc_active_requests: list[tuple[float, int, int]] = []  # (finish_time, req_id, weight)
+        self._sc_active_requests: list[tuple[float, int, int]] = []
+        # (finish_time, req_id, concurrency_cost)
 
         # Initialize epsilon (will be auto-detected in precompute if None)
         self._epsilon = self.lapd_config.epsilon_fallback or 1e-9
@@ -496,8 +497,8 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
         return self.L * math.pow(self.U / self.L, z)
 
     def _get_sc_congestion_price(self) -> float:
-        """Get S_C congestion price (simplified: 0 if slots available)."""
-        current_usage = sum(w for _, _, w in self._sc_active_requests)
+        """Get S_C congestion price (simplified: 0 if capacity is available)."""
+        current_usage = sum(cost for _, _, cost in self._sc_active_requests)
         if current_usage < self.concurrency_limit:
             return 0.0
         # When saturated, return a base price
@@ -506,13 +507,13 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
     def _update_sc_active(self, current_time: float) -> None:
         """Update S_C state by removing finished requests."""
         self._sc_active_requests = [
-            (ft, rid, w) for ft, rid, w in self._sc_active_requests if ft > current_time
+            (ft, rid, cost) for ft, rid, cost in self._sc_active_requests if ft > current_time
         ]
 
-    def _sc_has_capacity(self, weight: int) -> bool:
+    def _sc_has_capacity(self, concurrency_cost: int) -> bool:
         """Check if S_C has capacity."""
-        current_usage = sum(w for _, _, w in self._sc_active_requests)
-        return current_usage + weight <= self.concurrency_limit
+        current_usage = sum(cost for _, _, cost in self._sc_active_requests)
+        return current_usage + concurrency_cost <= self.concurrency_limit
 
     def _select_quantile_value(self, prediction: QuantilePrediction) -> float:
         """Select output token estimate based on configured quantile."""
@@ -604,15 +605,15 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
 
         # G_C: net gain for S_C
         gain_c = float("-inf")
-        weight = self.sc_multipliers.get(request.model, 1) if self.sc_enabled else 1
+        concurrency_cost = self.sc_concurrency_costs.get(request.model, 1) if self.sc_enabled else 1
 
         if (
             self.sc_enabled
-            and self._sc_has_capacity(weight)
+            and self._sc_has_capacity(concurrency_cost)
             and (request.model in self.sc_supported_models or not self.sc_supported_models)
         ):
             lambda_c = self._get_sc_congestion_price()
-            opportunity_cost = lambda_c * weight * duration_pred.duration_ucb
+            opportunity_cost = lambda_c * concurrency_cost * duration_pred.duration_ucb
             gain_c = value_lcb - opportunity_cost
 
         # G_A: baseline for API
@@ -645,7 +646,7 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
             # UCB is used for decision-making, but slot occupancy in trace replay
             # should reflect real completion time.
             finish_time = current_time + request.latency_seconds
-            self._sc_active_requests.append((finish_time, request.id, weight))
+            self._sc_active_requests.append((finish_time, request.id, concurrency_cost))
             self.subscription_used += 1
             self._stats["sc_routed"] += 1
             return RoutingDecision(
