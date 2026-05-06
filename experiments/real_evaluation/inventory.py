@@ -5,9 +5,9 @@ Defines the static specs (read from inventory JSON) and the dynamic state
 
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
-lines 97-298. Data structures are intentionally simpler than ``rwsim.world``
-counterparts: real experiments only need empirical rolling profiles and
-advisory quota/concurrency tracking, not interval-aware admission.
+lines 97-298. Real experiments share quota capacity primitives with
+``rwsim.world`` while keeping empirical rolling profiles and live-run
+concurrency state local to this package.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from experiments.real_evaluation.transports import (
     resolve_transport_config,
 )
 from experiments.subscriptions import load_subscription_plans
+from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
 
 PROFILE_WINDOW_SEC: float = 15 * 60.0
 
@@ -156,72 +157,6 @@ def _quota_windows_from_entry(
 
 
 @dataclass
-class QuotaState:
-    """Rolling-window quota counter (advisory; physical quotas live at provider).
-
-    Mirrors ``rwsim.world.capacity.QuotaState`` semantics with a simpler
-    interface — we only need ``charge`` / ``can_admit`` / ``fraction_used``.
-    """
-
-    window_sec: float
-    limit: int
-    window_start: float = 0.0
-    used: int = 0
-
-    def tick(self, now: float) -> None:
-        # Fixed-boundary semantics: ``window_start`` is the largest multiple
-        # of ``window_sec`` that is <= ``now``. The default ``window_start = 0.0``
-        # means the very first call snaps to ``floor(now / window_sec) * window_sec``,
-        # so a 1-hour quota is always anchored to the top of the hour
-        # (epoch-aligned), regardless of when the first request arrives.
-        # Earlier "anchor at first request" semantics drifted: a quota
-        # configured for [t0, t0+3600) would extend until 2*t0+3600 once
-        # the second window opened. Matches :class:`rwsim.world.capacity.QuotaState`.
-        if self.window_sec <= 0:
-            self.window_start = now
-            self.used = 0
-            return
-        elapsed = now - self.window_start
-        if elapsed >= self.window_sec:
-            n_windows = int(elapsed // self.window_sec)
-            self.window_start += n_windows * self.window_sec
-            self.used = 0
-
-    def is_available(self, now: float) -> bool:
-        self.tick(now)
-        return self.used < self.limit
-
-    def fraction_used(self, now: float) -> float:
-        self.tick(now)
-        if self.limit <= 0:
-            return 0.0
-        return float(min(self.used / self.limit, 0.9999))
-
-    def charge(self, now: float) -> None:
-        self.tick(now)
-        self.used += 1
-
-
-@dataclass
-class MultiWindowQuotaState:
-    """Quota tracker for plans with simultaneous reset windows."""
-
-    windows: tuple[QuotaState, ...]
-
-    def is_available(self, now: float) -> bool:
-        return all(window.is_available(now) for window in self.windows)
-
-    def fraction_used(self, now: float) -> float:
-        if not self.windows:
-            return 0.0
-        return max(window.fraction_used(now) for window in self.windows)
-
-    def charge(self, now: float) -> None:
-        for window in self.windows:
-            window.charge(now)
-
-
-@dataclass
 class ConcurrencyState:
     """Active-request tracker for concurrency-limited providers.
 
@@ -352,7 +287,7 @@ class ProviderState:
                 ),
             )
         quota_states = tuple(
-            QuotaState(window_sec=window.window_sec, limit=window.requests)
+            QuotaState(size=window.requests, window_sec=window.window_sec)
             for window in quota_windows
         )
         if len(quota_states) == 1:
@@ -374,7 +309,7 @@ class ProviderState:
         )
 
     def is_available(self, now: float) -> bool:
-        if self.quota is not None and not self.quota.is_available(now):
+        if self.quota is not None and not self.quota.can_admit(now):
             return False
         return not (
             self.concurrency is not None
