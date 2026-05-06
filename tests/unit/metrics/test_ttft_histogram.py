@@ -5,7 +5,24 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rwsim.metrics.histogram import TtftHistogram
+from rwsim.metrics.histogram import (
+    HISTOGRAM_BIN_COUNT,
+    HISTOGRAM_MAX_MS,
+    HISTOGRAM_MIN_MS,
+    TtftHistogram,
+)
+
+
+def test_default_histogram_contract_is_explicit() -> None:
+    histogram = TtftHistogram.default()
+
+    assert HISTOGRAM_MIN_MS == 1.0
+    assert HISTOGRAM_MAX_MS == 100_000.0
+    assert HISTOGRAM_BIN_COUNT == 256
+    assert histogram.bin_edges_ms[0] == HISTOGRAM_MIN_MS
+    assert histogram.bin_edges_ms[-1] == HISTOGRAM_MAX_MS
+    assert histogram.bin_edges_ms.size == HISTOGRAM_BIN_COUNT + 1
+    assert histogram.counts.size == HISTOGRAM_BIN_COUNT + 2
 
 
 def test_histogram_counts_underflow_overflow_and_values() -> None:

@@ -6,7 +6,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-DEFAULT_BIN_EDGES_MS = np.geomspace(1.0, 100_000.0, 257)
+HISTOGRAM_MIN_MS = 1.0
+HISTOGRAM_MAX_MS = 100_000.0
+HISTOGRAM_BIN_COUNT = 256
+DEFAULT_BIN_EDGES_MS = np.geomspace(
+    HISTOGRAM_MIN_MS,
+    HISTOGRAM_MAX_MS,
+    HISTOGRAM_BIN_COUNT + 1,
+)
 
 
 @dataclass
@@ -191,4 +198,11 @@ def merge_histograms(histograms: list[TtftHistogram]) -> TtftHistogram:
     return merged
 
 
-__all__ = ["DEFAULT_BIN_EDGES_MS", "TtftHistogram", "merge_histograms"]
+__all__ = [
+    "DEFAULT_BIN_EDGES_MS",
+    "HISTOGRAM_BIN_COUNT",
+    "HISTOGRAM_MAX_MS",
+    "HISTOGRAM_MIN_MS",
+    "TtftHistogram",
+    "merge_histograms",
+]
