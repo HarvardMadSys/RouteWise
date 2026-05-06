@@ -673,17 +673,17 @@ def _cheapest_api_cost_for_request(
     return min(api_costs)
 
 
-def quota_saturated_in_trace(
+def quota_fits_in_trace(
     plan: SubscriptionPlan,
     *,
     subscription_count: int,
     requests: list[Request],
 ) -> bool:
-    """Return the design-doc quota saturation flag for one plan/count.
+    """Return whether quota capacity can cover every request window.
 
-    Per the current design doc, this is true when every quota window has enough
-    aggregate capacity to cover every request in that window. Such runs do not
-    exercise quota scarcity and should be excluded from main q-sweep plots.
+    This is true when every quota window has enough aggregate capacity to cover
+    every request in that window. Such runs do not exercise quota scarcity and
+    should be excluded from main q-sweep plots.
     """
     if not requests:
         return True
@@ -787,6 +787,11 @@ def _estimated_concurrency_service_time_sec(
     *,
     p50_service_time_ms: float | None = None,
 ) -> float:
+    """Estimate service time for saturation screening.
+
+    The actual simulator samples TTFT/TPS from provider distributions; this
+    deterministic proxy keeps the section-level capacity gate policy-independent.
+    """
     if p50_service_time_ms is not None:
         return max(float(p50_service_time_ms), 0.0) / 1000.0
     response_tokens = request.response_tokens or 1
@@ -848,7 +853,7 @@ def _subscription_summary_fields(
         "subscription_cost_known": True,
         "cost_claim_allowed": True,
         "trace_paper_grade": True,
-        "quota_saturated_in_trace": None,
+        "quota_fits_in_trace": None,
         "trace_days": trace_info.trace_days,
     }
     if plan_id is None and concurrency_plan_id is None:
@@ -895,7 +900,7 @@ def _subscription_summary_fields(
                 "subscription_plan_display_name": plan.display_name,
                 "subscription_count": count,
                 "trace_paper_grade": trace_paper_grade,
-                "quota_saturated_in_trace": quota_saturated_in_trace(
+                "quota_fits_in_trace": quota_fits_in_trace(
                     plan,
                     subscription_count=count,
                     requests=requests,
@@ -911,12 +916,15 @@ def _subscription_summary_fields(
             requests=requests,
             trace_duration_sec=trace_info.span_sec,
         )
+        # §1.3 Featherless-style subscriptions use monthly fixed fees; require
+        # at least five trace days before treating prorated cost as paper-grade.
+        trace_paper_grade = trace_info.trace_days >= 5.0
         fields.update(
             {
                 "concurrency_plan": plan.plan_id,
                 "concurrency_plan_display_name": plan.display_name,
                 "concurrency_count": count,
-                "trace_paper_grade": trace_info.trace_days >= 5.0,
+                "trace_paper_grade": trace_paper_grade,
                 "peak_used_concurrency_cost": concurrency_metrics[
                     "peak_used_concurrency_cost"
                 ],
@@ -1318,7 +1326,7 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "subscription_cost_known",
         "cost_claim_allowed",
         "trace_paper_grade",
-        "quota_saturated_in_trace",
+        "quota_fits_in_trace",
         "trace_days",
         "slo_violation_rate",
         "hedge_rate",
@@ -1403,7 +1411,7 @@ __all__ = [
     "make_routewise_presets",
     "make_ttft_distribution",
     "p_label",
-    "quota_saturated_in_trace",
+    "quota_fits_in_trace",
     "routewise_hedging_policy_name",
     "routewise_lp_policy_name",
     "run_policy",

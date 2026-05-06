@@ -381,9 +381,9 @@ must have remaining quota. The simulator's quota state should handle these
 resets deterministically.
 
 Before running a paper figure, the section should bucket requests by quota
-window and compute whether quota is saturated in every window. Do not use
-only aggregate monthly capacity; a bursty trace can still exceed daily quota
-inside one window even if total capacity across the month covers all
+window and compute whether the trace fits inside every quota window. Do not
+use only aggregate monthly capacity; a bursty trace can still exceed daily
+quota inside one window even if total capacity across the month covers all
 requests.
 
 ```text
@@ -396,18 +396,18 @@ quota_capacity_per_window = quota_window.quota_requests * q
 Set:
 
 ```text
-quota_saturated_in_trace =
+quota_fits_in_trace =
   all(
     request_count_by_window[quota_window, w] <= quota_capacity_per_window(quota_window)
     for every quota_window and every window w
   )
 ```
 
-When `quota_saturated_in_trace=true`, the run does not exercise scarcity:
+When `quota_fits_in_trace=true`, the run does not exercise scarcity:
 RouteWise can send essentially every request in every reset window to quota.
 It should not be used as a main paper q-sweep result. This is why each plan
 has its own `subscription_counts`; Chutes can use `[1, 2, 3, 4, 5, 6, 8]`, while
-some MiniMax tiers may saturate after fewer counts.
+some MiniMax tiers may fit the workload after fewer counts.
 
 The CLI should support either a single value:
 
@@ -641,7 +641,7 @@ subscription_fixed_cost_usd
 total_cost_usd
 subscription_cost_known
 trace_paper_grade
-quota_saturated_in_trace
+quota_fits_in_trace
 ```
 
 Rules:
@@ -654,7 +654,7 @@ Rules:
   confirmed.
 - `trace_paper_grade=false` for short smoke runs whose trace span is too
   small to make fixed-fee conclusions.
-- `quota_saturated_in_trace=true` means the run should be excluded from main
+- `quota_fits_in_trace=true` means the run should be excluded from main
   paper q-sweep plots because quota scarcity was not exercised.
 
 For concurrency-plan runs, add:
@@ -906,7 +906,7 @@ subscription_fixed_cost_usd
 total_cost_usd
 subscription_cost_known
 trace_paper_grade
-quota_saturated_in_trace
+quota_fits_in_trace
 ```
 
 This should be done once in the shared section runner, not separately in
@@ -990,9 +990,8 @@ For MiniMax Starter / Plus / Max:
 - The monthly fees and quotas are known from the pricing screenshots, so they
   can enter the same cost-layer sweep as Chutes.
 - Starter and Plus can use `[1, 2, 3, 4]`; Max starts with `[1, 2]` because its
-  per-window quota is much larger and may saturate the workload at higher
-  counts.
-- Any tier/count with `quota_saturated_in_trace=true` should be excluded from
+  per-window quota is much larger and may fit the workload at higher counts.
+- Any tier/count with `quota_fits_in_trace=true` should be excluded from
   the main q-sweep plot.
 
 For Featherless-style concurrency:
@@ -1069,7 +1068,7 @@ subject to:
 
 - `subscription_cost_known = true`
 - `trace_paper_grade = true`
-- the run does not saturate quota for the whole workload
+- quota scarcity is exercised (`quota_fits_in_trace = false`)
 - RouteWise actually allocates quota toward higher-value requests
 
 For §1.3, replace the quota-specific constraints with:
@@ -1097,7 +1096,7 @@ selection metric = argmax_n quota_utilization
 
 subject to:
 
-- `quota_saturated_in_trace = false`
+- `quota_fits_in_trace = false`
 - the run still reports `api_cost_usd`
 - no `total_cost_usd` claim appears in paper text
 
@@ -1163,8 +1162,8 @@ Add tests for:
 - Chutes plan loads as `$20/month`, `5000/day`.
 - `make_quota_provider(plan=chutes, subscription_count=2)` produces
   `QuotaState(size=10000, window_sec=86400)`.
-- A saturated count emits a warning / metadata flag rather than silently
-  entering the paper q-sweep.
+- A quota count that fits the whole trace emits a metadata flag rather than
+  silently entering the paper q-sweep.
 - Featherless Premium loads as `$25/month`, `concurrency_allotment=4`.
 - `make_concurrency_provider(plan=featherless_premium, concurrency_count=2,
   model=sharegpt)` produces weighted capacity `8`.

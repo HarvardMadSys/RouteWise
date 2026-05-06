@@ -393,19 +393,19 @@ quota_capacity_per_window = quota_window.quota_requests * q
 设置：
 
 ```text
-quota_saturated_in_trace =
+quota_fits_in_trace =
   all(
     request_count_by_window[quota_window, w] <= quota_capacity_per_window(quota_window)
     for every quota_window and every window w
   )
 ```
 
-如果 `quota_saturated_in_trace=true`，说明这个 run 没有真正测试 quota scarcity：
+如果 `quota_fits_in_trace=true`，说明这个 run 没有真正测试 quota scarcity：
 RouteWise 可以在每个 reset window 里几乎把所有 request 都发到 quota。这样的结果不应该进主 paper
 q-sweep 图。
 
 这也是为什么每个 plan 有自己的 `subscription_counts`。Chutes 可以用 `[1, 2, 3, 4, 5, 6, 8]`，
-某些 MiniMax tier 可能更少的 count 就已经 saturate。
+某些 MiniMax tier 可能更少的 count 就已经足够覆盖 workload。
 
 CLI 支持单值：
 
@@ -629,7 +629,7 @@ subscription_fixed_cost_usd
 total_cost_usd
 subscription_cost_known
 trace_paper_grade
-quota_saturated_in_trace
+quota_fits_in_trace
 ```
 
 规则：
@@ -639,7 +639,7 @@ quota_saturated_in_trace
 - `total_cost_usd` 只有在所有 active plans 都有 `cost_claim_allowed=true` 时才能做 paper claim。
 - `subscription_cost_known=false` 用于未来 monthly fee 尚未确认的 plan；MiniMax Starter / Plus / Max 当前按截图价格视为 known。
 - `trace_paper_grade=false` 表示这个 smoke run 太短，不适合做 fixed-fee conclusion。
-- `quota_saturated_in_trace=true` 表示主 paper q-sweep plots 应该排除该 run，因为 quota scarcity 没被测试到。
+- `quota_fits_in_trace=true` 表示主 paper q-sweep plots 应该排除该 run，因为 quota scarcity 没被测试到。
 
 对 concurrency-plan runs，额外输出：
 
@@ -872,7 +872,7 @@ subscription_fixed_cost_usd
 total_cost_usd
 subscription_cost_known
 trace_paper_grade
-quota_saturated_in_trace
+quota_fits_in_trace
 ```
 
 这应该在 shared section runner 里做一次，不要每个 policy 各自实现。
@@ -949,8 +949,8 @@ full run 只在 smoke 满足以下条件后启动：
 对 MiniMax Starter / Plus / Max：
 
 - monthly fee 和 quota 都来自用户提供的 pricing screenshots，因此可以和 Chutes 一样进入 cost-layer sweep。
-- Starter 和 Plus 可以先跑 `[1, 2, 3, 4]`；Max 的 quota 大很多，先跑 `[1, 2]`，避免高 count 直接让 workload saturate。
-- 任何 `quota_saturated_in_trace=true` 的 tier/count 都不应该进入主 q-sweep 图。
+- Starter 和 Plus 可以先跑 `[1, 2, 3, 4]`；Max 的 quota 大很多，先跑 `[1, 2]`，避免高 count 直接覆盖整个 workload。
+- 任何 `quota_fits_in_trace=true` 的 tier/count 都不应该进入主 q-sweep 图。
 
 对 Featherless-style concurrency：
 
@@ -1020,7 +1020,7 @@ argmin_n total_cost_usd(plan, n)
 
 - `subscription_cost_known = true`
 - `trace_paper_grade = true`
-- quota 没有在整个 workload 中 saturate
+- quota scarcity 被真正 exercised（`quota_fits_in_trace = false`）
 - RouteWise 真的把 quota 分配给更高价值 requests
 
 对 §1.3，把 quota-specific constraints 换成：
@@ -1046,7 +1046,7 @@ selection metric = argmax_n quota_utilization
 
 约束：
 
-- `quota_saturated_in_trace = false`
+- `quota_fits_in_trace = false`
 - run 仍然报告 `api_cost_usd`
 - paper text 不出现 `total_cost_usd` claim
 
@@ -1104,7 +1104,7 @@ fixed RW3/RW8 on-demand pools
 - Chutes plan 读出来是 `$20/month`、`5000/day`。
 - `make_quota_provider(plan=chutes, subscription_count=2)` 生成
   `QuotaState(size=10000, window_sec=86400)`。
-- saturated count 会生成 warning / metadata flag，不会静默进入 paper q-sweep。
+- 能覆盖整个 trace 的 quota count 会生成 metadata flag，不会静默进入 paper q-sweep。
 - Featherless Premium 读出来是 `$25/month`、`concurrency_allotment=4`。
 - `make_concurrency_provider(plan=featherless_premium, concurrency_count=2,
   model=sharegpt)` 生成 weighted capacity `8`。

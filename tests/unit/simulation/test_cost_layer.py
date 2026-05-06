@@ -501,7 +501,7 @@ def test_minimax_quota_plan_uses_composite_quota_state():
     ]
 
 
-def test_quota_saturated_flag_is_window_based():
+def test_quota_fits_flag_is_window_based():
     plan = load_subscription_plans()["chutes"]
     within_quota = [
         Request(id=index, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)
@@ -512,12 +512,12 @@ def test_quota_saturated_flag_is_window_based():
         for index in range(5001)
     ]
 
-    assert common.quota_saturated_in_trace(
+    assert common.quota_fits_in_trace(
         plan,
         subscription_count=1,
         requests=within_quota,
     )
-    assert not common.quota_saturated_in_trace(
+    assert not common.quota_fits_in_trace(
         plan,
         subscription_count=1,
         requests=over_quota,
@@ -596,7 +596,7 @@ def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
     assert row["mean_api_cost_usd"] == 0.0
     assert row["mean_total_cost_usd"] == pytest.approx(row["total_cost_usd"] / 2)
     assert row["trace_paper_grade"] is False
-    assert row["quota_saturated_in_trace"] is True
+    assert row["quota_fits_in_trace"] is True
 
     two_seed_row = common.summarize_runs(
         scenario=scenario,

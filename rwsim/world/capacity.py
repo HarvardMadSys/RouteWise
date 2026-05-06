@@ -270,6 +270,8 @@ class WeightedConcurrencyState:
             return False
         self.active.append((float(finish_time), str(model_class), cost))
         if now is not None:
+            # Current cost-layer S_C runs do not cancel admitted requests; if
+            # cancellation is added, account this at completion/cancel events.
             self.total_capacity_unit_seconds_used += cost * (
                 float(finish_time) - float(now)
             )
