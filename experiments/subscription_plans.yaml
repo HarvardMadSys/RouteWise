@@ -83,13 +83,13 @@ plans:
       le_15b: 1
       24_34b: 2
       ge_70b: 4
-    default_model_class: ge_70b
     model_class_overrides:
+      sharegpt: ge_70b
       llama-3.3-70b-instruct: ge_70b
       qwen3-coder-30b: 24_34b
       llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
-    eligible_sections: [cost_layer_concurrency, end_to_end]
+    eligible_sections: [cost_layer_concurrency]
     cost_claim_allowed: true
     source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
     notes: "Concurrency is weighted capacity, not request count. Premium allotment=4, so one 70B request with cost=4 fills the plan."

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -21,6 +21,15 @@ class QuotaWindow:
     name: str
     quota_requests: int
     quota_window_sec: float
+
+
+@dataclass(frozen=True)
+class ModelClassResolution:
+    """Resolved concurrency class and cost for one trace/provider model id."""
+
+    model_class: str
+    cost: int
+    matched_via: Literal["override"] = "override"
 
 
 @dataclass(frozen=True)
@@ -41,7 +50,6 @@ class SubscriptionPlan:
     billing_mode: str = "subscription"
     concurrency_allotment: int | None = None
     model_concurrency_costs_by_class: MappingProxyType[str, int] = MappingProxyType({})
-    default_model_class: str | None = None
     model_class_overrides: MappingProxyType[str, str] = MappingProxyType({})
 
     @property
@@ -51,25 +59,38 @@ class SubscriptionPlan:
 
     def resolve_model_class(self, model_id: str | None) -> str | None:
         """Resolve a trace/provider model id to this plan's concurrency class."""
+        resolution = self.resolve_model_class_with_cost(model_id)
+        return None if resolution is None else resolution.model_class
+
+    def resolve_model_class_with_cost(
+        self,
+        model_id: str | None,
+    ) -> ModelClassResolution | None:
+        """Resolve a model id and expose the matched concurrency cost."""
         if not self.model_concurrency_costs_by_class:
             return None
-        if model_id is not None:
-            override = self.model_class_overrides.get(str(model_id))
-            if override is not None:
-                return override
-        return self.default_model_class
-
-    def concurrency_cost_for_model(self, model_id: str | None) -> int:
-        """Return weighted concurrency cost for a trace/provider model id."""
-        model_class = self.resolve_model_class(model_id)
+        if model_id is None:
+            return None
+        model_class = self.model_class_overrides.get(str(model_id))
         if model_class is None:
-            raise ValueError(f"plan {self.plan_id!r}: no concurrency model class resolved")
+            return None
         try:
-            return self.model_concurrency_costs_by_class[model_class]
+            cost = self.model_concurrency_costs_by_class[model_class]
         except KeyError as exc:
             raise ValueError(
                 f"plan {self.plan_id!r}: unknown concurrency model class {model_class!r}"
             ) from exc
+        return ModelClassResolution(
+            model_class=model_class,
+            cost=cost,
+        )
+
+    def concurrency_cost_for_model(self, model_id: str | None) -> int:
+        """Return weighted concurrency cost for a trace/provider model id."""
+        resolution = self.resolve_model_class_with_cost(model_id)
+        if resolution is None:
+            raise ValueError(f"plan {self.plan_id!r}: no concurrency model class resolved")
+        return resolution.cost
 
 
 def load_subscription_plans(
@@ -127,7 +148,6 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
     (
         concurrency_allotment,
         model_concurrency_costs_by_class,
-        default_model_class,
         model_class_overrides,
     ) = _parse_concurrency_fields(plan_id, payload, required=tier == "concurrency")
     subscription_counts = _positive_int_tuple(
@@ -144,7 +164,6 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
         quota_windows=quota_windows,
         concurrency_allotment=concurrency_allotment,
         model_concurrency_costs_by_class=model_concurrency_costs_by_class,
-        default_model_class=default_model_class,
         model_class_overrides=model_class_overrides,
         subscription_counts=subscription_counts,
         eligible_sections=eligible_sections,
@@ -207,13 +226,12 @@ def _parse_concurrency_fields(
     payload: dict[str, Any],
     *,
     required: bool,
-) -> tuple[int | None, MappingProxyType[str, int], str | None, MappingProxyType[str, str]]:
+) -> tuple[int | None, MappingProxyType[str, int], MappingProxyType[str, str]]:
     raw_allotment = payload.get("concurrency_allotment")
     raw_costs = payload.get("model_concurrency_costs_by_class")
-    raw_default = payload.get("default_model_class")
     raw_overrides = payload.get("model_class_overrides")
     if not required and raw_allotment is None and raw_costs is None:
-        return None, MappingProxyType({}), None, MappingProxyType({})
+        return None, MappingProxyType({}), MappingProxyType({})
     if raw_allotment is None:
         raise ValueError(f"plan {plan_id!r}: concurrency_allotment is required")
     concurrency_allotment = int(raw_allotment)
@@ -231,18 +249,13 @@ def _parse_concurrency_fields(
                 f"plan {plan_id!r}: concurrency cost for {model_class!r} must be > 0"
             )
         costs[str(model_class)] = concurrency_cost
-    default_model_class = str(raw_default) if raw_default is not None else None
-    if default_model_class is None:
-        raise ValueError(f"plan {plan_id!r}: default_model_class is required")
-    if default_model_class not in costs:
-        raise ValueError(
-            f"plan {plan_id!r}: default_model_class {default_model_class!r} "
-            "must exist in model_concurrency_costs_by_class"
-        )
     if raw_overrides is None:
         overrides: dict[str, str] = {}
     elif isinstance(raw_overrides, dict):
-        overrides = {str(model_id): str(model_class) for model_id, model_class in raw_overrides.items()}
+        overrides = {
+            str(model_id): str(model_class)
+            for model_id, model_class in raw_overrides.items()
+        }
     else:
         raise ValueError(f"plan {plan_id!r}: model_class_overrides must be a map")
     unknown_override_classes = sorted(set(overrides.values()) - set(costs))
@@ -254,7 +267,6 @@ def _parse_concurrency_fields(
     return (
         concurrency_allotment,
         MappingProxyType(costs),
-        default_model_class,
         MappingProxyType(overrides),
     )
 
@@ -302,6 +314,7 @@ def subscription_fixed_cost_usd(
 __all__ = [
     "DEFAULT_BILLING_PERIOD_DAYS",
     "DEFAULT_SUBSCRIPTION_PLANS_PATH",
+    "ModelClassResolution",
     "QuotaWindow",
     "SubscriptionPlan",
     "load_subscription_plans",

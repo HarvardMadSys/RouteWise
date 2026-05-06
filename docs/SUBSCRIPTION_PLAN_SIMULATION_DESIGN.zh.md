@@ -286,13 +286,13 @@ plans:
       le_15b: 1
       24_34b: 2
       ge_70b: 4
-    default_model_class: ge_70b
     model_class_overrides:
+      sharegpt: ge_70b
       llama-3.3-70b-instruct: ge_70b
       qwen3-coder-30b: 24_34b
       llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
-    eligible_sections: [cost_layer_concurrency, end_to_end]
+    eligible_sections: [cost_layer_concurrency]
     cost_claim_allowed: true
     source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
     notes: "Concurrency 是 weighted capacity，不是 request count。Premium allotment=4，所以一个 cost=4 的 70B request 会占满这个 plan。"
@@ -307,8 +307,7 @@ plans:
 | `quota_windows` | 一个或多个 quota constraints。request 只有在所有 window 都有剩余额度时才能使用该 plan。Chutes 有 daily window；MiniMax 普通订阅有 5-hour quota 和 weekly allowance 两层约束。 |
 | `concurrency_allotment` | 一个 subscription/account 的 weighted concurrency capacity。Featherless Premium 的 allotment 是 `4`，这不是四个任意 requests。 |
 | `model_concurrency_costs_by_class` | 按 model-size class 定义 weighted capacity cost。Featherless 文档里的 class 包括 `le_15b=1`、`24_34b=2`、`ge_70b=4`。 |
-| `default_model_class` | trace model ID 没有匹配到 override 时使用的 fallback class。§1.3 paper smoke 应该使用保守默认值，例如 `ge_70b`，不要静默把 request 从 S_C drop 掉。 |
-| `model_class_overrides` | 可选的 workload/provider-specific mapping，把 trace model IDs 映射到 model-size classes。OpenRouter 风格 ID 和 trace aliases 不应该进入 core capacity state。 |
+| `model_class_overrides` | workload/provider-specific mapping，把 trace model IDs 映射到 model-size classes。paper-grade §1.3 run 里出现的每个 model ID 都必须被覆盖；未映射 ID 是 unresolved，不能被静默映射。 |
 | `subscription_counts` | 论文里允许 sweep 的 subscription/account 数量。不要跑会让 quota 完全不稀缺的 count。 |
 | `eligible_sections` | 这个 plan 可以被哪些 experiment section 使用。§1.2 主图使用 tagged `cost_layer_quota` 的 plans；§1.3 使用 tagged `cost_layer_concurrency` 的 plans。 |
 | `cost_claim_allowed` | 这个 plan 是否允许在 paper figure 里报告 `total_cost_usd`。 |
@@ -529,11 +528,15 @@ aggregate S_C capacity 是 weighted capacity：
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_model_class = resolve_model_class(request.model, plan.model_class_overrides, plan.default_model_class)
+request_model_class = resolve_model_class(request.model, plan.model_class_overrides)
 request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
+
+如果 `request_model_class` unresolved，run 应该记录这个 unresolved model ID，
+并拒绝该 request 进入 S_C。paper-grade run 如果在 selected workload 里发现
+unresolved model ID，应该 fail fast。
 
 这是 §1.3 最重要的 modeling point。Featherless `concurrency_allotment=4`
 不表示任意 model 都能同时跑四个 request。一个 `concurrency_cost=4` 的 70B request
@@ -574,8 +577,8 @@ release_finished(current_time)
 `experiments/simulation` 只负责 resolve plan，构造
 `TieredProvider(tier=S_C, concurrency=...)`，然后启动 sweep。section runner
 应该拒绝缺少 `concurrency_allotment` 的 concurrency plan、拒绝没有
-`concurrency_cost` 的 resolved class。未知 trace model IDs 应该 resolve 到
-`default_model_class` 并写 warning metadata；真正 incompatible 的 model classes 才应该拒绝进入 S_C。
+`concurrency_cost` 的 resolved class。未知 trace model IDs 必须报告为 unresolved，
+不能用隐式 fallback 映射；真正 incompatible 的 model classes 才应该拒绝进入 S_C。
 
 第一版 §1.3 只做 cost-layer S_C provider 的 zero-queue / immediate-admission。
 queueing policy 放到后面的 end-to-end experiments，因为那时 SLO 和 latency behavior
@@ -770,7 +773,6 @@ class SubscriptionPlan:
     quota_windows: tuple[QuotaWindow, ...]
     concurrency_allotment: int | None
     model_concurrency_costs_by_class: Mapping[str, int]
-    default_model_class: str | None
     model_class_overrides: Mapping[str, str]
     subscription_counts: tuple[int, ...]
     eligible_sections: tuple[str, ...]
@@ -914,7 +916,7 @@ full run 只在 smoke 满足以下条件后启动：
 
 1. 扩展 `experiments/subscription_plans.yaml` 和 `experiments/subscriptions.py`，
    加入一个窄版 `featherless_premium` concurrency plan：`concurrency_allotment`、
-   `model_concurrency_costs_by_class`、`default_model_class` 和可选 `model_class_overrides`。
+   `model_concurrency_costs_by_class` 和显式 `model_class_overrides`。
 2. 在 `rwsim/world/capacity.py` 增加 weighted concurrency state；不要在 experiment scripts
    里实现 Featherless-specific logic。
 3. 在 `experiments/simulation/common.py` 增加 provider builder，把 concurrency plan/count
@@ -925,9 +927,9 @@ full run 只在 smoke 满足以下条件后启动：
    需要 alias，只保留 internal test-only alias。
 6. fixed-fee accounting 仍然只放在 section-summary layer，和 quota plans 一样。
 
-第一版 paper-grade smoke 可以把所有 §1.3 workload models 都映射到保守的 `ge_70b` class。
-把 class resolver 扩展成完整 provider-specific model catalogue 是 follow-up，不阻塞最初的
-Featherless Premium result。
+第一版 paper-grade smoke 可以把 selected §1.3 workload 里的每个 model ID 都显式映射到
+保守的 `ge_70b` class。这不是隐式 fallback。把 class resolver 扩展成完整
+provider-specific model catalogue 是 follow-up，不阻塞最初的 Featherless Premium result。
 
 ---
 
@@ -1104,7 +1106,7 @@ fixed RW3/RW8 on-demand pools
   生成 weighted capacity `8`。
 - `concurrency_cost=4` 的 model 会消耗一个 Premium subscription 的全部 capacity。
 - `concurrency_cost=1` 的 model 在一个 Premium subscription 上可以同时 admit 四个 request。
-- unknown trace model ID 会 resolve 到 `default_model_class` 并写 warning metadata，不会静默掉出 S_C。
+- unknown trace model ID 会被报告为 unresolved，并在 admission 前抛错；不能静默映射进 S_C。
 - 真正 incompatible 的 resolved class 不能 admit 到 S_C。
 
 ### 11.2 Cost accounting tests

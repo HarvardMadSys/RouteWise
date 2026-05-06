@@ -245,13 +245,26 @@ def test_subscription_plan_loader_exposes_featherless_premium_concurrency():
         "24_34b": 2,
         "ge_70b": 4,
     }
-    assert plan.default_model_class == "ge_70b"
     assert plan.resolve_model_class("sharegpt") == "ge_70b"
-    assert plan.concurrency_cost_for_model("sharegpt") == 4
+    sharegpt = plan.resolve_model_class_with_cost("sharegpt")
+    assert sharegpt is not None
+    assert sharegpt.model_class == "ge_70b"
+    assert sharegpt.cost == 4
+    assert sharegpt.matched_via == "override"
+    assert plan.concurrency_cost_for_model("sharegpt") == sharegpt.cost
     assert plan.resolve_model_class("qwen3-coder-30b") == "24_34b"
-    assert plan.concurrency_cost_for_model("qwen3-coder-30b") == 2
+    override = plan.resolve_model_class_with_cost("qwen3-coder-30b")
+    assert override is not None
+    assert override.model_class == "24_34b"
+    assert override.cost == 2
+    assert override.matched_via == "override"
+    assert plan.concurrency_cost_for_model("qwen3-coder-30b") == override.cost
+    assert plan.resolve_model_class("unknown-model") is None
+    assert plan.resolve_model_class_with_cost("unknown-model") is None
+    with pytest.raises(ValueError, match="no concurrency model class resolved"):
+        plan.concurrency_cost_for_model("unknown-model")
     assert plan.subscription_counts == (1, 2, 3, 4)
-    assert "cost_layer_concurrency" in plan.eligible_sections
+    assert plan.eligible_sections == ("cost_layer_concurrency",)
 
 
 def test_subscription_plan_loader_rejects_missing_quota_size(tmp_path):
@@ -307,7 +320,6 @@ plans:
     monthly_fee_usd: 25
     model_concurrency_costs_by_class:
       ge_70b: 4
-    default_model_class: ge_70b
     subscription_counts: [1]
     eligible_sections: [cost_layer_concurrency]
     cost_claim_allowed: true
@@ -319,7 +331,7 @@ plans:
         load_subscription_plans(path)
 
 
-def test_subscription_plan_loader_rejects_unknown_default_model_class(tmp_path):
+def test_subscription_plan_loader_rejects_unknown_override_model_class(tmp_path):
     path = tmp_path / "plans.yaml"
     path.write_text(
         """
@@ -330,7 +342,8 @@ plans:
     concurrency_allotment: 4
     model_concurrency_costs_by_class:
       ge_70b: 4
-    default_model_class: missing
+    model_class_overrides:
+      sharegpt: missing
     subscription_counts: [1]
     eligible_sections: [cost_layer_concurrency]
     cost_claim_allowed: true
@@ -338,7 +351,7 @@ plans:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="default_model_class"):
+    with pytest.raises(ValueError, match="model_class_overrides"):
         load_subscription_plans(path)
 
 

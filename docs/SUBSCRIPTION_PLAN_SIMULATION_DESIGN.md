@@ -282,13 +282,13 @@ plans:
       le_15b: 1
       24_34b: 2
       ge_70b: 4
-    default_model_class: ge_70b
     model_class_overrides:
+      sharegpt: ge_70b
       llama-3.3-70b-instruct: ge_70b
       qwen3-coder-30b: 24_34b
       llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
-    eligible_sections: [cost_layer_concurrency, end_to_end]
+    eligible_sections: [cost_layer_concurrency]
     cost_claim_allowed: true
     source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
     notes: "Concurrency is weighted capacity, not request count. Premium allotment=4, so one 70B request with cost=4 fills the plan."
@@ -303,8 +303,7 @@ plans:
 | `quota_windows` | One or more quota constraints. A request can use the plan only if every window has remaining quota. Chutes has one daily window; MiniMax subscription tiers have both a 5-hour quota and a weekly allowance. |
 | `concurrency_allotment` | Total weighted concurrency capacity for one subscription/account. Featherless Premium has allotment `4`; this is not four arbitrary requests. |
 | `model_concurrency_costs_by_class` | Weighted capacity cost by model-size class. Featherless documents cost classes such as `le_15b=1`, `24_34b=2`, and `ge_70b=4`. |
-| `default_model_class` | Fallback class for model IDs that do not match a known override. Use a conservative default such as `ge_70b` for §1.3 paper smoke rather than silently dropping requests from S_C. |
-| `model_class_overrides` | Optional workload/provider-specific mapping from trace model IDs to model-size classes. This keeps OpenRouter-style IDs and trace aliases out of the core capacity state. |
+| `model_class_overrides` | Workload/provider-specific mapping from trace model IDs to model-size classes. It must cover every model ID used in a paper-grade §1.3 run; unmapped IDs are unresolved and must not be silently mapped. |
 | `subscription_counts` | Paper sweep counts for this plan. Avoid running counts that saturate the whole workload and stop exercising quota scarcity. |
 | `eligible_sections` | Which experiment sections may use this plan. §1.2 main figures should use plans tagged `cost_layer_quota`; §1.3 should use plans tagged `cost_layer_concurrency`. |
 | `cost_claim_allowed` | Whether paper figures may include `total_cost_usd` for this plan. |
@@ -531,11 +530,15 @@ The aggregate S_C capacity is weighted capacity:
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_model_class = resolve_model_class(request.model, plan.model_class_overrides, plan.default_model_class)
+request_model_class = resolve_model_class(request.model, plan.model_class_overrides)
 request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
+
+If `request_model_class` is unresolved, the run should record the unresolved
+model ID and reject the request from S_C. Paper-grade runs should fail fast if
+unresolved model IDs appear in the selected workload.
 
 This is the main modeling point. Featherless `concurrency_allotment=4` does
 not mean four simultaneous requests for every model. A `70B` request with
@@ -582,8 +585,9 @@ release_finished(current_time)
 `TieredProvider(tier=S_C, concurrency=...)`, and launch the sweep. The
 section runner should reject a concurrency plan if it lacks
 `concurrency_allotment` or if the resolved class has no `concurrency_cost`.
-Unknown trace model IDs should resolve to `default_model_class` with warning
-metadata; genuinely incompatible model classes should be rejected from S_C.
+Unknown trace model IDs must be reported as unresolved rather than mapped by
+an implicit fallback; genuinely incompatible model classes should be rejected
+from S_C.
 
 For the first §1.3 implementation, keep the cost-layer S_C provider
 zero-queue / immediate-admission only. Queueing policy belongs to later
@@ -797,7 +801,6 @@ envelope.
        quota_windows: tuple[QuotaWindow, ...]
        concurrency_allotment: int | None
        model_concurrency_costs_by_class: Mapping[str, int]
-       default_model_class: str | None
        model_class_overrides: Mapping[str, str]
        subscription_counts: tuple[int, ...]
        eligible_sections: tuple[str, ...]
@@ -949,8 +952,7 @@ Add §1.3 after §1.2 has landed:
 
 1. Extend `experiments/subscription_plans.yaml` and `experiments/subscriptions.py`
    with a narrow `featherless_premium` concurrency plan: `concurrency_allotment`,
-   `model_concurrency_costs_by_class`, `default_model_class`, and optional
-   `model_class_overrides`.
+   `model_concurrency_costs_by_class`, and explicit `model_class_overrides`.
 2. Add weighted concurrency state to `rwsim/world/capacity.py`; do not
    implement Featherless-specific logic in experiment scripts.
 3. Add a provider builder in `experiments/simulation/common.py` that turns a
@@ -963,9 +965,10 @@ Add §1.3 after §1.2 has landed:
 6. Keep fixed-fee accounting at the section-summary layer, exactly as for
    quota plans.
 
-For the first paper-grade smoke, it is acceptable to map every §1.3 workload
-model to the conservative `ge_70b` class. Extending the class resolver to a
-large provider-specific model catalogue is a follow-up, not a blocker for the
+For the first paper-grade smoke, it is acceptable to explicitly map every
+model ID in the selected §1.3 workload to the conservative `ge_70b` class.
+This is not an implicit fallback. Extending the class resolver to a large
+provider-specific model catalogue is a follow-up, not a blocker for the
 initial Featherless Premium result.
 
 ---
@@ -1167,8 +1170,8 @@ Add tests for:
   subscription.
 - A model with `concurrency_cost=1` can admit four simultaneous requests on
   one Premium subscription.
-- An unknown trace model ID resolves to `default_model_class` and emits
-  warning metadata instead of silently falling out of S_C.
+- An unknown trace model ID is reported as unresolved and raises before
+  admission instead of being silently mapped into S_C.
 - A request with a genuinely incompatible resolved class is not admitted to S_C.
 
 ### 11.2 Cost accounting tests
