@@ -57,7 +57,7 @@ S_Q 路由成本：
 
 S_C 路由成本：
   capacity 可用时 marginal request cost = 0
-  effective cost = concurrency shadow price λ(u) * concurrency_cost(model) * duration
+  effective cost = concurrency shadow price λ(u_weighted) * concurrency_cost(model)
 
 实验报告成本：
   total_cost_usd = api_cost_usd + subscription_fixed_cost_usd
@@ -282,10 +282,16 @@ plans:
     billing_mode: subscription
     monthly_fee_usd: 25.0
     concurrency_allotment: 4
-    model_concurrency_costs:
-      llama-3.3-70b-instruct: 4
-      qwen3-coder-30b: 2
-      llama-4-scout: 1
+    model_concurrency_costs_by_class:
+      le_15b: 1
+      24_34b: 2
+      ge_70b: 4
+      deepseek_kimi_individual: 4
+    default_model_class: ge_70b
+    model_class_overrides:
+      llama-3.3-70b-instruct: ge_70b
+      qwen3-coder-30b: 24_34b
+      llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
     eligible_sections: [cost_layer_concurrency, end_to_end]
     cost_claim_allowed: true
@@ -301,7 +307,9 @@ plans:
 | `monthly_fee_usd` | 固定 subscription fee。`null` 表示可以模拟 routing/utilization，但不能做 total-cost dollar claim。 |
 | `quota_windows` | 一个或多个 quota constraints。request 只有在所有 window 都有剩余额度时才能使用该 plan。Chutes 有 daily window；MiniMax 普通订阅有 5-hour quota 和 weekly allowance 两层约束。 |
 | `concurrency_allotment` | 一个 subscription/account 的 weighted concurrency capacity。Featherless Premium 的 allotment 是 `4`，这不是四个任意 requests。 |
-| `model_concurrency_costs` | 每个 model 的 weighted capacity cost。`concurrency_cost=4` 的 model 会用完一个 Featherless Premium subscription 的全部容量。 |
+| `model_concurrency_costs_by_class` | 按 model-size class 定义 weighted capacity cost。Featherless 文档里的 class 包括 `le_15b=1`、`24_34b=2`、`ge_70b=4`。 |
+| `default_model_class` | trace model ID 没有匹配到 override 时使用的 fallback class。§1.3 paper smoke 应该使用保守默认值，例如 `ge_70b`，不要静默把 request 从 S_C drop 掉。 |
+| `model_class_overrides` | 可选的 workload/provider-specific mapping，把 trace model IDs 映射到 model-size classes。OpenRouter 风格 ID 和 trace aliases 不应该进入 core capacity state。 |
 | `subscription_counts` | 论文里允许 sweep 的 subscription/account 数量。不要跑会让 quota 完全不稀缺的 count。 |
 | `eligible_sections` | 这个 plan 可以被哪些 experiment section 使用。§1.2 主图使用 tagged `cost_layer_quota` 的 plans；§1.3 使用 tagged `cost_layer_concurrency` 的 plans。 |
 | `cost_claim_allowed` | 这个 plan 是否允许在 paper figure 里报告 `total_cost_usd`。 |
@@ -522,7 +530,8 @@ aggregate S_C capacity 是 weighted capacity：
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_concurrency_cost = plan.model_concurrency_costs[request.model]
+request_model_class = resolve_model_class(request.model, plan.model_class_overrides, plan.default_model_class)
+request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
@@ -537,14 +546,20 @@ Routing 使用和论文一致的 piecewise effective-cost 语义：
 ```text
 c_eff(S_A, r) = API token cost
 c_eff(S_Q, r, z) = ψ(z)                    if quota is available, else ∞
-c_eff(S_C, r, u) = λ(u) * concurrency_cost(r.model) * duration_estimate(r)
+c_eff(S_C, r, u_weighted) = λ(u_weighted) * concurrency_cost(r.model)
                   if weighted capacity is available, else ∞
+
+u_weighted = used_concurrency_cost / concurrency_capacity
 ```
 
 这些项是不同 providers 的 alternatives，不是加在同一个 provider 上的 additive penalties。
 在 concurrency-only §1.3 run 里，RouteWise 比较 S_C effective cost 和 S_A API cost。
 在后续 joint end-to-end run 里，S_Q 和 S_C 仍然是分开的 candidate providers；
 不要计算 `API cost + quota shadow price + concurrency shadow price`。
+
+online S_C effective cost 不乘 predicted request duration。simulator 仍然需要 observed 或
+sampled service time 来知道 capacity 何时释放，offline scheduling 也仍然有 processing time。
+这些是 state-evolution facts，不是 online effective-cost factor。
 
 实现应该放在 `rwsim`，不是 `experiments/simulation`。`rwsim/world/capacity.py`
 应该负责 weighted concurrency state：
@@ -560,7 +575,8 @@ release_finished(current_time)
 `experiments/simulation` 只负责 resolve plan，构造
 `TieredProvider(tier=S_C, concurrency=...)`，然后启动 sweep。section runner
 应该拒绝缺少 `concurrency_allotment` 的 concurrency plan、拒绝没有
-`concurrency_cost` 的 model、也要拒绝 plan compatibility 之外的 model。
+`concurrency_cost` 的 resolved class。未知 trace model IDs 应该 resolve 到
+`default_model_class` 并写 warning metadata；真正 incompatible 的 model classes 才应该拒绝进入 S_C。
 
 第一版 §1.3 只做 cost-layer S_C provider 的 zero-queue / immediate-admission。
 queueing policy 放到后面的 end-to-end experiments，因为那时 SLO 和 latency behavior
@@ -610,14 +626,13 @@ quota_saturated_in_trace
 对 concurrency-plan runs，额外输出：
 
 ```text
-concurrency_capacity_units
-peak_used_concurrency_cost
-mean_concurrency_utilization
-concurrency_saturated_in_trace
+concurrency_capacity_units       # integer weighted capacity units
+peak_used_concurrency_cost       # integer weighted capacity units
+mean_concurrency_utilization     # ratio in [0, 1]
+concurrency_saturated_in_trace   # boolean
 ```
 
-这里的 `peak_used_concurrency_cost` 和 `mean_concurrency_utilization` 都基于 weighted capacity units，
-不是 raw in-flight request count。
+所有 concurrency metrics 都基于 weighted capacity units，不是 raw in-flight request count。
 
 ### 6.2 现有 `cost_usd` 字段
 
@@ -741,7 +756,9 @@ class SubscriptionPlan:
     monthly_fee_usd: float | None
     quota_windows: tuple[QuotaWindow, ...]
     concurrency_allotment: int | None
-    model_concurrency_costs: Mapping[str, int]
+    model_concurrency_costs_by_class: Mapping[str, int]
+    default_model_class: str | None
+    model_class_overrides: Mapping[str, str]
     subscription_counts: tuple[int, ...]
     eligible_sections: tuple[str, ...]
     cost_claim_allowed: bool
@@ -883,17 +900,21 @@ full run 只在 smoke 满足以下条件后启动：
 §1.2 落地后再加 §1.3：
 
 1. 扩展 `experiments/subscription_plans.yaml` 和 `experiments/subscriptions.py`，
-   加入 concurrency-plan fields：`concurrency_allotment`、`model_concurrency_costs`
-   和可选 compatibility metadata。
+   加入一个窄版 `featherless_premium` concurrency plan：`concurrency_allotment`、
+   `model_concurrency_costs_by_class`、`default_model_class` 和可选 `model_class_overrides`。
 2. 在 `rwsim/world/capacity.py` 增加 weighted concurrency state；不要在 experiment scripts
    里实现 Featherless-specific logic。
 3. 在 `experiments/simulation/common.py` 增加 provider builder，把 concurrency plan/count
    转成一个 aggregate S_C provider。
 4. 在 `experiments/simulation/cost_layer.py` 增加 `--scenario concurrency`、
    `--concurrency-plan` 和 `--concurrency-count(s)`。
-5. 把旧 `cost_layer_concurrency_c1..c4` artifacts 替换或 alias 成参数化 labels，
-   例如 `concurrency__plan=featherless_premium__n=2`。
+5. 在同一个 PR 删除旧 public `cost_layer_concurrency_c1..c4` scenarios。如果 golden migration
+   需要 alias，只保留 internal test-only alias。
 6. fixed-fee accounting 仍然只放在 section-summary layer，和 quota plans 一样。
+
+第一版 paper-grade smoke 可以把所有 §1.3 workload models 都映射到保守的 `ge_70b` class。
+把 class resolver 扩展成完整 provider-specific model catalogue 是 follow-up，不阻塞最初的
+Featherless Premium result。
 
 ---
 
@@ -1068,7 +1089,8 @@ fixed RW3/RW8 on-demand pools
   生成 weighted capacity `8`。
 - `concurrency_cost=4` 的 model 会消耗一个 Premium subscription 的全部 capacity。
 - `concurrency_cost=1` 的 model 在一个 Premium subscription 上可以同时 admit 四个 request。
-- unknown 或 incompatible model 不能 admit 到 S_C。
+- unknown trace model ID 会 resolve 到 `default_model_class` 并写 warning metadata，不会静默掉出 S_C。
+- 真正 incompatible 的 resolved class 不能 admit 到 S_C。
 
 ### 11.2 Cost accounting tests
 

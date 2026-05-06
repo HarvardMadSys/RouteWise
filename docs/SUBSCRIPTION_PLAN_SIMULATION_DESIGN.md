@@ -55,7 +55,7 @@ Routing cost for S_Q:
 
 Routing cost for S_C:
   marginal request cost = 0 while capacity is available
-  effective cost = concurrency shadow price λ(u) * concurrency_cost(model) * duration
+  effective cost = concurrency shadow price λ(u_weighted) * concurrency_cost(model)
 
 Reported experiment cost:
   total_cost_usd = api_cost_usd + subscription_fixed_cost_usd
@@ -278,10 +278,16 @@ plans:
     billing_mode: subscription
     monthly_fee_usd: 25.0
     concurrency_allotment: 4
-    model_concurrency_costs:
-      llama-3.3-70b-instruct: 4
-      qwen3-coder-30b: 2
-      llama-4-scout: 1
+    model_concurrency_costs_by_class:
+      le_15b: 1
+      24_34b: 2
+      ge_70b: 4
+      deepseek_kimi_individual: 4
+    default_model_class: ge_70b
+    model_class_overrides:
+      llama-3.3-70b-instruct: ge_70b
+      qwen3-coder-30b: 24_34b
+      llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
     eligible_sections: [cost_layer_concurrency, end_to_end]
     cost_claim_allowed: true
@@ -297,7 +303,9 @@ plans:
 | `monthly_fee_usd` | Fixed subscription fee. `null` means we can simulate routing/utilization but not make total-cost claims. |
 | `quota_windows` | One or more quota constraints. A request can use the plan only if every window has remaining quota. Chutes has one daily window; MiniMax subscription tiers have both a 5-hour quota and a weekly allowance. |
 | `concurrency_allotment` | Total weighted concurrency capacity for one subscription/account. Featherless Premium has allotment `4`; this is not four arbitrary requests. |
-| `model_concurrency_costs` | Per-model weighted capacity cost. A model with `concurrency_cost=4` consumes the entire Featherless Premium allotment for one in-flight request. |
+| `model_concurrency_costs_by_class` | Weighted capacity cost by model-size class. Featherless documents cost classes such as `le_15b=1`, `24_34b=2`, and `ge_70b=4`. |
+| `default_model_class` | Fallback class for model IDs that do not match a known override. Use a conservative default such as `ge_70b` for §1.3 paper smoke rather than silently dropping requests from S_C. |
+| `model_class_overrides` | Optional workload/provider-specific mapping from trace model IDs to model-size classes. This keeps OpenRouter-style IDs and trace aliases out of the core capacity state. |
 | `subscription_counts` | Paper sweep counts for this plan. Avoid running counts that saturate the whole workload and stop exercising quota scarcity. |
 | `eligible_sections` | Which experiment sections may use this plan. §1.2 main figures should use plans tagged `cost_layer_quota`; §1.3 should use plans tagged `cost_layer_concurrency`. |
 | `cost_claim_allowed` | Whether paper figures may include `total_cost_usd` for this plan. |
@@ -524,7 +532,8 @@ The aggregate S_C capacity is weighted capacity:
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_concurrency_cost = plan.model_concurrency_costs[request.model]
+request_model_class = resolve_model_class(request.model, plan.model_class_overrides, plan.default_model_class)
+request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
@@ -541,8 +550,10 @@ Routing should use the same piecewise effective-cost semantics as the paper:
 ```text
 c_eff(S_A, r) = API token cost
 c_eff(S_Q, r, z) = ψ(z)                    if quota is available, else ∞
-c_eff(S_C, r, u) = λ(u) * concurrency_cost(r.model) * duration_estimate(r)
+c_eff(S_C, r, u_weighted) = λ(u_weighted) * concurrency_cost(r.model)
                   if weighted capacity is available, else ∞
+
+u_weighted = used_concurrency_cost / concurrency_capacity
 ```
 
 These terms are alternatives across providers, not additive penalties on one
@@ -550,6 +561,12 @@ provider. In a concurrency-only §1.3 run, RouteWise compares the S_C
 effective cost against the S_A API cost. In later joint end-to-end runs, S_Q
 and S_C are still separate candidate providers; do not compute
 `API cost + quota shadow price + concurrency shadow price`.
+
+Do not multiply the online S_C effective cost by a predicted request
+duration. The simulator still needs an observed or sampled service time to
+release capacity at the correct finish time, and offline scheduling still has
+processing times. Those are state-evolution facts, not an online
+effective-cost factor.
 
 The implementation belongs in `rwsim`, not in `experiments/simulation`.
 `rwsim/world/capacity.py` should own a weighted concurrency state with:
@@ -565,8 +582,9 @@ release_finished(current_time)
 `experiments/simulation` should only resolve the plan, construct a
 `TieredProvider(tier=S_C, concurrency=...)`, and launch the sweep. The
 section runner should reject a concurrency plan if it lacks
-`concurrency_allotment`, if the model has no `concurrency_cost`, or if the
-chosen model is outside the plan's compatibility set.
+`concurrency_allotment` or if the resolved class has no `concurrency_cost`.
+Unknown trace model IDs should resolve to `default_model_class` with warning
+metadata; genuinely incompatible model classes should be rejected from S_C.
 
 For the first §1.3 implementation, keep the cost-layer S_C provider
 zero-queue / immediate-admission only. Queueing policy belongs to later
@@ -622,14 +640,14 @@ Rules:
 For concurrency-plan runs, add:
 
 ```text
-concurrency_capacity_units
-peak_used_concurrency_cost
-mean_concurrency_utilization
-concurrency_saturated_in_trace
+concurrency_capacity_units       # integer weighted capacity units
+peak_used_concurrency_cost       # integer weighted capacity units
+mean_concurrency_utilization     # ratio in [0, 1]
+concurrency_saturated_in_trace   # boolean
 ```
 
-Here `peak_used_concurrency_cost` and `mean_concurrency_utilization` are
-computed from weighted capacity units, not raw in-flight request count.
+All concurrency metrics are based on weighted capacity units, not raw
+in-flight request count.
 
 ### 6.2 Existing `cost_usd` field
 
@@ -763,7 +781,9 @@ envelope.
        monthly_fee_usd: float | None
        quota_windows: tuple[QuotaWindow, ...]
        concurrency_allotment: int | None
-       model_concurrency_costs: Mapping[str, int]
+       model_concurrency_costs_by_class: Mapping[str, int]
+       default_model_class: str | None
+       model_class_overrides: Mapping[str, str]
        subscription_counts: tuple[int, ...]
        eligible_sections: tuple[str, ...]
        cost_claim_allowed: bool
@@ -913,18 +933,25 @@ The full run should be launched only after the smoke shows:
 Add §1.3 after §1.2 has landed:
 
 1. Extend `experiments/subscription_plans.yaml` and `experiments/subscriptions.py`
-   with concurrency-plan fields: `concurrency_allotment`,
-   `model_concurrency_costs`, and optional compatibility metadata.
+   with a narrow `featherless_premium` concurrency plan: `concurrency_allotment`,
+   `model_concurrency_costs_by_class`, `default_model_class`, and optional
+   `model_class_overrides`.
 2. Add weighted concurrency state to `rwsim/world/capacity.py`; do not
    implement Featherless-specific logic in experiment scripts.
 3. Add a provider builder in `experiments/simulation/common.py` that turns a
    concurrency plan/count into one aggregate S_C provider.
 4. Add `--scenario concurrency`, `--concurrency-plan`, and
    `--concurrency-count(s)` to `experiments/simulation/cost_layer.py`.
-5. Replace or alias the old `cost_layer_concurrency_c1..c4` artifacts with
-   parameterized labels such as `concurrency__plan=featherless_premium__n=2`.
+5. Delete the old public `cost_layer_concurrency_c1..c4` scenarios in the
+   same PR. If a golden migration needs an alias, keep it internal and
+   test-only.
 6. Keep fixed-fee accounting at the section-summary layer, exactly as for
    quota plans.
+
+For the first paper-grade smoke, it is acceptable to map every §1.3 workload
+model to the conservative `ge_70b` class. Extending the class resolver to a
+large provider-specific model catalogue is a follow-up, not a blocker for the
+initial Featherless Premium result.
 
 ---
 
@@ -1122,7 +1149,9 @@ Add tests for:
   subscription.
 - A model with `concurrency_cost=1` can admit four simultaneous requests on
   one Premium subscription.
-- A request with unknown or incompatible model is not admitted to S_C.
+- An unknown trace model ID resolves to `default_model_class` and emits
+  warning metadata instead of silently falling out of S_C.
+- A request with a genuinely incompatible resolved class is not admitted to S_C.
 
 ### 11.2 Cost accounting tests
 
