@@ -7,6 +7,7 @@ import json
 import pytest
 
 from experiments.simulation import common, cost_layer
+from experiments.subscriptions import load_subscription_plans
 from routewise_cli.main import main as routewise_main
 from rwsim.schemas import Request
 from rwsim.world.capacity import ProviderTier
@@ -20,15 +21,17 @@ def test_cost_layer_scenarios_match_section_contract():
         "cost_layer_normal",
         "cost_layer_heavy_tail",
         "cost_layer_real_world",
-        "cost_layer_quota_q1",
-        "cost_layer_quota_q2",
-        "cost_layer_quota_q3",
-        "cost_layer_quota_q4",
+        "quota__plan=chutes__n=1",
+        "quota__plan=chutes__n=2",
+        "quota__plan=chutes__n=3",
+        "quota__plan=chutes__n=4",
         "cost_layer_concurrency_c1",
         "cost_layer_concurrency_c2",
         "cost_layer_concurrency_c3",
         "cost_layer_concurrency_c4",
     )
+    assert "quota" in cost_layer.list_scenarios()
+    assert "cost_layer_quota_q1" not in cost_layer.list_scenarios()
 
 
 def test_cost_layer_make_scenario_rebuilds_real_world_by_name():
@@ -97,7 +100,11 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
 
 
 def test_workload_cost_envelope_uses_cheapest_api_request_cost():
-    scenario = cost_layer.make_scenarios()["cost_layer_quota_q1"]
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="chutes",
+        subscription_count=1,
+    )
     requests = [
         Request(id=1, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2),
         Request(
@@ -116,8 +123,8 @@ def test_workload_cost_envelope_uses_cheapest_api_request_cost():
         upper_percentile=100.0,
     )
 
-    assert pytest.approx(24e-6) == L
-    assert pytest.approx(0.024) == U
+    assert pytest.approx(6e-6) == L
+    assert pytest.approx(0.006) == U
 
 
 def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
@@ -134,13 +141,17 @@ def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
 
 
 def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
-    scenario = cost_layer.make_scenarios()["cost_layer_quota_q1"]
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="chutes",
+        subscription_count=1,
+    )
     requests = common.load_workload(max_requests=5)
 
     run = cost_layer.run_offline_policy(scenario, requests, seed=42)
 
     assert run.policy == "offline"
-    assert run.provider_fractions() == {"quota_1": 1.0}
+    assert run.provider_fractions() == {"chutes_quota": 1.0}
     assert run.mean_cost_usd() == 0.0
 
 
@@ -163,8 +174,200 @@ def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
     assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
     assert "cost_layer_real_world" in payload["sections"][0]["scenarios"]
+    assert "quota" in payload["sections"][0]["scenarios"]
+    assert "cost_layer_quota_q1" not in payload["sections"][0]["scenarios"]
     assert "offline" in payload["sections"][0]["policies"]
     assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]
+
+
+def test_subscription_plan_loader_validates_and_exposes_chutes():
+    plan = load_subscription_plans()["chutes"]
+
+    assert plan.display_name == "Chutes"
+    assert plan.monthly_fee_usd == 20.0
+    assert plan.quota_windows[0].quota_requests == 5000
+    assert plan.quota_windows[0].quota_window_sec == 86400
+    assert plan.subscription_counts == (1, 2, 3, 4)
+
+
+def test_subscription_plan_loader_exposes_minimax_tiers_with_quota_windows():
+    plans = load_subscription_plans()
+
+    assert plans["minimax_subscription_starter"].monthly_fee_usd == 10.0
+    assert plans["minimax_subscription_plus"].monthly_fee_usd == 20.0
+    assert plans["minimax_subscription_max"].monthly_fee_usd == 50.0
+    assert [window.name for window in plans["minimax_subscription_plus"].quota_windows] == [
+        "five_hour",
+        "weekly_allowance",
+    ]
+    assert [
+        window.quota_requests for window in plans["minimax_subscription_plus"].quota_windows
+    ] == [4500, 45000]
+
+
+def test_subscription_plan_loader_rejects_missing_quota_size(tmp_path):
+    path = tmp_path / "plans.yaml"
+    path.write_text(
+        """
+plans:
+  bad:
+    monthly_fee_usd: 10
+    quota_windows:
+      - name: daily
+        quota_window_sec: 86400
+    subscription_counts: [1]
+    eligible_sections: [cost_layer_quota]
+    cost_claim_allowed: true
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="quota_requests"):
+        load_subscription_plans(path)
+
+
+def test_subscription_plan_loader_rejects_cost_claim_without_fee(tmp_path):
+    path = tmp_path / "plans.yaml"
+    path.write_text(
+        """
+plans:
+  bad:
+    monthly_fee_usd: null
+    quota_windows:
+      - name: daily
+        quota_requests: 5000
+        quota_window_sec: 86400
+    subscription_counts: [1]
+    eligible_sections: [cost_layer_quota]
+    cost_claim_allowed: true
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="monthly_fee_usd"):
+        load_subscription_plans(path)
+
+
+def test_make_quota_provider_aggregates_subscription_count_into_one_quota():
+    plan = load_subscription_plans()["chutes"]
+
+    provider = common.make_quota_provider(
+        "chutes_quota",
+        plan=plan,
+        subscription_count=2,
+    )
+
+    assert provider.tier == ProviderTier.S_Q
+    assert provider.quota is not None
+    assert provider.quota.size == 10000
+    assert provider.quota.window_sec == 86400
+
+
+def test_minimax_quota_plan_uses_composite_quota_state():
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="minimax_subscription_plus",
+        subscription_count=2,
+    )
+
+    provider = scenario.providers[0]
+    assert provider.name == "minimax_subscription_plus_quota"
+    assert provider.tier == ProviderTier.S_Q
+    assert provider.quota is not None
+    assert [window.size for window in provider.quota.windows] == [9000, 90000]
+    assert [window.window_sec for window in provider.quota.windows] == [18000, 604800]
+    assert scenario.metadata["quota_windows"] == [
+        {
+            "name": "five_hour",
+            "quota_requests": 4500,
+            "quota_window_sec": 18000,
+            "aggregate_quota_requests": 9000,
+        },
+        {
+            "name": "weekly_allowance",
+            "quota_requests": 45000,
+            "quota_window_sec": 604800,
+            "aggregate_quota_requests": 90000,
+        },
+    ]
+
+
+def test_quota_saturated_flag_is_window_based():
+    plan = load_subscription_plans()["chutes"]
+    within_quota = [
+        Request(id=index, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)
+        for index in range(5000)
+    ]
+    over_quota = [
+        Request(id=index, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)
+        for index in range(5001)
+    ]
+
+    assert common.quota_saturated_in_trace(
+        plan,
+        subscription_count=1,
+        requests=within_quota,
+    )
+    assert not common.quota_saturated_in_trace(
+        plan,
+        subscription_count=1,
+        requests=over_quota,
+    )
+
+
+def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="chutes",
+        subscription_count=2,
+    )
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2),
+        Request(
+            id=1,
+            timestamp=86400.0,
+            request_tokens=10,
+            response_tokens=10,
+            total_tokens=20,
+        ),
+    ]
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    row = common.summarize_runs(
+        scenario=scenario,
+        policy="offline",
+        seeds=(42,),
+        runs=[run],
+        requests=requests,
+    )
+
+    assert row["api_cost_usd"] == 0.0
+    assert row["subscription_fixed_cost_usd"] == pytest.approx(20.0 * 2 / 30.0)
+    assert row["total_cost_usd"] == pytest.approx(
+        row["api_cost_usd"] + row["subscription_fixed_cost_usd"]
+    )
+    assert row["mean_api_cost_usd"] == 0.0
+    assert row["mean_total_cost_usd"] == pytest.approx(row["total_cost_usd"] / 2)
+    assert row["trace_paper_grade"] is False
+    assert row["quota_saturated_in_trace"] is True
+
+    two_seed_row = common.summarize_runs(
+        scenario=scenario,
+        policy="offline",
+        seeds=(42, 43),
+        runs=[run, run],
+        requests=requests,
+    )
+    assert two_seed_row["subscription_fixed_cost_usd"] == pytest.approx(
+        2 * row["subscription_fixed_cost_usd"]
+    )
+    assert two_seed_row["total_cost_usd"] == pytest.approx(
+        two_seed_row["api_cost_usd"]
+        + two_seed_row["subscription_fixed_cost_usd"]
+    )
+    assert two_seed_row["mean_total_cost_usd"] == pytest.approx(
+        two_seed_row["total_cost_usd"] / 4
+    )
 
 
 @pytest.mark.slow

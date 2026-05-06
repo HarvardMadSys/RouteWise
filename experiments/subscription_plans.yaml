@@ -1,0 +1,69 @@
+plans:
+  chutes:
+    display_name: "Chutes"
+    tier: quota
+    billing_mode: subscription
+    monthly_fee_usd: 20.0
+    quota_windows:
+      - name: daily
+        quota_requests: 5000
+        quota_window_sec: 86400
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_quota, end_to_end]
+    cost_claim_allowed: true
+    source: "experiments/offline_stage/configs/experiment.yaml subscriptions.chutes"
+    notes: "Chutes public plan: $20/mo for 5000 requests/day."
+
+  minimax_subscription_starter:
+    display_name: "MiniMax Starter"
+    tier: quota
+    billing_mode: subscription
+    monthly_fee_usd: 10.0
+    quota_windows:
+      - name: five_hour
+        quota_requests: 1500
+        quota_window_sec: 18000
+      - name: weekly_allowance
+        quota_requests: 15000
+        quota_window_sec: 604800
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_quota]
+    cost_claim_allowed: true
+    source: "User-provided MiniMax pricing screenshot, 2026-05-06"
+    notes: "$10/mo; 1500 model requests / 5h; weekly allowance is 10x the 5-hour quota."
+
+  minimax_subscription_plus:
+    display_name: "MiniMax Plus"
+    tier: quota
+    billing_mode: subscription
+    monthly_fee_usd: 20.0
+    quota_windows:
+      - name: five_hour
+        quota_requests: 4500
+        quota_window_sec: 18000
+      - name: weekly_allowance
+        quota_requests: 45000
+        quota_window_sec: 604800
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_quota]
+    cost_claim_allowed: true
+    source: "User-provided MiniMax pricing screenshot, 2026-05-06"
+    notes: "$20/mo; 4500 model requests / 5h; weekly allowance is 10x the 5-hour quota."
+
+  minimax_subscription_max:
+    display_name: "MiniMax Max"
+    tier: quota
+    billing_mode: subscription
+    monthly_fee_usd: 50.0
+    quota_windows:
+      - name: five_hour
+        quota_requests: 15000
+        quota_window_sec: 18000
+      - name: weekly_allowance
+        quota_requests: 150000
+        quota_window_sec: 604800
+    subscription_counts: [1, 2]
+    eligible_sections: [cost_layer_quota]
+    cost_claim_allowed: true
+    source: "User-provided MiniMax pricing screenshot, 2026-05-06"
+    notes: "$50/mo; 15000 model requests / 5h; weekly allowance is 10x the 5-hour quota."

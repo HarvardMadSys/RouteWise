@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
+from rwsim.world.capacity import ConcurrencyState, MultiWindowQuotaState, ProviderTier, QuotaState
 from rwsim.world.distributions import LatencyDistribution, LogNormal
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ class Provider:
     tier: ProviderTier = ProviderTier.S_A
     input_cost_per_token: float | None = None
     output_cost_per_token: float | None = None
-    quota: QuotaState | None = None
+    quota: QuotaState | MultiWindowQuotaState | None = None
     concurrency: ConcurrencyState | None = None
     service_time_dist: LatencyDistribution | None = None
     shift_time: float | None = None
@@ -166,8 +166,7 @@ class Provider:
     def reset_state(self) -> None:
         """Clear capacity state so a scenario can be re-run."""
         if self.quota is not None:
-            self.quota.used = 0
-            self.quota.window_start = 0.0
+            self.quota.reset()
         if self.concurrency is not None:
             self.concurrency.active = []
 

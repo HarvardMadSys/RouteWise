@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from rwsim.world.providers import Provider
+if TYPE_CHECKING:
+    from rwsim.world.providers import Provider
 
 
 @dataclass
@@ -18,6 +20,7 @@ class ScenarioConfig:
     duration_seconds: float = 3600.0
     arrival_process: str = "poisson"
     primary_slo_ms: float = 2000.0
+    metadata: dict[str, Any] = field(default_factory=dict)
     slo_thresholds_ms: list[float] = field(
         default_factory=lambda: [1000.0, 2000.0, 3000.0, 5000.0]
     )

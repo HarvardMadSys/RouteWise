@@ -1,4 +1,4 @@
-"""Load committed real-world latency profiles for simulator sections."""
+"""Load committed real-world latency profile artifacts for simulator sections."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ DEFAULT_POOLS_PATH = PROFILE_DIR / "pools.yaml"
 
 
 def load_profile_config(path: str | Path = DEFAULT_POOLS_PATH) -> dict[str, Any]:
-    """Load the real-profile pool configuration."""
+    """Load the real-world latency profile pool configuration."""
     config_path = Path(path)
     with config_path.open(encoding="utf-8") as handle:
         payload = yaml.safe_load(handle)
@@ -28,7 +28,7 @@ def load_pool(
     *,
     config_path: str | Path = DEFAULT_POOLS_PATH,
 ) -> dict[str, EmpiricalDistribution]:
-    """Load provider-specific empirical distributions for one named pool."""
+    """Load provider-specific real-world latency distributions for one named pool."""
     config_path = Path(config_path)
     config = load_profile_config(config_path)
     pools = config.get("pools", {})
@@ -51,7 +51,7 @@ def load_pooled_distribution(
     *,
     config_path: str | Path = DEFAULT_POOLS_PATH,
 ) -> EmpiricalDistribution:
-    """Load one pooled empirical distribution from configured source providers."""
+    """Load one pooled real-world latency distribution from configured providers."""
     config_path = Path(config_path)
     config = load_profile_config(config_path)
     pooled = config.get("pooled", {})

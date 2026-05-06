@@ -16,12 +16,17 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from experiments.subscriptions import (
+    SubscriptionPlan,
+    load_subscription_plans,
+    subscription_fixed_cost_usd,
+)
 from rwsim.engine.simulator import Simulator
 from rwsim.metrics import RunAggregate
 from rwsim.metrics.histogram import merge_histograms
 from rwsim.policies import build_policy
 from rwsim.schemas import Request
-from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
+from rwsim.world.capacity import ConcurrencyState, MultiWindowQuotaState, ProviderTier, QuotaState
 from rwsim.world.distributions import LogNormal, Normal, Uniform
 from rwsim.world.providers import TieredProvider
 
@@ -69,6 +74,17 @@ class SectionCellResult:
     policy: str
     seed: int
     run: Run
+
+
+@dataclass(frozen=True)
+class WorkloadTraceInfo:
+    """Trace span used for paper-facing fixed-fee accounting."""
+
+    n_requests: int
+    start_sec: float
+    end_sec: float
+    span_sec: float
+    trace_days: float
 
 
 def p_label(value: float) -> str:
@@ -168,12 +184,38 @@ def make_api_provider(
 def make_quota_provider(
     name: str,
     *,
-    quota_size: int,
+    quota_size: int | None = None,
+    plan: SubscriptionPlan | None = None,
+    subscription_count: int = 1,
     latency_family: str = "heavy_tail",
     p50_ms: float = COST_LAYER_P50_MS,
     quota_window_sec: float = 86400.0,
 ) -> TieredProvider:
     """Build a subscription/quota provider with zero marginal request cost."""
+    if plan is not None and quota_size is not None:
+        raise ValueError("make_quota_provider accepts either plan or quota_size, not both")
+    if subscription_count <= 0:
+        raise ValueError(f"subscription_count must be > 0, got {subscription_count}")
+    if plan is not None:
+        quota_windows = tuple(
+            QuotaState(
+                size=subscription_count * quota_window.quota_requests,
+                window_sec=quota_window.quota_window_sec,
+            )
+            for quota_window in plan.quota_windows
+        )
+        quota = (
+            quota_windows[0]
+            if len(quota_windows) == 1
+            else MultiWindowQuotaState(quota_windows)
+        )
+    else:
+        quota = None
+    if quota_size is None:
+        if quota is None:
+            raise ValueError("make_quota_provider requires quota_size or plan")
+    elif quota is None:
+        quota = QuotaState(size=int(quota_size), window_sec=float(quota_window_sec))
     return TieredProvider(
         name=name,
         cost_per_token=0.0,
@@ -182,7 +224,7 @@ def make_quota_provider(
         ttft_dist=make_ttft_distribution(latency_family, p50_ms),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_Q,
-        quota=QuotaState(size=quota_size, window_sec=quota_window_sec),
+        quota=quota,
     )
 
 
@@ -384,6 +426,28 @@ def load_workload(
     return list(selected)
 
 
+def workload_trace_info(requests: list[Request]) -> WorkloadTraceInfo:
+    """Return stable trace-span metadata for section summaries."""
+    if not requests:
+        return WorkloadTraceInfo(
+            n_requests=0,
+            start_sec=0.0,
+            end_sec=0.0,
+            span_sec=0.0,
+            trace_days=0.0,
+        )
+    start = float(requests[0].timestamp)
+    end = float(requests[-1].timestamp)
+    span = max(end - start, 0.0)
+    return WorkloadTraceInfo(
+        n_requests=len(requests),
+        start_sec=start,
+        end_sec=end,
+        span_sec=span,
+        trace_days=span / 86400.0,
+    )
+
+
 def _select_cached_requests(
     requests: tuple[Request, ...],
     *,
@@ -564,24 +628,130 @@ def _cheapest_api_cost_for_request(
     return min(api_costs)
 
 
+def quota_saturated_in_trace(
+    plan: SubscriptionPlan,
+    *,
+    subscription_count: int,
+    requests: list[Request],
+) -> bool:
+    """Return the design-doc quota saturation flag for one plan/count.
+
+    Per the current design doc, this is true when every quota window has enough
+    aggregate capacity to cover every request in that window. Such runs do not
+    exercise quota scarcity and should be excluded from main q-sweep plots.
+    """
+    if not requests:
+        return True
+    trace_start = float(requests[0].timestamp)
+    for quota_window in plan.quota_windows:
+        capacity = quota_window.quota_requests * int(subscription_count)
+        counts: dict[int, int] = {}
+        for request in requests:
+            window_id = int(
+                (float(request.timestamp) - trace_start)
+                // quota_window.quota_window_sec
+            )
+            counts[window_id] = counts.get(window_id, 0) + 1
+        if any(count > capacity for count in counts.values()):
+            return False
+    return True
+
+
+def _subscription_summary_fields(
+    *,
+    scenario: ScenarioConfig,
+    requests: list[Request],
+    trace_info: WorkloadTraceInfo,
+    api_cost_usd: float,
+    mean_denominator: int,
+    run_count: int,
+) -> dict[str, Any]:
+    metadata = dict(getattr(scenario, "metadata", {}) or {})
+    plan_id = metadata.get("subscription_plan")
+    fields: dict[str, Any] = {
+        "public_scenario": metadata.get("public_scenario", scenario.name),
+        "artifact_label": metadata.get("artifact_label", scenario.name),
+        "subscription_plan": plan_id,
+        "subscription_count": metadata.get("subscription_count"),
+        "api_cost_usd": float(api_cost_usd),
+        "subscription_fixed_cost_usd": 0.0,
+        "total_cost_usd": float(api_cost_usd),
+        "mean_api_cost_usd": (
+            float(api_cost_usd) / mean_denominator
+            if mean_denominator
+            else float("nan")
+        ),
+        "mean_total_cost_usd": (
+            float(api_cost_usd) / mean_denominator
+            if mean_denominator
+            else float("nan")
+        ),
+        "subscription_cost_known": True,
+        "cost_claim_allowed": True,
+        "trace_paper_grade": True,
+        "quota_saturated_in_trace": None,
+        "trace_days": trace_info.trace_days,
+    }
+    if plan_id is None:
+        return fields
+
+    plan = load_subscription_plans()[str(plan_id)]
+    subscription_count = int(metadata.get("subscription_count") or 1)
+    fixed_cost = subscription_fixed_cost_usd(
+        plan,
+        subscription_count=subscription_count,
+        trace_days=trace_info.trace_days,
+    ) * run_count
+    total_cost = float(api_cost_usd) + fixed_cost
+    min_window_sec = min(window.quota_window_sec for window in plan.quota_windows)
+    trace_paper_grade = trace_info.trace_days >= 5.0 * min_window_sec / 86400.0
+    fields.update(
+        {
+            "subscription_plan": plan.plan_id,
+            "subscription_plan_display_name": plan.display_name,
+            "subscription_count": subscription_count,
+            "subscription_fixed_cost_usd": fixed_cost,
+            "total_cost_usd": total_cost,
+            "mean_total_cost_usd": (
+                total_cost / mean_denominator
+                if mean_denominator
+                else float("nan")
+            ),
+            "subscription_cost_known": plan.subscription_cost_known,
+            "cost_claim_allowed": plan.cost_claim_allowed,
+            "trace_paper_grade": trace_paper_grade,
+            "quota_saturated_in_trace": quota_saturated_in_trace(
+                plan,
+                subscription_count=subscription_count,
+                requests=requests,
+            ),
+        }
+    )
+    return fields
+
+
 def summarize_runs(
     *,
     scenario: ScenarioConfig,
     policy: str,
     seeds: tuple[int, ...],
     runs: list[Run],
+    requests: list[Request] | None = None,
+    trace_info: WorkloadTraceInfo | None = None,
 ) -> dict[str, Any]:
     """Aggregate section metrics across seeds."""
     aggregate = _merge_run_aggregates(runs)
     total = aggregate.n
     ttft_histogram = aggregate.ttft_histogram
+    trace_info = trace_info or workload_trace_info(requests or [])
+    api_cost_usd = float(aggregate.total_cost_usd)
 
     def percentile(pct: float) -> float:
         if total == 0:
             return float("nan")
         return ttft_histogram.quantile(pct / 100.0)
 
-    return {
+    row = {
         "scenario": scenario.name,
         "policy": policy,
         "seeds": list(seeds),
@@ -593,12 +763,6 @@ def summarize_runs(
         "p75_ms": percentile(75),
         "p90_ms": percentile(90),
         "p99_ms": percentile(99),
-        "mean_cost_usd": (
-            aggregate.total_cost_usd / aggregate.cost_count
-            if aggregate.cost_count
-            else float("nan")
-        ),
-        "total_cost_usd": float(aggregate.total_cost_usd),
         "slo_violation_rate": (
             aggregate.slo_violated_count / total if total else 0.0
         ),
@@ -612,6 +776,17 @@ def summarize_runs(
         "percentile_source": "histogram",
         "histogram_bins": int(ttft_histogram.bin_edges_ms.size - 1),
     }
+    row.update(
+        _subscription_summary_fields(
+            scenario=scenario,
+            requests=requests or [],
+            trace_info=trace_info,
+            api_cost_usd=api_cost_usd,
+            mean_denominator=aggregate.cost_count,
+            run_count=len(runs),
+        )
+    )
+    return row
 
 
 def run_section(
@@ -646,7 +821,7 @@ def run_section(
         for seed in seeds
     ]
     if jobs == 1:
-        results, loaded_requests = _run_section_serial(
+        results, requests = _run_section_serial(
             scenarios=scenarios,
             cells=cells,
             presets=presets,
@@ -673,7 +848,11 @@ def run_section(
             jobs=jobs,
             parallel_cell_runner=parallel_cell_runner,
         )
-        loaded_requests = _processed_request_count(results)
+        requests = load_workload(
+            dataset=workload_dataset,
+            duration_sec=duration_sec,
+            max_requests=max_requests,
+        )
         execution_mode = "parallel"
 
     rows = _write_section_outputs(
@@ -686,7 +865,7 @@ def run_section(
         workload_dataset=workload_dataset,
         duration_sec=duration_sec,
         max_requests=max_requests,
-        loaded_requests=loaded_requests,
+        requests=requests,
         jobs=jobs,
         execution_mode=execution_mode,
     )
@@ -703,7 +882,7 @@ def _run_section_serial(
     duration_sec: float | None,
     max_requests: int | None,
     retain_records: bool,
-) -> tuple[list[SectionCellResult], int]:
+) -> tuple[list[SectionCellResult], list[Request]]:
     requests = load_workload(
         dataset=workload_dataset,
         duration_sec=duration_sec,
@@ -736,7 +915,7 @@ def _run_section_serial(
                 run=run,
             )
         )
-    return results, len(requests)
+    return results, requests
 
 
 def _run_section_parallel(
@@ -803,7 +982,7 @@ def _write_section_outputs(
     workload_dataset: str,
     duration_sec: float | None,
     max_requests: int | None,
-    loaded_requests: int,
+    requests: list[Request],
     jobs: int,
     execution_mode: str,
 ) -> list[dict[str, Any]]:
@@ -818,6 +997,7 @@ def _write_section_outputs(
         by_group[(result.scenario_name, result.policy)].append(result.run)
         by_seed[(result.scenario_name, result.policy, result.seed)] = result.run
 
+    trace_info = workload_trace_info(requests)
     for scenario in scenarios.values():
         for policy in policies:
             runs = by_group[(scenario.name, policy)]
@@ -828,6 +1008,8 @@ def _write_section_outputs(
                     policy=policy,
                     seeds=seeds,
                     runs=runs,
+                    requests=requests,
+                    trace_info=trace_info,
                 )
             )
             histogram_rows.append(
@@ -869,8 +1051,12 @@ def _write_section_outputs(
         "workload_dataset": workload_dataset,
         "duration_sec": duration_sec,
         "max_requests": max_requests,
-        "loaded_requests": loaded_requests,
-        "processed_requests_per_cell": loaded_requests,
+        "loaded_requests": trace_info.n_requests,
+        "processed_requests_per_cell": trace_info.n_requests,
+        "trace_start_sec": trace_info.start_sec,
+        "trace_end_sec": trace_info.end_sec,
+        "trace_span_sec": trace_info.span_sec,
+        "trace_days": trace_info.trace_days,
         "jobs": jobs,
         "execution_mode": execution_mode,
     }
@@ -880,15 +1066,6 @@ def _write_section_outputs(
     write_json(root / "ttft_histograms_by_seed.json", per_seed_histogram_rows)
     write_summary_csv(root / "summary.csv", rows)
     return rows
-
-
-def _processed_request_count(results: list[SectionCellResult]) -> int:
-    if not results:
-        return 0
-    run = results[0].run
-    if run.aggregate is not None:
-        return run.aggregate.n
-    return len(run.records)
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -902,6 +1079,11 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "scenario",
+        "public_scenario",
+        "artifact_label",
+        "subscription_plan",
+        "subscription_plan_display_name",
+        "subscription_count",
         "policy",
         "seeds",
         "n_requests",
@@ -912,8 +1094,16 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "p75_ms",
         "p90_ms",
         "p99_ms",
-        "mean_cost_usd",
+        "mean_api_cost_usd",
+        "mean_total_cost_usd",
+        "api_cost_usd",
+        "subscription_fixed_cost_usd",
         "total_cost_usd",
+        "subscription_cost_known",
+        "cost_claim_allowed",
+        "trace_paper_grade",
+        "quota_saturated_in_trace",
+        "trace_days",
         "slo_violation_rate",
         "hedge_rate",
         "provider_mix",
@@ -987,6 +1177,7 @@ __all__ = [
     "WORKLOAD_COST_ENVELOPE",
     "SectionCell",
     "SectionCellResult",
+    "WorkloadTraceInfo",
     "ensure_workload_cache",
     "load_workload",
     "make_api_provider",
@@ -995,12 +1186,14 @@ __all__ = [
     "make_routewise_presets",
     "make_ttft_distribution",
     "p_label",
+    "quota_saturated_in_trace",
     "routewise_hedging_policy_name",
     "routewise_lp_policy_name",
     "run_policy",
     "run_section",
     "summarize_runs",
     "workload_cost_envelope",
+    "workload_trace_info",
     "write_json",
     "write_summary_csv",
 ]

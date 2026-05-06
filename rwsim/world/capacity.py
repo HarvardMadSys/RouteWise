@@ -51,6 +51,42 @@ class QuotaState:
         self.roll_window(now)
         self.used += 1
 
+    def reset(self) -> None:
+        """Reset mutable quota state."""
+        self.used = 0
+        self.window_start = 0.0
+
+
+@dataclass
+class MultiWindowQuotaState:
+    """Mutable quota tracker for plans with multiple simultaneous windows."""
+
+    windows: tuple[QuotaState, ...]
+
+    def __post_init__(self) -> None:
+        if not self.windows:
+            raise ValueError("MultiWindowQuotaState requires at least one window")
+
+    def fraction_used(self, now: float) -> float:
+        """Return the tightest quota usage fraction across all windows."""
+        return max(window.fraction_used(now) for window in self.windows)
+
+    def can_admit(self, now: float) -> bool:
+        """Return whether every quota window has capacity."""
+        return all(window.can_admit(now) for window in self.windows)
+
+    def charge(self, now: float) -> None:
+        """Consume one quota unit from every window."""
+        if not self.can_admit(now):
+            raise RuntimeError("Multi-window quota exceeded")
+        for window in self.windows:
+            window.charge(now)
+
+    def reset(self) -> None:
+        """Reset every quota window."""
+        for window in self.windows:
+            window.reset()
+
 
 @dataclass
 class ConcurrencyState:
@@ -93,9 +129,8 @@ class ConcurrencyState:
 
         event_points = {start}
         for t_start, t_end, _ in self.active:
-            if t_start < end and start < t_end:
-                if start <= t_start < end:
-                    event_points.add(t_start)
+            if t_start < end and start < t_end and start <= t_start < end:
+                event_points.add(t_start)
 
         return all(self._active_count_at(point) < self.limit for point in event_points)
 
@@ -113,6 +148,7 @@ class ConcurrencyState:
 
 __all__ = [
     "ConcurrencyState",
+    "MultiWindowQuotaState",
     "ProviderTier",
     "QuotaState",
 ]

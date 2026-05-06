@@ -7,9 +7,9 @@ installed.
 
 from __future__ import annotations
 
-
 _EXPORT_MODULES = {
     "ConcurrencyState": "rwsim.world.capacity",
+    "MultiWindowQuotaState": "rwsim.world.capacity",
     "ProviderTier": "rwsim.world.capacity",
     "QuotaState": "rwsim.world.capacity",
     "HeavyTail": "rwsim.world.distributions",
