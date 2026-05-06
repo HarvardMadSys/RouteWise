@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from experiments.subscriptions import (
     SubscriptionPlan,
@@ -1098,32 +1099,34 @@ def _run_section_serial(
         max_requests=max_requests,
     )
     results: list[SectionCellResult] = []
-    for cell in cells:
-        scenario = scenarios[cell.scenario_name]
-        if cell.policy in section_runners:
-            run = section_runners[cell.policy](
-                scenario,
-                requests,
-                cell.seed,
-                retain_records=retain_records,
+    with _section_progress(cells, total=len(cells), desc="RouteWise cells") as progress:
+        for cell in progress:
+            _set_progress_cell(progress, cell)
+            scenario = scenarios[cell.scenario_name]
+            if cell.policy in section_runners:
+                run = section_runners[cell.policy](
+                    scenario,
+                    requests,
+                    cell.seed,
+                    retain_records=retain_records,
+                )
+            else:
+                run = run_policy(
+                    scenario,
+                    requests,
+                    cell.policy,
+                    presets=presets,
+                    seed=cell.seed,
+                    retain_records=retain_records,
+                )
+            results.append(
+                SectionCellResult(
+                    scenario_name=cell.scenario_name,
+                    policy=cell.policy,
+                    seed=cell.seed,
+                    run=run,
+                )
             )
-        else:
-            run = run_policy(
-                scenario,
-                requests,
-                cell.policy,
-                presets=presets,
-                seed=cell.seed,
-                retain_records=retain_records,
-            )
-        results.append(
-            SectionCellResult(
-                scenario_name=cell.scenario_name,
-                policy=cell.policy,
-                seed=cell.seed,
-                run=run,
-            )
-        )
     return results, requests
 
 
@@ -1165,8 +1168,16 @@ def _run_section_parallel(
             )
             for cell in cells
         ]
-        for future in as_completed(futures):
-            results.append(future.result())
+        completed = as_completed(futures)
+        with _section_progress(
+            completed,
+            total=len(futures),
+            desc="RouteWise cells",
+        ) as progress:
+            for future in progress:
+                result = future.result()
+                _set_progress_result(progress, result)
+                results.append(result)
     order = {cell: index for index, cell in enumerate(cells)}
     return sorted(
         results,
@@ -1177,6 +1188,35 @@ def _run_section_parallel(
                 seed=result.seed,
             )
         ],
+    )
+
+
+def _section_progress(iterable, *, total: int | None = None, desc: str):
+    """Return a polished progress bar for section-level experiment cells."""
+    return tqdm(
+        iterable,
+        total=total,
+        desc=desc,
+        unit="cell",
+        dynamic_ncols=True,
+        smoothing=0.1,
+        colour="cyan",
+    )
+
+
+def _set_progress_cell(progress, cell: SectionCell) -> None:
+    """Show the currently running serial cell without widening the bar too much."""
+    progress.set_postfix_str(
+        f"{cell.scenario_name} / {cell.policy} / seed={cell.seed}",
+        refresh=False,
+    )
+
+
+def _set_progress_result(progress, result: SectionCellResult) -> None:
+    """Show the latest completed parallel cell."""
+    progress.set_postfix_str(
+        f"done {result.scenario_name} / {result.policy} / seed={result.seed}",
+        refresh=False,
     )
 
 

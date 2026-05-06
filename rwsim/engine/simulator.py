@@ -383,7 +383,7 @@ def _provider_rngs(seed: int, providers: Sequence[Provider]) -> dict[str, np.ran
         if provider.name in rngs:
             raise ValueError(f"duplicate provider name: {provider.name!r}")
         digest = hashlib.blake2b(
-            f"{seed}:{provider.name}".encode("utf-8"),
+            f"{seed}:{provider.name}".encode(),
             digest_size=16,
         ).digest()
         rngs[provider.name] = np.random.default_rng(int.from_bytes(digest, "little"))
