@@ -15,6 +15,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import FixedLocator, NullFormatter, ScalarFormatter
 
 from plots.helpers import save_figure
 from plots.style import apply_style
@@ -35,6 +36,13 @@ SCENARIO_LABELS = {
     "cost_layer_real_world": "Real-world",
 }
 
+SCENARIO_SLUGS = {
+    "cost_layer_uniform": "uniform",
+    "cost_layer_normal": "normal",
+    "cost_layer_heavy_tail": "heavy_tail",
+    "cost_layer_real_world": "real_world",
+}
+
 POLICIES = (
     "greedy_cost",
     "random",
@@ -49,10 +57,10 @@ CDF_POLICIES = (
 )
 
 POLICY_LABELS = {
-    "greedy_cost": "Greedy-cost",
+    "greedy_cost": "Greedy",
     "random": "Random",
     "offline": "Offline",
-    "ablation_lp_only_p0": "RouteWise p=0",
+    "ablation_lp_only_p0": "RW p=0",
 }
 
 POLICY_COLORS = {
@@ -81,10 +89,54 @@ PROVIDER_LABELS = {
 }
 
 PROVIDER_COLORS = {
-    "api_cheap": "#2ca02c",
-    "api_mid": "#ff7f0e",
-    "api_expensive": "#d62728",
+    "api_cheap": "#4C78A8",
+    "api_mid": "#F58518",
+    "api_expensive": "#E45756",
 }
+
+
+def apply_on_demand_style() -> None:
+    """Use compact paper-panel typography for standalone figure snippets."""
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 8,
+            "axes.labelsize": 8,
+            "axes.titlesize": 9,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 7,
+            "lines.linewidth": 1.6,
+            "axes.linewidth": 0.8,
+            "grid.linewidth": 0.5,
+            "savefig.pad_inches": 0.02,
+            # Embed TrueType fonts so reviewers can ctrl-F text inside the PDF
+            # and publishers do not reject path-encoded glyphs.
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "font.family": "sans-serif",
+            "font.sans-serif": [
+                "Helvetica",
+                "Arial",
+                "DejaVu Sans",
+            ],
+        }
+    )
+
+
+def _log_axis_human_ticks(
+    ax: plt.Axes,
+    *,
+    axis: str = "x",
+    ticks: tuple[float, ...] = (100.0, 200.0, 300.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0),
+) -> None:
+    """Replace matplotlib's ``2 × 10²`` style log ticks with plain numbers."""
+    target = ax.xaxis if axis == "x" else ax.yaxis
+    target.set_major_locator(FixedLocator(list(ticks)))
+    formatter = ScalarFormatter()
+    formatter.set_scientific(False)
+    target.set_major_formatter(formatter)
+    target.set_minor_formatter(NullFormatter())
 
 
 def load_summary(input_dir: Path) -> list[dict[str, str]]:
@@ -140,86 +192,94 @@ def histogram_for(
     raise KeyError(f"missing histogram for scenario={scenario!r}, policy={policy!r}")
 
 
-def plot_total_cost(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Plot total cost over the full workload."""
-    fig, ax = plt.subplots(figsize=(8.8, 3.8))
-    x_pos = np.arange(len(SCENARIOS))
-    width = 0.18
+def plot_total_cost(
+    rows: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    scenario: str,
+) -> None:
+    """Plot total cost over the full workload for one scenario."""
+    fig, ax = plt.subplots(figsize=(3.0, 1.85))
+    y_pos = np.arange(len(POLICIES))
+    costs = [
+        float(summary_row(rows, scenario=scenario, policy=policy)["total_cost_usd"])
+        for policy in POLICIES
+    ]
+    ax.barh(
+        y_pos,
+        costs,
+        color=[POLICY_COLORS[policy] for policy in POLICIES],
+        height=0.62,
+    )
 
-    for idx, policy in enumerate(POLICIES):
-        costs = [
-            float(summary_row(rows, scenario=scenario, policy=policy)["total_cost_usd"])
-            for scenario in SCENARIOS
-        ]
-        ax.bar(
-            x_pos + (idx - 1.5) * width,
-            costs,
-            width,
-            label=POLICY_LABELS[policy],
-            color=POLICY_COLORS[policy],
-        )
-
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels([SCENARIO_LABELS[scenario] for scenario in SCENARIOS])
-    ax.set_ylabel("Total cost over 30-day trace ($)")
-    ax.set_title("Cost layer 1.1: same latency, different on-demand prices")
-    ax.legend(ncols=2, frameon=False, fontsize=9)
-    ax.grid(axis="y", alpha=0.25)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels([POLICY_LABELS[policy] for policy in POLICIES])
+    ax.invert_yaxis()
+    ax.set_xlabel("Total cost ($)")
+    ax.grid(axis="x", alpha=0.22)
+    xmax = max(costs) * 1.16
+    ax.set_xlim(0.0, xmax)
+    for y, cost in zip(y_pos, costs, strict=True):
+        label = f"${cost / 1000:.1f}k" if cost >= 1000 else f"${cost:.0f}"
+        ax.text(cost + xmax * 0.015, y, label, va="center", fontsize=7)
     save_figure(
         fig,
         output_dir,
-        "cost_layer_1_1_total_cost",
-        formats=["png", "pdf"],
+        f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_total_cost",
+        formats=["pdf"],
     )
     plt.close(fig)
 
 
-def plot_provider_mix(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Plot provider routing fractions."""
-    fig, axes = plt.subplots(1, 4, figsize=(12.0, 3.3), sharey=True)
-
-    for ax, scenario in zip(axes, SCENARIOS, strict=True):
-        x_pos = np.arange(len(POLICIES))
-        bottom = np.zeros(len(POLICIES))
-        for provider in PROVIDER_ORDER:
-            values = []
-            for policy in POLICIES:
+def plot_provider_mix(
+    rows: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    scenario: str,
+) -> None:
+    """Plot provider routing fractions for one scenario."""
+    fig, ax = plt.subplots(figsize=(3.1, 2.05))
+    y_pos = np.arange(len(POLICIES))
+    bottom = np.zeros(len(POLICIES))
+    for provider in PROVIDER_ORDER:
+        values = []
+        for policy in POLICIES:
                 row = summary_row(rows, scenario=scenario, policy=policy)
                 mix = json.loads(row["provider_mix"])
                 values.append(float(mix.get(provider, 0.0)))
-            ax.bar(
-                x_pos,
-                values,
-                bottom=bottom,
-                color=PROVIDER_COLORS[provider],
-                label=PROVIDER_LABELS[provider],
-            )
-            bottom += np.asarray(values)
-
-        ax.set_title(SCENARIO_LABELS[scenario])
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(
-            [POLICY_LABELS[policy].replace(" ", "\n") for policy in POLICIES],
-            fontsize=8,
+        ax.barh(
+            y_pos,
+            values,
+            left=bottom,
+            color=PROVIDER_COLORS[provider],
+            label=PROVIDER_LABELS[provider],
+            height=0.62,
         )
-        ax.set_ylim(0.0, 1.0)
-        ax.grid(axis="y", alpha=0.2)
+        bottom += np.asarray(values)
 
-    axes[0].set_ylabel("Fraction of requests")
-    handles, labels = axes[-1].get_legend_handles_labels()
-    fig.legend(
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels([POLICY_LABELS[policy] for policy in POLICIES])
+    ax.invert_yaxis()
+    ax.set_xlabel("Request fraction")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_xticks([0.0, 0.5, 1.0])
+    ax.grid(axis="x", alpha=0.22)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(
         handles,
         labels,
         ncols=3,
         frameon=False,
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.08),
+        bbox_to_anchor=(0.5, 1.17),
+        columnspacing=0.8,
+        handlelength=1.3,
     )
     save_figure(
         fig,
         output_dir,
-        "cost_layer_1_1_provider_mix",
-        formats=["png", "pdf"],
+        f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_provider_mix",
+        formats=["pdf"],
     )
     plt.close(fig)
 
@@ -228,88 +288,183 @@ def plot_ttft_cdf(
     summary_rows: list[dict[str, str]],
     histogram_rows: list[dict[str, Any]],
     output_dir: Path,
+    *,
+    scenario: str,
 ) -> None:
-    """Plot TTFT CDF sanity check from histogram artifacts."""
-    fig, axes = plt.subplots(2, 2, figsize=(9.5, 6.8), sharey=True)
+    """Plot TTFT CDF sanity check for one scenario."""
+    fig, ax = plt.subplots(figsize=(3.1, 2.15))
 
-    for ax, scenario in zip(axes.ravel(), SCENARIOS, strict=True):
-        for policy in CDF_POLICIES:
-            histogram = histogram_for(histogram_rows, scenario=scenario, policy=policy)
-            summary = summary_row(summary_rows, scenario=scenario, policy="greedy_cost")
-            x_min = max(float(summary["p10_ms"]) * 0.6, 1.0)
-            x_max = max(float(summary["p99_ms"]) * 1.6, x_min * 1.1)
-            x_values = np.geomspace(
-                x_min,
-                x_max,
-                512,
-            )
-            y_values = np.asarray([histogram.cdf(value) for value in x_values])
-            ax.plot(
-                x_values,
-                y_values,
-                label=POLICY_LABELS[policy],
-                color=POLICY_COLORS[policy],
-                linestyle=POLICY_LINESTYLES[policy],
-                linewidth=2.0,
-                alpha=0.95,
-            )
-
-        row = summary_row(summary_rows, scenario=scenario, policy="greedy_cost")
-        p50_ms = float(row["p50_ms"])
-        p99_ms = float(row["p99_ms"])
-        ax.axvline(p50_ms, color="black", linestyle=":", linewidth=1.0, alpha=0.45)
-        ax.axvline(p99_ms, color="black", linestyle="--", linewidth=1.0, alpha=0.45)
-        ax.text(
-            0.03,
-            0.08,
-            f"P50={p50_ms:.0f}ms\nP99={p99_ms:.0f}ms",
-            transform=ax.transAxes,
-            fontsize=9,
+    for policy in CDF_POLICIES:
+        histogram = histogram_for(histogram_rows, scenario=scenario, policy=policy)
+        summary = summary_row(summary_rows, scenario=scenario, policy="greedy_cost")
+        x_min = max(float(summary["p10_ms"]) * 0.6, 1.0)
+        x_max = max(float(summary["p99_ms"]) * 1.6, x_min * 1.1)
+        x_values = np.geomspace(
+            x_min,
+            x_max,
+            512,
         )
-        ax.set_title(SCENARIO_LABELS[scenario], fontsize=13, pad=4)
-        ax.set_xscale("log")
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(0.0, 1.01)
-        ax.grid(True, which="both", alpha=0.18)
-        ax.tick_params(axis="both", labelsize=9)
+        y_values = np.asarray([histogram.cdf(value) for value in x_values])
+        ax.plot(
+            x_values,
+            y_values,
+            label=POLICY_LABELS[policy],
+            color=POLICY_COLORS[policy],
+            linestyle=POLICY_LINESTYLES[policy],
+            linewidth=1.8,
+            alpha=0.95,
+        )
 
-    for ax in axes[1, :]:
-        ax.set_xlabel("TTFT (ms, log scale)", fontsize=11)
-    for ax in axes[:, 0]:
-        ax.set_ylabel("CDF", fontsize=11)
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(
+    row = summary_row(summary_rows, scenario=scenario, policy="greedy_cost")
+    p50_ms = float(row["p50_ms"])
+    p99_ms = float(row["p99_ms"])
+    ax.axvline(p50_ms, color="black", linestyle=":", linewidth=1.0, alpha=0.45)
+    ax.axvline(p99_ms, color="black", linestyle="--", linewidth=1.0, alpha=0.45)
+    ax.text(
+        0.03,
+        0.08,
+        f"P50={p50_ms:.0f}ms\nP99={p99_ms:.0f}ms",
+        transform=ax.transAxes,
+        fontsize=7,
+    )
+    ax.set_xscale("log")
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(0.0, 1.01)
+    _log_axis_human_ticks(ax, axis="x")
+    ax.grid(True, which="both", alpha=0.18)
+    ax.set_xlabel("TTFT (ms)")
+    ax.set_ylabel("CDF")
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(
         handles,
         labels,
         ncols=3,
         frameon=False,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.99),
-        fontsize=10,
+        bbox_to_anchor=(0.5, 1.18),
+        columnspacing=0.8,
+        handlelength=1.5,
     )
-    fig.suptitle(
-        "Cost layer 1.1 TTFT distribution sanity check",
-        y=1.06,
-        fontsize=14,
-    )
-    fig.subplots_adjust(top=0.82, hspace=0.32, wspace=0.18)
     save_figure(
         fig,
         output_dir,
-        "cost_layer_1_1_ttft_cdf",
-        formats=["png", "pdf"],
+        f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_ttft_cdf",
+        formats=["pdf"],
     )
     plt.close(fig)
 
 
+def write_cost_table(
+    rows: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    scenario: str,
+) -> None:
+    """Emit per-scenario cost table (CSV) accompanying the cost bar chart.
+
+    Juncheng's metric list calls for "cost (bar AND table)". The bar chart
+    shows the magnitude visually; this table is for paper text/appendix
+    citation and lets the cost claim survive without re-reading the figure.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_cost_table.csv"
+    offline_cost = float(summary_row(rows, scenario=scenario, policy="offline")["total_cost_usd"])
+    fieldnames = (
+        "policy",
+        "n_requests",
+        "total_cost_usd",
+        "mean_cost_usd",
+        "vs_offline",
+    )
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for policy in POLICIES:
+            row = summary_row(rows, scenario=scenario, policy=policy)
+            total = float(row["total_cost_usd"])
+            writer.writerow(
+                {
+                    "policy": POLICY_LABELS[policy],
+                    "n_requests": row["n_requests"],
+                    "total_cost_usd": f"{total:.6f}",
+                    "mean_cost_usd": f"{float(row['mean_cost_usd']):.9f}",
+                    "vs_offline": (
+                        f"{total / offline_cost:.4f}" if offline_cost > 0 else "n/a"
+                    ),
+                }
+            )
+    print(f"Saved: {path}")
+
+
+def write_latency_percentile_table(
+    rows: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    scenario: str,
+) -> None:
+    """Emit per-scenario latency percentile table covering Juncheng's full set.
+
+    Captures mean / P10 / P25 / P50 / P75 / P90 / P99. Juncheng explicitly
+    asked us to gather the wider percentile range, not just headline P50/P99.
+
+    SLO violation rate is intentionally NOT included here. The cost layer is
+    a controlled experiment over cost only — latency is held identical across
+    providers by construction, so SLO violation is a property of the chosen
+    distribution, not of the routing policy. The simulator still records
+    `slo_violation_rate` in `summary.csv` for latency-layer / hedging /
+    end-to-end sections to consume; cost-layer paper artifacts should not
+    surface it.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_latency_table.csv"
+    fieldnames = (
+        "policy",
+        "mean_ttft_ms",
+        "p10_ms",
+        "p25_ms",
+        "p50_ms",
+        "p75_ms",
+        "p90_ms",
+        "p99_ms",
+    )
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for policy in POLICIES:
+            row = summary_row(rows, scenario=scenario, policy=policy)
+            writer.writerow(
+                {
+                    "policy": POLICY_LABELS[policy],
+                    "mean_ttft_ms": f"{float(row['mean_ttft_ms']):.3f}",
+                    "p10_ms": f"{float(row['p10_ms']):.3f}",
+                    "p25_ms": f"{float(row['p25_ms']):.3f}",
+                    "p50_ms": f"{float(row['p50_ms']):.3f}",
+                    "p75_ms": f"{float(row['p75_ms']):.3f}",
+                    "p90_ms": f"{float(row['p90_ms']):.3f}",
+                    "p99_ms": f"{float(row['p99_ms']):.3f}",
+                }
+            )
+    print(f"Saved: {path}")
+
+
 def make_on_demand_plots(input_dir: Path, output_dir: Path) -> None:
-    """Generate all cost-layer on-demand simulator figures."""
-    apply_style("paper")
+    """Generate all cost-layer on-demand simulator figures and tables.
+
+    Per Juncheng's Notion metric list, every scenario emits all four
+    artifacts: cost (bar + table), provider fraction (stacked bar),
+    TTFT distribution (CDF), and latency percentile table covering
+    mean / P10 / P25 / P50 / P75 / P90 / P99. Final paper figure
+    selection is editorial and happens later.
+    """
+    apply_on_demand_style()
     summary_rows = load_summary(input_dir)
     histogram_rows = load_histograms(input_dir)
-    plot_total_cost(summary_rows, output_dir)
-    plot_provider_mix(summary_rows, output_dir)
-    plot_ttft_cdf(summary_rows, histogram_rows, output_dir)
+    for scenario in SCENARIOS:
+        plot_total_cost(summary_rows, output_dir, scenario=scenario)
+        write_cost_table(summary_rows, output_dir, scenario=scenario)
+        plot_provider_mix(summary_rows, output_dir, scenario=scenario)
+        plot_ttft_cdf(summary_rows, histogram_rows, output_dir, scenario=scenario)
+        write_latency_percentile_table(summary_rows, output_dir, scenario=scenario)
 
 
 def main(argv: list[str] | None = None) -> int:
