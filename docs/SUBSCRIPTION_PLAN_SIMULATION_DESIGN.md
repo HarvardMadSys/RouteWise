@@ -590,6 +590,22 @@ zero-queue / immediate-admission only. Queueing policy belongs to later
 end-to-end experiments where SLO and latency behavior are part of the paper
 question.
 
+The §1.3 main figure should use `featherless_premium` only. Do not migrate
+the legacy `featherless_scale` entry from
+`experiments/offline_stage/configs/experiment.yaml` into
+`experiments/subscription_plans.yaml` or tag it with
+`eligible_sections: [cost_layer_concurrency]`: it combines a non-current
+`$75 / C=8` plan with a 70B-class `concurrency_cost=2`, while Featherless
+docs keep 70B-class model cost at `4`. The higher effective concurrency
+points are already covered by the Premium count sweep:
+
+| Setting | Weighted capacity | 70B cost | Effective 70B concurrency |
+|---|---:|---:|---:|
+| `featherless_premium`, `n=1` | 4 | 4 | 1 |
+| `featherless_premium`, `n=2` | 8 | 4 | 2 |
+| `featherless_premium`, `n=3` | 12 | 4 | 3 |
+| `featherless_premium`, `n=4` | 16 | 4 | 4 |
+
 
 ---
 
@@ -984,6 +1000,9 @@ For Featherless-style concurrency:
 - Utilization must be reported in weighted capacity units. For example, a
   single in-flight 70B request at cost 4 is 100% utilization of one Premium
   subscription, not 25%.
+- The main §1.3 sweep should report `featherless_premium × n`, not
+  `featherless_scale`; Premium `n=1..4` already covers 70B effective
+  concurrency `1..4` with facts that match current public docs.
 
 ---
 
@@ -1220,6 +1239,7 @@ Do not include these in the first implementation:
 | Buying decision optimizer | `q1..q4` sweep is the optimizer for now. |
 | Chutes live calls | This is simulator-only. |
 | Featherless live calls | §1.3 is simulator-only. Real evaluation can use the selected setting later. |
+| Legacy `featherless_scale` | The old offline-stage entry is not a current public Featherless plan and uses `concurrency_cost=2` for 70B-class models. Do not include it in §1.3 main figures. |
 | S_C queueing policy | First §1.3 is immediate-admission only; queueing belongs to end-to-end SLO experiments. |
 | MiniMax high-speed / Ultra plans | Excluded from the first §1.2 sweep. They likely require separate latency profiles and would mix pricing with model-speed changes. |
 | Full end-to-end joint setup | Separate section after cost-layer §1.2 and §1.3 are stable. |
@@ -1232,16 +1252,6 @@ Do not include these in the first implementation:
 
 1. For later end-to-end, do we use the full-month selected setting or a
    representative smaller window selected by a predeclared rule?
-
-2. The old offline-stage config contains `featherless_scale` with
-   `monthly_fee_usd=$75`, capacity `8`, and `concurrency_cost=2` for 70B-class
-   models. Current Featherless docs expose Premium plus newer business/agentic
-   plans, while the concurrency docs still describe an 8-unit scale-style
-   allotment. The concurrency docs also keep 70B-class model cost at `4`; the
-   "2 simultaneous 70B requests" result comes from `capacity=8 / cost=4`, not
-   from changing the model cost to `2`. Before making §1.3 paper dollar claims
-   for an 8-unit plan, reconcile the plan id, monthly fee, and compatibility
-   against current official pricing or a saved dashboard screenshot.
 
 The only blocker for Chutes and MiniMax Starter / Plus / Max implementation
 is composite quota support for MiniMax's 5-hour + weekly allowance. Chutes can

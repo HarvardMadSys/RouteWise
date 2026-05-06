@@ -581,6 +581,20 @@ release_finished(current_time)
 queueing policy 放到后面的 end-to-end experiments，因为那时 SLO 和 latency behavior
 才是 paper question 的一部分。
 
+§1.3 主图只应该使用 `featherless_premium`。不要把
+`experiments/offline_stage/configs/experiment.yaml` 里的 legacy `featherless_scale`
+迁移到 `experiments/subscription_plans.yaml`，也不要给它挂
+`eligible_sections: [cost_layer_concurrency]`：它同时混用了一个当前公开页面不存在的
+`$75 / C=8` plan，以及 70B-class `concurrency_cost=2`；而 Featherless docs 里
+70B-class model cost 仍然是 `4`。更高 effective concurrency 已经被 Premium count sweep 覆盖：
+
+| Setting | Weighted capacity | 70B cost | Effective 70B concurrency |
+|---|---:|---:|---:|
+| `featherless_premium`, `n=1` | 4 | 4 | 1 |
+| `featherless_premium`, `n=2` | 8 | 4 | 2 |
+| `featherless_premium`, `n=3` | 12 | 4 | 3 |
+| `featherless_premium`, `n=4` | 16 | 4 | 4 |
+
 
 ---
 
@@ -940,6 +954,8 @@ Featherless Premium result。
 - 因此 total cost 应该存在 optimum，不一定在最大的 `n`。
 - utilization 必须用 weighted capacity units 报告。例如一个 cost=4 的 70B in-flight request
   对一个 Premium subscription 是 100% utilization，不是 25%。
+- 主 §1.3 sweep 应该报告 `featherless_premium × n`，不是 `featherless_scale`；
+  Premium `n=1..4` 已经用当前公开 docs 对得上的 facts 覆盖了 70B effective concurrency `1..4`。
 
 ---
 
@@ -1157,6 +1173,7 @@ after finish_time passes, capacity is released
 | Buying decision optimizer | 目前 `q1..q4` sweep 就是 optimizer。 |
 | Chutes live calls | 这里只做 simulator。 |
 | Featherless live calls | §1.3 只做 simulator。Real evaluation 后面可以复用 selected setting。 |
+| Legacy `featherless_scale` | 旧 offline-stage entry 不是当前公开 Featherless plan，并且对 70B-class models 使用了 `concurrency_cost=2`。不要放进 §1.3 主图。 |
 | S_C queueing policy | 第一版 §1.3 只做 immediate-admission；queueing 放到 end-to-end SLO experiments。 |
 | MiniMax High-Speed / Ultra plans | 第一版 §1.2 不做。它们很可能需要独立 latency profiles，而且会把 pricing 和 model-speed 变化混在一起。 |
 | Full end-to-end joint setup | 等 cost-layer §1.2 和 §1.3 都稳定后再做。 |
@@ -1168,14 +1185,6 @@ after finish_time passes, capacity is released
 ## 13. Open Questions
 
 1. 后续 end-to-end 使用 full-month selected setting，还是使用一个按预声明规则选出的 representative smaller window？
-
-2. 旧 offline-stage config 里有 `featherless_scale`，`monthly_fee_usd=$75`、capacity `8`，
-   并且对 70B-class models 写了 `concurrency_cost=2`。当前 Featherless docs 展示了 Premium
-   和新的 business/agentic plans，同时 concurrency docs 仍然描述了 8-unit scale-style allotment。
-   concurrency docs 里 70B-class model cost 仍然是 `4`；“两个 70B 同时跑”来自
-   `capacity=8 / cost=4`，不是把 model cost 改成 `2`。§1.3 如果要对 8-unit plan
-   做 paper dollar claim，必须先用当前官方 pricing 或保存的 dashboard 截图统一 plan id、
-   monthly fee 和 compatibility。
 
 Chutes 和 MiniMax Starter / Plus / Max 的实现 blocker 只有一个：MiniMax 的 5-hour + weekly allowance
 需要 composite quota support。Chutes 可以直接用现有 single-window quota state 跑。
