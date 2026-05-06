@@ -48,7 +48,6 @@ DEFAULT_CONCURRENCY_MODEL = "sharegpt"
 
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
 _QUOTA_LATENCY_FAMILIES = (*_SYNTHETIC_FAMILIES, "real_world")
-_CONCURRENCY_LIMIT_PER_PROVIDER = 8
 _SCENARIO_NAMES = (
     "cost_layer_uniform",
     "cost_layer_normal",
@@ -56,10 +55,6 @@ _SCENARIO_NAMES = (
     REAL_WORLD_SCENARIO,
     QUOTA_SCENARIO,
     CONCURRENCY_SCENARIO,
-    "cost_layer_concurrency_c1",
-    "cost_layer_concurrency_c2",
-    "cost_layer_concurrency_c3",
-    "cost_layer_concurrency_c4",
 )
 
 
@@ -145,10 +140,6 @@ def make_scenario(
             count,
             model=model,
         )
-    if name.startswith("cost_layer_concurrency_c"):
-        return _make_concurrency_scenario(
-            _parse_positive_suffix(name, "cost_layer_concurrency_c")
-        )
     known = ", ".join(_SCENARIO_NAMES)
     raise ValueError(f"unknown cost-layer scenario {name!r}; known scenarios: {known}")
 
@@ -163,17 +154,6 @@ def policies_for_section(
         OFFLINE_POLICY,
         *(routewise_lp_policy_name(value) for value in p_values),
     )
-
-
-def _parse_positive_suffix(name: str, prefix: str) -> int:
-    suffix = name.removeprefix(prefix)
-    try:
-        value = int(suffix)
-    except ValueError as exc:
-        raise ValueError(f"invalid cost-layer scenario name {name!r}") from exc
-    if value not in range(1, 5):
-        raise ValueError(f"cost-layer scenario count must be in [1, 4], got {value}")
-    return value
 
 
 def quota_artifact_label(
@@ -842,35 +822,6 @@ def _make_quota_scenario_for_plan(
                 for window in plan.quota_windows
             ],
         },
-    )
-
-
-def _make_concurrency_scenario(count: int) -> ScenarioConfig:
-    providers = [
-        make_concurrency_provider(
-            f"concurrency_{idx + 1}",
-            concurrency_limit=_CONCURRENCY_LIMIT_PER_PROVIDER,
-        )
-        for idx in range(count)
-    ]
-    api_count = 2 if count == 1 else 1
-    providers.extend(
-        make_api_provider(
-            f"api_fallback_{idx + 1}",
-            cost_per_million_tokens=COST_RATIO_PER_MILLION[-1],
-            latency_family="heavy_tail",
-        )
-        for idx in range(api_count)
-    )
-    return ScenarioConfig(
-        name=f"cost_layer_concurrency_c{count}",
-        description=(
-            f"Cost-layer concurrency scenario: {count} concurrency provider(s), "
-            f"{api_count} on-demand fallback provider(s), LogNormal P50={COST_LAYER_P50_MS:.0f}ms."
-        ),
-        providers=providers,
-        arrival_process="trace",
-        primary_slo_ms=2000.0,
     )
 
 

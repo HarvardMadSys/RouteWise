@@ -12,7 +12,7 @@
 ## 1. TL;DR
 
 Cost-layer §1.2 和 §1.3 应该模拟**具体的 subscription plan**，而不是匿名的
-`quota_q1..q4` 或 `concurrency_c1..c4` 资源。
+fixed-count 资源。
 
 目标文件结构：
 
@@ -71,17 +71,14 @@ table 必须包含按 trace 时长 prorate 的 fixed subscription fee。
 
 ## 2. Problem
 
-当前 cost-layer quota 和 concurrency scenarios 是泛化名字：
+旧 cost-layer quota 和 concurrency scenarios 是泛化名字：
 
 ```text
 cost_layer_quota_q1
 cost_layer_quota_q2
 cost_layer_quota_q3
 cost_layer_quota_q4
-cost_layer_concurrency_c1
-cost_layer_concurrency_c2
-cost_layer_concurrency_c3
-cost_layer_concurrency_c4
+legacy fixed-count concurrency scenarios
 ```
 
 它们的 capacity knobs 写死在 `experiments/simulation/cost_layer.py`。现在这个名字太含糊。
@@ -493,8 +490,8 @@ Concurrency 由下面的 §1.3 处理，不应该作为隐藏的额外约束混�
 
 ### 5.5 Concurrency subscription §1.3
 
-§1.3 是 §1.2 的 concurrency-plan 对应版本。它不应该继续复用旧 public scenario names
-`cost_layer_concurrency_c1..c4`。public shape 应该是：
+§1.3 是 §1.2 的 concurrency-plan 对应版本。它不应该继续复用旧 public fixed-count
+concurrency scenario names。public shape 应该是：
 
 ```text
 --scenario concurrency
@@ -925,8 +922,8 @@ full run 只在 smoke 满足以下条件后启动：
    转成一个 aggregate S_C provider。
 4. 在 `experiments/simulation/cost_layer.py` 增加 `--scenario concurrency`、
    `--concurrency-plan`、`--concurrency-count(s)` 和 `--model`。
-5. 在同一个 PR 删除旧 public `cost_layer_concurrency_c1..c4` scenarios。如果 golden migration
-   需要 alias，只保留 internal test-only alias。
+5. 在同一个 PR 删除旧 public fixed-count concurrency scenarios。如果 golden migration 需要 alias，
+   只保留 internal test-only alias。
 6. fixed-fee accounting 仍然只放在 section-summary layer，和 quota plans 一样。
 
 第一版 paper-grade smoke 使用一个显式 scenario model，例如

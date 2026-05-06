@@ -32,10 +32,6 @@ def test_cost_layer_scenarios_match_section_contract():
         "concurrency__plan=featherless_premium__n=2__model=sharegpt",
         "concurrency__plan=featherless_premium__n=3__model=sharegpt",
         "concurrency__plan=featherless_premium__n=4__model=sharegpt",
-        "cost_layer_concurrency_c1",
-        "cost_layer_concurrency_c2",
-        "cost_layer_concurrency_c3",
-        "cost_layer_concurrency_c4",
     )
     assert "quota" in cost_layer.list_scenarios()
     assert "concurrency" in cost_layer.list_scenarios()
@@ -226,13 +222,18 @@ def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
 
 
 def test_offline_cost_baseline_can_use_concurrency_capacity():
-    scenario = cost_layer.make_scenarios()["cost_layer_concurrency_c1"]
+    scenario = cost_layer.make_scenario(
+        "concurrency",
+        concurrency_plan="featherless_premium",
+        concurrency_count=1,
+        concurrency_model="sharegpt",
+    )
     requests = common.load_workload(max_requests=5)
 
     run = cost_layer.run_offline_policy(scenario, requests, seed=42)
 
     assert run.policy == "offline"
-    assert run.provider_fractions() == {"concurrency_1": 1.0}
+    assert run.provider_fractions() == {"featherless_premium_concurrency": 1.0}
     assert run.mean_cost_usd() == 0.0
 
 

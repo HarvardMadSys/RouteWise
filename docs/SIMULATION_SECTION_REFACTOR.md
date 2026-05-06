@@ -229,17 +229,11 @@ Scenarios:
 | `cost_layer_normal` | 3 × S_A, all `Normal(P50, 0.3×P50)` = `Normal(300, 90)`, input `$1/$2/$4`, output `$5/$10/$20` |
 | `cost_layer_heavy_tail` | 3 × S_A, all `LogNormal(ln(P50), 0.5)`, input `$1/$2/$4`, output `$5/$10/$20` |
 | `cost_layer_real_world` | 3 × S_A, all use the same `rw8_pooled` empirical Qwen3/OpenRouter TTFT distribution, input `$1/$2/$4`, output `$5/$10/$20` |
-| `cost_layer_quota_q1` | 1 × S_Q + 2 × S_A, base distribution = `LogNormal` |
-| `cost_layer_quota_q2` | 2 × S_Q + 1 × S_A |
-| `cost_layer_quota_q3` | 3 × S_Q + 1 × S_A |
-| `cost_layer_quota_q4` | 4 × S_Q + 1 × S_A |
-| `cost_layer_concurrency_c1` | 1 × S_C + 2 × S_A |
-| `cost_layer_concurrency_c2` | 2 × S_C + 1 × S_A |
-| `cost_layer_concurrency_c3` | 3 × S_C + 1 × S_A |
-| `cost_layer_concurrency_c4` | 4 × S_C + 1 × S_A |
+| `quota` | Parameterized S_Q plan/count scenario, e.g. `quota__plan=chutes__n=2` artifacts |
+| `concurrency` | Parameterized S_C plan/count/model scenario, e.g. `concurrency__plan=featherless_premium__n=2__model=sharegpt` artifacts |
 
-The `_q1..q4` and `_c1..c4` scenarios answer the subscription-count
-optimization question. `cost_layer_real_world` is the real-world counterpart
+The `quota` and `concurrency` scenarios answer the subscription-count
+optimization question through plan-driven parameters. `cost_layer_real_world` is the real-world counterpart
 for §1.1.4; it keeps the cost-layer invariant by using one pooled empirical
 latency distribution for all three S_A providers.
 
@@ -500,8 +494,7 @@ Sections (paper-aligned):
 
 Scenarios per section:
   cost-layer:        cost_layer_uniform, cost_layer_normal, cost_layer_heavy_tail,
-                     cost_layer_real_world, cost_layer_quota_q1..q4,
-                     cost_layer_concurrency_c1..c4
+                     cost_layer_real_world, quota, concurrency
   latency-layer:     latency_layer_uniform_no_overlap, latency_layer_uniform_half_overlap,
                      latency_layer_normal_no_overlap, latency_layer_normal_half_overlap,
                      latency_layer_heavy_tail_no_overlap, latency_layer_heavy_tail_half_overlap

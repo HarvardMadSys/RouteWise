@@ -13,7 +13,7 @@ Last updated: 2026-05-06.
 ## 1. TL;DR
 
 Cost-layer §1.2 and §1.3 should simulate **specific subscription plans**,
-not anonymous `quota_q1..q4` or `concurrency_c1..c4` resources.
+not anonymous fixed-count resources.
 
 The target shape is:
 
@@ -70,17 +70,14 @@ subscription fee.
 
 ## 2. Problem
 
-The current cost-layer quota and concurrency scenarios are generic:
+The old cost-layer quota and concurrency scenarios were generic:
 
 ```text
 cost_layer_quota_q1
 cost_layer_quota_q2
 cost_layer_quota_q3
 cost_layer_quota_q4
-cost_layer_concurrency_c1
-cost_layer_concurrency_c2
-cost_layer_concurrency_c3
-cost_layer_concurrency_c4
+legacy fixed-count concurrency scenarios
 ```
 
 and are built from hard-coded capacity knobs in
@@ -496,7 +493,7 @@ inside the §1.2 quota sweep.
 ### 5.5 Concurrency subscription §1.3
 
 §1.3 is the concurrency-plan counterpart to §1.2. It should not reuse the
-old public scenario names `cost_layer_concurrency_c1..c4`. The public shape is:
+old public fixed-count concurrency scenario names. The public shape is:
 
 ```text
 --scenario concurrency
@@ -961,9 +958,8 @@ Add §1.3 after §1.2 has landed:
 4. Add `--scenario concurrency`, `--concurrency-plan`,
    `--concurrency-count(s)`, and `--model` to
    `experiments/simulation/cost_layer.py`.
-5. Delete the old public `cost_layer_concurrency_c1..c4` scenarios in the
-   same PR. If a golden migration needs an alias, keep it internal and
-   test-only.
+5. Delete the old public fixed-count concurrency scenarios in the same PR. If
+   a golden migration needs an alias, keep it internal and test-only.
 6. Keep fixed-fee accounting at the section-summary layer, exactly as for
    quota plans.
 
