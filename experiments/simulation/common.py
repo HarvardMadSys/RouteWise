@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import multiprocessing
+import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import cache
@@ -39,6 +40,7 @@ COST_LAYER_P50_MS = 300.0
 DEFAULT_SEEDS = (42, 43, 44)
 DEFAULT_WORKLOAD = "sharegpt_burstgpt"
 DEFAULT_TPS_P50 = 150.0
+_WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
     "sharegpt_burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
@@ -198,9 +200,87 @@ def make_concurrency_provider(
 
 
 @cache
-def _load_jsonl_workload(dataset: str) -> tuple[Request, ...]:
+def _load_cached_workload(dataset: str) -> tuple[Request, ...]:
     path = _workload_path(dataset)
-    return tuple(_read_jsonl_workload(path))
+    cache_path, manifest_path = _workload_cache_paths(path)
+    if _workload_cache_is_valid(path, cache_path, manifest_path):
+        try:
+            with cache_path.open("rb") as handle:
+                return tuple(pickle.load(handle))
+        except (
+            AttributeError,
+            EOFError,
+            ImportError,
+            ValueError,
+            pickle.UnpicklingError,
+        ):
+            pass
+    return _build_workload_cache(path, cache_path, manifest_path)
+
+
+def ensure_workload_cache(dataset: str = DEFAULT_WORKLOAD) -> Path:
+    """Build the compact simulator workload cache if it is missing or stale."""
+    path = _workload_path(dataset)
+    cache_path, manifest_path = _workload_cache_paths(path)
+    if not _workload_cache_is_valid(path, cache_path, manifest_path):
+        _build_workload_cache(path, cache_path, manifest_path)
+    return cache_path
+
+
+def _workload_cache_paths(path: Path) -> tuple[Path, Path]:
+    resolved = path.resolve()
+    cache_path = resolved.with_name(f"{resolved.name}.simcache.pkl")
+    manifest_path = resolved.with_name(f"{resolved.name}.simcache.manifest.json")
+    return cache_path, manifest_path
+
+
+def _workload_cache_fingerprint(path: Path) -> dict[str, Any]:
+    resolved = path.resolve()
+    stat = resolved.stat()
+    return {
+        "cache_version": _WORKLOAD_CACHE_VERSION,
+        "source_path": str(path),
+        "source_resolved": str(resolved),
+        "source_size": stat.st_size,
+        "source_mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def _workload_cache_is_valid(path: Path, cache_path: Path, manifest_path: Path) -> bool:
+    if not cache_path.exists() or not manifest_path.exists():
+        return False
+    try:
+        with manifest_path.open() as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    fingerprint = _workload_cache_fingerprint(path)
+    return all(manifest.get(key) == value for key, value in fingerprint.items())
+
+
+def _build_workload_cache(
+    path: Path,
+    cache_path: Path,
+    manifest_path: Path,
+) -> tuple[Request, ...]:
+    requests = tuple(_read_jsonl_workload(path))
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(f".pkl.tmp.{multiprocessing.current_process().pid}")
+    with tmp_path.open("wb") as handle:
+        pickle.dump(requests, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp_path.replace(cache_path)
+
+    manifest = _workload_cache_fingerprint(path)
+    manifest["n_requests"] = len(requests)
+    manifest["cache_size"] = cache_path.stat().st_size
+    tmp_manifest = manifest_path.with_suffix(
+        f".json.tmp.{multiprocessing.current_process().pid}"
+    )
+    with tmp_manifest.open("w") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+    tmp_manifest.replace(manifest_path)
+    _load_cached_workload.cache_clear()
+    return requests
 
 
 def _workload_path(dataset: str) -> Path:
@@ -223,7 +303,7 @@ def _read_jsonl_workload(
     requests: list[Request] = []
     first_timestamp: float | None = None
     with path.open(encoding="utf-8") as handle:
-        for idx, line in enumerate(handle):
+        for line in handle:
             if not line.strip():
                 continue
             record = json.loads(line)
@@ -251,7 +331,7 @@ def _read_jsonl_workload(
             }
             requests.append(
                 Request(
-                    id=idx,
+                    id=len(requests),
                     timestamp=relative_timestamp,
                     request_tokens=request_tokens,
                     response_tokens=response_tokens,
@@ -271,34 +351,47 @@ def load_workload(
     duration_sec: float | None = None,
     max_requests: int | None = None,
 ) -> list[Request]:
-    """Load and optionally truncate the canonical trace workload."""
-    if duration_sec is None and max_requests is None:
-        selected = list(_load_jsonl_workload(dataset))
-    else:
-        selected = _read_jsonl_workload(
-            _workload_path(dataset),
+    """Load and optionally truncate the canonical trace workload.
+
+    Full-trace loads use a compact pickle cache and return shared immutable
+    ``Request`` objects from that cache. Callers must treat the returned
+    requests and their metadata as read-only. Request IDs are dense simulator
+    request indexes, not raw JSONL line numbers.
+    """
+    path = _workload_path(dataset)
+    cache_path, manifest_path = _workload_cache_paths(path)
+    if (
+        duration_sec is not None or max_requests is not None
+    ) and not _workload_cache_is_valid(path, cache_path, manifest_path):
+        return _read_jsonl_workload(
+            path,
             duration_sec=duration_sec,
             max_requests=max_requests,
         )
 
-    return [
-        Request(
-            id=idx,
-            timestamp=float(item.timestamp),
-            request_tokens=item.request_tokens,
-            estimated_response_tokens=item.estimated_response_tokens,
-            response_tokens=item.response_tokens,
-            total_tokens=item.total_tokens,
-            model=item.model,
-            provider=item.provider,
-            actual_cost=item.actual_cost,
-            latency_ms=item.latency_ms,
-            ttft_ms=item.ttft_ms,
-            slo_ms=item.slo_ms,
-            metadata=dict(item.metadata),
-        )
-        for idx, item in enumerate(selected)
-    ]
+    selected = _select_cached_requests(
+        _load_cached_workload(dataset),
+        duration_sec=duration_sec,
+        max_requests=max_requests,
+    )
+    return list(selected)
+
+
+def _select_cached_requests(
+    requests: tuple[Request, ...],
+    *,
+    duration_sec: float | None,
+    max_requests: int | None,
+) -> tuple[Request, ...]:
+    stop = len(requests)
+    if duration_sec is not None:
+        for index, request in enumerate(requests):
+            if request.timestamp > duration_sec:
+                stop = index
+                break
+    if max_requests is not None:
+        stop = min(stop, max_requests)
+    return requests[:stop]
 
 
 def run_policy(
@@ -414,6 +507,7 @@ def run_section(
             raise ValueError(
                 "parallel run_section requires a section-local parallel_cell_runner"
             )
+        ensure_workload_cache(workload_dataset)
         results = _run_section_parallel(
             cells=cells,
             presets=presets,
@@ -735,6 +829,7 @@ __all__ = [
     "P_SWEEP",
     "SectionCell",
     "SectionCellResult",
+    "ensure_workload_cache",
     "load_workload",
     "make_api_provider",
     "make_concurrency_provider",

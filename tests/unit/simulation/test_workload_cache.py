@@ -1,0 +1,105 @@
+"""Tests for section-simulator compact workload caching."""
+
+from __future__ import annotations
+
+import json
+
+from experiments.simulation import common
+
+
+def _write_jsonl(path, rows):
+    path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+
+def test_load_workload_writes_compact_cache_next_to_resolved_source(tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    source = scratch / "burstgpt_30d.jsonl"
+    _write_jsonl(
+        source,
+        [
+            {
+                "arrived_at": 100.0,
+                "session_id": "s1",
+                "num_prefill_tokens": 10,
+                "num_decode_tokens": 20,
+                "model": "qwen",
+                "prompt_text": "large prompt omitted from simulator cache",
+                "response_text": "large response omitted from simulator cache",
+                "sharegpt_conversation_id": "c1",
+                "sharegpt_turn_index": 0,
+                "log_type": "chat",
+                "elapsed_time_sec": 1.2,
+            },
+            {
+                "arrived_at": 105.0,
+                "session_id": "s2",
+                "num_prefill_tokens": 11,
+                "num_decode_tokens": 21,
+                "model": "qwen",
+            },
+        ],
+    )
+    repo_data = tmp_path / "repo" / "data"
+    repo_data.mkdir(parents=True)
+    link = repo_data / "burstgpt_30d.jsonl"
+    link.symlink_to(source)
+    monkeypatch.setitem(common._WORKLOAD_PATHS, "unit_cache", link)
+    common._load_cached_workload.cache_clear()
+
+    requests = common.load_workload(dataset="unit_cache")
+
+    cache_path = source.with_name(f"{source.name}.simcache.pkl")
+    manifest_path = source.with_name(f"{source.name}.simcache.manifest.json")
+    assert cache_path.exists()
+    assert manifest_path.exists()
+    assert [request.id for request in requests] == [0, 1]
+    assert [request.timestamp for request in requests] == [0.0, 5.0]
+    assert requests[0].metadata["session_id"] == "s1"
+    assert requests[0].metadata["sharegpt_conversation_id"] == "c1"
+    assert "prompt_text" not in requests[0].metadata
+    assert "response_text" not in requests[0].metadata
+
+
+def test_load_workload_uses_cache_for_truncation_without_reparsing(tmp_path, monkeypatch):
+    source = tmp_path / "burstgpt_30d.jsonl"
+    _write_jsonl(
+        source,
+        [
+            {
+                "arrived_at": 100.0 + index,
+                "session_id": f"s{index}",
+                "num_prefill_tokens": 10 + index,
+                "num_decode_tokens": 20 + index,
+            }
+            for index in range(4)
+        ],
+    )
+    monkeypatch.setitem(common._WORKLOAD_PATHS, "unit_truncate", source)
+    common._load_cached_workload.cache_clear()
+
+    assert len(common.load_workload(dataset="unit_truncate")) == 4
+    assert len(common.load_workload(dataset="unit_truncate", max_requests=2)) == 2
+    by_duration = common.load_workload(dataset="unit_truncate", duration_sec=1.5)
+    assert [request.metadata["session_id"] for request in by_duration] == ["s0", "s1"]
+
+
+def test_truncated_smoke_load_does_not_build_full_cache(tmp_path, monkeypatch):
+    source = tmp_path / "burstgpt_30d.jsonl"
+    _write_jsonl(
+        source,
+        [
+            {
+                "arrived_at": 100.0 + index,
+                "session_id": f"s{index}",
+                "num_prefill_tokens": 10 + index,
+                "num_decode_tokens": 20 + index,
+            }
+            for index in range(4)
+        ],
+    )
+    monkeypatch.setitem(common._WORKLOAD_PATHS, "unit_smoke", source)
+    common._load_cached_workload.cache_clear()
+
+    assert len(common.load_workload(dataset="unit_smoke", max_requests=2)) == 2
+    assert not source.with_name(f"{source.name}.simcache.pkl").exists()
