@@ -434,7 +434,7 @@ def load_sharegpt_burstgpt_workload(
 def run_section(
     scenarios: dict[str, ScenarioConfig],
     policies: tuple[str, ...],
-    seeds: tuple[int, ...] = (42, 43, 44),
+    seeds: tuple[int, ...] = (42,),
     *,
     workload_loader=load_sharegpt_burstgpt_workload,
     output_dir: Path,
@@ -778,8 +778,9 @@ co-exist for these phases.
 Goldens this phase: `tests/golden/cost_layer/scenarios.json` only. It
 is a smoke golden captured by `tests/golden_capture.py --families
 cost_layer`: all cost-layer scenarios and policy names, including the
-section-local `offline` baseline, 3 seeds, fixed 32-request workload
-prefix. No deletion of legacy goldens yet.
+section-local `offline` baseline and fixed 32-request workload prefix. Runtime
+section defaults use one seed; `golden_capture.py` may keep its own fixture seed
+list. No deletion of legacy goldens yet.
 
 ### Phase 1 — Cost-layer fully runnable
 

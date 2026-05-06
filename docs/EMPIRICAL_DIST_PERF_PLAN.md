@@ -739,7 +739,7 @@ These are real issues but explicitly NOT addressed here:
   "real-world distribution." Reject for the paper; revisit only if 1a +
   1b are still not enough.
 - **Multi-seed parallelism.** `cost_layer.py` runs seeds serially. With
-  per-seed RSS down to ~500 MB we could run 3 seeds in parallel processes
+  per-seed RSS down to ~500 MB we could run optional extra seeds in parallel processes
   and finish in roughly 1× wall instead of 3×. Not in scope; opportunistic
   follow-up.
 
@@ -809,7 +809,7 @@ push back on hardest now:
      aggregator; default behavior unchanged).
 [5]  Phase 1b commit 3 (run_section opts out, summarize_runs merges
      histograms, histograms/*.json artifacts; regenerate golden).
-[6]  Phase 2: full 1.8M trace, all 3 seeds. Confirm §6.1 acceptance.
+[6]  Phase 2: full 1.8M trace, default seed 42. Confirm §6.1 acceptance.
 [7]  Brief note in SIMULATION_SECTION_REFACTOR.md that real_world is now
      full-trace runnable.
 ```
