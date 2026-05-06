@@ -368,6 +368,7 @@ def run_section(
     )
     rows: list[dict[str, Any]] = []
     histogram_rows: list[dict[str, Any]] = []
+    per_seed_histogram_rows: list[dict[str, Any]] = []
     local_runners = section_runners or {}
     for scenario in scenarios.values():
         for policy in policies:
@@ -408,6 +409,21 @@ def run_section(
                     "histogram": aggregate.ttft_histogram.to_dict(),
                 }
             )
+            for seed, run in zip(seeds, runs, strict=True):
+                if run.aggregate is None:
+                    raise ValueError(
+                        "run_section requires every run to carry a streaming "
+                        f"aggregate; missing for scenario={scenario.name!r}, "
+                        f"policy={policy!r}, seed={seed}"
+                    )
+                per_seed_histogram_rows.append(
+                    {
+                        "scenario": scenario.name,
+                        "policy": policy,
+                        "seed": seed,
+                        "histogram": run.aggregate.ttft_histogram.to_dict(),
+                    }
+                )
 
     metadata = {
         "section": section_name,
@@ -422,6 +438,7 @@ def run_section(
     write_json(root / "metadata.json", metadata)
     write_json(root / "summary.json", rows)
     write_json(root / "ttft_histograms.json", histogram_rows)
+    write_json(root / "ttft_histograms_by_seed.json", per_seed_histogram_rows)
     write_summary_csv(root / "summary.csv", rows)
     return rows
 
@@ -479,68 +496,35 @@ def _fraction_map(counts: Counter[str], total: int) -> dict[str, float]:
 
 
 def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
+    for run in runs:
+        if run.aggregate is None:
+            raise ValueError(
+                "run_section requires every run to carry a streaming aggregate"
+            )
     aggregate = RunAggregate(
         ttft_histogram=merge_histograms([run.ttft_histogram() for run in runs])
     )
     for run in runs:
-        if run.aggregate is not None:
-            source = run.aggregate
-            aggregate.n += source.n
-            if source.e2e_histogram is not None:
-                if aggregate.e2e_histogram is None:
-                    aggregate.e2e_histogram = source.e2e_histogram.copy()
-                else:
-                    aggregate.e2e_histogram = aggregate.e2e_histogram.merge(
-                        source.e2e_histogram
-                    )
-            aggregate.total_cost_usd += source.total_cost_usd
-            aggregate.cost_count += source.cost_count
-            aggregate.status_counts.update(source.status_counts)
-            aggregate.slo_violated_count += source.slo_violated_count
-            aggregate.cost_by_tier.update(source.cost_by_tier)
-            aggregate.cost_by_provider.update(source.cost_by_provider)
-            aggregate.provider_counts.update(source.provider_counts)
-            aggregate.tier_counts.update(source.tier_counts)
-            aggregate.hedge_triggered_count += source.hedge_triggered_count
-            aggregate.hedge_total_count += source.hedge_total_count
-            aggregate.hedge_winner_counts.update(source.hedge_winner_counts)
-            continue
-        for record in run.records:
-            aggregate.n += 1
-            if record.e2e_ms is not None:
-                if aggregate.e2e_histogram is None:
-                    from rwsim.metrics.histogram import TtftHistogram
-
-                    aggregate.e2e_histogram = TtftHistogram.default()
-                aggregate.e2e_histogram.add(float(record.e2e_ms))
-            aggregate.total_cost_usd += float(record.total_cost_usd)
-            aggregate.cost_count += 1
-            aggregate.status_counts[record.status.value] += 1
-            if record.slo_violated:
-                aggregate.slo_violated_count += 1
-            if record.primary_tier:
-                aggregate.cost_by_tier[record.primary_tier] += float(
-                    record.primary_cost_usd
+        source = run.aggregate
+        aggregate.n += source.n
+        if source.e2e_histogram is not None:
+            if aggregate.e2e_histogram is None:
+                aggregate.e2e_histogram = source.e2e_histogram.copy()
+            else:
+                aggregate.e2e_histogram = aggregate.e2e_histogram.merge(
+                    source.e2e_histogram
                 )
-            aggregate.cost_by_provider[record.primary_provider] += float(
-                record.primary_cost_usd
-            )
-            if record.backup_cost_usd is not None and record.backup_provider:
-                aggregate.cost_by_provider[record.backup_provider] += float(
-                    record.backup_cost_usd
-                )
-                if record.backup_tier:
-                    aggregate.cost_by_tier[record.backup_tier] += float(
-                        record.backup_cost_usd
-                    )
-            aggregate.provider_counts[record.final_provider] += 1
-            if record.final_tier:
-                aggregate.tier_counts[record.final_tier] += 1
-            aggregate.hedge_total_count += 1
-            if record.hedge_triggered:
-                aggregate.hedge_triggered_count += 1
-                if record.hedge_winner:
-                    aggregate.hedge_winner_counts[record.hedge_winner] += 1
+        aggregate.total_cost_usd += source.total_cost_usd
+        aggregate.cost_count += source.cost_count
+        aggregate.status_counts.update(source.status_counts)
+        aggregate.slo_violated_count += source.slo_violated_count
+        aggregate.cost_by_tier.update(source.cost_by_tier)
+        aggregate.cost_by_provider.update(source.cost_by_provider)
+        aggregate.provider_counts.update(source.provider_counts)
+        aggregate.tier_counts.update(source.tier_counts)
+        aggregate.hedge_triggered_count += source.hedge_triggered_count
+        aggregate.hedge_total_count += source.hedge_total_count
+        aggregate.hedge_winner_counts.update(source.hedge_winner_counts)
     return aggregate
 
 

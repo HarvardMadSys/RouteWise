@@ -136,7 +136,7 @@ isolating one decision axis. The detailed sub-experiment tree lives in
 
 Latency families come from `rwsim/world/distributions.py`; the real-world
 profiles are the locked pools in
-[`experiments/simulation/profiles/pools.yaml`](../experiments/simulation/profiles/pools.yaml).
+[`experiments/simulation/latency_profiles/pools.yaml`](../experiments/simulation/latency_profiles/pools.yaml).
 
 ---
 

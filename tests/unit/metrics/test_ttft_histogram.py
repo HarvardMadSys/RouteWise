@@ -32,6 +32,15 @@ def test_histogram_quantiles_track_numpy_reference_with_reasonable_precision() -
         )
 
 
+def test_histogram_quantiles_use_min_max_for_underflow_and_overflow() -> None:
+    histogram = TtftHistogram.default()
+
+    histogram.add_array(np.asarray([0.5, 10_000_000.0]))
+
+    assert histogram.quantile(0.01) == pytest.approx(0.5)
+    assert histogram.quantile(0.99) == pytest.approx(10_000_000.0)
+
+
 def test_histogram_merge_matches_one_big_histogram() -> None:
     values = np.asarray([10.0, 20.0, 100.0, 1000.0, 5000.0])
     left = TtftHistogram.default()

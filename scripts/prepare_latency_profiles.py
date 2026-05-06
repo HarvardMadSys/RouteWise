@@ -7,8 +7,8 @@ Run:
     python -m scripts.prepare_latency_profiles
 
 Output:
-    experiments/simulation/profiles/qwen3_24h.npz       (per-provider TTFT arrays)
-    experiments/simulation/profiles/qwen3_24h.json      (metadata sidecar)
+    experiments/simulation/latency_profiles/qwen3_24h.npz       (per-provider TTFT arrays)
+    experiments/simulation/latency_profiles/qwen3_24h.json      (metadata sidecar)
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ SOURCE_LOG = Path(
     "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/"
     "phase5_qwen3_7d_clean/run_20260410_171625/evaluation_log.csv"
 )
-PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "profiles"
+PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"
 OUT_NPZ = PROFILE_DIR / "qwen3_24h.npz"
 OUT_META = PROFILE_DIR / "qwen3_24h.json"
 

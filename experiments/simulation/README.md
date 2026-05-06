@@ -10,7 +10,7 @@ The high-level mental model lives in [`docs/EXPERIMENT_LAYOUT.md`](../../docs/EX
 ## Common setup
 
 **Latency families** — `rwsim/world/distributions.py` registry plus the empirical
-profiles in [`profiles/`](profiles/):
+latency profiles in [`latency_profiles/`](latency_profiles/):
 
 - `uniform`           — bounded, no tail
 - `normal`            — symmetric, light tail
@@ -18,7 +18,7 @@ profiles in [`profiles/`](profiles/):
 - `real_world` (RW3)  — three real OpenRouter providers, less-overlapping latency
 - `real_world` (RW8)  — eight real OpenRouter providers, realistic overlap
 
-Real-world pools are locked. See [`profiles/pools.yaml`](profiles/pools.yaml):
+Real-world pools are locked. See [`latency_profiles/pools.yaml`](latency_profiles/pools.yaml):
 
 - `RW3 = [WandB, DeepInfra, Novita]`
 - `RW8 = [WandB, DeepInfra, Google, Alibaba, Novita, Cerebras, SiliconFlow, AtlasCloud]`
@@ -133,7 +133,7 @@ experiments/simulation/
   hedging.py           # §2.2
   end_to_end.py        # §3
   common.py            # provider builders, workload loading, summary helpers
-  profiles/            # real-world latency artifacts (RW3 / RW8 / rw8_pooled)
+  latency_profiles/    # real-world latency artifacts (RW3 / RW8 / rw8_pooled)
 ```
 
 Implemented section runners are invoked through the CLI:

@@ -126,17 +126,17 @@ class TtftHistogram:
         if self.min_value == self.max_value:
             return float(self.min_value)
         assert self.counts is not None
-        target = q * (self.n - 1)
+        target = q * self.n
         cumulative = 0
         edges = self.bin_edges_ms
 
         for idx, count in enumerate(self.counts):
             next_cumulative = cumulative + int(count)
-            if target < next_cumulative:
+            if target <= next_cumulative:
                 if idx == 0:
-                    return float(edges[0])
+                    return float(self.min_value)
                 if idx == len(self.counts) - 1:
-                    return float(edges[-1])
+                    return float(self.max_value)
                 lo = float(edges[idx - 1])
                 hi = float(edges[idx])
                 if count <= 1:

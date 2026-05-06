@@ -9,7 +9,7 @@ import yaml
 
 from rwsim.world.empirical import EmpiricalDistribution
 
-PROFILE_DIR = Path(__file__).resolve().with_name("profiles")
+PROFILE_DIR = Path(__file__).resolve().with_name("latency_profiles")
 DEFAULT_POOLS_PATH = PROFILE_DIR / "pools.yaml"
 
 

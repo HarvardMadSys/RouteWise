@@ -12,7 +12,7 @@ import yaml
 from rwsim.world.empirical import EmpiricalDistribution
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "profiles"
+PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"
 QWEN3_NPZ = PROFILE_DIR / "qwen3_24h.npz"
 QWEN3_META = PROFILE_DIR / "qwen3_24h.json"
 POOLS_YAML = PROFILE_DIR / "pools.yaml"

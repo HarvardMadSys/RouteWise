@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 
 @dataclass
 class RunAggregator:
-    """Consume records once and build a compact Run."""
+    """Consume records once and build a compact Run.
+
+    When retain_records=True this intentionally does both jobs: keep exact
+    records for debugging/goldens and maintain the streaming aggregate for
+    consistency with paper-run paths.
+    """
 
     policy: str = ""
     scenario_name: str = ""

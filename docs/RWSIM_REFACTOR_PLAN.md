@@ -33,7 +33,7 @@ Refactors land in this order:
 3. **Migrate the actual paper methods** - Greedy-cost, Greedy-latency,
    Random, complete RouteWise, and RouteWise ablations.
 4. **Add empirical distributions** - raw real-world samples live under
-   `experiments/simulation/profiles/`; generic sampling classes live in
+   `experiments/simulation/latency_profiles/`; generic sampling classes live in
    `rwsim/world/`.
 5. **Delete dead pipeline-composer code** - remove the 4-stage
    `PolicyPipelineSpec` / `StageSpec` system after policy presets are the only
@@ -116,7 +116,7 @@ experiments/
   simulation/
     configs/
     presets.yaml             # policy preset name -> policy class + params
-    profiles/                # real-world latency samples and workload traces
+    latency_profiles/        # real-world latency samples and workload traces
     suites/
 
   real_evaluation/
@@ -765,7 +765,7 @@ class EmpiricalDistribution:
 Experiment data:
 
 ```text
-experiments/simulation/profiles/
+experiments/simulation/latency_profiles/
   qwen3_24h.parquet
   sharegpt_trace.parquet
   pools.yaml
@@ -775,11 +775,11 @@ experiments/simulation/profiles/
 
 ```yaml
 rw3:
-  samples: experiments/simulation/profiles/qwen3_24h.parquet
+  samples: experiments/simulation/latency_profiles/qwen3_24h.parquet
   providers: [WandB, DeepInfra, Novita]
 
 rw8:
-  samples: experiments/simulation/profiles/qwen3_24h.parquet
+  samples: experiments/simulation/latency_profiles/qwen3_24h.parquet
   providers: [WandB, DeepInfra, Google, Alibaba, Novita, Cerebras,
               SiliconFlow, AtlasCloud]
 ```

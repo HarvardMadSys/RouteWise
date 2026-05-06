@@ -341,7 +341,7 @@ no explorer). Plus baselines `greedy_cost`, `greedy_latency`, `random`.
 Dependencies blocking the real form:
 1. EmpiricalDistribution wired to provider config.
 2. Qwen3-235B 24h parquet samples under
-   `experiments/simulation/profiles/`.
+   `experiments/simulation/latency_profiles/`.
 3. `pools.yaml` defining RW3 / RW8 → per-provider sample slicing.
 
 Until all three land, `end_to_end.py` is shape-only documentation; do
@@ -790,7 +790,7 @@ Lands:
 
 - EmpiricalDistribution wired to provider config
   (`ttft_distribution: type=empirical, source=...`).
-- `experiments/simulation/profiles/` populated with `qwen3_24h.parquet`
+- `experiments/simulation/latency_profiles/` populated with `qwen3_24h.parquet`
   + `pools.yaml`.
 - `experiments/simulation/end_to_end.py` gets a `main()` definition
   (using the new empirical wire).

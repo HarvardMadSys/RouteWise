@@ -561,23 +561,20 @@ must also opt out. Document this requirement in `run_section`'s
 docstring; assert in `summarize_runs` that every run has a populated
 `aggregator` so we fail fast if a runner forgets.
 
-### 5.6 New artifact: `ttft_histogram.json`, written by `run_section`
+### 5.6 New artifacts, written by `run_section`
 
 Write the histogram artifact in `run_section` (not in `cost_layer.py`),
 so latency-layer / hedging / end-to-end inherit it for free:
 
 ```python
 # Inside run_section, alongside summary.json / summary.csv writes:
-for scenario in scenarios.values():
-    for policy in policies:
-        for seed, run in zip(seeds, runs_by_policy[(scenario.name, policy)]):
-            hist = run.aggregator.ttft_histogram
-            hist_path = root / "histograms" / (
-                f"{scenario.name}__{policy}__seed{seed}.json"
-            )
-            hist_path.parent.mkdir(parents=True, exist_ok=True)
-            write_json(hist_path, hist.to_dict())
+write_json(root / "ttft_histograms.json", merged_rows)
+write_json(root / "ttft_histograms_by_seed.json", per_seed_rows)
 ```
+
+`ttft_histograms.json` has one merged row per `(scenario, policy)` and
+is the paper-plot input. `ttft_histograms_by_seed.json` has one row per
+`(scenario, policy, seed)` and is the seed-stability input.
 
 `TtftHistogram.to_dict()` returns
 `{"bin_edges_ms": [...], "counts": [...], "n": ..., "mean_ms": ...,
@@ -590,19 +587,18 @@ rendering is a separate (small) follow-up.
 
 - `tests/unit/metrics/test_ttft_histogram.py` — new. Covers:
   - `add` / `add_array` count correctness.
-  - `quantile` matches `np.percentile` within 2% relative on log-normal
-    inputs across q ∈ {0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99}.
-  - `merge_into` of two histograms produces the same `quantile`/`mean`
-    /`std` as a single histogram built from the union.
+  - `quantile` tracks `np.percentile` within 3% relative on log-normal
+    inputs across q ∈ {0.5, 0.9, 0.99}.
+  - `merge` of two histograms produces the same counts/mean as a single
+    histogram built from the union.
   - Underflow/overflow buckets accumulate correctly when inputs fall
     outside `[1 ms, 100 000 ms]`.
-  - `to_dict` / `from_dict` round-trips bit-exactly.
+  - Underflow/overflow quantiles use the tracked min/max endpoints.
 
 - `tests/unit/metrics/test_run_aggregator.py` — new. Build the same
   request stream twice, once with `retain_records=True` and once with
-  `False`. Assert all `Run` public methods agree within 2% relative
-  (TTFT percentiles via histogram tolerance) and bit-exactly for
-  cost/provider/tier counts.
+  `False`. Assert TTFT percentiles agree within histogram tolerance and
+  cost/provider/tier/status/hedge counts agree bit-exactly.
 
 - `tests/unit/engine/test_simulator.py` — extend. Default behaviour
   (`retain_records=True`) is unchanged. With `retain_records=False`:
@@ -610,8 +606,8 @@ rendering is a separate (small) follow-up.
   fall back to aggregator.
 
 - `tests/unit/simulation/test_cost_layer.py` — extend to assert that
-  `run_section` writes `histograms/<scenario>__<policy>__seed<s>.json`
-  for every (scenario, policy, seed) combination.
+  `run_section` writes both `ttft_histograms.json` and
+  `ttft_histograms_by_seed.json`.
 
 - `tests/golden/cost_layer/scenarios.json` — regenerate. Capture under
   `retain_records=True` (the default) so the digest fields stay stable;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
@@ -48,6 +49,30 @@ def test_aggregated_run_matches_exact_record_metrics_for_counts_and_costs() -> N
     assert aggregated.hedge_rate() == exact.hedge_rate()
     assert aggregated.hedge_winner_rate() == exact.hedge_winner_rate()
     assert aggregated.mean_ttft_ms() == pytest.approx(exact.mean_ttft_ms())
+
+
+def test_aggregated_run_percentiles_track_exact_record_path() -> None:
+    rng = np.random.default_rng(0)
+    ttft_values = rng.lognormal(mean=np.log(300.0), sigma=0.7, size=50_000)
+    records = [
+        _record(
+            f"r{idx}",
+            ttft_ms=float(value),
+            final_provider="api_a",
+            primary_cost=0.01,
+        )
+        for idx, value in enumerate(ttft_values)
+    ]
+
+    exact = Run(records=records, policy="exact")
+    aggregator = RunAggregator(policy="agg", retain_records=False)
+    for record in records:
+        aggregator.observe(record)
+    aggregated = aggregator.finalize()
+
+    assert aggregated.p50_ms() == pytest.approx(exact.p50_ms(), rel=0.03)
+    assert aggregated.p95_ms() == pytest.approx(exact.p95_ms(), rel=0.03)
+    assert aggregated.p99_ms() == pytest.approx(exact.p99_ms(), rel=0.03)
 
 
 def _record(
