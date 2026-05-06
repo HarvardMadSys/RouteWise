@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from rwsim.world.capacity import ConcurrencyState, MultiWindowQuotaState, ProviderTier, QuotaState
+from rwsim.world.capacity import (
+    ConcurrencyState,
+    MultiWindowQuotaState,
+    ProviderTier,
+    QuotaState,
+    WeightedConcurrencyState,
+)
 from rwsim.world.distributions import LatencyDistribution, LogNormal
 
 if TYPE_CHECKING:
@@ -33,7 +39,7 @@ class Provider:
     input_cost_per_token: float | None = None
     output_cost_per_token: float | None = None
     quota: QuotaState | MultiWindowQuotaState | None = None
-    concurrency: ConcurrencyState | None = None
+    concurrency: ConcurrencyState | WeightedConcurrencyState | None = None
     service_time_dist: LatencyDistribution | None = None
     shift_time: float | None = None
     ttft_dist_after: LatencyDistribution | None = None
@@ -120,6 +126,8 @@ class Provider:
             return self.quota.can_admit(now)
         if self.tier == ProviderTier.S_C:
             assert self.concurrency is not None
+            if isinstance(self.concurrency, WeightedConcurrencyState):
+                return self.concurrency.can_admit_interval(now, now)
             return self.concurrency.can_admit(now)
         return False
 
@@ -161,14 +169,17 @@ class Provider:
             self.quota.charge(now)
         elif self.tier == ProviderTier.S_C:
             assert self.concurrency is not None
-            self.concurrency.admit(request_id, now, service_time_sec)
+            if isinstance(self.concurrency, WeightedConcurrencyState):
+                self.concurrency.admit_interval(now, service_time_sec)
+            else:
+                self.concurrency.admit(request_id, now, service_time_sec)
 
     def reset_state(self, *, quota_window_start: float = 0.0) -> None:
         """Clear capacity state so a scenario can be re-run."""
         if self.quota is not None:
             self.quota.reset(window_start=quota_window_start)
         if self.concurrency is not None:
-            self.concurrency.active = []
+            self.concurrency.reset()
 
 
 @dataclass
@@ -203,4 +214,5 @@ __all__ = [
     "ShiftingProvider",
     "SyntheticProvider",
     "TieredProvider",
+    "WeightedConcurrencyState",
 ]

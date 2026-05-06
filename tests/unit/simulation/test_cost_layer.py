@@ -10,7 +10,7 @@ from experiments.simulation import common, cost_layer
 from experiments.subscriptions import load_subscription_plans
 from routewise_cli.main import main as routewise_main
 from rwsim.schemas import Request
-from rwsim.world.capacity import ProviderTier
+from rwsim.world.capacity import ProviderTier, WeightedConcurrencyState
 
 
 def test_cost_layer_scenarios_match_section_contract():
@@ -353,6 +353,56 @@ plans:
 
     with pytest.raises(ValueError, match="model_class_overrides"):
         load_subscription_plans(path)
+
+
+def test_make_concurrency_provider_builds_weighted_capacity_from_plan():
+    plan = load_subscription_plans()["featherless_premium"]
+
+    provider = common.make_concurrency_provider(
+        "featherless_concurrency",
+        plan=plan,
+        concurrency_count=2,
+        model="sharegpt",
+    )
+
+    assert provider.tier == ProviderTier.S_C
+    assert isinstance(provider.concurrency, WeightedConcurrencyState)
+    assert provider.concurrency.capacity_units == 8
+    assert dict(provider.concurrency.model_concurrency_costs_by_class) == {
+        "le_15b": 1,
+        "24_34b": 2,
+        "ge_70b": 4,
+    }
+    assert provider.concurrency.fixed_model_class == "ge_70b"
+    assert provider.concurrency.limit == 2
+
+
+def test_make_concurrency_provider_keeps_capacity_and_changes_effective_slots_by_model():
+    plan = load_subscription_plans()["featherless_premium"]
+
+    provider = common.make_concurrency_provider(
+        "featherless_concurrency",
+        plan=plan,
+        concurrency_count=2,
+        model="qwen3-coder-30b",
+    )
+
+    assert isinstance(provider.concurrency, WeightedConcurrencyState)
+    assert provider.concurrency.capacity_units == 8
+    assert provider.concurrency.fixed_model_class == "24_34b"
+    assert provider.concurrency.limit == 4
+
+
+def test_make_concurrency_provider_rejects_unknown_fixed_model():
+    plan = load_subscription_plans()["featherless_premium"]
+
+    with pytest.raises(ValueError, match="not supported"):
+        common.make_concurrency_provider(
+            "featherless_concurrency",
+            plan=plan,
+            concurrency_count=1,
+            model="unknown-model",
+        )
 
 
 def test_make_quota_provider_aggregates_subscription_count_into_one_quota():

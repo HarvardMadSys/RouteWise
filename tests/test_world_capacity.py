@@ -124,6 +124,20 @@ class CapacityStateTest(unittest.TestCase):
         self.assertFalse(concurrency.admit("unknown", finish_time=5.0, now=0.0))
         self.assertEqual(concurrency.used_concurrency_cost(), 0)
 
+    def test_weighted_concurrency_fixed_model_interval_compatibility(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=8,
+            model_concurrency_costs_by_class={"ge_70b": 4, "24_34b": 2},
+            fixed_model_class="ge_70b",
+        )
+
+        self.assertEqual(concurrency.limit, 2)
+        self.assertTrue(concurrency.can_admit_interval(0.0, 5.0))
+        self.assertTrue(concurrency.admit_interval(now=0.0, service_time_sec=5.0))
+        self.assertTrue(concurrency.admit_interval(now=0.0, service_time_sec=5.0))
+        self.assertFalse(concurrency.can_admit_interval(1.0, 6.0))
+        self.assertTrue(concurrency.can_admit_interval(5.0, 6.0))
+
 
 if __name__ == "__main__":
     unittest.main()

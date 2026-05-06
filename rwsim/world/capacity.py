@@ -146,6 +146,10 @@ class ConcurrencyState:
             )
         self.active.append((now, end, request_id))
 
+    def reset(self) -> None:
+        """Reset mutable concurrency state."""
+        self.active = []
+
 
 @dataclass
 class WeightedConcurrencyState:
@@ -157,6 +161,7 @@ class WeightedConcurrencyState:
 
     capacity_units: int
     model_concurrency_costs_by_class: MappingProxyType[str, int]
+    fixed_model_class: str | None = None
     active: list[tuple[float, str, int]] = field(default_factory=list)
     peak_used_concurrency_cost: int = 0
 
@@ -179,10 +184,34 @@ class WeightedConcurrencyState:
                     f"got {concurrency_cost} for {model_class!r}"
                 )
         self.model_concurrency_costs_by_class = MappingProxyType(costs)
+        if self.fixed_model_class is not None:
+            self.fixed_model_class = str(self.fixed_model_class)
+            if self.fixed_model_class not in costs:
+                raise ValueError(
+                    "WeightedConcurrencyState fixed_model_class must exist in "
+                    "model_concurrency_costs_by_class"
+                )
+
+    @property
+    def limit(self) -> int:
+        """Return the effective fixed-model slot limit when one is configured."""
+        if self.fixed_model_class is None:
+            return self.capacity_units
+        cost = self.concurrency_cost(self.fixed_model_class)
+        assert cost is not None
+        return self.capacity_units // cost
 
     def concurrency_cost(self, model_class: str) -> int | None:
         """Return weighted capacity cost for a resolved model class."""
         return self.model_concurrency_costs_by_class.get(str(model_class))
+
+    def _model_class_for_interval(self, model_class: str | None = None) -> str:
+        resolved = self.fixed_model_class if model_class is None else str(model_class)
+        if resolved is None:
+            raise ValueError(
+                "WeightedConcurrencyState interval admission requires a model class"
+            )
+        return resolved
 
     def release_finished(self, now: float) -> None:
         """Release requests whose finish time is at or before ``now``."""
@@ -209,6 +238,16 @@ class WeightedConcurrencyState:
             return False
         return self.used_concurrency_cost(now) + cost <= self.capacity_units
 
+    def can_admit_interval(
+        self,
+        start: float,
+        end: float,
+        model_class: str | None = None,
+    ) -> bool:
+        """Return whether the fixed/scoped model can enter over ``[start, end)``."""
+        del end
+        return self.can_admit(self._model_class_for_interval(model_class), now=start)
+
     def admit(
         self,
         model_class: str,
@@ -234,6 +273,19 @@ class WeightedConcurrencyState:
             self.used_concurrency_cost(),
         )
         return True
+
+    def admit_interval(
+        self,
+        now: float,
+        service_time_sec: float,
+        model_class: str | None = None,
+    ) -> bool:
+        """Record one fixed/scoped-model request interval."""
+        return self.admit(
+            self._model_class_for_interval(model_class),
+            now + service_time_sec,
+            now=now,
+        )
 
     def reset(self) -> None:
         """Reset mutable weighted concurrency state."""

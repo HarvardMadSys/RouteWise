@@ -26,7 +26,13 @@ from rwsim.metrics import RunAggregate
 from rwsim.metrics.histogram import merge_histograms
 from rwsim.policies import build_policy
 from rwsim.schemas import Request
-from rwsim.world.capacity import ConcurrencyState, MultiWindowQuotaState, ProviderTier, QuotaState
+from rwsim.world.capacity import (
+    ConcurrencyState,
+    MultiWindowQuotaState,
+    ProviderTier,
+    QuotaState,
+    WeightedConcurrencyState,
+)
 from rwsim.world.distributions import LogNormal, Normal, Uniform
 from rwsim.world.providers import TieredProvider
 
@@ -233,11 +239,48 @@ def make_quota_provider(
 def make_concurrency_provider(
     name: str,
     *,
-    concurrency_limit: int,
+    concurrency_limit: int | None = None,
+    plan: SubscriptionPlan | None = None,
+    concurrency_count: int = 1,
+    model: str | None = None,
     latency_family: str = "heavy_tail",
     p50_ms: float = COST_LAYER_P50_MS,
 ) -> TieredProvider:
     """Build a subscription/concurrency provider with zero marginal request cost."""
+    if plan is not None and concurrency_limit is not None:
+        raise ValueError(
+            "make_concurrency_provider accepts either plan or concurrency_limit, not both"
+        )
+    if concurrency_count <= 0:
+        raise ValueError(f"concurrency_count must be > 0, got {concurrency_count}")
+    if plan is None:
+        if model is not None:
+            raise ValueError("model requires plan=")
+        if concurrency_count != 1:
+            raise ValueError("concurrency_count requires plan=")
+        if concurrency_limit is None:
+            raise ValueError("make_concurrency_provider requires concurrency_limit or plan")
+        concurrency = ConcurrencyState(limit=int(concurrency_limit))
+    else:
+        if plan.tier != "concurrency":
+            raise ValueError(
+                f"make_concurrency_provider requires a concurrency plan, got {plan.tier!r}"
+            )
+        if plan.concurrency_allotment is None:
+            raise ValueError(f"plan {plan.plan_id!r}: concurrency_allotment is required")
+        resolution = plan.resolve_model_class_with_cost(model)
+        if resolution is None:
+            raise ValueError(
+                f"plan {plan.plan_id!r}: model {model!r} is not supported by "
+                "this concurrency plan"
+            )
+        concurrency = WeightedConcurrencyState(
+            capacity_units=int(plan.concurrency_allotment) * int(concurrency_count),
+            model_concurrency_costs_by_class=plan.model_concurrency_costs_by_class,
+            fixed_model_class=resolution.model_class,
+        )
+    if concurrency.limit <= 0:
+        raise ValueError(f"concurrency limit must be > 0, got {concurrency.limit}")
     return TieredProvider(
         name=name,
         cost_per_token=0.0,
@@ -246,7 +289,7 @@ def make_concurrency_provider(
         ttft_dist=make_ttft_distribution(latency_family, p50_ms),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_C,
-        concurrency=ConcurrencyState(limit=concurrency_limit),
+        concurrency=concurrency,
     )
 
 

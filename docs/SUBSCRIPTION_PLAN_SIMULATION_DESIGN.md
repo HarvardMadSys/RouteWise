@@ -39,7 +39,8 @@ routewise simulator cost-layer \
 routewise simulator cost-layer \
   --scenario concurrency \
   --concurrency-plan featherless_premium \
-  --concurrency-count 1
+  --concurrency-count 1 \
+  --model llama-3.3-70b-instruct
 ```
 
 Artifact labels may still include the expanded parameter values, e.g.
@@ -303,7 +304,7 @@ plans:
 | `quota_windows` | One or more quota constraints. A request can use the plan only if every window has remaining quota. Chutes has one daily window; MiniMax subscription tiers have both a 5-hour quota and a weekly allowance. |
 | `concurrency_allotment` | Total weighted concurrency capacity for one subscription/account. Featherless Premium has allotment `4`; this is not four arbitrary requests. |
 | `model_concurrency_costs_by_class` | Weighted capacity cost by model-size class. Featherless documents cost classes such as `le_15b=1`, `24_34b=2`, and `ge_70b=4`. |
-| `model_class_overrides` | Workload/provider-specific mapping from trace model IDs to model-size classes. It must cover every model ID used in a paper-grade §1.3 run; unmapped IDs are unresolved and must not be silently mapped. |
+| `model_class_overrides` | Workload/provider-specific mapping from scenario-selected model IDs or trace aliases to model-size classes. It is used once at scenario-build time; unmapped IDs fail the scenario rather than falling back. |
 | `subscription_counts` | Paper sweep counts for this plan. Avoid running counts that saturate the whole workload and stop exercising quota scarcity. |
 | `eligible_sections` | Which experiment sections may use this plan. §1.2 main figures should use plans tagged `cost_layer_quota`; §1.3 should use plans tagged `cost_layer_concurrency`. |
 | `cost_claim_allowed` | Whether paper figures may include `total_cost_usd` for this plan. |
@@ -501,13 +502,14 @@ old public scenario names `cost_layer_concurrency_c1..c4`. The public shape is:
 --scenario concurrency
 --concurrency-plan <plan_id>
 --concurrency-count <n>
+--model <model_id_or_trace_alias>
 ```
 
 Examples:
 
 ```bash
-routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1
-routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1 --model llama-3.3-70b-instruct
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4 --model llama-3.3-70b-instruct
 ```
 
 The run output should still write resolved parameter values into metadata:
@@ -516,7 +518,8 @@ The run output should still write resolved parameter values into metadata:
 scenario = "concurrency"
 concurrency_plan = "featherless_premium"
 concurrency_count = 1
-artifact_label = "concurrency__plan=featherless_premium__n=1"
+model = "llama-3.3-70b-instruct"
+artifact_label = "concurrency__plan=featherless_premium__n=1__model=llama-3.3-70b-instruct"
 ```
 
 Each §1.3 run contains:
@@ -530,15 +533,15 @@ The aggregate S_C capacity is weighted capacity:
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_model_class = resolve_model_class(request.model, plan.model_class_overrides)
-request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
+scenario_model_class = resolve_model_class(scenario.model, plan.model_class_overrides)
+request_concurrency_cost = plan.model_concurrency_costs_by_class[scenario_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
 
-If `request_model_class` is unresolved, the run should record the unresolved
-model ID and reject the request from S_C. Paper-grade runs should fail fast if
-unresolved model IDs appear in the selected workload.
+Each §1.3 scenario fixes one model at scenario-build time, so model class is
+resolved once. If `scenario.model` is unresolved, the scenario fails to build.
+There is no per-request fallback or default class.
 
 This is the main modeling point. Featherless `concurrency_allotment=4` does
 not mean four simultaneous requests for every model. A `70B` request with
@@ -581,13 +584,11 @@ admit(request_model, finish_time) -> bool
 release_finished(current_time)
 ```
 
-`experiments/simulation` should only resolve the plan, construct a
-`TieredProvider(tier=S_C, concurrency=...)`, and launch the sweep. The
-section runner should reject a concurrency plan if it lacks
-`concurrency_allotment` or if the resolved class has no `concurrency_cost`.
-Unknown trace model IDs must be reported as unresolved rather than mapped by
-an implicit fallback; genuinely incompatible model classes should be rejected
-from S_C.
+`experiments/simulation` should only resolve the plan and scenario model,
+construct a `TieredProvider(tier=S_C, concurrency=...)`, and launch the
+sweep. The section runner should reject a concurrency plan if it lacks
+`concurrency_allotment`, if the scenario model is unresolved, or if the
+resolved class has no `concurrency_cost`.
 
 For the first §1.3 implementation, keep the cost-layer S_C provider
 zero-queue / immediate-admission only. Queueing policy belongs to later
@@ -956,20 +957,20 @@ Add §1.3 after §1.2 has landed:
 2. Add weighted concurrency state to `rwsim/world/capacity.py`; do not
    implement Featherless-specific logic in experiment scripts.
 3. Add a provider builder in `experiments/simulation/common.py` that turns a
-   concurrency plan/count into one aggregate S_C provider.
-4. Add `--scenario concurrency`, `--concurrency-plan`, and
-   `--concurrency-count(s)` to `experiments/simulation/cost_layer.py`.
+   concurrency plan/count/model into one aggregate S_C provider.
+4. Add `--scenario concurrency`, `--concurrency-plan`,
+   `--concurrency-count(s)`, and `--model` to
+   `experiments/simulation/cost_layer.py`.
 5. Delete the old public `cost_layer_concurrency_c1..c4` scenarios in the
    same PR. If a golden migration needs an alias, keep it internal and
    test-only.
 6. Keep fixed-fee accounting at the section-summary layer, exactly as for
    quota plans.
 
-For the first paper-grade smoke, it is acceptable to explicitly map every
-model ID in the selected §1.3 workload to the conservative `ge_70b` class.
-This is not an implicit fallback. Extending the class resolver to a large
-provider-specific model catalogue is a follow-up, not a blocker for the
-initial Featherless Premium result.
+For the first paper-grade smoke, use one explicit scenario model such as
+`llama-3.3-70b-instruct` or the trace alias `sharegpt` mapped to `ge_70b`.
+Extending the class resolver to a large provider-specific model catalogue is
+a follow-up, not a blocker for the initial Featherless Premium result.
 
 ---
 
@@ -1164,14 +1165,14 @@ Add tests for:
 - A saturated count emits a warning / metadata flag rather than silently
   entering the paper q-sweep.
 - Featherless Premium loads as `$25/month`, `concurrency_allotment=4`.
-- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2)`
-  produces weighted capacity `8`.
+- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2,
+  model=sharegpt)` produces weighted capacity `8`.
 - A model with `concurrency_cost=4` consumes all capacity of one Premium
   subscription.
 - A model with `concurrency_cost=1` can admit four simultaneous requests on
   one Premium subscription.
-- An unknown trace model ID is reported as unresolved and raises before
-  admission instead of being silently mapped into S_C.
+- An unknown scenario model raises in the builder before admission instead of
+  being silently mapped into S_C.
 - A request with a genuinely incompatible resolved class is not admitted to S_C.
 
 ### 11.2 Cost accounting tests

@@ -37,7 +37,8 @@ routewise simulator cost-layer \
 routewise simulator cost-layer \
   --scenario concurrency \
   --concurrency-plan featherless_premium \
-  --concurrency-count 1
+  --concurrency-count 1 \
+  --model llama-3.3-70b-instruct
 ```
 
 输出 artifact 可以包含展开后的参数，例如：
@@ -307,7 +308,7 @@ plans:
 | `quota_windows` | 一个或多个 quota constraints。request 只有在所有 window 都有剩余额度时才能使用该 plan。Chutes 有 daily window；MiniMax 普通订阅有 5-hour quota 和 weekly allowance 两层约束。 |
 | `concurrency_allotment` | 一个 subscription/account 的 weighted concurrency capacity。Featherless Premium 的 allotment 是 `4`，这不是四个任意 requests。 |
 | `model_concurrency_costs_by_class` | 按 model-size class 定义 weighted capacity cost。Featherless 文档里的 class 包括 `le_15b=1`、`24_34b=2`、`ge_70b=4`。 |
-| `model_class_overrides` | workload/provider-specific mapping，把 trace model IDs 映射到 model-size classes。paper-grade §1.3 run 里出现的每个 model ID 都必须被覆盖；未映射 ID 是 unresolved，不能被静默映射。 |
+| `model_class_overrides` | workload/provider-specific mapping，把 scenario-selected model IDs 或 trace aliases 映射到 model-size classes。它只在 scenario build 时使用一次；未映射 ID 直接让 scenario fail，不做 fallback。 |
 | `subscription_counts` | 论文里允许 sweep 的 subscription/account 数量。不要跑会让 quota 完全不稀缺的 count。 |
 | `eligible_sections` | 这个 plan 可以被哪些 experiment section 使用。§1.2 主图使用 tagged `cost_layer_quota` 的 plans；§1.3 使用 tagged `cost_layer_concurrency` 的 plans。 |
 | `cost_claim_allowed` | 这个 plan 是否允许在 paper figure 里报告 `total_cost_usd`。 |
@@ -499,13 +500,14 @@ Concurrency 由下面的 §1.3 处理，不应该作为隐藏的额外约束混�
 --scenario concurrency
 --concurrency-plan <plan_id>
 --concurrency-count <n>
+--model <model_id_or_trace_alias>
 ```
 
 例子：
 
 ```bash
-routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1
-routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1 --model llama-3.3-70b-instruct
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4 --model llama-3.3-70b-instruct
 ```
 
 run output 仍然应该写入 resolved 参数：
@@ -514,7 +516,8 @@ run output 仍然应该写入 resolved 参数：
 scenario = "concurrency"
 concurrency_plan = "featherless_premium"
 concurrency_count = 1
-artifact_label = "concurrency__plan=featherless_premium__n=1"
+model = "llama-3.3-70b-instruct"
+artifact_label = "concurrency__plan=featherless_premium__n=1__model=llama-3.3-70b-instruct"
 ```
 
 每个 §1.3 run 包含：
@@ -528,15 +531,15 @@ aggregate S_C capacity 是 weighted capacity：
 
 ```text
 concurrency_capacity = plan.concurrency_allotment * n
-request_model_class = resolve_model_class(request.model, plan.model_class_overrides)
-request_concurrency_cost = plan.model_concurrency_costs_by_class[request_model_class]
+scenario_model_class = resolve_model_class(scenario.model, plan.model_class_overrides)
+request_concurrency_cost = plan.model_concurrency_costs_by_class[scenario_model_class]
 used_concurrency_cost = sum(active_request.concurrency_cost)
 available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
 ```
 
-如果 `request_model_class` unresolved，run 应该记录这个 unresolved model ID，
-并拒绝该 request 进入 S_C。paper-grade run 如果在 selected workload 里发现
-unresolved model ID，应该 fail fast。
+每个 §1.3 scenario 在 scenario-build time 固定一个 model，所以 model class 只 resolve 一次。
+如果 `scenario.model` unresolved，scenario build 直接 fail。这里没有 per-request fallback
+或 default class。
 
 这是 §1.3 最重要的 modeling point。Featherless `concurrency_allotment=4`
 不表示任意 model 都能同时跑四个 request。一个 `concurrency_cost=4` 的 70B request
@@ -576,9 +579,8 @@ release_finished(current_time)
 
 `experiments/simulation` 只负责 resolve plan，构造
 `TieredProvider(tier=S_C, concurrency=...)`，然后启动 sweep。section runner
-应该拒绝缺少 `concurrency_allotment` 的 concurrency plan、拒绝没有
-`concurrency_cost` 的 resolved class。未知 trace model IDs 必须报告为 unresolved，
-不能用隐式 fallback 映射；真正 incompatible 的 model classes 才应该拒绝进入 S_C。
+应该拒绝缺少 `concurrency_allotment` 的 concurrency plan、拒绝 unresolved 的 scenario
+model、拒绝没有 `concurrency_cost` 的 resolved class。
 
 第一版 §1.3 只做 cost-layer S_C provider 的 zero-queue / immediate-admission。
 queueing policy 放到后面的 end-to-end experiments，因为那时 SLO 和 latency behavior
@@ -919,17 +921,18 @@ full run 只在 smoke 满足以下条件后启动：
    `model_concurrency_costs_by_class` 和显式 `model_class_overrides`。
 2. 在 `rwsim/world/capacity.py` 增加 weighted concurrency state；不要在 experiment scripts
    里实现 Featherless-specific logic。
-3. 在 `experiments/simulation/common.py` 增加 provider builder，把 concurrency plan/count
+3. 在 `experiments/simulation/common.py` 增加 provider builder，把 concurrency plan/count/model
    转成一个 aggregate S_C provider。
 4. 在 `experiments/simulation/cost_layer.py` 增加 `--scenario concurrency`、
-   `--concurrency-plan` 和 `--concurrency-count(s)`。
+   `--concurrency-plan`、`--concurrency-count(s)` 和 `--model`。
 5. 在同一个 PR 删除旧 public `cost_layer_concurrency_c1..c4` scenarios。如果 golden migration
    需要 alias，只保留 internal test-only alias。
 6. fixed-fee accounting 仍然只放在 section-summary layer，和 quota plans 一样。
 
-第一版 paper-grade smoke 可以把 selected §1.3 workload 里的每个 model ID 都显式映射到
-保守的 `ge_70b` class。这不是隐式 fallback。把 class resolver 扩展成完整
-provider-specific model catalogue 是 follow-up，不阻塞最初的 Featherless Premium result。
+第一版 paper-grade smoke 使用一个显式 scenario model，例如
+`llama-3.3-70b-instruct`，或者把 trace alias `sharegpt` 映射到 `ge_70b`。
+把 class resolver 扩展成完整 provider-specific model catalogue 是 follow-up，
+不阻塞最初的 Featherless Premium result。
 
 ---
 
@@ -1102,11 +1105,11 @@ fixed RW3/RW8 on-demand pools
   `QuotaState(size=10000, window_sec=86400)`。
 - saturated count 会生成 warning / metadata flag，不会静默进入 paper q-sweep。
 - Featherless Premium 读出来是 `$25/month`、`concurrency_allotment=4`。
-- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2)`
-  生成 weighted capacity `8`。
+- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2,
+  model=sharegpt)` 生成 weighted capacity `8`。
 - `concurrency_cost=4` 的 model 会消耗一个 Premium subscription 的全部 capacity。
 - `concurrency_cost=1` 的 model 在一个 Premium subscription 上可以同时 admit 四个 request。
-- unknown trace model ID 会被报告为 unresolved，并在 admission 前抛错；不能静默映射进 S_C。
+- unknown scenario model 会在 builder 处抛错，不能静默映射进 S_C。
 - 真正 incompatible 的 resolved class 不能 admit 到 S_C。
 
 ### 11.2 Cost accounting tests
