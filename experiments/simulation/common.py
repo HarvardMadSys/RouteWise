@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import math
 import multiprocessing
@@ -603,11 +604,13 @@ def _run_section_parallel(
     context = multiprocessing.get_context("spawn")
     max_workers = min(jobs, len(cells))
     results: list[SectionCellResult] = []
-    with ProcessPoolExecutor(
-        max_workers=max_workers,
-        mp_context=context,
-        max_tasks_per_child=10,
-    ) as executor:
+    executor_kwargs: dict[str, Any] = {
+        "max_workers": max_workers,
+        "mp_context": context,
+    }
+    if "max_tasks_per_child" in inspect.signature(ProcessPoolExecutor).parameters:
+        executor_kwargs["max_tasks_per_child"] = 10
+    with ProcessPoolExecutor(**executor_kwargs) as executor:
         futures = [
             executor.submit(
                 parallel_cell_runner,
