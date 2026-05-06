@@ -193,7 +193,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertTrue(
             (ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml").exists()
         )
-        self.assertTrue((ROOT_DIR / "config" / "experiment.yaml").is_symlink())
+        self.assertFalse((ROOT_DIR / "config").exists())
         self.assertEqual(CostCalculator.__module__, "rwsim.offline.cost")
         self.assertEqual(Request.__module__, "rwsim.offline.schemas")
         self.assertEqual(

@@ -495,7 +495,7 @@ class ILPOptimalStrategy(RoutingStrategy):
                 if pricing is None:
                     raise ValueError(
                         f"Model '{model}' not found in model_pricing. "
-                        f"Please add pricing in config/experiment.yaml. "
+                        f"Please add pricing in experiments/offline_stage/configs/experiment.yaml. "
                         f"Available: {list(model_pricing.keys())}"
                     )
 

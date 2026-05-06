@@ -24,7 +24,7 @@ class CostCalculator:
 
         Args:
             providers: Dictionary of provider configurations
-            model_pricing: Per-model pricing (per 1M tokens) from config/experiment.yaml.
+            model_pricing: Per-model pricing (per 1M tokens) from the offline-stage config.
                           Format: {"model_name": {"input": price, "output": price}}
         """
         self.providers = providers
@@ -131,7 +131,7 @@ class CostCalculator:
         if pricing is None:
             raise ValueError(
                 f"Model '{model}' not found in model_pricing. "
-                f"Please add pricing for this model in config/experiment.yaml. "
+                f"Please add pricing for this model in experiments/offline_stage/configs/experiment.yaml. "
                 f"Available models: {list(self.model_pricing.keys())}"
             )
 
@@ -163,7 +163,7 @@ class CostCalculator:
         if pricing is None:
             raise ValueError(
                 f"Model '{model}' not found in model_pricing. "
-                f"Please add pricing for this model in config/experiment.yaml. "
+                f"Please add pricing for this model in experiments/offline_stage/configs/experiment.yaml. "
                 f"Available models: {list(self.model_pricing.keys())}"
             )
         return (pricing.get("input"), pricing.get("output"))
