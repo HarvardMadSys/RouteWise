@@ -10,11 +10,20 @@ import numpy as np
 
 @dataclass(frozen=True)
 class EmpiricalDistribution:
-    """Distribution interface backed by observed samples."""
+    """Distribution interface backed by observed samples.
+
+    Moments and the sorted view are computed once in ``__post_init__`` so
+    ``mean``/``std``/``quantile`` are O(1) per call. The sampler uses
+    ``rng.integers + fancy indexing`` because per-call overhead is lower
+    than ``rng.choice(replace=True)`` on the size=1 hot path.
+    """
 
     samples: np.ndarray
     label: str = ""
     _sorted: np.ndarray = field(init=False, repr=False)
+    _n: int = field(init=False, repr=False)
+    _mean: float = field(init=False, repr=False)
+    _std: float = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         values = np.asarray(self.samples, dtype=float)
@@ -26,6 +35,9 @@ class EmpiricalDistribution:
             raise ValueError("EmpiricalDistribution samples must be non-negative.")
         object.__setattr__(self, "samples", values)
         object.__setattr__(self, "_sorted", np.sort(values))
+        object.__setattr__(self, "_n", int(values.size))
+        object.__setattr__(self, "_mean", float(np.mean(values)))
+        object.__setattr__(self, "_std", float(np.std(values)))
 
     @classmethod
     def from_npz(
@@ -73,13 +85,26 @@ class EmpiricalDistribution:
 
     def sample(self, rng: np.random.Generator, size: int = 1) -> np.ndarray:
         """Draw samples with replacement."""
-        return rng.choice(self.samples, size=size, replace=True)
+        idx = rng.integers(0, self._n, size=size)
+        return self.samples[idx]
 
     def quantile(self, q: float) -> float:
-        """Return empirical quantile for q in (0, 1)."""
+        """Return empirical quantile for q in (0, 1).
+
+        Linear interpolation between adjacent sorted samples — bit-exact with
+        ``np.percentile(..., method='linear')`` (NumPy's default), but skips
+        the dispatch overhead that dominates per-call cost on the hot path.
+        """
         if not 0.0 < q < 1.0:
             raise ValueError(f"quantile q must be in (0, 1), got {q}")
-        return float(np.percentile(self._sorted, q * 100.0))
+        sorted_samples = self._sorted
+        pos = q * (self._n - 1)
+        lo = int(pos)
+        hi = lo + 1
+        if hi >= self._n:
+            return float(sorted_samples[self._n - 1])
+        frac = pos - lo
+        return float(sorted_samples[lo] * (1.0 - frac) + sorted_samples[hi] * frac)
 
     def p50(self) -> float:
         return self.quantile(0.50)
@@ -91,13 +116,13 @@ class EmpiricalDistribution:
         return self.quantile(0.99)
 
     def mean(self) -> float:
-        return float(np.mean(self.samples))
+        return self._mean
 
     def std(self) -> float:
-        return float(np.std(self.samples))
+        return self._std
 
     def cdf(self, value: float) -> float:
-        return float(np.searchsorted(self._sorted, value, side="right") / self._sorted.size)
+        return float(np.searchsorted(self._sorted, value, side="right") / self._n)
 
 
 __all__ = ["EmpiricalDistribution"]

@@ -11,7 +11,7 @@ experiments that need real-world OpenRouter latency distributions.
 - `pools.yaml`: canonical RW3/RW8 provider pools and the pooled RW8 profile.
 
 The raw CSV is not committed to this repository. The current artifact was
-materialized from:
+prepared from:
 
 ```text
 /Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/phase5_qwen3_7d_clean/run_20260410_171625/evaluation_log.csv
@@ -22,10 +22,10 @@ materialized from:
 Regenerate the artifact with:
 
 ```bash
-python -m scripts.materialize_qwen3_latency_profiles
+python -m scripts.prepare_latency_profiles
 ```
 
-The materialization script drops providers with fewer than 1,000 valid TTFT
+The profile preparation script drops providers with fewer than 1,000 valid TTFT
 samples and caps each provider at 50,000 samples using a fixed subsample seed.
 The cap keeps the committed artifact small while preserving the empirical
 latency shape for bootstrap sampling.

@@ -5,14 +5,13 @@ from __future__ import annotations
 import csv
 import json
 import math
-from collections import Counter
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from rwsim.engine.simulator import Simulator
+from rwsim.metrics import RunAggregate
+from rwsim.metrics.histogram import merge_histograms
 from rwsim.policies import build_policy
 from rwsim.schemas import Request
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
@@ -20,6 +19,7 @@ from rwsim.world.distributions import LogNormal, Normal, Uniform
 from rwsim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
+    from collections import Counter
     from collections.abc import Callable, Mapping
 
     from rwsim.metrics import Run
@@ -286,10 +286,11 @@ def run_policy(
     *,
     presets: dict[str, dict[str, Any]],
     seed: int,
+    retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
     policy = build_policy(policy_name, presets=presets, seed=seed)
-    simulator = Simulator(scenario=scenario, seed=seed)
+    simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
 
 
@@ -301,40 +302,45 @@ def summarize_runs(
     runs: list[Run],
 ) -> dict[str, Any]:
     """Aggregate section metrics across seeds."""
-    records = [record for run in runs for record in run.records]
-    ttft = np.asarray([record.ttft_ms for record in records], dtype=float)
-    costs = np.asarray([record.total_cost_usd for record in records], dtype=float)
-    provider_counts = Counter(record.final_provider for record in records)
-    tier_counts = Counter(record.final_tier for record in records if record.final_tier)
-    total = len(records)
+    aggregate = _merge_run_aggregates(runs)
+    total = aggregate.n
+    ttft_histogram = aggregate.ttft_histogram
 
     def percentile(pct: float) -> float:
-        if ttft.size == 0:
+        if total == 0:
             return float("nan")
-        return float(np.percentile(ttft, pct))
+        return ttft_histogram.quantile(pct / 100.0)
 
     return {
         "scenario": scenario.name,
         "policy": policy,
         "seeds": list(seeds),
         "n_requests": total,
-        "mean_ttft_ms": float(np.mean(ttft)) if ttft.size else float("nan"),
+        "mean_ttft_ms": ttft_histogram.mean(),
         "p10_ms": percentile(10),
         "p25_ms": percentile(25),
         "p50_ms": percentile(50),
         "p75_ms": percentile(75),
         "p90_ms": percentile(90),
         "p99_ms": percentile(99),
-        "mean_cost_usd": float(np.mean(costs)) if costs.size else float("nan"),
-        "total_cost_usd": float(np.sum(costs)) if costs.size else 0.0,
+        "mean_cost_usd": (
+            aggregate.total_cost_usd / aggregate.cost_count
+            if aggregate.cost_count
+            else float("nan")
+        ),
+        "total_cost_usd": float(aggregate.total_cost_usd),
         "slo_violation_rate": (
-            float(np.mean([record.slo_violated for record in records])) if records else 0.0
+            aggregate.slo_violated_count / total if total else 0.0
         ),
         "hedge_rate": (
-            float(np.mean([record.hedge_triggered for record in records])) if records else 0.0
+            aggregate.hedge_triggered_count / aggregate.hedge_total_count
+            if aggregate.hedge_total_count
+            else 0.0
         ),
-        "provider_mix": _fraction_map(provider_counts, total),
-        "tier_mix": _fraction_map(tier_counts, total),
+        "provider_mix": _fraction_map(aggregate.provider_counts, total),
+        "tier_mix": _fraction_map(aggregate.tier_counts, total),
+        "percentile_source": "histogram",
+        "histogram_bins": int(ttft_histogram.bin_edges_ms.size - 1),
     }
 
 
@@ -350,6 +356,7 @@ def run_section(
     duration_sec: float | None = None,
     max_requests: int | None = None,
     output_dir: Path | None = None,
+    retain_records: bool = False,
 ) -> list[dict[str, Any]]:
     """Run one section and write machine-readable summaries."""
     root = output_dir or (OUTPUT_DIR / section_name.replace("-", "_"))
@@ -360,12 +367,18 @@ def run_section(
         max_requests=max_requests,
     )
     rows: list[dict[str, Any]] = []
+    histogram_rows: list[dict[str, Any]] = []
     local_runners = section_runners or {}
     for scenario in scenarios.values():
         for policy in policies:
             runs = [
                 (
-                    local_runners[policy](scenario, requests, seed)
+                    local_runners[policy](
+                        scenario,
+                        requests,
+                        seed,
+                        retain_records=retain_records,
+                    )
                     if policy in local_runners
                     else run_policy(
                         scenario,
@@ -373,10 +386,12 @@ def run_section(
                         policy,
                         presets=presets,
                         seed=seed,
+                        retain_records=retain_records,
                     )
                 )
                 for seed in seeds
             ]
+            aggregate = _merge_run_aggregates(runs)
             rows.append(
                 summarize_runs(
                     scenario=scenario,
@@ -384,6 +399,14 @@ def run_section(
                     seeds=seeds,
                     runs=runs,
                 )
+            )
+            histogram_rows.append(
+                {
+                    "scenario": scenario.name,
+                    "policy": policy,
+                    "seeds": list(seeds),
+                    "histogram": aggregate.ttft_histogram.to_dict(),
+                }
             )
 
     metadata = {
@@ -398,6 +421,7 @@ def run_section(
     }
     write_json(root / "metadata.json", metadata)
     write_json(root / "summary.json", rows)
+    write_json(root / "ttft_histograms.json", histogram_rows)
     write_summary_csv(root / "summary.csv", rows)
     return rows
 
@@ -429,6 +453,8 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "hedge_rate",
         "provider_mix",
         "tier_mix",
+        "percentile_source",
+        "histogram_bins",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -450,6 +476,72 @@ def _fraction_map(counts: Counter[str], total: int) -> dict[str, float]:
     if total <= 0:
         return {}
     return {key: counts[key] / total for key in sorted(counts)}
+
+
+def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
+    aggregate = RunAggregate(
+        ttft_histogram=merge_histograms([run.ttft_histogram() for run in runs])
+    )
+    for run in runs:
+        if run.aggregate is not None:
+            source = run.aggregate
+            aggregate.n += source.n
+            if source.e2e_histogram is not None:
+                if aggregate.e2e_histogram is None:
+                    aggregate.e2e_histogram = source.e2e_histogram.copy()
+                else:
+                    aggregate.e2e_histogram = aggregate.e2e_histogram.merge(
+                        source.e2e_histogram
+                    )
+            aggregate.total_cost_usd += source.total_cost_usd
+            aggregate.cost_count += source.cost_count
+            aggregate.status_counts.update(source.status_counts)
+            aggregate.slo_violated_count += source.slo_violated_count
+            aggregate.cost_by_tier.update(source.cost_by_tier)
+            aggregate.cost_by_provider.update(source.cost_by_provider)
+            aggregate.provider_counts.update(source.provider_counts)
+            aggregate.tier_counts.update(source.tier_counts)
+            aggregate.hedge_triggered_count += source.hedge_triggered_count
+            aggregate.hedge_total_count += source.hedge_total_count
+            aggregate.hedge_winner_counts.update(source.hedge_winner_counts)
+            continue
+        for record in run.records:
+            aggregate.n += 1
+            if record.e2e_ms is not None:
+                if aggregate.e2e_histogram is None:
+                    from rwsim.metrics.histogram import TtftHistogram
+
+                    aggregate.e2e_histogram = TtftHistogram.default()
+                aggregate.e2e_histogram.add(float(record.e2e_ms))
+            aggregate.total_cost_usd += float(record.total_cost_usd)
+            aggregate.cost_count += 1
+            aggregate.status_counts[record.status.value] += 1
+            if record.slo_violated:
+                aggregate.slo_violated_count += 1
+            if record.primary_tier:
+                aggregate.cost_by_tier[record.primary_tier] += float(
+                    record.primary_cost_usd
+                )
+            aggregate.cost_by_provider[record.primary_provider] += float(
+                record.primary_cost_usd
+            )
+            if record.backup_cost_usd is not None and record.backup_provider:
+                aggregate.cost_by_provider[record.backup_provider] += float(
+                    record.backup_cost_usd
+                )
+                if record.backup_tier:
+                    aggregate.cost_by_tier[record.backup_tier] += float(
+                        record.backup_cost_usd
+                    )
+            aggregate.provider_counts[record.final_provider] += 1
+            if record.final_tier:
+                aggregate.tier_counts[record.final_tier] += 1
+            aggregate.hedge_total_count += 1
+            if record.hedge_triggered:
+                aggregate.hedge_triggered_count += 1
+                if record.hedge_winner:
+                    aggregate.hedge_winner_counts[record.hedge_winner] += 1
+    return aggregate
 
 
 __all__ = [

@@ -25,7 +25,7 @@ from experiments.simulation.common import (
     run_section,
 )
 from experiments.simulation.real_profiles import load_pooled_distribution
-from rwsim.metrics import PerRequestRecord, Run, Status
+from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -164,24 +164,26 @@ def run_offline_policy(
     scenario: ScenarioConfig,
     requests: list[Request],
     seed: int,
+    retain_records: bool = True,
 ) -> Run:
     """Run the cost-layer offline baseline with full trace knowledge."""
     del seed
     assignments = _offline_assignments(scenario, requests)
-    records = [
-        _offline_record(
-            scenario=scenario,
-            request=request,
-            provider=assignments[request.id],
-        )
-        for request in requests
-    ]
-    return Run(
-        records=records,
+    aggregator = RunAggregator(
         policy=OFFLINE_POLICY,
         scenario_name=scenario.name,
         source="simulation",
+        retain_records=retain_records,
     )
+    for request in requests:
+        aggregator.observe(
+            _offline_record(
+                scenario=scenario,
+                request=request,
+                provider=assignments[request.id],
+            )
+        )
+    return aggregator.finalize()
 
 
 def _make_api_cost_scenario(family: str) -> ScenarioConfig:

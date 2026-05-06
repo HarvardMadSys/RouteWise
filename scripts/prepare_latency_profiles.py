@@ -1,10 +1,10 @@
-"""Materialize Qwen3 235B real-world TTFT samples for S_A experiments.
+"""Prepare Qwen3 235B real-world TTFT samples for S_A experiments.
 
 Reads cached OpenRouter evaluation log, extracts per-provider TTFT samples,
 and writes compact profile artifacts for the EmpiricalDistribution class.
 
 Run:
-    python -m scripts.materialize_qwen3_latency_profiles
+    python -m scripts.prepare_latency_profiles
 
 Output:
     experiments/simulation/profiles/qwen3_24h.npz       (per-provider TTFT arrays)

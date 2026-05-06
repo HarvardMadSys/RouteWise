@@ -77,6 +77,28 @@ def test_sample_draws_from_empirical_support():
     assert set(samples).issubset(set(dist.samples))
 
 
+def test_mean_std_and_quantile_match_numpy_reference():
+    """Lock cached moments and indexed-interp quantile to NumPy's defaults.
+
+    The Phase 1a perf fix replaces ``np.percentile`` with sorted-array linear
+    interpolation and caches mean/std in ``__post_init__``. This test pins
+    the equivalence so future micro-optimisations don't drift away from
+    ``np.mean`` / ``np.std`` / ``np.percentile(..., method='linear')``.
+    """
+    rng = np.random.default_rng(0)
+    samples = rng.exponential(scale=300.0, size=10_000)
+    dist = EmpiricalDistribution(samples)
+
+    assert dist.mean() == pytest.approx(float(np.mean(samples)), rel=1e-12)
+    assert dist.std() == pytest.approx(float(np.std(samples)), rel=1e-12)
+
+    for q in (0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99):
+        assert dist.quantile(q) == pytest.approx(
+            float(np.percentile(samples, q * 100.0)),
+            rel=1e-12,
+        )
+
+
 def test_empirical_distribution_rejects_bad_samples_and_missing_provider():
     with pytest.raises(ValueError, match="non-empty"):
         EmpiricalDistribution(np.array([]))

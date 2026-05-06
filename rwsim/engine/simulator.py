@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rwsim.engine.state import SimulationState
-from rwsim.metrics import PerRequestRecord, Run, Status
+from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -31,6 +31,7 @@ class Simulator:
     scenario: ScenarioConfig
     seed: int = 42
     dispatch_overhead_ms: float = _DISPATCH_OVERHEAD_MS
+    retain_records: bool = True
 
     def run(
         self,
@@ -46,14 +47,19 @@ class Simulator:
 
         providers = {provider.name: provider for provider in self.scenario.providers}
         state = SimulationState.from_providers(providers)
-        records: list[PerRequestRecord] = []
+        aggregator = RunAggregator(
+            policy=policy_name,
+            scenario_name=self.scenario.name,
+            source="simulation",
+            retain_records=self.retain_records,
+        )
 
         for request in requests:
             state.now = float(request.timestamp)
             decision = policy.route(request, state)
             outcome = self._execute_request(request, decision, policy, state, rng)
             policy.observe(request, decision, outcome)
-            records.append(
+            aggregator.observe(
                 self._build_record(
                     request=request,
                     decision=decision,
@@ -67,12 +73,7 @@ class Simulator:
             if user_id is not None and not outcome.rejected:
                 state.user_last_provider[user_id] = outcome.final_provider
 
-        return Run(
-            records=records,
-            policy=policy_name,
-            scenario_name=self.scenario.name,
-            source="simulation",
-        )
+        return aggregator.finalize()
 
     def _execute_request(
         self,
