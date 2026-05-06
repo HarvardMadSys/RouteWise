@@ -170,23 +170,25 @@ def _check(
     ref_cost = float(np.dot(cost_arr, ref_w))
 
     obj_gap = abs(enum_obj - ref_obj) / (abs(ref_obj) + 1e-12)
-    cost_gap = abs(enum_cost - ref_cost) / (abs(ref_cost) + 1e-18)
+    cost_diff = abs(enum_cost - ref_cost) / (abs(ref_cost) + 1e-18)
 
-    # Loose tol on individual weights (multiple optima possible);
-    # tight tol on objective and cost expectation.
+    # Correctness checks: objective must match (LP optimum is unique up to
+    # weight degeneracy at multiple optima) and enum must respect the budget.
+    # cost_diff is informational only — distinct optima can have different
+    # expected costs while sharing the optimal objective value.
     if obj_gap > 1e-6:
         return False, (
             f"{name}: objective mismatch enum={enum_obj:.6f} "
             f"ref={ref_obj:.6f} rel_gap={obj_gap:.2e} "
             f"weights enum={enum_w} ref={ref_w}"
         )
-    if cost_gap > 1e-6 and enum_cost > upper_bound + _LP_EPS:
+    if enum_cost > upper_bound + 1e-9:
         return False, (
             f"{name}: enum violates budget enum_cost={enum_cost:.6e} "
             f"budget={upper_bound:.6e}"
         )
     return True, (
-        f"{name}: obj_rel={obj_gap:.2e} cost_rel={cost_gap:.2e} "
+        f"{name}: obj_rel={obj_gap:.2e} cost_diff={cost_diff:.2e} "
         f"enum_w={np.round(enum_w, 4)} ref_w={np.round(ref_w, 4)}"
     )
 
@@ -254,8 +256,8 @@ def main() -> None:
     print("=" * 70)
     if failures:
         print(f"FAILED: {len(failures)} mismatches, {passes} passes")
-    else:
-        print(f"OK: {passes} parity checks all passed")
+        raise SystemExit(1)
+    print(f"OK: {passes} parity checks all passed")
 
 
 if __name__ == "__main__":
