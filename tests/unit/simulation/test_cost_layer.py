@@ -80,6 +80,30 @@ def test_cost_layer_real_world_uses_one_pooled_latency_distribution():
     assert scenario.providers[0].true_p99_ms() > scenario.providers[0].true_p50_ms()
 
 
+def test_quota_scenario_allows_explicit_exploratory_subscription_counts():
+    scenarios = cost_layer.make_scenarios(
+        subscription_counts=(40,),
+    )
+    scenario = scenarios["quota__plan=chutes__n=40"]
+
+    assert scenario.metadata["subscription_count"] == 40
+    assert scenario.providers[0].quota.size == 200000
+
+
+def test_quota_scenario_can_use_real_world_latency_family():
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="chutes",
+        subscription_count=2,
+        quota_latency_family="real_world",
+    )
+
+    assert scenario.name == "quota__plan=chutes__n=2__latency=real_world"
+    assert scenario.metadata["latency_family"] == "real_world"
+    assert len({id(provider.ttft_dist) for provider in scenario.providers}) == 1
+    assert scenario.providers[0].ttft_dist.label == "qwen3_24h/rw8_pooled"
+
+
 def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
     policies = cost_layer.policies_for_section((0.0, 0.75, 1.0))
     presets = common.make_routewise_presets(p_values=(0.0, 0.75, 1.0), include_hedging=False)

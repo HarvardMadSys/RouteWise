@@ -43,6 +43,7 @@ REAL_WORLD_SCENARIO = "cost_layer_real_world"
 QUOTA_SCENARIO = "quota"
 
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
+_QUOTA_LATENCY_FAMILIES = (*_SYNTHETIC_FAMILIES, "real_world")
 _CONCURRENCY_LIMIT_PER_PROVIDER = 8
 _SCENARIO_NAMES = (
     "cost_layer_uniform",
@@ -66,6 +67,7 @@ def make_scenarios(
     *,
     subscription_plans: tuple[str, ...] = ("chutes",),
     subscription_counts: tuple[int, ...] | None = None,
+    quota_latency_family: str = "heavy_tail",
 ) -> dict[str, ScenarioConfig]:
     """Build runnable cost-layer scenarios keyed by artifact label."""
     scenarios: dict[str, ScenarioConfig] = {}
@@ -75,6 +77,7 @@ def make_scenarios(
                 _make_quota_plan_scenarios(
                     subscription_plans=subscription_plans,
                     subscription_counts=subscription_counts,
+                    quota_latency_family=quota_latency_family,
                 )
             )
         else:
@@ -88,6 +91,7 @@ def make_scenario(
     *,
     subscription_plan: str = "chutes",
     subscription_count: int = 1,
+    quota_latency_family: str = "heavy_tail",
 ) -> ScenarioConfig:
     """Build one cost-layer scenario by name."""
     if name.startswith("cost_layer_") and name.removeprefix("cost_layer_") in _SYNTHETIC_FAMILIES:
@@ -95,11 +99,19 @@ def make_scenario(
     if name == REAL_WORLD_SCENARIO:
         return _make_real_world_api_cost_scenario()
     if name == QUOTA_SCENARIO:
-        return _make_quota_scenario_for_plan(subscription_plan, subscription_count)
+        return _make_quota_scenario_for_plan(
+            subscription_plan,
+            subscription_count,
+            latency_family=quota_latency_family,
+        )
     parsed_quota = _parse_quota_artifact_label(name)
     if parsed_quota is not None:
-        plan_id, count = parsed_quota
-        return _make_quota_scenario_for_plan(plan_id, count)
+        plan_id, count, latency_family = parsed_quota
+        return _make_quota_scenario_for_plan(
+            plan_id,
+            count,
+            latency_family=latency_family,
+        )
     if name.startswith("cost_layer_concurrency_c"):
         return _make_concurrency_scenario(
             _parse_positive_suffix(name, "cost_layer_concurrency_c")
@@ -131,29 +143,49 @@ def _parse_positive_suffix(name: str, prefix: str) -> int:
     return value
 
 
-def quota_artifact_label(plan_id: str, subscription_count: int) -> str:
+def quota_artifact_label(
+    plan_id: str,
+    subscription_count: int,
+    *,
+    latency_family: str = "heavy_tail",
+) -> str:
     """Return the stable artifact label for one quota plan/count."""
-    return f"quota__plan={plan_id}__n={subscription_count}"
+    label = f"quota__plan={plan_id}__n={subscription_count}"
+    if latency_family != "heavy_tail":
+        label += f"__latency={latency_family}"
+    return label
 
 
-def _parse_quota_artifact_label(name: str) -> tuple[str, int] | None:
+def _parse_quota_artifact_label(name: str) -> tuple[str, int, str] | None:
     prefix = "quota__plan="
     marker = "__n="
     if not name.startswith(prefix) or marker not in name:
         return None
-    plan_part, count_part = name.removeprefix(prefix).rsplit(marker, 1)
+    plan_part, rest = name.removeprefix(prefix).rsplit(marker, 1)
+    count_part, latency_part = _split_quota_count_and_latency(rest)
     try:
         count = int(count_part)
     except ValueError as exc:
         raise ValueError(f"invalid quota artifact label {name!r}") from exc
-    return plan_part, count
+    return plan_part, count, latency_part
+
+
+def _split_quota_count_and_latency(value: str) -> tuple[str, str]:
+    marker = "__latency="
+    if marker not in value:
+        return value, "heavy_tail"
+    count_part, latency_family = value.split(marker, 1)
+    _validate_quota_latency_family(latency_family)
+    return count_part, latency_family
 
 
 def _make_quota_plan_scenarios(
     *,
     subscription_plans: tuple[str, ...],
     subscription_counts: tuple[int, ...] | None,
+    quota_latency_family: str,
 ) -> dict[str, ScenarioConfig]:
+    _validate_quota_latency_family(quota_latency_family)
     plans = load_subscription_plans()
     scenarios: dict[str, ScenarioConfig] = {}
     for plan_id in subscription_plans:
@@ -167,7 +199,11 @@ def _make_quota_plan_scenarios(
         counts = subscription_counts or plan.subscription_counts
         _validate_subscription_counts(plan, counts)
         for count in counts:
-            scenario = _make_quota_scenario_for_plan(plan.plan_id, count)
+            scenario = _make_quota_scenario_for_plan(
+                plan.plan_id,
+                count,
+                latency_family=quota_latency_family,
+            )
             scenarios[scenario.name] = scenario
     return scenarios
 
@@ -176,14 +212,10 @@ def _validate_subscription_counts(
     plan: SubscriptionPlan,
     counts: tuple[int, ...],
 ) -> None:
-    allowed = set(plan.subscription_counts)
-    invalid = [count for count in counts if count not in allowed]
+    del plan
+    invalid = [count for count in counts if count <= 0]
     if invalid:
-        allowed_text = ", ".join(str(count) for count in plan.subscription_counts)
-        raise ValueError(
-            f"subscription count {invalid[0]} is not allowed for plan "
-            f"{plan.plan_id!r}; allowed counts: {allowed_text}"
-        )
+        raise ValueError(f"subscription counts must be > 0, got {invalid[0]}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -234,6 +266,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated quota scenario subscription counts, e.g. 1,2,3,4.",
     )
     parser.add_argument(
+        "--latency-family",
+        default="heavy_tail",
+        choices=_QUOTA_LATENCY_FAMILIES,
+        help=(
+            "Quota scenario TTFT family. Defaults to heavy_tail (LogNormal). "
+            "Use real_world for the pooled rw8_pooled latency distribution."
+        ),
+    )
+    parser.add_argument(
         "--workload",
         default=DEFAULT_WORKLOAD,
         choices=("sharegpt_burstgpt", "burstgpt"),
@@ -279,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = make_scenarios(
         subscription_plans=subscription_plan_ids,
         subscription_counts=subscription_counts,
+        quota_latency_family=args.latency_family,
     )
     if args.scenario:
         selected: dict[str, ScenarioConfig] = {}
@@ -360,6 +402,12 @@ def _parse_subscription_count_args(
     if single is not None:
         return (int(single),)
     return None
+
+
+def _validate_quota_latency_family(latency_family: str) -> None:
+    if latency_family not in _QUOTA_LATENCY_FAMILIES:
+        known = ", ".join(_QUOTA_LATENCY_FAMILIES)
+        raise ValueError(f"unknown quota latency family {latency_family!r}; known: {known}")
 
 
 def _split_csv(value: str) -> tuple[str, ...]:
@@ -518,7 +566,10 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
 def _make_quota_scenario_for_plan(
     plan_id: str,
     subscription_count: int,
+    *,
+    latency_family: str = "heavy_tail",
 ) -> ScenarioConfig:
+    _validate_quota_latency_family(latency_family)
     plans = load_subscription_plans()
     try:
         plan = plans[plan_id]
@@ -531,32 +582,46 @@ def _make_quota_scenario_for_plan(
             f"subscription plan {plan.plan_id!r} is not eligible for cost-layer quota runs"
         )
 
-    label = quota_artifact_label(plan.plan_id, subscription_count)
+    label = quota_artifact_label(
+        plan.plan_id,
+        subscription_count,
+        latency_family=latency_family,
+    )
+    ttft_dist = load_pooled_distribution("rw8_pooled") if latency_family == "real_world" else None
     providers = [
         make_quota_provider(
             f"{plan.plan_id}_quota",
             plan=plan,
             subscription_count=subscription_count,
+            latency_family="heavy_tail" if ttft_dist is not None else latency_family,
         ),
         make_api_provider(
             "api_cheap",
             cost_per_million_tokens=COST_RATIO_PER_MILLION[0],
-            latency_family="heavy_tail",
+            latency_family="heavy_tail" if ttft_dist is not None else latency_family,
         ),
         make_api_provider(
             "api_mid",
             cost_per_million_tokens=COST_RATIO_PER_MILLION[1],
-            latency_family="heavy_tail",
+            latency_family="heavy_tail" if ttft_dist is not None else latency_family,
         ),
         make_api_provider(
             "api_expensive",
             cost_per_million_tokens=COST_RATIO_PER_MILLION[2],
-            latency_family="heavy_tail",
+            latency_family="heavy_tail" if ttft_dist is not None else latency_family,
         ),
     ]
+    if ttft_dist is not None:
+        for provider in providers:
+            provider.ttft_dist = ttft_dist
     quota_window_text = ", ".join(
         f"{window.quota_requests * subscription_count:g}/{window.quota_window_sec:g}s"
         for window in plan.quota_windows
+    )
+    latency_text = (
+        "real-world pooled rw8_pooled"
+        if latency_family == "real_world"
+        else f"{latency_family}, P50={COST_LAYER_P50_MS:.0f}ms"
     )
     return ScenarioConfig(
         name=label,
@@ -564,7 +629,7 @@ def _make_quota_scenario_for_plan(
             f"Cost-layer quota scenario: {plan.display_name} x{subscription_count} "
             f"({quota_window_text}) as one aggregate quota provider, fixed "
             "cheap/mid/expensive on-demand fallback providers, "
-            f"LogNormal P50={COST_LAYER_P50_MS:.0f}ms."
+            f"TTFT={latency_text}."
         ),
         providers=providers,
         arrival_process="trace",
@@ -575,6 +640,7 @@ def _make_quota_scenario_for_plan(
             "subscription_plan": plan.plan_id,
             "subscription_plan_display_name": plan.display_name,
             "subscription_count": subscription_count,
+            "latency_family": latency_family,
             "quota_windows": [
                 {
                     "name": window.name,
