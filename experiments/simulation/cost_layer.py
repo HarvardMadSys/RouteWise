@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1034,11 +1035,25 @@ def _concurrency_assignments(
         start = float(request.timestamp)
         end = start + _offline_service_time_sec(concurrency_providers[0], request)
         for provider, intervals in slots:
-            if all(end <= lo or start >= hi for lo, hi in intervals):
-                intervals.append((start, end))
+            if _interval_fits(intervals, start, end):
+                bisect.insort(intervals, (start, end))
                 assignments[request.id] = provider
                 break
     return assignments
+
+
+def _interval_fits(
+    sorted_intervals: list[tuple[float, float]],
+    start: float,
+    end: float,
+) -> bool:
+    """Return whether [start, end) fits in a start-sorted interval list."""
+    index = bisect.bisect_left(sorted_intervals, (start, end))
+    if index > 0 and sorted_intervals[index - 1][1] > start:
+        return False
+    if index < len(sorted_intervals) and end > sorted_intervals[index][0]:
+        return False
+    return True
 
 
 def _offline_record(
