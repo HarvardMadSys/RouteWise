@@ -1,9 +1,9 @@
 # Subscription Plan Simulation Design 中文版
 
-> RouteWise simulator cost-layer §1.2 的设计文档，覆盖 quota-style
-> subscription plans。这个文档说明如何在 simulator 里模拟 Chutes、
-> MiniMax Starter / Plus / Max 等订阅计划，同时避免把“路由时的边际成本”
-> 和“论文里报告的账单成本”混在一起。
+> RouteWise simulator cost-layer §1.2 和 §1.3 的设计文档，覆盖
+> quota-style 和 concurrency-style subscription plans。这个文档说明如何在
+> simulator 里模拟 Chutes、MiniMax Starter / Plus / Max、Featherless 等订阅计划，
+> 同时避免把“路由时的边际成本”和“论文里报告的账单成本”混在一起。
 
 最后更新：2026-05-06。
 
@@ -11,28 +11,33 @@
 
 ## 1. TL;DR
 
-Cost-layer §1.2 应该模拟**具体的 subscription plan**，而不是一个匿名的
-`quota_q1..q4` 资源。
+Cost-layer §1.2 和 §1.3 应该模拟**具体的 subscription plan**，而不是匿名的
+`quota_q1..q4` 或 `concurrency_c1..c4` 资源。
 
 目标文件结构：
 
 ```text
 experiments/
-  subscription_plans.yaml          # 共享的 Chutes / MiniMax plan facts
+  subscription_plans.yaml          # 共享的 quota / concurrency plan facts
   subscriptions.py                 # 实验代码共享的 loader / dataclass
 
 experiments/simulation/
-  cost_layer.py                    # 生成参数化 quota-plan runs
+  cost_layer.py                    # 生成参数化 plan runs
   common.py                        # provider builder + cost summary helpers
 ```
 
-公开 CLI 应该保留一个 quota scenario，把产品 plan 和订阅数量作为显式参数：
+公开 CLI 应该保留一个 quota scenario 和一个 concurrency scenario，把产品 plan 和订阅数量作为显式参数：
 
 ```bash
 routewise simulator cost-layer \
   --scenario quota \
   --subscription-plan chutes \
   --subscription-count 2
+
+routewise simulator cost-layer \
+  --scenario concurrency \
+  --concurrency-plan featherless_premium \
+  --concurrency-count 1
 ```
 
 输出 artifact 可以包含展开后的参数，例如：
@@ -50,27 +55,35 @@ S_Q 路由成本：
   quota 内单个 request 的 marginal request cost = 0
   effective cost = quota shadow price ψ(z)
 
+S_C 路由成本：
+  capacity 可用时 marginal request cost = 0
+  effective cost = concurrency shadow price λ(u) * concurrency_cost(model) * duration
+
 实验报告成本：
   total_cost_usd = api_cost_usd + subscription_fixed_cost_usd
 ```
 
-所以 Chutes 对路由来说仍然是 zero marginal cost，但最终 cost bar / table
-必须包含按 trace 时长 prorate 的 `$20/month` subscription fee。
+所以 Chutes 和 Featherless 在购买后对路由来说仍然是 zero marginal cost，但最终 cost bar /
+table 必须包含按 trace 时长 prorate 的 fixed subscription fee。
 
 ---
 
 ## 2. Problem
 
-当前 cost-layer quota scenarios 是泛化名字：
+当前 cost-layer quota 和 concurrency scenarios 是泛化名字：
 
 ```text
 cost_layer_quota_q1
 cost_layer_quota_q2
 cost_layer_quota_q3
 cost_layer_quota_q4
+cost_layer_concurrency_c1
+cost_layer_concurrency_c2
+cost_layer_concurrency_c3
+cost_layer_concurrency_c4
 ```
 
-它们的 quota size 写死在 `experiments/simulation/cost_layer.py`。现在这个名字太含糊。
+它们的 capacity knobs 写死在 `experiments/simulation/cost_layer.py`。现在这个名字太含糊。
 
 另一个极端也不好：把每个 product/count 组合展开成 public scenario name，例如：
 
@@ -79,16 +92,22 @@ cost_layer_quota_chutes_q1
 ```
 
 这样会把 `plan × n` 伪装成很多不同 experiment type，重新变成我们刚删掉的
-grid-style API。实际上 `plan` 和 `n` 只是同一个 quota-plan experiment 的参数。
+grid-style API。实际上 `plan` 和 `n` 只是同一个 plan-backed experiment 的参数。
 
 我们要回答的 paper question 是：
 
 > 给定一个真实 subscription plan，RouteWise 应该买几个 subscription/account，
 > 又应该怎么把 quota 分配给 workload 里的 requests？
 
+对 §1.3，对应的问题是：
+
+> 给定一个真实 concurrency subscription plan，RouteWise 应该买几个 subscription/account，
+> 又应该让哪些 in-flight requests 消耗稀缺 concurrency capacity？
+
 这个问题依赖 plan facts：
 
 - quota size 和 reset window
+- concurrency allotment 和 per-model concurrency cost
 - monthly fee
 - model/provider identity
 - 这个 fee 是否已经确认到足以做 dollar-cost claim
@@ -257,6 +276,22 @@ plans:
     source: "User-provided MiniMax pricing screenshot, 2026-05-06"
     notes: "$50/mo; 15000 model requests / 5h; weekly allowance is 10x the 5-hour quota."
 
+  featherless_premium:
+    display_name: "Featherless Premium"
+    tier: concurrency
+    billing_mode: subscription
+    monthly_fee_usd: 25.0
+    concurrency_allotment: 4
+    model_concurrency_costs:
+      llama-3.3-70b-instruct: 4
+      qwen3-coder-30b: 2
+      llama-4-scout: 1
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_concurrency, end_to_end]
+    cost_claim_allowed: true
+    source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
+    notes: "Concurrency 是 weighted capacity，不是 request count。Premium allotment=4，所以一个 cost=4 的 70B request 会占满这个 plan。"
+
 ```
 
 ### 4.2 字段语义
@@ -265,8 +300,10 @@ plans:
 |---|---|
 | `monthly_fee_usd` | 固定 subscription fee。`null` 表示可以模拟 routing/utilization，但不能做 total-cost dollar claim。 |
 | `quota_windows` | 一个或多个 quota constraints。request 只有在所有 window 都有剩余额度时才能使用该 plan。Chutes 有 daily window；MiniMax 普通订阅有 5-hour quota 和 weekly allowance 两层约束。 |
+| `concurrency_allotment` | 一个 subscription/account 的 weighted concurrency capacity。Featherless Premium 的 allotment 是 `4`，这不是四个任意 requests。 |
+| `model_concurrency_costs` | 每个 model 的 weighted capacity cost。`concurrency_cost=4` 的 model 会用完一个 Featherless Premium subscription 的全部容量。 |
 | `subscription_counts` | 论文里允许 sweep 的 subscription/account 数量。不要跑会让 quota 完全不稀缺的 count。 |
-| `eligible_sections` | 这个 plan 可以被哪些 experiment section 使用。§1.2 主图应该使用 tagged `cost_layer_quota` 的 plans。 |
+| `eligible_sections` | 这个 plan 可以被哪些 experiment section 使用。§1.2 主图使用 tagged `cost_layer_quota` 的 plans；§1.3 使用 tagged `cost_layer_concurrency` 的 plans。 |
 | `cost_claim_allowed` | 这个 plan 是否允许在 paper figure 里报告 `total_cost_usd`。 |
 | `source` | 人可以 audit 的来源。 |
 
@@ -445,8 +482,89 @@ constraint。
 又应该把稀缺 quota 分给哪些 requests？
 ```
 
-如果之后要加 concurrency，应该作为单独的 §1.3 / end-to-end 改动，而不是隐藏在 §1.2 quota
-sweep 里的额外约束。
+Concurrency 由下面的 §1.3 处理，不应该作为隐藏的额外约束混进 §1.2 quota sweep。
+
+### 5.5 Concurrency subscription §1.3
+
+§1.3 是 §1.2 的 concurrency-plan 对应版本。它不应该继续复用旧 public scenario names
+`cost_layer_concurrency_c1..c4`。public shape 应该是：
+
+```text
+--scenario concurrency
+--concurrency-plan <plan_id>
+--concurrency-count <n>
+```
+
+例子：
+
+```bash
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4
+```
+
+run output 仍然应该写入 resolved 参数：
+
+```text
+scenario = "concurrency"
+concurrency_plan = "featherless_premium"
+concurrency_count = 1
+artifact_label = "concurrency__plan=featherless_premium__n=1"
+```
+
+每个 §1.3 run 包含：
+
+```text
+1 aggregate S_C provider，代表 n 个 selected plan subscriptions/accounts
+每个 n 使用同一组 S_A fallback providers
+```
+
+aggregate S_C capacity 是 weighted capacity：
+
+```text
+concurrency_capacity = plan.concurrency_allotment * n
+request_concurrency_cost = plan.model_concurrency_costs[request.model]
+used_concurrency_cost = sum(active_request.concurrency_cost)
+available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
+```
+
+这是 §1.3 最重要的 modeling point。Featherless `concurrency_allotment=4`
+不表示任意 model 都能同时跑四个 request。一个 `concurrency_cost=4` 的 70B request
+会独占一个 Premium subscription。四个 cost-1 small-model requests 也可以同时跑。
+mixed requests 只有在 summed `concurrency_cost` 不超过 allotment 时才可行。
+
+Routing 使用和论文一致的 piecewise effective-cost 语义：
+
+```text
+c_eff(S_A, r) = API token cost
+c_eff(S_Q, r, z) = ψ(z)                    if quota is available, else ∞
+c_eff(S_C, r, u) = λ(u) * concurrency_cost(r.model) * duration_estimate(r)
+                  if weighted capacity is available, else ∞
+```
+
+这些项是不同 providers 的 alternatives，不是加在同一个 provider 上的 additive penalties。
+在 concurrency-only §1.3 run 里，RouteWise 比较 S_C effective cost 和 S_A API cost。
+在后续 joint end-to-end run 里，S_Q 和 S_C 仍然是分开的 candidate providers；
+不要计算 `API cost + quota shadow price + concurrency shadow price`。
+
+实现应该放在 `rwsim`，不是 `experiments/simulation`。`rwsim/world/capacity.py`
+应该负责 weighted concurrency state：
+
+```text
+capacity_units
+used_concurrency_cost
+active requests keyed by finish time
+admit(request_model, finish_time) -> bool
+release_finished(current_time)
+```
+
+`experiments/simulation` 只负责 resolve plan，构造
+`TieredProvider(tier=S_C, concurrency=...)`，然后启动 sweep。section runner
+应该拒绝缺少 `concurrency_allotment` 的 concurrency plan、拒绝没有
+`concurrency_cost` 的 model、也要拒绝 plan compatibility 之外的 model。
+
+第一版 §1.3 只做 cost-layer S_C provider 的 zero-queue / immediate-admission。
+queueing policy 放到后面的 end-to-end experiments，因为那时 SLO 和 latency behavior
+才是 paper question 的一部分。
 
 
 ---
@@ -488,6 +606,18 @@ quota_saturated_in_trace
 - `subscription_cost_known=false` 用于未来 monthly fee 尚未确认的 plan；MiniMax Starter / Plus / Max 当前按截图价格视为 known。
 - `trace_paper_grade=false` 表示这个 smoke run 太短，不适合做 fixed-fee conclusion。
 - `quota_saturated_in_trace=true` 表示主 paper q-sweep plots 应该排除该 run，因为 quota scarcity 没被测试到。
+
+对 concurrency-plan runs，额外输出：
+
+```text
+concurrency_capacity_units
+peak_used_concurrency_cost
+mean_concurrency_utilization
+concurrency_saturated_in_trace
+```
+
+这里的 `peak_used_concurrency_cost` 和 `mean_concurrency_utilization` 都基于 weighted capacity units，
+不是 raw in-flight request count。
 
 ### 6.2 现有 `cost_usd` 字段
 
@@ -607,8 +737,11 @@ def load_subscription_plans(path: Path | None = None) -> dict[str, SubscriptionP
 class SubscriptionPlan:
     plan_id: str
     display_name: str
+    tier: Literal["quota", "concurrency"]
     monthly_fee_usd: float | None
     quota_windows: tuple[QuotaWindow, ...]
+    concurrency_allotment: int | None
+    model_concurrency_costs: Mapping[str, int]
     subscription_counts: tuple[int, ...]
     eligible_sections: tuple[str, ...]
     cost_claim_allowed: bool
@@ -745,6 +878,23 @@ full run 只在 smoke 满足以下条件后启动：
 - `total_cost_usd = api_cost_usd + subscription_fixed_cost_usd`
 - offline 对同一个 `q` 支付和 RouteWise 一样的 fixed fee
 
+### Phase 5：Parameterized concurrency scenario (§1.3)
+
+§1.2 落地后再加 §1.3：
+
+1. 扩展 `experiments/subscription_plans.yaml` 和 `experiments/subscriptions.py`，
+   加入 concurrency-plan fields：`concurrency_allotment`、`model_concurrency_costs`
+   和可选 compatibility metadata。
+2. 在 `rwsim/world/capacity.py` 增加 weighted concurrency state；不要在 experiment scripts
+   里实现 Featherless-specific logic。
+3. 在 `experiments/simulation/common.py` 增加 provider builder，把 concurrency plan/count
+   转成一个 aggregate S_C provider。
+4. 在 `experiments/simulation/cost_layer.py` 增加 `--scenario concurrency`、
+   `--concurrency-plan` 和 `--concurrency-count(s)`。
+5. 把旧 `cost_layer_concurrency_c1..c4` artifacts 替换或 alias 成参数化 labels，
+   例如 `concurrency__plan=featherless_premium__n=2`。
+6. fixed-fee accounting 仍然只放在 section-summary layer，和 quota plans 一样。
+
 ---
 
 ## 9. Expected Results
@@ -763,6 +913,14 @@ full run 只在 smoke 满足以下条件后启动：
 - Starter 和 Plus 可以先跑 `[1, 2, 3, 4]`；Max 的 quota 大很多，先跑 `[1, 2]`，避免高 count 直接让 workload saturate。
 - 任何 `quota_saturated_in_trace=true` 的 tier/count 都不应该进入主 q-sweep 图。
 
+对 Featherless-style concurrency：
+
+- 增加 `n` 应该降低因为 S_C capacity saturate 导致的 API fallback cost。
+- 增加 `n` 也会增加 fixed subscription cost。
+- 因此 total cost 应该存在 optimum，不一定在最大的 `n`。
+- utilization 必须用 weighted capacity units 报告。例如一个 cost=4 的 70B in-flight request
+  对一个 Premium subscription 是 100% utilization，不是 25%。
+
 ---
 
 ## 10. Selection Rule for Later Experiments
@@ -771,6 +929,7 @@ May-4 讨论里确定了一个 workflow：
 
 ```text
 cost-layer §1.2 先找出 subscription plan/count；
+cost-layer §1.3 先找出 concurrency plan/count；
 后面的 end-to-end experiments 复用这个 selected setting。
 ```
 
@@ -778,6 +937,8 @@ cost-layer §1.2 先找出 subscription plan/count；
 
 1. 报告 cost-layer subscription-count sweep 本身。
 2. 为后续 sections 选择 canonical `subscription_plan`、`subscription_count` 和 workload window。
+
+§1.3 对 concurrency plans 使用同样 workflow。
 
 ### 10.1 选什么
 
@@ -792,6 +953,15 @@ selected_subscription_setting:
   subscription_count: 2
   selection_metric: total_cost_usd
   tie_breaks: [smaller_subscription_count, higher_quota_utilization]
+
+selected_concurrency_setting:
+  source_experiment: cost_layer_concurrency
+  workload: burstgpt
+  workload_window: full_month
+  concurrency_plan: featherless_premium
+  concurrency_count: 1
+  selection_metric: total_cost_usd
+  tie_breaks: [smaller_concurrency_count, higher_weighted_utilization]
 ```
 
 一开始可以存在 cost-layer output metadata 里。如果稳定了，再复制到一个 checked-in config，供 end-to-end runs 使用。
@@ -811,16 +981,22 @@ argmin_n total_cost_usd(plan, n)
 - quota 没有在整个 workload 中 saturate
 - RouteWise 真的把 quota 分配给更高价值 requests
 
+对 §1.3，把 quota-specific constraints 换成：
+
+- weighted concurrency capacity 真的被 exercised
+- S_C saturate 或 model incompatible 时，RouteWise 会 spill 到 API
+- utilization 用 `used_concurrency_cost / concurrency_capacity` 计算
+
 Tie-breaks：
 
 1. 选择更小的 `n`
-2. 选择 quota utilization 更高的 setting
+2. 对 §1.2 选择 quota utilization 更高的 setting；对 §1.3 选择 weighted concurrency utilization 更高的 setting
 3. 选择 latency distribution 更适合 end-to-end 的 provider
 
 对未来 monthly fee 未知的 plans，不要选为主 dollar-cost setting。
 它仍然可以作为 allocation/utilization robustness run 报告。
 
-对 `cost_claim_allowed=false` 的 plans，使用：
+对 `cost_claim_allowed=false` 的 quota plans，使用：
 
 ```text
 selection metric = argmax_n quota_utilization
@@ -831,6 +1007,14 @@ selection metric = argmax_n quota_utilization
 - `quota_saturated_in_trace = false`
 - run 仍然报告 `api_cost_usd`
 - paper text 不出现 `total_cost_usd` claim
+
+对 `cost_claim_allowed=false` 的 concurrency plans，使用：
+
+```text
+selection metric = argmax_n mean_concurrency_utilization
+```
+
+同样不能做 dollar-cost claim。
 
 ### 10.3 Workload window
 
@@ -879,6 +1063,12 @@ fixed RW3/RW8 on-demand pools
 - `make_quota_provider(plan=chutes, subscription_count=2)` 生成
   `QuotaState(size=10000, window_sec=86400)`。
 - saturated count 会生成 warning / metadata flag，不会静默进入 paper q-sweep。
+- Featherless Premium 读出来是 `$25/month`、`concurrency_allotment=4`。
+- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2)`
+  生成 weighted capacity `8`。
+- `concurrency_cost=4` 的 model 会消耗一个 Premium subscription 的全部 capacity。
+- `concurrency_cost=1` 的 model 在一个 Premium subscription 上可以同时 admit 四个 request。
+- unknown 或 incompatible model 不能 admit 到 S_C。
 
 ### 11.2 Cost accounting tests
 
@@ -903,6 +1093,15 @@ total_cost_usd == api_cost_usd + 2.0
 
 还要断言 offline 在同一个 scenario 里支付同一笔 fixed fee。
 
+对 concurrency plan 重复同样的 fixed-fee accounting test：
+
+```text
+monthly_fee_usd = $30
+concurrency_count = 2
+trace span = 1 day
+expected fixed fee = 30 * 2 * (1 / 30) = $2
+```
+
 ### 11.3 Behavior smoke
 
 对 Chutes `q1`，100k BurstGPT smoke：
@@ -913,6 +1112,17 @@ mean cheapest-API cost of API-routed requests
 ```
 
 这个保护 paper 的核心 claim：稀缺 quota 应该留给更高价值 requests。
+
+对 Featherless Premium `n=1`，synthetic behavior smoke：
+
+```text
+concurrency_allotment = 4
+one active request with concurrency_cost=4 blocks another cost-1 request
+four active requests with concurrency_cost=1 block the fifth cost-1 request
+after finish_time passes, capacity is released
+```
+
+这个保护 §1.3 的核心 claim：concurrency 是 weighted capacity，不是 raw request count。
 
 ---
 
@@ -925,17 +1135,23 @@ mean cheapest-API cost of API-routed requests
 | Per-token subscription quotas | 当前 paper plan 使用 request quotas。不同单位需要新公式。 |
 | Buying decision optimizer | 目前 `q1..q4` sweep 就是 optimizer。 |
 | Chutes live calls | 这里只做 simulator。 |
-| Concurrency subscription §1.3 | 独立 section，不和 quota §1.2 混在一起。 |
-| Concurrency provider parameterization | 当前 `cost_layer_concurrency_c1..c4` 先保持不动。§1.3 落地时再用同样 pattern：`--scenario concurrency --subscription-plan ... --concurrency-count ...`。 |
+| Featherless live calls | §1.3 只做 simulator。Real evaluation 后面可以复用 selected setting。 |
+| S_C queueing policy | 第一版 §1.3 只做 immediate-admission；queueing 放到 end-to-end SLO experiments。 |
 | MiniMax High-Speed / Ultra plans | 第一版 §1.2 不做。它们很可能需要独立 latency profiles，而且会把 pricing 和 model-speed 变化混在一起。 |
-| Full end-to-end joint setup | 等 cost-layer 稳定后再做。 |
-| Tier-upgrade pricing | `q` 表示多个独立 accounts/subscriptions，不表示升级到更高 plan tier。 |
+| Full end-to-end joint setup | 等 cost-layer §1.2 和 §1.3 都稳定后再做。 |
+| Joint S_Q + S_C purchase optimizer | 先让 §1.2 和 §1.3 独立选择 quota/concurrency settings。 |
+| Tier-upgrade pricing | `q`/`n` 表示多个独立 accounts/subscriptions，不表示升级到更高 plan tier。 |
 
 ---
 
 ## 13. Open Questions
 
 1. 后续 end-to-end 使用 full-month selected setting，还是使用一个按预声明规则选出的 representative smaller window？
+
+2. 旧 offline-stage config 里有 `featherless_scale`，`monthly_fee_usd=$75`、capacity `8`。
+   当前 Featherless docs 展示了 Premium 和新的 business/agentic plans，同时 concurrency docs
+   仍然描述了 8-unit scale-style allotment。§1.3 如果要对 8-unit plan 做 paper dollar claim，
+   必须先用当前官方 pricing page 统一 plan id、monthly fee 和 model compatibility。
 
 Chutes 和 MiniMax Starter / Plus / Max 的实现 blocker 只有一个：MiniMax 的 5-hour + weekly allowance
 需要 composite quota support。Chutes 可以直接用现有 single-window quota state 跑。

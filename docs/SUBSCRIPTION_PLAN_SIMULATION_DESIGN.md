@@ -1,9 +1,10 @@
 # Subscription Plan Simulation Design
 
-> Design doc for RouteWise simulator cost-layer §1.2: quota-style
-> subscription plans. This document defines how to simulate Chutes,
-> MiniMax subscription tiers, and similar subscription plans without confusing routing
-> marginal cost with reported invoice cost.
+> Design doc for RouteWise simulator cost-layer §1.2 and §1.3:
+> quota-style and concurrency-style subscription plans. This document
+> defines how to simulate Chutes, MiniMax subscription tiers, Featherless,
+> and similar subscription plans without confusing routing marginal cost
+> with reported invoice cost.
 
 Last updated: 2026-05-06.
 
@@ -11,29 +12,34 @@ Last updated: 2026-05-06.
 
 ## 1. TL;DR
 
-Cost-layer §1.2 should simulate **specific subscription plans**, not an
-anonymous `quota_q1..q4` resource.
+Cost-layer §1.2 and §1.3 should simulate **specific subscription plans**,
+not anonymous `quota_q1..q4` or `concurrency_c1..c4` resources.
 
 The target shape is:
 
 ```text
 experiments/
-  subscription_plans.yaml          # shared Chutes / MiniMax plan facts
+  subscription_plans.yaml          # shared quota / concurrency plan facts
   subscriptions.py                 # shared loader/dataclass for experiment code
 
 experiments/simulation/
-  cost_layer.py                    # emits parameterized quota-plan runs
+  cost_layer.py                    # emits parameterized plan runs
   common.py                        # provider builder + cost summary helpers
 ```
 
-The public CLI should keep one quota scenario and make the product plan and
-subscription count explicit parameters:
+The public CLI should keep one quota scenario and one concurrency scenario,
+with the product plan and subscription count as explicit parameters:
 
 ```bash
 routewise simulator cost-layer \
   --scenario quota \
   --subscription-plan chutes \
   --subscription-count 2
+
+routewise simulator cost-layer \
+  --scenario concurrency \
+  --concurrency-plan featherless_premium \
+  --concurrency-count 1
 ```
 
 Artifact labels may still include the expanded parameter values, e.g.
@@ -47,43 +53,59 @@ Routing cost for S_Q:
   marginal request cost = 0 inside quota
   effective cost = quota shadow price ψ(z)
 
+Routing cost for S_C:
+  marginal request cost = 0 while capacity is available
+  effective cost = concurrency shadow price λ(u) * concurrency_cost(model) * duration
+
 Reported experiment cost:
   total_cost_usd = api_cost_usd + subscription_fixed_cost_usd
 ```
 
-So Chutes is still zero marginal cost **for routing**, but the final cost
-bar/table includes the prorated `$20/month` subscription fee.
+So Chutes and Featherless are still zero marginal cost **for routing** once
+purchased, but the final cost bar/table includes the prorated fixed
+subscription fee.
 
 ---
 
 ## 2. Problem
 
-The current cost-layer quota scenarios are generic:
+The current cost-layer quota and concurrency scenarios are generic:
 
 ```text
 cost_layer_quota_q1
 cost_layer_quota_q2
 cost_layer_quota_q3
 cost_layer_quota_q4
+cost_layer_concurrency_c1
+cost_layer_concurrency_c2
+cost_layer_concurrency_c3
+cost_layer_concurrency_c4
 ```
 
-and are built from a hard-coded quota size in `experiments/simulation/cost_layer.py`.
-This is now too ambiguous.
+and are built from hard-coded capacity knobs in
+`experiments/simulation/cost_layer.py`. This is now too ambiguous.
 
 The opposite extreme, expanding every product/count combination into public
 scenario names like `cost_layer_quota_chutes_q1`, is also not the right final
 shape. That moves the ambiguity into a long scenario catalogue and makes
 `plan × n` look like separate experiment types. They are parameters of the
-same quota-plan experiment.
+same plan-backed experiment.
 
 We need to answer a paper question:
 
 > Given a real subscription plan, how many subscriptions/accounts should
 > RouteWise buy, and how should it allocate the quota across requests?
 
+For §1.3, the analogous question is:
+
+> Given a real concurrency subscription plan, how many subscriptions/accounts
+> should RouteWise buy, and which in-flight requests should consume the scarce
+> concurrency capacity?
+
 That question depends on plan facts:
 
 - quota size and reset window
+- concurrency allotment and per-model concurrency cost
 - monthly fee
 - model/provider identity
 - whether the fee is confirmed enough to make dollar-cost claims
@@ -250,6 +272,22 @@ plans:
     source: "User-provided MiniMax pricing screenshot, 2026-05-06"
     notes: "$50/mo; 15000 model requests / 5h; weekly allowance is 10x the 5-hour quota."
 
+  featherless_premium:
+    display_name: "Featherless Premium"
+    tier: concurrency
+    billing_mode: subscription
+    monthly_fee_usd: 25.0
+    concurrency_allotment: 4
+    model_concurrency_costs:
+      llama-3.3-70b-instruct: 4
+      qwen3-coder-30b: 2
+      llama-4-scout: 1
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_concurrency, end_to_end]
+    cost_claim_allowed: true
+    source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
+    notes: "Concurrency is weighted capacity, not request count. Premium allotment=4, so one 70B request with cost=4 fills the plan."
+
 ```
 
 ### 4.2 Field semantics
@@ -258,8 +296,10 @@ plans:
 |---|---|
 | `monthly_fee_usd` | Fixed subscription fee. `null` means we can simulate routing/utilization but not make total-cost claims. |
 | `quota_windows` | One or more quota constraints. A request can use the plan only if every window has remaining quota. Chutes has one daily window; MiniMax subscription tiers have both a 5-hour quota and a weekly allowance. |
+| `concurrency_allotment` | Total weighted concurrency capacity for one subscription/account. Featherless Premium has allotment `4`; this is not four arbitrary requests. |
+| `model_concurrency_costs` | Per-model weighted capacity cost. A model with `concurrency_cost=4` consumes the entire Featherless Premium allotment for one in-flight request. |
 | `subscription_counts` | Paper sweep counts for this plan. Avoid running counts that saturate the whole workload and stop exercising quota scarcity. |
-| `eligible_sections` | Which experiment sections may use this plan. §1.2 main figures should use plans tagged `cost_layer_quota`. |
+| `eligible_sections` | Which experiment sections may use this plan. §1.2 main figures should use plans tagged `cost_layer_quota`; §1.3 should use plans tagged `cost_layer_concurrency`. |
 | `cost_claim_allowed` | Whether paper figures may include `total_cost_usd` for this plan. |
 | `source` | Human-auditable provenance. |
 
@@ -443,8 +483,95 @@ Given a subscription quota and a monthly fee, how many subscriptions should
 RouteWise buy, and which requests should consume the scarce quota?
 ```
 
-If concurrency is added later, it should be a separate §1.3 / end-to-end
-change, not a hidden extra constraint inside the §1.2 quota sweep.
+Concurrency is handled by §1.3 below, not as a hidden extra constraint
+inside the §1.2 quota sweep.
+
+### 5.5 Concurrency subscription §1.3
+
+§1.3 is the concurrency-plan counterpart to §1.2. It should not reuse the
+old public scenario names `cost_layer_concurrency_c1..c4`. The public shape is:
+
+```text
+--scenario concurrency
+--concurrency-plan <plan_id>
+--concurrency-count <n>
+```
+
+Examples:
+
+```bash
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 1
+routewise simulator cost-layer --scenario concurrency --concurrency-plan featherless_premium --concurrency-count 4
+```
+
+The run output should still write resolved parameter values into metadata:
+
+```text
+scenario = "concurrency"
+concurrency_plan = "featherless_premium"
+concurrency_count = 1
+artifact_label = "concurrency__plan=featherless_premium__n=1"
+```
+
+Each §1.3 run contains:
+
+```text
+1 aggregate S_C provider representing n subscriptions/accounts of the selected plan
+the same S_A fallback provider set shared by every n in the sweep
+```
+
+The aggregate S_C capacity is weighted capacity:
+
+```text
+concurrency_capacity = plan.concurrency_allotment * n
+request_concurrency_cost = plan.model_concurrency_costs[request.model]
+used_concurrency_cost = sum(active_request.concurrency_cost)
+available iff used_concurrency_cost + request_concurrency_cost <= concurrency_capacity
+```
+
+This is the main modeling point. Featherless `concurrency_allotment=4` does
+not mean four simultaneous requests for every model. A `70B` request with
+`concurrency_cost=4` fills one Premium subscription by itself. Four
+simultaneous cost-1 small-model requests are also feasible. Mixed requests
+are feasible only while their summed `concurrency_cost` stays within the
+allotment.
+
+Routing should use the same piecewise effective-cost semantics as the paper:
+
+```text
+c_eff(S_A, r) = API token cost
+c_eff(S_Q, r, z) = ψ(z)                    if quota is available, else ∞
+c_eff(S_C, r, u) = λ(u) * concurrency_cost(r.model) * duration_estimate(r)
+                  if weighted capacity is available, else ∞
+```
+
+These terms are alternatives across providers, not additive penalties on one
+provider. In a concurrency-only §1.3 run, RouteWise compares the S_C
+effective cost against the S_A API cost. In later joint end-to-end runs, S_Q
+and S_C are still separate candidate providers; do not compute
+`API cost + quota shadow price + concurrency shadow price`.
+
+The implementation belongs in `rwsim`, not in `experiments/simulation`.
+`rwsim/world/capacity.py` should own a weighted concurrency state with:
+
+```text
+capacity_units
+used_concurrency_cost
+active requests keyed by finish time
+admit(request_model, finish_time) -> bool
+release_finished(current_time)
+```
+
+`experiments/simulation` should only resolve the plan, construct a
+`TieredProvider(tier=S_C, concurrency=...)`, and launch the sweep. The
+section runner should reject a concurrency plan if it lacks
+`concurrency_allotment`, if the model has no `concurrency_cost`, or if the
+chosen model is outside the plan's compatibility set.
+
+For the first §1.3 implementation, keep the cost-layer S_C provider
+zero-queue / immediate-admission only. Queueing policy belongs to later
+end-to-end experiments where SLO and latency behavior are part of the paper
+question.
 
 
 ---
@@ -491,6 +618,18 @@ Rules:
   small to make fixed-fee conclusions.
 - `quota_saturated_in_trace=true` means the run should be excluded from main
   paper q-sweep plots because quota scarcity was not exercised.
+
+For concurrency-plan runs, add:
+
+```text
+concurrency_capacity_units
+peak_used_concurrency_cost
+mean_concurrency_utilization
+concurrency_saturated_in_trace
+```
+
+Here `peak_used_concurrency_cost` and `mean_concurrency_utilization` are
+computed from weighted capacity units, not raw in-flight request count.
 
 ### 6.2 Existing `cost_usd` field
 
@@ -620,8 +759,11 @@ envelope.
    class SubscriptionPlan:
        plan_id: str
        display_name: str
+       tier: Literal["quota", "concurrency"]
        monthly_fee_usd: float | None
        quota_windows: tuple[QuotaWindow, ...]
+       concurrency_allotment: int | None
+       model_concurrency_costs: Mapping[str, int]
        subscription_counts: tuple[int, ...]
        eligible_sections: tuple[str, ...]
        cost_claim_allowed: bool
@@ -766,6 +908,24 @@ The full run should be launched only after the smoke shows:
 - `total_cost_usd = api_cost_usd + subscription_fixed_cost_usd`
 - offline pays the same fixed fee as RouteWise for the same `q`
 
+### Phase 5 — Parameterized concurrency scenario (§1.3)
+
+Add §1.3 after §1.2 has landed:
+
+1. Extend `experiments/subscription_plans.yaml` and `experiments/subscriptions.py`
+   with concurrency-plan fields: `concurrency_allotment`,
+   `model_concurrency_costs`, and optional compatibility metadata.
+2. Add weighted concurrency state to `rwsim/world/capacity.py`; do not
+   implement Featherless-specific logic in experiment scripts.
+3. Add a provider builder in `experiments/simulation/common.py` that turns a
+   concurrency plan/count into one aggregate S_C provider.
+4. Add `--scenario concurrency`, `--concurrency-plan`, and
+   `--concurrency-count(s)` to `experiments/simulation/cost_layer.py`.
+5. Replace or alias the old `cost_layer_concurrency_c1..c4` artifacts with
+   parameterized labels such as `concurrency__plan=featherless_premium__n=2`.
+6. Keep fixed-fee accounting at the section-summary layer, exactly as for
+   quota plans.
+
 ---
 
 ## 9. Expected Results
@@ -789,6 +949,16 @@ For MiniMax Starter / Plus / Max:
 - Any tier/count with `quota_saturated_in_trace=true` should be excluded from
   the main q-sweep plot.
 
+For Featherless-style concurrency:
+
+- Increasing `n` should reduce API fallback caused by saturated S_C capacity.
+- Increasing `n` also increases fixed subscription cost.
+- Total cost should therefore have an optimum, not necessarily at the
+  largest `n`.
+- Utilization must be reported in weighted capacity units. For example, a
+  single in-flight 70B request at cost 4 is 100% utilization of one Premium
+  subscription, not 25%.
+
 ---
 
 ## 10. Selection Rule for Later Experiments
@@ -797,6 +967,7 @@ The May-4 discussion establishes an important workflow:
 
 ```text
 cost-layer §1.2 finds the subscription plan/count;
+cost-layer §1.3 finds the concurrency plan/count;
 later end-to-end experiments reuse that selected setting.
 ```
 
@@ -805,6 +976,8 @@ So §1.2 has two jobs:
 1. report the cost-layer subscription-count sweep itself; and
 2. choose a canonical `subscription_plan`, `subscription_count`, and workload
    window for later sections.
+
+§1.3 follows the same workflow for concurrency plans.
 
 ### 10.1 What gets selected
 
@@ -820,6 +993,15 @@ selected_subscription_setting:
   subscription_count: 2
   selection_metric: total_cost_usd
   tie_breaks: [smaller_subscription_count, higher_quota_utilization]
+
+selected_concurrency_setting:
+  source_experiment: cost_layer_concurrency
+  workload: burstgpt
+  workload_window: full_month
+  concurrency_plan: featherless_premium
+  concurrency_count: 1
+  selection_metric: total_cost_usd
+  tie_breaks: [smaller_concurrency_count, higher_weighted_utilization]
 ```
 
 This can live in the cost-layer output metadata first. If it becomes stable,
@@ -840,17 +1022,24 @@ subject to:
 - the run does not saturate quota for the whole workload
 - RouteWise actually allocates quota toward higher-value requests
 
+For §1.3, replace the quota-specific constraints with:
+
+- weighted concurrency capacity is exercised
+- RouteWise spills to API when S_C is saturated or incompatible
+- utilization is computed from `used_concurrency_cost / concurrency_capacity`
+
 Tie-breaks:
 
 1. choose the smaller `n`
-2. choose the setting with higher quota utilization
+2. choose the setting with higher quota utilization for §1.2 or higher
+   weighted concurrency utilization for §1.3
 3. choose the provider whose latency distribution is usable for end-to-end
 
 For any future plan with unknown monthly fee, do not select it as the main
 dollar-cost setting. It can still be reported as an allocation/utilization
 robustness run.
 
-For `cost_claim_allowed=false` plans, use:
+For `cost_claim_allowed=false` quota plans, use:
 
 ```text
 selection metric = argmax_n quota_utilization
@@ -861,6 +1050,14 @@ subject to:
 - `quota_saturated_in_trace = false`
 - the run still reports `api_cost_usd`
 - no `total_cost_usd` claim appears in paper text
+
+For `cost_claim_allowed=false` concurrency plans, use:
+
+```text
+selection metric = argmax_n mean_concurrency_utilization
+```
+
+subject to the same no-dollar-claim rule.
 
 ### 10.3 Workload window
 
@@ -918,6 +1115,14 @@ Add tests for:
   `QuotaState(size=10000, window_sec=86400)`.
 - A saturated count emits a warning / metadata flag rather than silently
   entering the paper q-sweep.
+- Featherless Premium loads as `$25/month`, `concurrency_allotment=4`.
+- `make_concurrency_provider(plan=featherless_premium, concurrency_count=2)`
+  produces weighted capacity `8`.
+- A model with `concurrency_cost=4` consumes all capacity of one Premium
+  subscription.
+- A model with `concurrency_cost=1` can admit four simultaneous requests on
+  one Premium subscription.
+- A request with unknown or incompatible model is not admitted to S_C.
 
 ### 11.2 Cost accounting tests
 
@@ -942,6 +1147,15 @@ total_cost_usd == api_cost_usd + 2.0
 
 Also assert offline pays the same fixed fee in the same scenario.
 
+Repeat the same fixed-fee accounting test for a concurrency plan:
+
+```text
+monthly_fee_usd = $30
+concurrency_count = 2
+trace span = 1 day
+expected fixed fee = 30 * 2 * (1 / 30) = $2
+```
+
 ### 11.3 Behavior smoke
 
 For Chutes `q1`, 100k BurstGPT smoke:
@@ -954,6 +1168,18 @@ mean cheapest-API cost of API-routed requests
 This protects the main paper claim: scarce quota is reserved for higher
 value requests.
 
+For Featherless Premium `n=1`, synthetic behavior smoke:
+
+```text
+concurrency_allotment = 4
+one active request with concurrency_cost=4 blocks another cost-1 request
+four active requests with concurrency_cost=1 block the fifth cost-1 request
+after finish_time passes, capacity is released
+```
+
+This protects the main §1.3 claim: concurrency is weighted capacity, not raw
+request count.
+
 ---
 
 ## 12. Out of Scope
@@ -965,11 +1191,12 @@ Do not include these in the first implementation:
 | Per-token subscription quotas | Current paper plan uses request quotas. Different unit requires a new formula. |
 | Buying decision optimizer | `q1..q4` sweep is the optimizer for now. |
 | Chutes live calls | This is simulator-only. |
-| Concurrency subscription §1.3 | Separate section; do not mix with quota §1.2. |
-| Concurrency provider parameterization | Current `cost_layer_concurrency_c1..c4` stays as-is until §1.3 lands. It should later follow the same pattern: `--scenario concurrency --subscription-plan ... --concurrency-count ...`. |
+| Featherless live calls | §1.3 is simulator-only. Real evaluation can use the selected setting later. |
+| S_C queueing policy | First §1.3 is immediate-admission only; queueing belongs to end-to-end SLO experiments. |
 | MiniMax high-speed / Ultra plans | Excluded from the first §1.2 sweep. They likely require separate latency profiles and would mix pricing with model-speed changes. |
-| Full end-to-end joint setup | Separate section after cost-layer is stable. |
-| Tier-upgrade pricing | `q` means multiple independent accounts/subscriptions, not upgrading to a higher plan tier. |
+| Full end-to-end joint setup | Separate section after cost-layer §1.2 and §1.3 are stable. |
+| Joint S_Q + S_C purchase optimizer | §1.2 and §1.3 select quota and concurrency settings independently first. |
+| Tier-upgrade pricing | `q`/`n` means multiple independent accounts/subscriptions, not upgrading to a higher plan tier. |
 
 ---
 
@@ -977,6 +1204,13 @@ Do not include these in the first implementation:
 
 1. For later end-to-end, do we use the full-month selected setting or a
    representative smaller window selected by a predeclared rule?
+
+2. The old offline-stage config contains `featherless_scale` with
+   `monthly_fee_usd=$75` and capacity `8`. Current Featherless docs expose
+   Premium and newer business/agentic plans, while the concurrency docs still
+   describe an 8-unit scale-style allotment. Before making §1.3 paper dollar
+   claims for an 8-unit plan, reconcile the plan id, monthly fee, and model
+   compatibility against the current official pricing page.
 
 The only blocker for Chutes and MiniMax Starter / Plus / Max implementation
 is composite quota support for MiniMax's 5-hour + weekly allowance. Chutes can
