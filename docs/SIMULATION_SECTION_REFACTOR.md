@@ -566,6 +566,16 @@ uv run python -m plots.cost_layer.simulator.plot_on_demand \
   --input-dir outputs/simulation/cost_layer/on_demand/burstgpt_30d
 ```
 
+Paper figures are emitted as separate vector PDFs, not combined PNG panels.
+For the on-demand run, expect files such as:
+
+```text
+figures/
+  cost_layer_on_demand_uniform_total_cost.pdf
+  cost_layer_on_demand_uniform_provider_mix.pdf
+  cost_layer_on_demand_uniform_ttft_cdf.pdf
+```
+
 The plot taxonomy mirrors the experiment taxonomy:
 
 ```text

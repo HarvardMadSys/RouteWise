@@ -186,6 +186,11 @@ def _quota_fraction(row: dict[str, str]) -> float:
     )
 
 
+def _quota_fits_in_trace(row: dict[str, str]) -> str:
+    """Return the quota-fit exclusion flag from the current summary schema."""
+    return row["quota_fits_in_trace"]
+
+
 def _fixed_fee_per_subscription(rows: list[dict[str, str]]) -> float:
     fees = []
     for row in rows:
@@ -452,7 +457,7 @@ def write_q_sweep_table(
         "subscription_fixed_cost_usd_per_run",
         "quota_request_fraction",
         "trace_paper_grade",
-        "quota_saturated_in_trace",
+        "quota_fits_in_trace",
     )
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -472,7 +477,7 @@ def write_q_sweep_table(
                         ),
                         "quota_request_fraction": f"{_quota_fraction(row):.6f}",
                         "trace_paper_grade": row["trace_paper_grade"],
-                        "quota_saturated_in_trace": row["quota_saturated_in_trace"],
+                        "quota_fits_in_trace": _quota_fits_in_trace(row),
                     }
                 )
     print(f"Saved: {path}")
