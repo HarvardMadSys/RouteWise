@@ -16,12 +16,16 @@ from experiments.simulation.common import (
     OUTPUT_COST_MULTIPLIER,
     OUTPUT_DIR,
     P_SWEEP,
+    SectionCell,
+    SectionCellResult,
+    load_workload,
     make_api_provider,
     make_concurrency_provider,
     make_quota_provider,
     make_routewise_presets,
     make_tps_distribution,
     routewise_lp_policy_name,
+    run_policy,
     run_section,
 )
 from experiments.simulation.real_profiles import load_pooled_distribution
@@ -40,28 +44,46 @@ REAL_WORLD_SCENARIO = "cost_layer_real_world"
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
 _QUOTA_SIZE_PER_PROVIDER = 2_000
 _CONCURRENCY_LIMIT_PER_PROVIDER = 8
+_SCENARIO_NAMES = (
+    "cost_layer_uniform",
+    "cost_layer_normal",
+    "cost_layer_heavy_tail",
+    REAL_WORLD_SCENARIO,
+    "cost_layer_quota_q1",
+    "cost_layer_quota_q2",
+    "cost_layer_quota_q3",
+    "cost_layer_quota_q4",
+    "cost_layer_concurrency_c1",
+    "cost_layer_concurrency_c2",
+    "cost_layer_concurrency_c3",
+    "cost_layer_concurrency_c4",
+)
 
 
 def list_scenarios() -> tuple[str, ...]:
     """Return all cost-layer scenario names."""
-    return tuple(make_scenarios())
+    return _SCENARIO_NAMES
 
 
 def make_scenarios() -> dict[str, ScenarioConfig]:
     """Build cost-layer scenarios keyed by scenario name."""
-    scenarios: dict[str, ScenarioConfig] = {}
-    for family in _SYNTHETIC_FAMILIES:
-        scenario = _make_api_cost_scenario(family)
-        scenarios[scenario.name] = scenario
-    real_world = _make_real_world_api_cost_scenario()
-    scenarios[real_world.name] = real_world
-    for count in range(1, 5):
-        quota = _make_quota_scenario(count)
-        scenarios[quota.name] = quota
-    for count in range(1, 5):
-        concurrency = _make_concurrency_scenario(count)
-        scenarios[concurrency.name] = concurrency
-    return scenarios
+    return {name: make_scenario(name) for name in _SCENARIO_NAMES}
+
+
+def make_scenario(name: str) -> ScenarioConfig:
+    """Build one cost-layer scenario by name."""
+    if name.startswith("cost_layer_") and name.removeprefix("cost_layer_") in _SYNTHETIC_FAMILIES:
+        return _make_api_cost_scenario(name.removeprefix("cost_layer_"))
+    if name == REAL_WORLD_SCENARIO:
+        return _make_real_world_api_cost_scenario()
+    if name.startswith("cost_layer_quota_q"):
+        return _make_quota_scenario(_parse_positive_suffix(name, "cost_layer_quota_q"))
+    if name.startswith("cost_layer_concurrency_c"):
+        return _make_concurrency_scenario(
+            _parse_positive_suffix(name, "cost_layer_concurrency_c")
+        )
+    known = ", ".join(_SCENARIO_NAMES)
+    raise ValueError(f"unknown cost-layer scenario {name!r}; known scenarios: {known}")
 
 
 def policies_for_section(
@@ -74,6 +96,17 @@ def policies_for_section(
         OFFLINE_POLICY,
         *(routewise_lp_policy_name(value) for value in p_values),
     )
+
+
+def _parse_positive_suffix(name: str, prefix: str) -> int:
+    suffix = name.removeprefix(prefix)
+    try:
+        value = int(suffix)
+    except ValueError as exc:
+        raise ValueError(f"invalid cost-layer scenario name {name!r}") from exc
+    if value not in range(1, 5):
+        raise ValueError(f"cost-layer scenario count must be in [1, 4], got {value}")
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,6 +161,12 @@ def main(argv: list[str] | None = None) -> int:
         default=OUTPUT_DIR / "cost_layer",
         help="Directory for metadata.json, summary.json, and summary.csv.",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Number of parallel scenario-policy-seed cells to run. Defaults to 1.",
+    )
 
     args = parser.parse_args(argv)
     p_values = tuple(args.p_values) if args.p_values else P_SWEEP
@@ -155,9 +194,50 @@ def main(argv: list[str] | None = None) -> int:
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,
         output_dir=args.output_dir,
+        jobs=args.jobs,
+        parallel_cell_runner=run_cost_layer_cell,
     )
     print(json.dumps({"section": SECTION_NAME, "rows": len(rows), "output_dir": str(args.output_dir)}))
     return 0
+
+
+def run_cost_layer_cell(
+    cell: SectionCell,
+    presets: dict[str, dict[str, object]],
+    workload_dataset: str,
+    duration_sec: float | None,
+    max_requests: int | None,
+    retain_records: bool,
+) -> SectionCellResult:
+    """Run one cost-layer simulation cell in a worker process."""
+    scenario = make_scenario(cell.scenario_name)
+    requests = load_workload(
+        dataset=workload_dataset,
+        duration_sec=duration_sec,
+        max_requests=max_requests,
+    )
+    if cell.policy == OFFLINE_POLICY:
+        run = run_offline_policy(
+            scenario,
+            requests,
+            cell.seed,
+            retain_records=retain_records,
+        )
+    else:
+        run = run_policy(
+            scenario,
+            requests,
+            cell.policy,
+            presets=presets,
+            seed=cell.seed,
+            retain_records=retain_records,
+        )
+    return SectionCellResult(
+        scenario_name=cell.scenario_name,
+        policy=cell.policy,
+        seed=cell.seed,
+        run=run,
+    )
 
 
 def run_offline_policy(

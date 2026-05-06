@@ -5,6 +5,9 @@ from __future__ import annotations
 import csv
 import json
 import math
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -41,6 +44,25 @@ _WORKLOAD_PATHS = {
     "sharegpt_burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
 }
+
+
+@dataclass(frozen=True)
+class SectionCell:
+    """One independent section simulation cell."""
+
+    scenario_name: str
+    policy: str
+    seed: int
+
+
+@dataclass(frozen=True)
+class SectionCellResult:
+    """Result for one independent section simulation cell."""
+
+    scenario_name: str
+    policy: str
+    seed: int
+    run: Run
 
 
 def p_label(value: float) -> str:
@@ -352,46 +374,202 @@ def run_section(
     presets: dict[str, dict[str, Any]],
     seeds: tuple[int, ...],
     section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]] | None = None,
+    parallel_cell_runner: Callable[
+        [SectionCell, dict[str, dict[str, Any]], str, float | None, int | None, bool],
+        SectionCellResult,
+    ]
+    | None = None,
     workload_dataset: str = DEFAULT_WORKLOAD,
     duration_sec: float | None = None,
     max_requests: int | None = None,
     output_dir: Path | None = None,
     retain_records: bool = False,
+    jobs: int = 1,
 ) -> list[dict[str, Any]]:
     """Run one section and write machine-readable summaries."""
+    if jobs < 1:
+        raise ValueError(f"jobs must be >= 1, got {jobs}")
     root = output_dir or (OUTPUT_DIR / section_name.replace("-", "_"))
     root.mkdir(parents=True, exist_ok=True)
+    cells = [
+        SectionCell(scenario.name, policy, seed)
+        for scenario in scenarios.values()
+        for policy in policies
+        for seed in seeds
+    ]
+    if jobs == 1:
+        results, loaded_requests = _run_section_serial(
+            scenarios=scenarios,
+            cells=cells,
+            presets=presets,
+            section_runners=section_runners or {},
+            workload_dataset=workload_dataset,
+            duration_sec=duration_sec,
+            max_requests=max_requests,
+            retain_records=retain_records,
+        )
+        execution_mode = "serial"
+    else:
+        if parallel_cell_runner is None:
+            raise ValueError(
+                "parallel run_section requires a section-local parallel_cell_runner"
+            )
+        results = _run_section_parallel(
+            cells=cells,
+            presets=presets,
+            workload_dataset=workload_dataset,
+            duration_sec=duration_sec,
+            max_requests=max_requests,
+            retain_records=retain_records,
+            jobs=jobs,
+            parallel_cell_runner=parallel_cell_runner,
+        )
+        loaded_requests = _processed_request_count(results)
+        execution_mode = "parallel"
+
+    rows = _write_section_outputs(
+        root=root,
+        section_name=section_name,
+        scenarios=scenarios,
+        policies=policies,
+        seeds=seeds,
+        results=results,
+        workload_dataset=workload_dataset,
+        duration_sec=duration_sec,
+        max_requests=max_requests,
+        loaded_requests=loaded_requests,
+        jobs=jobs,
+        execution_mode=execution_mode,
+    )
+    return rows
+
+
+def _run_section_serial(
+    *,
+    scenarios: dict[str, ScenarioConfig],
+    cells: list[SectionCell],
+    presets: dict[str, dict[str, Any]],
+    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]],
+    workload_dataset: str,
+    duration_sec: float | None,
+    max_requests: int | None,
+    retain_records: bool,
+) -> tuple[list[SectionCellResult], int]:
     requests = load_workload(
         dataset=workload_dataset,
         duration_sec=duration_sec,
         max_requests=max_requests,
     )
+    results: list[SectionCellResult] = []
+    for cell in cells:
+        scenario = scenarios[cell.scenario_name]
+        if cell.policy in section_runners:
+            run = section_runners[cell.policy](
+                scenario,
+                requests,
+                cell.seed,
+                retain_records=retain_records,
+            )
+        else:
+            run = run_policy(
+                scenario,
+                requests,
+                cell.policy,
+                presets=presets,
+                seed=cell.seed,
+                retain_records=retain_records,
+            )
+        results.append(
+            SectionCellResult(
+                scenario_name=cell.scenario_name,
+                policy=cell.policy,
+                seed=cell.seed,
+                run=run,
+            )
+        )
+    return results, len(requests)
+
+
+def _run_section_parallel(
+    *,
+    cells: list[SectionCell],
+    presets: dict[str, dict[str, Any]],
+    workload_dataset: str,
+    duration_sec: float | None,
+    max_requests: int | None,
+    retain_records: bool,
+    jobs: int,
+    parallel_cell_runner: Callable[
+        [SectionCell, dict[str, dict[str, Any]], str, float | None, int | None, bool],
+        SectionCellResult,
+    ],
+) -> list[SectionCellResult]:
+    if not cells:
+        return []
+    context = multiprocessing.get_context("spawn")
+    max_workers = min(jobs, len(cells))
+    results: list[SectionCellResult] = []
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=context,
+        max_tasks_per_child=10,
+    ) as executor:
+        futures = [
+            executor.submit(
+                parallel_cell_runner,
+                cell,
+                presets,
+                workload_dataset,
+                duration_sec,
+                max_requests,
+                retain_records,
+            )
+            for cell in cells
+        ]
+        for future in as_completed(futures):
+            results.append(future.result())
+    order = {cell: index for index, cell in enumerate(cells)}
+    return sorted(
+        results,
+        key=lambda result: order[
+            SectionCell(
+                scenario_name=result.scenario_name,
+                policy=result.policy,
+                seed=result.seed,
+            )
+        ],
+    )
+
+
+def _write_section_outputs(
+    *,
+    root: Path,
+    section_name: str,
+    scenarios: dict[str, ScenarioConfig],
+    policies: tuple[str, ...],
+    seeds: tuple[int, ...],
+    results: list[SectionCellResult],
+    workload_dataset: str,
+    duration_sec: float | None,
+    max_requests: int | None,
+    loaded_requests: int,
+    jobs: int,
+    execution_mode: str,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     histogram_rows: list[dict[str, Any]] = []
     per_seed_histogram_rows: list[dict[str, Any]] = []
-    local_runners = section_runners or {}
+    by_group: dict[tuple[str, str], list[Run]] = {
+        (scenario.name, policy): [] for scenario in scenarios.values() for policy in policies
+    }
+    by_seed: dict[tuple[str, str, int], Run] = {}
+    for result in results:
+        by_group[(result.scenario_name, result.policy)].append(result.run)
+        by_seed[(result.scenario_name, result.policy, result.seed)] = result.run
+
     for scenario in scenarios.values():
         for policy in policies:
-            runs = [
-                (
-                    local_runners[policy](
-                        scenario,
-                        requests,
-                        seed,
-                        retain_records=retain_records,
-                    )
-                    if policy in local_runners
-                    else run_policy(
-                        scenario,
-                        requests,
-                        policy,
-                        presets=presets,
-                        seed=seed,
-                        retain_records=retain_records,
-                    )
-                )
-                for seed in seeds
-            ]
+            runs = by_group[(scenario.name, policy)]
             aggregate = _merge_run_aggregates(runs)
             rows.append(
                 summarize_runs(
@@ -409,7 +587,14 @@ def run_section(
                     "histogram": aggregate.ttft_histogram.to_dict(),
                 }
             )
-            for seed, run in zip(seeds, runs, strict=True):
+            for seed in seeds:
+                try:
+                    run = by_seed[(scenario.name, policy, seed)]
+                except KeyError as exc:
+                    raise ValueError(
+                        "missing section cell result for "
+                        f"scenario={scenario.name!r}, policy={policy!r}, seed={seed}"
+                    ) from exc
                 if run.aggregate is None:
                     raise ValueError(
                         "run_section requires every run to carry a streaming "
@@ -433,7 +618,10 @@ def run_section(
         "workload_dataset": workload_dataset,
         "duration_sec": duration_sec,
         "max_requests": max_requests,
-        "loaded_requests": len(requests),
+        "loaded_requests": loaded_requests,
+        "processed_requests_per_cell": loaded_requests,
+        "jobs": jobs,
+        "execution_mode": execution_mode,
     }
     write_json(root / "metadata.json", metadata)
     write_json(root / "summary.json", rows)
@@ -441,6 +629,15 @@ def run_section(
     write_json(root / "ttft_histograms_by_seed.json", per_seed_histogram_rows)
     write_summary_csv(root / "summary.csv", rows)
     return rows
+
+
+def _processed_request_count(results: list[SectionCellResult]) -> int:
+    if not results:
+        return 0
+    run = results[0].run
+    if run.aggregate is not None:
+        return run.aggregate.n
+    return len(run.records)
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -536,6 +733,8 @@ __all__ = [
     "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
     "P_SWEEP",
+    "SectionCell",
+    "SectionCellResult",
     "load_workload",
     "make_api_provider",
     "make_concurrency_provider",

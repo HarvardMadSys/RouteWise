@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from experiments.simulation import common, cost_layer
 from routewise_cli.main import main as routewise_main
 from rwsim.world.capacity import ProviderTier
@@ -26,6 +28,15 @@ def test_cost_layer_scenarios_match_section_contract():
         "cost_layer_concurrency_c3",
         "cost_layer_concurrency_c4",
     )
+
+
+def test_cost_layer_make_scenario_rebuilds_real_world_by_name():
+    left = cost_layer.make_scenario("cost_layer_real_world")
+    right = cost_layer.make_scenario("cost_layer_real_world")
+
+    assert [provider.name for provider in left.providers] == [
+        provider.name for provider in right.providers
+    ]
 
 
 def test_cost_layer_on_demand_providers_hold_latency_constant_and_vary_cost():
@@ -128,3 +139,86 @@ def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
     assert "cost_layer_real_world" in payload["sections"][0]["scenarios"]
     assert "offline" in payload["sections"][0]["policies"]
     assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+def test_cost_layer_parallel_run_section_matches_serial(tmp_path):
+    scenario = cost_layer.make_scenario("cost_layer_uniform")
+    policies = ("greedy_cost", "random")
+    seeds = (42, 43)
+    presets = common.make_routewise_presets(p_values=())
+
+    serial_rows = common.run_section(
+        section_name=cost_layer.SECTION_NAME,
+        scenarios={scenario.name: scenario},
+        policies=policies,
+        presets=presets,
+        seeds=seeds,
+        workload_dataset="burstgpt",
+        max_requests=100,
+        output_dir=tmp_path / "serial",
+        jobs=1,
+    )
+    parallel_rows = common.run_section(
+        section_name=cost_layer.SECTION_NAME,
+        scenarios={scenario.name: scenario},
+        policies=policies,
+        presets=presets,
+        seeds=seeds,
+        workload_dataset="burstgpt",
+        max_requests=100,
+        output_dir=tmp_path / "parallel",
+        jobs=2,
+        parallel_cell_runner=cost_layer.run_cost_layer_cell,
+    )
+
+    _assert_rows_close(parallel_rows, serial_rows)
+    assert (tmp_path / "parallel" / "ttft_histograms.json").exists()
+    assert (tmp_path / "parallel" / "ttft_histograms_by_seed.json").exists()
+    per_seed = json.loads((tmp_path / "parallel" / "ttft_histograms_by_seed.json").read_text())
+    assert len(per_seed) == len(policies) * len(seeds)
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+def test_cost_layer_cli_accepts_jobs(tmp_path):
+    output_dir = tmp_path / "cli"
+
+    assert routewise_main(
+        [
+            "simulator",
+            "cost-layer",
+            "--scenario",
+            "cost_layer_uniform",
+            "--workload",
+            "burstgpt",
+            "--max-requests",
+            "100",
+            "--policy",
+            "greedy_cost",
+            "--policy",
+            "random",
+            "--jobs",
+            "2",
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
+
+    metadata = json.loads((output_dir / "metadata.json").read_text())
+    assert metadata["jobs"] == 2
+    assert metadata["execution_mode"] == "parallel"
+    assert metadata["processed_requests_per_cell"] == 100
+
+
+def _assert_rows_close(actual: list[dict], expected: list[dict]) -> None:
+    assert len(actual) == len(expected)
+    for actual_row, expected_row in zip(actual, expected, strict=True):
+        assert actual_row.keys() == expected_row.keys()
+        for key, expected_value in expected_row.items():
+            actual_value = actual_row[key]
+            if isinstance(expected_value, float):
+                assert actual_value == pytest.approx(expected_value, rel=1e-12, abs=1e-12)
+            else:
+                assert actual_value == expected_value
