@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from rwsim.world.capacity import ConcurrencyState, QuotaState
+from rwsim.world.capacity import ConcurrencyState, QuotaState, WeightedConcurrencyState
 
 
 class CapacityStateTest(unittest.TestCase):
@@ -76,6 +76,53 @@ class CapacityStateTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             concurrency.admit(request_id=2, now=5.0, service_time_sec=10.0)
         self.assertEqual(concurrency._active_count_at(12.0), 1)
+
+    def test_weighted_concurrency_cost_four_fills_capacity(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=4,
+            model_concurrency_costs_by_class={"ge_70b": 4, "le_15b": 1},
+        )
+
+        self.assertTrue(concurrency.admit("ge_70b", finish_time=10.0, now=0.0))
+        self.assertEqual(concurrency.used_concurrency_cost(1.0), 4)
+        self.assertEqual(concurrency.utilization(1.0), 1.0)
+        self.assertFalse(concurrency.can_admit("le_15b", now=1.0))
+        self.assertFalse(concurrency.admit("le_15b", finish_time=10.0, now=1.0))
+
+    def test_weighted_concurrency_cost_one_admits_four_requests(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=4,
+            model_concurrency_costs_by_class={"le_15b": 1},
+        )
+
+        for request_id in range(4):
+            self.assertTrue(concurrency.admit("le_15b", finish_time=10.0, now=0.0))
+            self.assertEqual(concurrency.used_concurrency_cost(0.0), request_id + 1)
+
+        self.assertFalse(concurrency.can_admit("le_15b", now=0.0))
+        self.assertFalse(concurrency.admit("le_15b", finish_time=10.0, now=0.0))
+        self.assertEqual(concurrency.peak_used_concurrency_cost, 4)
+
+    def test_weighted_concurrency_releases_finished_requests(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=4,
+            model_concurrency_costs_by_class={"ge_70b": 4},
+        )
+
+        self.assertTrue(concurrency.admit("ge_70b", finish_time=5.0, now=0.0))
+        self.assertFalse(concurrency.can_admit("ge_70b", now=4.0))
+        self.assertTrue(concurrency.can_admit("ge_70b", now=5.0))
+        self.assertEqual(concurrency.used_concurrency_cost(), 0)
+
+    def test_weighted_concurrency_rejects_unknown_model_class(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=4,
+            model_concurrency_costs_by_class={"ge_70b": 4},
+        )
+
+        self.assertFalse(concurrency.can_admit("unknown", now=0.0))
+        self.assertFalse(concurrency.admit("unknown", finish_time=5.0, now=0.0))
+        self.assertEqual(concurrency.used_concurrency_cost(), 0)
 
 
 if __name__ == "__main__":

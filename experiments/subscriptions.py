@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import yaml
@@ -38,11 +39,37 @@ class SubscriptionPlan:
     notes: str = ""
     tier: str = "quota"
     billing_mode: str = "subscription"
+    concurrency_allotment: int | None = None
+    model_concurrency_costs_by_class: MappingProxyType[str, int] = MappingProxyType({})
+    default_model_class: str | None = None
+    model_class_overrides: MappingProxyType[str, str] = MappingProxyType({})
 
     @property
     def subscription_cost_known(self) -> bool:
         """Return whether fixed-fee cost is known for this plan."""
         return self.monthly_fee_usd is not None
+
+    def resolve_model_class(self, model_id: str | None) -> str | None:
+        """Resolve a trace/provider model id to this plan's concurrency class."""
+        if not self.model_concurrency_costs_by_class:
+            return None
+        if model_id is not None:
+            override = self.model_class_overrides.get(str(model_id))
+            if override is not None:
+                return override
+        return self.default_model_class
+
+    def concurrency_cost_for_model(self, model_id: str | None) -> int:
+        """Return weighted concurrency cost for a trace/provider model id."""
+        model_class = self.resolve_model_class(model_id)
+        if model_class is None:
+            raise ValueError(f"plan {self.plan_id!r}: no concurrency model class resolved")
+        try:
+            return self.model_concurrency_costs_by_class[model_class]
+        except KeyError as exc:
+            raise ValueError(
+                f"plan {self.plan_id!r}: unknown concurrency model class {model_class!r}"
+            ) from exc
 
 
 def load_subscription_plans(
@@ -82,7 +109,27 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
             f"plan {plan_id!r}: cost_claim_allowed=true requires monthly_fee_usd"
         )
 
-    quota_windows = _parse_quota_windows(plan_id, payload.get("quota_windows"))
+    tier = str(payload.get("tier", "quota"))
+    if tier not in {"quota", "concurrency"}:
+        raise ValueError(
+            f"plan {plan_id!r}: tier must be 'quota' or 'concurrency', got {tier!r}"
+        )
+    billing_mode = str(payload.get("billing_mode", "subscription"))
+    if billing_mode != "subscription":
+        raise ValueError(
+            f"plan {plan_id!r}: expected billing_mode='subscription', got {billing_mode!r}"
+        )
+    quota_windows = _parse_quota_windows(
+        plan_id,
+        payload.get("quota_windows"),
+        required=tier == "quota",
+    )
+    (
+        concurrency_allotment,
+        model_concurrency_costs_by_class,
+        default_model_class,
+        model_class_overrides,
+    ) = _parse_concurrency_fields(plan_id, payload, required=tier == "concurrency")
     subscription_counts = _positive_int_tuple(
         plan_id,
         "subscription_counts",
@@ -90,20 +137,15 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
     )
     eligible_sections = _string_tuple(payload.get("eligible_sections"), field="eligible_sections")
 
-    tier = str(payload.get("tier", "quota"))
-    if tier != "quota":
-        raise ValueError(f"plan {plan_id!r}: expected tier='quota', got {tier!r}")
-    billing_mode = str(payload.get("billing_mode", "subscription"))
-    if billing_mode != "subscription":
-        raise ValueError(
-            f"plan {plan_id!r}: expected billing_mode='subscription', got {billing_mode!r}"
-        )
-
     return SubscriptionPlan(
         plan_id=plan_id,
         display_name=str(payload.get("display_name") or plan_id),
         monthly_fee_usd=monthly_fee,
         quota_windows=quota_windows,
+        concurrency_allotment=concurrency_allotment,
+        model_concurrency_costs_by_class=model_concurrency_costs_by_class,
+        default_model_class=default_model_class,
+        model_class_overrides=model_class_overrides,
         subscription_counts=subscription_counts,
         eligible_sections=eligible_sections,
         cost_claim_allowed=cost_claim_allowed,
@@ -119,7 +161,16 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
     )
 
 
-def _parse_quota_windows(plan_id: str, raw: Any) -> tuple[QuotaWindow, ...]:
+def _parse_quota_windows(
+    plan_id: str,
+    raw: Any,
+    *,
+    required: bool,
+) -> tuple[QuotaWindow, ...]:
+    if raw is None:
+        if required:
+            raise ValueError(f"plan {plan_id!r}: quota_windows must be a non-empty list")
+        return ()
     if not isinstance(raw, list) or not raw:
         raise ValueError(f"plan {plan_id!r}: quota_windows must be a non-empty list")
     windows: list[QuotaWindow] = []
@@ -149,6 +200,63 @@ def _parse_quota_windows(plan_id: str, raw: Any) -> tuple[QuotaWindow, ...]:
             )
         )
     return tuple(windows)
+
+
+def _parse_concurrency_fields(
+    plan_id: str,
+    payload: dict[str, Any],
+    *,
+    required: bool,
+) -> tuple[int | None, MappingProxyType[str, int], str | None, MappingProxyType[str, str]]:
+    raw_allotment = payload.get("concurrency_allotment")
+    raw_costs = payload.get("model_concurrency_costs_by_class")
+    raw_default = payload.get("default_model_class")
+    raw_overrides = payload.get("model_class_overrides")
+    if not required and raw_allotment is None and raw_costs is None:
+        return None, MappingProxyType({}), None, MappingProxyType({})
+    if raw_allotment is None:
+        raise ValueError(f"plan {plan_id!r}: concurrency_allotment is required")
+    concurrency_allotment = int(raw_allotment)
+    if concurrency_allotment <= 0:
+        raise ValueError(f"plan {plan_id!r}: concurrency_allotment must be > 0")
+    if not isinstance(raw_costs, dict) or not raw_costs:
+        raise ValueError(
+            f"plan {plan_id!r}: model_concurrency_costs_by_class must be a non-empty map"
+        )
+    costs: dict[str, int] = {}
+    for model_class, raw_cost in raw_costs.items():
+        concurrency_cost = int(raw_cost)
+        if concurrency_cost <= 0:
+            raise ValueError(
+                f"plan {plan_id!r}: concurrency cost for {model_class!r} must be > 0"
+            )
+        costs[str(model_class)] = concurrency_cost
+    default_model_class = str(raw_default) if raw_default is not None else None
+    if default_model_class is None:
+        raise ValueError(f"plan {plan_id!r}: default_model_class is required")
+    if default_model_class not in costs:
+        raise ValueError(
+            f"plan {plan_id!r}: default_model_class {default_model_class!r} "
+            "must exist in model_concurrency_costs_by_class"
+        )
+    if raw_overrides is None:
+        overrides: dict[str, str] = {}
+    elif isinstance(raw_overrides, dict):
+        overrides = {str(model_id): str(model_class) for model_id, model_class in raw_overrides.items()}
+    else:
+        raise ValueError(f"plan {plan_id!r}: model_class_overrides must be a map")
+    unknown_override_classes = sorted(set(overrides.values()) - set(costs))
+    if unknown_override_classes:
+        raise ValueError(
+            f"plan {plan_id!r}: model_class_overrides reference unknown classes: "
+            f"{unknown_override_classes}"
+        )
+    return (
+        concurrency_allotment,
+        MappingProxyType(costs),
+        default_model_class,
+        MappingProxyType(overrides),
+    )
 
 
 def _positive_int_tuple(plan_id: str, field: str, raw: Any) -> tuple[int, ...]:

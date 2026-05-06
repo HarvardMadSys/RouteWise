@@ -232,6 +232,28 @@ def test_subscription_plan_loader_exposes_minimax_tiers_with_quota_windows():
     ] == [4500, 45000]
 
 
+def test_subscription_plan_loader_exposes_featherless_premium_concurrency():
+    plans = load_subscription_plans()
+    plan = plans["featherless_premium"]
+
+    assert "featherless_scale" not in plans
+    assert plan.tier == "concurrency"
+    assert plan.monthly_fee_usd == 25.0
+    assert plan.concurrency_allotment == 4
+    assert dict(plan.model_concurrency_costs_by_class) == {
+        "le_15b": 1,
+        "24_34b": 2,
+        "ge_70b": 4,
+    }
+    assert plan.default_model_class == "ge_70b"
+    assert plan.resolve_model_class("sharegpt") == "ge_70b"
+    assert plan.concurrency_cost_for_model("sharegpt") == 4
+    assert plan.resolve_model_class("qwen3-coder-30b") == "24_34b"
+    assert plan.concurrency_cost_for_model("qwen3-coder-30b") == 2
+    assert plan.subscription_counts == (1, 2, 3, 4)
+    assert "cost_layer_concurrency" in plan.eligible_sections
+
+
 def test_subscription_plan_loader_rejects_missing_quota_size(tmp_path):
     path = tmp_path / "plans.yaml"
     path.write_text(
@@ -272,6 +294,51 @@ plans:
     )
 
     with pytest.raises(ValueError, match="monthly_fee_usd"):
+        load_subscription_plans(path)
+
+
+def test_subscription_plan_loader_rejects_concurrency_plan_without_allotment(tmp_path):
+    path = tmp_path / "plans.yaml"
+    path.write_text(
+        """
+plans:
+  bad:
+    tier: concurrency
+    monthly_fee_usd: 25
+    model_concurrency_costs_by_class:
+      ge_70b: 4
+    default_model_class: ge_70b
+    subscription_counts: [1]
+    eligible_sections: [cost_layer_concurrency]
+    cost_claim_allowed: true
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="concurrency_allotment"):
+        load_subscription_plans(path)
+
+
+def test_subscription_plan_loader_rejects_unknown_default_model_class(tmp_path):
+    path = tmp_path / "plans.yaml"
+    path.write_text(
+        """
+plans:
+  bad:
+    tier: concurrency
+    monthly_fee_usd: 25
+    concurrency_allotment: 4
+    model_concurrency_costs_by_class:
+      ge_70b: 4
+    default_model_class: missing
+    subscription_counts: [1]
+    eligible_sections: [cost_layer_concurrency]
+    cost_claim_allowed: true
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="default_model_class"):
         load_subscription_plans(path)
 
 

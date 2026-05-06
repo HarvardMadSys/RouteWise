@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 
 
 class ProviderTier(str, Enum):
@@ -146,9 +147,104 @@ class ConcurrencyState:
         self.active.append((now, end, request_id))
 
 
+@dataclass
+class WeightedConcurrencyState:
+    """Mutable weighted-concurrency tracker for an S_C provider.
+
+    ``capacity_units`` is the plan/account allotment, and each active request
+    consumes the weighted cost associated with its resolved model class.
+    """
+
+    capacity_units: int
+    model_concurrency_costs_by_class: MappingProxyType[str, int]
+    active: list[tuple[float, str, int]] = field(default_factory=list)
+    peak_used_concurrency_cost: int = 0
+
+    def __post_init__(self) -> None:
+        self.capacity_units = int(self.capacity_units)
+        if self.capacity_units <= 0:
+            raise ValueError("WeightedConcurrencyState capacity_units must be > 0")
+        costs = {
+            str(model_class): int(concurrency_cost)
+            for model_class, concurrency_cost in self.model_concurrency_costs_by_class.items()
+        }
+        if not costs:
+            raise ValueError(
+                "WeightedConcurrencyState requires at least one model concurrency cost"
+            )
+        for model_class, concurrency_cost in costs.items():
+            if concurrency_cost <= 0:
+                raise ValueError(
+                    "WeightedConcurrencyState concurrency costs must be > 0, "
+                    f"got {concurrency_cost} for {model_class!r}"
+                )
+        self.model_concurrency_costs_by_class = MappingProxyType(costs)
+
+    def concurrency_cost(self, model_class: str) -> int | None:
+        """Return weighted capacity cost for a resolved model class."""
+        return self.model_concurrency_costs_by_class.get(str(model_class))
+
+    def release_finished(self, now: float) -> None:
+        """Release requests whose finish time is at or before ``now``."""
+        self.active = [
+            (finish_time, model_class, cost)
+            for finish_time, model_class, cost in self.active
+            if finish_time > now
+        ]
+
+    def used_concurrency_cost(self, now: float | None = None) -> int:
+        """Return currently occupied weighted capacity units."""
+        if now is not None:
+            self.release_finished(now)
+        return sum(cost for _, _, cost in self.active)
+
+    def utilization(self, now: float | None = None) -> float:
+        """Return weighted utilization as a value in [0, 1]."""
+        return min(self.used_concurrency_cost(now) / self.capacity_units, 1.0)
+
+    def can_admit(self, model_class: str, now: float | None = None) -> bool:
+        """Return whether a request with ``model_class`` can enter immediately."""
+        cost = self.concurrency_cost(model_class)
+        if cost is None:
+            return False
+        return self.used_concurrency_cost(now) + cost <= self.capacity_units
+
+    def admit(
+        self,
+        model_class: str,
+        finish_time: float,
+        *,
+        now: float | None = None,
+    ) -> bool:
+        """Admit one request if weighted capacity is available.
+
+        Returns ``True`` when the request was recorded and ``False`` when the
+        resolved model class is incompatible or capacity is full.
+        """
+        if now is not None and finish_time <= now:
+            raise ValueError("finish_time must be greater than now")
+        cost = self.concurrency_cost(model_class)
+        if cost is None:
+            return False
+        if self.used_concurrency_cost(now) + cost > self.capacity_units:
+            return False
+        self.active.append((float(finish_time), str(model_class), cost))
+        self.peak_used_concurrency_cost = max(
+            self.peak_used_concurrency_cost,
+            self.used_concurrency_cost(),
+        )
+        return True
+
+    def reset(self) -> None:
+        """Reset mutable weighted concurrency state."""
+        self.active = []
+        self.peak_used_concurrency_cost = 0
+
+
 __all__ = [
     "ConcurrencyState",
     "MultiWindowQuotaState",
     "ProviderTier",
     "QuotaState",
+    "WeightedConcurrencyState",
 ]
