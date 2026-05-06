@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -41,12 +42,12 @@ class Simulator:
         policy_name: str,
     ) -> Run:
         """Run a policy over pre-loaded requests."""
-        rng = np.random.default_rng(self.seed)
         quota_window_start = float(requests[0].timestamp) if requests else 0.0
         for provider in self.scenario.providers:
             provider.reset_state(quota_window_start=quota_window_start)
 
         providers = {provider.name: provider for provider in self.scenario.providers}
+        provider_rngs = _provider_rngs(self.seed, self.scenario.providers)
         state = SimulationState.from_providers(providers)
         aggregator = RunAggregator(
             policy=policy_name,
@@ -58,7 +59,13 @@ class Simulator:
         for request in requests:
             state.now = float(request.timestamp)
             decision = policy.route(request, state)
-            outcome = self._execute_request(request, decision, policy, state, rng)
+            outcome = self._execute_request(
+                request,
+                decision,
+                policy,
+                state,
+                provider_rngs,
+            )
             policy.observe(request, decision, outcome)
             aggregator.observe(
                 self._build_record(
@@ -82,17 +89,18 @@ class Simulator:
         decision: RoutingDecision,
         policy: Policy,
         state: SimulationState,
-        rng: np.random.Generator,
+        provider_rngs: dict[str, np.random.Generator],
     ) -> RoutingOutcome:
         providers = state.providers
         primary = providers[decision.primary_provider]
         now = float(request.timestamp)
         state.now = now
 
-        primary_ttft_ms = primary.sample_ttft(rng, now)
+        primary_rng = provider_rngs[primary.name]
+        primary_ttft_ms = primary.sample_ttft(primary_rng, now)
         primary_service_time = _sample_service_time(
             primary,
-            rng,
+            primary_rng,
             now,
             request.response_tokens or 1,
             primary_ttft_ms,
@@ -111,10 +119,11 @@ class Simulator:
                     error="no_capacity",
                 )
             primary = fallback
-            primary_ttft_ms = primary.sample_ttft(rng, now)
+            primary_rng = provider_rngs[primary.name]
+            primary_ttft_ms = primary.sample_ttft(primary_rng, now)
             primary_service_time = _sample_service_time(
                 primary,
-                rng,
+                primary_rng,
                 now,
                 request.response_tokens or 1,
                 primary_ttft_ms,
@@ -145,10 +154,11 @@ class Simulator:
         if hedge_dispatch is not None:
             backup = providers[hedge_dispatch.backup_provider]
             dispatch_time = state.now
-            backup_ttft_ms = backup.sample_ttft(rng, dispatch_time)
+            backup_rng = provider_rngs[backup.name]
+            backup_ttft_ms = backup.sample_ttft(backup_rng, dispatch_time)
             backup_service_time = _sample_service_time(
                 backup,
-                rng,
+                backup_rng,
                 dispatch_time,
                 request.response_tokens or 1,
                 backup_ttft_ms,
@@ -364,6 +374,20 @@ def _request_user_id(request: Request) -> str | None:
         if value is not None:
             return str(value)
     return None
+
+
+def _provider_rngs(seed: int, providers: Sequence[Provider]) -> dict[str, np.random.Generator]:
+    """Create independent, reproducible RNG streams for provider sampling."""
+    rngs: dict[str, np.random.Generator] = {}
+    for provider in providers:
+        if provider.name in rngs:
+            raise ValueError(f"duplicate provider name: {provider.name!r}")
+        digest = hashlib.blake2b(
+            f"{seed}:{provider.name}".encode("utf-8"),
+            digest_size=16,
+        ).digest()
+        rngs[provider.name] = np.random.default_rng(int.from_bytes(digest, "little"))
+    return rngs
 
 
 __all__ = ["Simulator"]
