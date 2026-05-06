@@ -702,6 +702,97 @@ def quota_saturated_in_trace(
     return True
 
 
+def concurrency_saturated_in_trace(
+    plan: SubscriptionPlan,
+    *,
+    concurrency_count: int,
+    model: str,
+    requests: list[Request],
+    p50_service_time_ms: float | None = None,
+) -> bool:
+    """Return whether the trace reaches or exceeds weighted concurrency capacity."""
+    return bool(
+        _concurrency_trace_metrics(
+            plan,
+            concurrency_count=concurrency_count,
+            model=model,
+            requests=requests,
+            p50_service_time_ms=p50_service_time_ms,
+        )["concurrency_saturated_in_trace"]
+    )
+
+
+def _concurrency_trace_metrics(
+    plan: SubscriptionPlan,
+    *,
+    concurrency_count: int,
+    model: str,
+    requests: list[Request],
+    trace_duration_sec: float | None = None,
+    p50_service_time_ms: float | None = None,
+) -> dict[str, float | int | bool]:
+    if not requests:
+        return {
+            "peak_used_concurrency_cost": 0,
+            "mean_concurrency_utilization": 0.0,
+            "concurrency_saturated_in_trace": False,
+        }
+    if plan.concurrency_allotment is None:
+        raise ValueError(f"plan {plan.plan_id!r}: concurrency_allotment is required")
+    if concurrency_count <= 0:
+        raise ValueError(f"concurrency_count must be > 0, got {concurrency_count}")
+    resolution = plan.resolve_model_class_with_cost(model)
+    if resolution is None:
+        raise ValueError(f"plan {plan.plan_id!r}: model {model!r} is not supported")
+
+    capacity_units = int(plan.concurrency_allotment) * int(concurrency_count)
+    request_cost = int(resolution.cost)
+    active: list[tuple[float, int]] = []
+    peak_used = 0
+    total_capacity_unit_seconds_used = 0.0
+    saturated = False
+
+    for request in sorted(requests, key=lambda item: (float(item.timestamp), item.id)):
+        now = float(request.timestamp)
+        active = [(finish, cost) for finish, cost in active if finish > now]
+        used = sum(cost for _, cost in active)
+        service_time_sec = _estimated_concurrency_service_time_sec(
+            request,
+            p50_service_time_ms=p50_service_time_ms,
+        )
+        if used + request_cost >= capacity_units:
+            saturated = True
+        if used + request_cost <= capacity_units:
+            active.append((now + service_time_sec, request_cost))
+            total_capacity_unit_seconds_used += request_cost * service_time_sec
+            peak_used = max(peak_used, used + request_cost)
+        else:
+            peak_used = max(peak_used, used)
+
+    if trace_duration_sec is None:
+        trace_duration_sec = workload_trace_info(requests).span_sec
+    denominator = capacity_units * max(float(trace_duration_sec), 0.0)
+    mean_utilization = (
+        total_capacity_unit_seconds_used / denominator if denominator > 0.0 else 0.0
+    )
+    return {
+        "peak_used_concurrency_cost": peak_used,
+        "mean_concurrency_utilization": min(mean_utilization, 1.0),
+        "concurrency_saturated_in_trace": saturated,
+    }
+
+
+def _estimated_concurrency_service_time_sec(
+    request: Request,
+    *,
+    p50_service_time_ms: float | None = None,
+) -> float:
+    if p50_service_time_ms is not None:
+        return max(float(p50_service_time_ms), 0.0) / 1000.0
+    response_tokens = request.response_tokens or 1
+    return (COST_LAYER_P50_MS + (response_tokens / DEFAULT_TPS_P50) * 1000.0) / 1000.0
+
+
 def _subscription_summary_fields(
     *,
     scenario: ScenarioConfig,
@@ -715,11 +806,24 @@ def _subscription_summary_fields(
     # TODO: end-to-end joint scenarios may compose several subscription plans;
     # aggregate cost_claim_allowed / fixed fees over that plan set when they do.
     plan_id = metadata.get("subscription_plan")
+    concurrency_plan_id = metadata.get("concurrency_plan")
     fields: dict[str, Any] = {
         "public_scenario": metadata.get("public_scenario", scenario.name),
         "artifact_label": metadata.get("artifact_label", scenario.name),
         "subscription_plan": plan_id,
+        "subscription_plan_display_name": None,
         "subscription_count": metadata.get("subscription_count"),
+        "concurrency_plan": concurrency_plan_id,
+        "concurrency_plan_display_name": metadata.get("concurrency_plan_display_name"),
+        "concurrency_count": metadata.get("concurrency_count"),
+        "model": metadata.get("model"),
+        "model_class": metadata.get("model_class"),
+        "model_concurrency_cost": metadata.get("model_concurrency_cost"),
+        "concurrency_capacity_units": metadata.get("concurrency_capacity_units"),
+        "effective_concurrency_limit": metadata.get("effective_concurrency_limit"),
+        "peak_used_concurrency_cost": None,
+        "mean_concurrency_utilization": None,
+        "concurrency_saturated_in_trace": None,
         "run_count": run_count,
         "api_cost_usd": float(api_cost_usd),
         "api_cost_usd_per_run": (
@@ -747,46 +851,83 @@ def _subscription_summary_fields(
         "quota_saturated_in_trace": None,
         "trace_days": trace_info.trace_days,
     }
-    if plan_id is None:
+    if plan_id is None and concurrency_plan_id is None:
         return fields
 
-    plan = load_subscription_plans()[str(plan_id)]
-    subscription_count = int(metadata.get("subscription_count") or 1)
+    if plan_id is not None and concurrency_plan_id is not None:
+        raise ValueError("joint subscription/concurrency summaries are not supported yet")
+
+    if plan_id is not None:
+        plan = load_subscription_plans()[str(plan_id)]
+        count = int(metadata.get("subscription_count") or 1)
+    else:
+        plan = load_subscription_plans()[str(concurrency_plan_id)]
+        count = int(metadata.get("concurrency_count") or 1)
     fixed_cost_per_run = subscription_fixed_cost_usd(
         plan,
-        subscription_count=subscription_count,
+        subscription_count=count,
         trace_days=trace_info.trace_days,
     )
     fixed_cost = fixed_cost_per_run * run_count
     total_cost = float(api_cost_usd) + fixed_cost
-    min_window_sec = min(window.quota_window_sec for window in plan.quota_windows)
-    trace_paper_grade = trace_info.trace_days >= 5.0 * min_window_sec / 86400.0
-    fields.update(
-        {
-            "subscription_plan": plan.plan_id,
-            "subscription_plan_display_name": plan.display_name,
-            "subscription_count": subscription_count,
-            "subscription_fixed_cost_usd": fixed_cost,
-            "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
-            "total_cost_usd": total_cost,
-            "total_cost_usd_per_run": (
-                total_cost / run_count if run_count else float("nan")
-            ),
-            "mean_total_cost_usd": (
-                total_cost / mean_denominator
-                if mean_denominator
-                else float("nan")
-            ),
-            "subscription_cost_known": plan.subscription_cost_known,
-            "cost_claim_allowed": plan.cost_claim_allowed,
-            "trace_paper_grade": trace_paper_grade,
-            "quota_saturated_in_trace": quota_saturated_in_trace(
-                plan,
-                subscription_count=subscription_count,
-                requests=requests,
-            ),
-        }
-    )
+    common_plan_fields = {
+        "subscription_fixed_cost_usd": fixed_cost,
+        "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
+        "total_cost_usd": total_cost,
+        "total_cost_usd_per_run": (
+            total_cost / run_count if run_count else float("nan")
+        ),
+        "mean_total_cost_usd": (
+            total_cost / mean_denominator
+            if mean_denominator
+            else float("nan")
+        ),
+        "subscription_cost_known": plan.subscription_cost_known,
+        "cost_claim_allowed": plan.cost_claim_allowed,
+    }
+    fields.update(common_plan_fields)
+    if plan_id is not None:
+        min_window_sec = min(window.quota_window_sec for window in plan.quota_windows)
+        trace_paper_grade = trace_info.trace_days >= 5.0 * min_window_sec / 86400.0
+        fields.update(
+            {
+                "subscription_plan": plan.plan_id,
+                "subscription_plan_display_name": plan.display_name,
+                "subscription_count": count,
+                "trace_paper_grade": trace_paper_grade,
+                "quota_saturated_in_trace": quota_saturated_in_trace(
+                    plan,
+                    subscription_count=count,
+                    requests=requests,
+                ),
+            }
+        )
+    else:
+        model = str(metadata.get("model") or "")
+        concurrency_metrics = _concurrency_trace_metrics(
+            plan,
+            concurrency_count=count,
+            model=model,
+            requests=requests,
+            trace_duration_sec=trace_info.span_sec,
+        )
+        fields.update(
+            {
+                "concurrency_plan": plan.plan_id,
+                "concurrency_plan_display_name": plan.display_name,
+                "concurrency_count": count,
+                "trace_paper_grade": trace_info.trace_days >= 5.0,
+                "peak_used_concurrency_cost": concurrency_metrics[
+                    "peak_used_concurrency_cost"
+                ],
+                "mean_concurrency_utilization": concurrency_metrics[
+                    "mean_concurrency_utilization"
+                ],
+                "concurrency_saturated_in_trace": concurrency_metrics[
+                    "concurrency_saturated_in_trace"
+                ],
+            }
+        )
     return fields
 
 
@@ -1144,6 +1285,17 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "subscription_plan",
         "subscription_plan_display_name",
         "subscription_count",
+        "concurrency_plan",
+        "concurrency_plan_display_name",
+        "concurrency_count",
+        "model",
+        "model_class",
+        "model_concurrency_cost",
+        "concurrency_capacity_units",
+        "effective_concurrency_limit",
+        "peak_used_concurrency_cost",
+        "mean_concurrency_utilization",
+        "concurrency_saturated_in_trace",
         "run_count",
         "policy",
         "seeds",
@@ -1242,6 +1394,7 @@ __all__ = [
     "SectionCell",
     "SectionCellResult",
     "WorkloadTraceInfo",
+    "concurrency_saturated_in_trace",
     "ensure_workload_cache",
     "load_workload",
     "make_api_provider",

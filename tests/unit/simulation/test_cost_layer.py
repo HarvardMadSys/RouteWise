@@ -524,6 +524,39 @@ def test_quota_saturated_flag_is_window_based():
     )
 
 
+def test_concurrency_trace_metrics_use_weighted_capacity_unit_seconds():
+    plan = load_subscription_plans()["featherless_premium"]
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)
+    ]
+
+    metrics = common._concurrency_trace_metrics(
+        plan,
+        concurrency_count=1,
+        model="sharegpt",
+        requests=requests,
+        trace_duration_sec=20.0,
+        p50_service_time_ms=10_000.0,
+    )
+
+    assert metrics["peak_used_concurrency_cost"] == 4
+    assert metrics["mean_concurrency_utilization"] == pytest.approx(0.5)
+    assert metrics["concurrency_saturated_in_trace"] is True
+    assert common.concurrency_saturated_in_trace(
+        plan,
+        concurrency_count=1,
+        model="sharegpt",
+        requests=requests,
+        p50_service_time_ms=10_000.0,
+    )
+    assert not common.concurrency_saturated_in_trace(
+        plan,
+        concurrency_count=1,
+        model="sharegpt",
+        requests=[],
+    )
+
+
 def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
     scenario = cost_layer.make_scenario(
         "quota",
@@ -588,6 +621,51 @@ def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
     )
     assert two_seed_row["mean_total_cost_usd"] == pytest.approx(
         two_seed_row["total_cost_usd"] / 4
+    )
+
+
+def test_subscription_summary_adds_concurrency_fields_and_fixed_fee():
+    scenario = cost_layer.make_scenario(
+        "concurrency",
+        concurrency_plan="featherless_premium",
+        concurrency_count=2,
+        concurrency_model="sharegpt",
+    )
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2),
+        Request(
+            id=1,
+            timestamp=86400.0,
+            request_tokens=10,
+            response_tokens=10,
+            total_tokens=20,
+        ),
+    ]
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    row = common.summarize_runs(
+        scenario=scenario,
+        policy="offline",
+        seeds=(42,),
+        runs=[run],
+        requests=requests,
+    )
+
+    assert row["subscription_plan"] is None
+    assert row["concurrency_plan"] == "featherless_premium"
+    assert row["concurrency_count"] == 2
+    assert row["model"] == "sharegpt"
+    assert row["model_class"] == "ge_70b"
+    assert row["model_concurrency_cost"] == 4
+    assert row["concurrency_capacity_units"] == 8
+    assert row["effective_concurrency_limit"] == 2
+    assert row["peak_used_concurrency_cost"] == 4
+    assert row["mean_concurrency_utilization"] > 0.0
+    assert row["concurrency_saturated_in_trace"] is False
+    assert row["trace_paper_grade"] is False
+    assert row["subscription_fixed_cost_usd"] == pytest.approx(25.0 * 2 / 30.0)
+    assert row["total_cost_usd"] == pytest.approx(
+        row["api_cost_usd"] + row["subscription_fixed_cost_usd"]
     )
 
 

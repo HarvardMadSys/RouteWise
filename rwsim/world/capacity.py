@@ -164,6 +164,7 @@ class WeightedConcurrencyState:
     fixed_model_class: str | None = None
     active: list[tuple[float, str, int]] = field(default_factory=list)
     peak_used_concurrency_cost: int = 0
+    total_capacity_unit_seconds_used: float = 0.0
 
     def __post_init__(self) -> None:
         self.capacity_units = int(self.capacity_units)
@@ -268,6 +269,10 @@ class WeightedConcurrencyState:
         if self.used_concurrency_cost(now) + cost > self.capacity_units:
             return False
         self.active.append((float(finish_time), str(model_class), cost))
+        if now is not None:
+            self.total_capacity_unit_seconds_used += cost * (
+                float(finish_time) - float(now)
+            )
         self.peak_used_concurrency_cost = max(
             self.peak_used_concurrency_cost,
             self.used_concurrency_cost(),
@@ -291,6 +296,7 @@ class WeightedConcurrencyState:
         """Reset mutable weighted concurrency state."""
         self.active = []
         self.peak_used_concurrency_cost = 0
+        self.total_capacity_unit_seconds_used = 0.0
 
 
 __all__ = [

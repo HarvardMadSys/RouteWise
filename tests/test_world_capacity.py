@@ -86,8 +86,10 @@ class CapacityStateTest(unittest.TestCase):
         self.assertTrue(concurrency.admit("ge_70b", finish_time=10.0, now=0.0))
         self.assertEqual(concurrency.used_concurrency_cost(1.0), 4)
         self.assertEqual(concurrency.utilization(1.0), 1.0)
+        self.assertEqual(concurrency.total_capacity_unit_seconds_used, 40.0)
         self.assertFalse(concurrency.can_admit("le_15b", now=1.0))
         self.assertFalse(concurrency.admit("le_15b", finish_time=10.0, now=1.0))
+        self.assertEqual(concurrency.total_capacity_unit_seconds_used, 40.0)
 
     def test_weighted_concurrency_cost_one_admits_four_requests(self) -> None:
         concurrency = WeightedConcurrencyState(
@@ -135,6 +137,7 @@ class CapacityStateTest(unittest.TestCase):
         self.assertTrue(concurrency.can_admit_interval(0.0, 5.0))
         self.assertTrue(concurrency.admit_interval(now=0.0, service_time_sec=5.0))
         self.assertTrue(concurrency.admit_interval(now=0.0, service_time_sec=5.0))
+        self.assertEqual(concurrency.total_capacity_unit_seconds_used, 40.0)
         self.assertFalse(concurrency.can_admit_interval(1.0, 6.0))
         self.assertTrue(concurrency.can_admit_interval(5.0, 6.0))
 
