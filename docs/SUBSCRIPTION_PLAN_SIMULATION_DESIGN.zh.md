@@ -286,7 +286,6 @@ plans:
       le_15b: 1
       24_34b: 2
       ge_70b: 4
-      deepseek_kimi_individual: 4
     default_model_class: ge_70b
     model_class_overrides:
       llama-3.3-70b-instruct: ge_70b
@@ -1170,10 +1169,13 @@ after finish_time passes, capacity is released
 
 1. 后续 end-to-end 使用 full-month selected setting，还是使用一个按预声明规则选出的 representative smaller window？
 
-2. 旧 offline-stage config 里有 `featherless_scale`，`monthly_fee_usd=$75`、capacity `8`。
-   当前 Featherless docs 展示了 Premium 和新的 business/agentic plans，同时 concurrency docs
-   仍然描述了 8-unit scale-style allotment。§1.3 如果要对 8-unit plan 做 paper dollar claim，
-   必须先用当前官方 pricing page 统一 plan id、monthly fee 和 model compatibility。
+2. 旧 offline-stage config 里有 `featherless_scale`，`monthly_fee_usd=$75`、capacity `8`，
+   并且对 70B-class models 写了 `concurrency_cost=2`。当前 Featherless docs 展示了 Premium
+   和新的 business/agentic plans，同时 concurrency docs 仍然描述了 8-unit scale-style allotment。
+   concurrency docs 里 70B-class model cost 仍然是 `4`；“两个 70B 同时跑”来自
+   `capacity=8 / cost=4`，不是把 model cost 改成 `2`。§1.3 如果要对 8-unit plan
+   做 paper dollar claim，必须先用当前官方 pricing 或保存的 dashboard 截图统一 plan id、
+   monthly fee 和 compatibility。
 
 Chutes 和 MiniMax Starter / Plus / Max 的实现 blocker 只有一个：MiniMax 的 5-hour + weekly allowance
 需要 composite quota support。Chutes 可以直接用现有 single-window quota state 跑。

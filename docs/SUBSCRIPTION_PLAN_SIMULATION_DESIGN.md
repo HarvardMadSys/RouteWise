@@ -282,7 +282,6 @@ plans:
       le_15b: 1
       24_34b: 2
       ge_70b: 4
-      deepseek_kimi_individual: 4
     default_model_class: ge_70b
     model_class_overrides:
       llama-3.3-70b-instruct: ge_70b
@@ -1235,11 +1234,14 @@ Do not include these in the first implementation:
    representative smaller window selected by a predeclared rule?
 
 2. The old offline-stage config contains `featherless_scale` with
-   `monthly_fee_usd=$75` and capacity `8`. Current Featherless docs expose
-   Premium and newer business/agentic plans, while the concurrency docs still
-   describe an 8-unit scale-style allotment. Before making §1.3 paper dollar
-   claims for an 8-unit plan, reconcile the plan id, monthly fee, and model
-   compatibility against the current official pricing page.
+   `monthly_fee_usd=$75`, capacity `8`, and `concurrency_cost=2` for 70B-class
+   models. Current Featherless docs expose Premium plus newer business/agentic
+   plans, while the concurrency docs still describe an 8-unit scale-style
+   allotment. The concurrency docs also keep 70B-class model cost at `4`; the
+   "2 simultaneous 70B requests" result comes from `capacity=8 / cost=4`, not
+   from changing the model cost to `2`. Before making §1.3 paper dollar claims
+   for an 8-unit plan, reconcile the plan id, monthly fee, and compatibility
+   against current official pricing or a saved dashboard screenshot.
 
 The only blocker for Chutes and MiniMax Starter / Plus / Max implementation
 is composite quota support for MiniMax's 5-hour + weekly allowance. Chutes can
