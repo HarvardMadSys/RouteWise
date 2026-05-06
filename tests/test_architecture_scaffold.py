@@ -9,7 +9,7 @@ from pathlib import Path
 
 from experiments import available_experiments
 from experiments._configs import summarize_scenario
-from rwsim.policies import available_policies, build_policy
+from rwsim.policies import DEFAULT_PRESETS, available_policies, build_policy
 from rwsim.scenarios import build_scenario
 from rwsim.schemas import ProviderTier, Request
 
@@ -54,8 +54,23 @@ class ArchitectureScaffoldTest(unittest.TestCase):
                 "routewise",
             ),
         )
+        routewise_names = {"ablation_lp_only", "ablation_lp_hedging", "routewise"}
+        test_presets = {
+            name: (
+                {
+                    **preset,
+                    "params": {
+                        **preset.get("params", {}),
+                        "cost_envelope": (1e-6, 1e-3),
+                    },
+                }
+                if name in routewise_names
+                else preset
+            )
+            for name, preset in DEFAULT_PRESETS.items()
+        }
         for name in available_policies():
-            policy = build_policy(name, seed=123)
+            policy = build_policy(name, presets=test_presets, seed=123)
             self.assertTrue(callable(policy.route))
             self.assertTrue(callable(policy.tick))
             self.assertTrue(callable(policy.observe))

@@ -8,6 +8,7 @@ import pytest
 
 from experiments.simulation import common, cost_layer
 from routewise_cli.main import main as routewise_main
+from rwsim.schemas import Request
 from rwsim.world.capacity import ProviderTier
 
 
@@ -91,7 +92,32 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
         "hedging": False,
         "explorer": False,
         "p": 0.75,
+        "cost_envelope": common.WORKLOAD_COST_ENVELOPE,
     }
+
+
+def test_workload_cost_envelope_uses_cheapest_api_request_cost():
+    scenario = cost_layer.make_scenarios()["cost_layer_quota_q1"]
+    requests = [
+        Request(id=1, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2),
+        Request(
+            id=2,
+            timestamp=1.0,
+            request_tokens=1000,
+            response_tokens=1000,
+            total_tokens=2000,
+        ),
+    ]
+
+    L, U = common.workload_cost_envelope(
+        scenario.providers,
+        requests,
+        lower_percentile=0.0,
+        upper_percentile=100.0,
+    )
+
+    assert pytest.approx(24e-6) == L
+    assert pytest.approx(0.024) == U
 
 
 def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():

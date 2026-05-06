@@ -60,6 +60,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     hedging: str | bool = "probability_target"
     explorer: bool = True
     p: float = 0.75
+    cost_envelope: tuple[float, float] | None = None
     slo_ms: float = 2000.0
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
@@ -69,6 +70,18 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     def __post_init__(self) -> None:
         if not 0.0 <= self.p <= 1.0:
             raise ValueError(f"RouteWise p must be in [0, 1], got {self.p}")
+        if self.cost_envelope is None:
+            raise ValueError(
+                "RouteWisePolicy requires an explicit cost_envelope. "
+                "Simulation sections should pass the workload-level P10/P90 envelope."
+            )
+        L, U = (float(self.cost_envelope[0]), float(self.cost_envelope[1]))
+        if not (math.isfinite(L) and math.isfinite(U) and 0.0 < L < U):
+            raise ValueError(
+                "RouteWise cost_envelope must satisfy 0 < L < U; "
+                f"got L={L}, U={U}"
+            )
+        self.cost_envelope = (L, U)
         self.rng = np.random.default_rng(self.seed)
 
     def route(self, request: Request, state: SimulationState) -> RoutingDecision:
@@ -80,7 +93,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if not providers:
             raise ValueError("No providers configured for RouteWisePolicy.")
 
-        L, U = calibrate_envelopes(list(state.providers.values()), request=request)
+        L, U = self.cost_envelope
         c_eff = {
             provider.name: effective_cost(
                 provider,
@@ -292,44 +305,26 @@ def effective_cost(
     L: float,
     concurrency_alpha: float = 1.0,
 ) -> float:
-    """RouteWise effective request cost."""
-    return (
-        provider.marginal_cost_for_request(request, now)
-        + quota_shadow_price(provider, now, U=U, L=L)
-        + concurrency_shadow_price(provider, now, U=U, alpha=concurrency_alpha)
-    )
+    """RouteWise piecewise effective request cost.
 
+    Matches the paper formulation exactly:
+        c_eff(j) = c_A(j)   if j in S_A   (real API billing)
+                 = psi(z_j) if j in S_Q   (quota opportunity cost)
+                 = lambda(u_j) if j in S_C (concurrency opportunity cost)
 
-def calibrate_envelopes(
-    providers: list[Provider],
-    request: Request | None = None,
-    typical_request_tokens: int = 100,
-    typical_response_tokens: int = 100,
-    floor_ratio: float = 1e-3,
-) -> tuple[float, float]:
-    """Compute (L, U) from API provider prices."""
-    api_costs = [
-        (
-            provider.marginal_cost_for_request(request, 0.0)
-            if request is not None
-            else provider.token_cost(
-                request_tokens=typical_request_tokens,
-                response_tokens=typical_response_tokens,
-                total_tokens=typical_request_tokens + typical_response_tokens,
-            )
-        )
-        for provider in providers
-        if provider.tier == ProviderTier.S_A
-        and (
-            provider.effective_input_cost_per_token > 0
-            or provider.effective_output_cost_per_token > 0
-        )
-    ]
-    if not api_costs:
-        return (1e-6, 1e-3)
-    U = max(api_costs)
-    L = max(U * floor_ratio, 1e-9)
-    return (L, U)
+    Numerically equivalent to the previous additive form
+        marginal + psi + lambda
+    because S_Q / S_C providers are constructed with marginal=0; this
+    refactor only sharpens the semantics so the code mirrors the paper.
+    """
+    tier = provider.tier
+    if tier == ProviderTier.S_A:
+        return provider.marginal_cost_for_request(request, now)
+    if tier == ProviderTier.S_Q:
+        return quota_shadow_price(provider, now, U=U, L=L)
+    if tier == ProviderTier.S_C:
+        return concurrency_shadow_price(provider, now, U=U, alpha=concurrency_alpha)
+    raise ValueError(f"Unsupported provider tier for RouteWise effective cost: {tier!r}")
 
 
 def _solve_lp(
@@ -464,7 +459,6 @@ def _combined_success_probability(
 __all__ = [
     "RollingLatencyProfile",
     "RouteWisePolicy",
-    "calibrate_envelopes",
     "concurrency_shadow_price",
     "effective_cost",
     "quota_shadow_price",

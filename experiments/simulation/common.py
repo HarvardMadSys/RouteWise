@@ -14,6 +14,8 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from rwsim.engine.simulator import Simulator
 from rwsim.metrics import RunAggregate
 from rwsim.metrics.histogram import merge_histograms
@@ -41,6 +43,7 @@ COST_LAYER_P50_MS = 300.0
 DEFAULT_SEEDS = (42, 43, 44)
 DEFAULT_WORKLOAD = "sharegpt_burstgpt"
 DEFAULT_TPS_P50 = 150.0
+WORKLOAD_COST_ENVELOPE = "workload_p10_p90"
 _WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
@@ -90,6 +93,7 @@ def make_routewise_presets(
     *,
     p_values: tuple[float, ...] = P_SWEEP,
     include_hedging: bool = False,
+    cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local policy presets with explorer disabled."""
     presets: dict[str, dict[str, Any]] = {
@@ -104,6 +108,7 @@ def make_routewise_presets(
                 "hedging": False,
                 "explorer": False,
                 "p": float(value),
+                "cost_envelope": cost_envelope,
             },
         }
         if include_hedging:
@@ -113,6 +118,7 @@ def make_routewise_presets(
                     "hedging": "probability_target",
                     "explorer": False,
                     "p": float(value),
+                    "cost_envelope": cost_envelope,
                 },
             }
     return presets
@@ -405,9 +411,157 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
-    policy = build_policy(policy_name, presets=presets, seed=seed)
+    policy = build_policy(
+        policy_name,
+        presets=_materialize_workload_cost_envelope(
+            presets,
+            policy_name=policy_name,
+            scenario=scenario,
+            requests=requests,
+        ),
+        seed=seed,
+    )
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
+
+
+def _materialize_workload_cost_envelope(
+    presets: dict[str, dict[str, Any]],
+    *,
+    policy_name: str,
+    scenario: ScenarioConfig,
+    requests: list[Request],
+) -> dict[str, dict[str, Any]]:
+    """Replace the workload-envelope sentinel with concrete P10/P90 bounds."""
+    try:
+        preset = presets[policy_name]
+    except KeyError:
+        return presets
+    params = dict(preset.get("params", {}))
+    if params.get("cost_envelope") != WORKLOAD_COST_ENVELOPE:
+        return presets
+
+    params["cost_envelope"] = _cached_workload_cost_envelope(
+        _provider_cost_envelope_key(scenario.providers),
+        _request_cost_envelope_key(requests),
+    )
+    patched = dict(presets)
+    patched[policy_name] = {**preset, "params": params}
+    return patched
+
+
+@cache
+def _cached_workload_cost_envelope(
+    provider_key: tuple[tuple[float, float], ...],
+    request_key: tuple[tuple[int, float], ...],
+) -> tuple[float, float]:
+    values = [
+        min(
+            input_cost * request_tokens + output_cost * response_tokens
+            for input_cost, output_cost in provider_key
+        )
+        for request_tokens, response_tokens in request_key
+    ]
+    return _cost_envelope_from_values(values)
+
+
+def workload_cost_envelope(
+    providers: list[TieredProvider],
+    requests: list[Request],
+    *,
+    lower_percentile: float = 10.0,
+    upper_percentile: float = 90.0,
+    floor_ratio: float = 1e-3,
+) -> tuple[float, float]:
+    """Calibrate L/U from cheapest API-equivalent request costs."""
+    values = [
+        _cheapest_api_cost_for_request(providers, request)
+        for request in requests
+    ]
+    values = [value for value in values if value is not None and value > 0.0]
+    return _cost_envelope_from_values(
+        values,
+        lower_percentile=lower_percentile,
+        upper_percentile=upper_percentile,
+        floor_ratio=floor_ratio,
+    )
+
+
+def _cost_envelope_from_values(
+    values: list[float],
+    *,
+    lower_percentile: float = 10.0,
+    upper_percentile: float = 90.0,
+    floor_ratio: float = 1e-3,
+) -> tuple[float, float]:
+    if not values:
+        raise ValueError(
+            "Cannot compute RouteWise cost envelope: no positive S_A API request "
+            "costs were found in the workload."
+        )
+
+    costs = np.asarray(values, dtype=float)
+    L = float(np.percentile(costs, lower_percentile))
+    U = float(np.percentile(costs, upper_percentile))
+    if not (math.isfinite(L) and math.isfinite(U)) or U <= 0.0:
+        raise ValueError(
+            "Cannot compute RouteWise cost envelope from non-finite or non-positive "
+            f"bounds: L={L}, U={U}"
+        )
+    if L <= 0.0 or L >= U:
+        L = max(U * floor_ratio, 1e-9)
+    return (L, U)
+
+
+def _provider_cost_envelope_key(
+    providers: list[TieredProvider],
+) -> tuple[tuple[float, float], ...]:
+    return tuple(
+        (
+            float(provider.effective_input_cost_per_token),
+            float(provider.effective_output_cost_per_token),
+        )
+        for provider in providers
+        if provider.tier == ProviderTier.S_A
+        and (
+            provider.effective_input_cost_per_token > 0.0
+            or provider.effective_output_cost_per_token > 0.0
+        )
+    )
+
+
+def _request_cost_envelope_key(
+    requests: list[Request],
+) -> tuple[tuple[int, float], ...]:
+    key: list[tuple[int, float]] = []
+    for request in requests:
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        response_tokens = getattr(request, "response_tokens", None)
+        if response_tokens is None:
+            response_tokens = getattr(request, "estimated_response_tokens", None)
+        total_tokens = getattr(request, "total_tokens", None)
+        if response_tokens is None:
+            response_tokens = max(int(total_tokens or 0) - request_tokens, 0)
+        key.append((request_tokens, float(response_tokens)))
+    return tuple(key)
+
+
+def _cheapest_api_cost_for_request(
+    providers: list[TieredProvider],
+    request: Request,
+) -> float | None:
+    api_costs = [
+        provider.marginal_cost_for_request(request, 0.0)
+        for provider in providers
+        if provider.tier == ProviderTier.S_A
+        and (
+            provider.effective_input_cost_per_token > 0.0
+            or provider.effective_output_cost_per_token > 0.0
+        )
+    ]
+    if not api_costs:
+        return None
+    return min(api_costs)
 
 
 def summarize_runs(
@@ -830,6 +984,7 @@ __all__ = [
     "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
     "P_SWEEP",
+    "WORKLOAD_COST_ENVELOPE",
     "SectionCell",
     "SectionCellResult",
     "ensure_workload_cache",
@@ -845,6 +1000,7 @@ __all__ = [
     "run_policy",
     "run_section",
     "summarize_runs",
+    "workload_cost_envelope",
     "write_json",
     "write_summary_csv",
 ]
