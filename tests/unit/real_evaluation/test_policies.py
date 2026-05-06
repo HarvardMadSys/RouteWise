@@ -1,4 +1,4 @@
-"""Routing-policy regressions: unprofiled penalty + dual shadow price."""
+"""Routing-policy regressions: unprofiled penalty + paper effective cost."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from experiments.real_evaluation.inventory import (
     ProviderState,
 )
 from experiments.real_evaluation.policies import (
+    OR_AUTO_SENTINEL,
+    OR_SORT_SENTINEL_TO_MODE,
     UNPROFILED_LATENCY_PENALTY_MS,
     BudgetRangeHedgePolicy,
     BudgetRangePolicy,
-    OR_AUTO_SENTINEL,
-    OR_SORT_SENTINEL_TO_MODE,
     RequestContext,
     build_policy,
 )
@@ -74,13 +74,12 @@ def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     assert hedged.use_hedge is True
 
 
-def test_dual_constraint_provider_gets_both_shadow_prices() -> None:
-    """A provider declared ``tier='quota'`` with an extra ``concurrency_limit``
-    must accumulate both shadow-price terms in ``effective_cost``.
+def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
+    """A quota provider with an extra admission constraint still uses only
+    the quota shadow price for routing effective cost.
 
-    Earlier code gated each shadow price on the ``tier`` string, so
-    Ollama_SQ (tier=quota, concurrency_limit=3) never received a
-    concurrency penalty even when its slots were saturated.
+    The extra concurrency limit is enforced through availability, not by
+    adding a second shadow-price term to ``c_eff``.
     """
     spec = ProviderSpec(
         name="Ollama_SQ",
@@ -104,7 +103,28 @@ def test_dual_constraint_provider_gets_both_shadow_prices() -> None:
     assert q_sp > 0.0
     assert c_sp > 0.0
     eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
-    assert eff == q_sp + c_sp
+    assert eff == q_sp
+
+
+def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
+    """A concurrency-tier provider uses only the concurrency shadow price."""
+    spec = ProviderSpec(
+        name="Featherless_SC",
+        tier="concurrency",
+        transport_cfg=TransportConfig(
+            name="Featherless_SC", transport="featherless", model="x"
+        ),
+        concurrency_limit=3,
+    )
+    state = ProviderState.from_spec(spec)
+    now = 100.0
+    state.concurrency.admit(1, now, 60.0)
+    state.concurrency.admit(2, now, 60.0)
+
+    c_sp = concurrency_shadow_price(state, now, U=1.0)
+    eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
+    assert c_sp > 0.0
+    assert eff == c_sp
 
 
 def test_or_baselines_use_distinct_sentinels() -> None:
