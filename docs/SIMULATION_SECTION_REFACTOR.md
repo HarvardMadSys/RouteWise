@@ -545,6 +545,50 @@ for section in ("cost-layer", "latency-layer", "hedging"):
 The dispatch is one `import experiments.simulation.<section>` + call its
 `main()` with the parsed args.
 
+### 5.4 Output and plot paths
+
+Paper-run outputs should be named by experiment meaning, not by execution
+mechanics. Do not encode one-off execution details such as `seed42`,
+`combined`, `gpu1`, or `gpu2` in the canonical directory name. Those details
+belong in `metadata.json`.
+
+For cost-layer simulator runs, use:
+
+```text
+outputs/simulation/cost_layer/
+  on_demand/
+    burstgpt_30d/
+      metadata.json
+      summary.csv
+      summary.json
+      ttft_histograms.json
+      ttft_histograms_by_seed.json
+      figures/
+```
+
+The matching plotting entrypoint is:
+
+```bash
+uv run python -m plots.cost_layer.simulator.plot_on_demand \
+  --input-dir outputs/simulation/cost_layer/on_demand/burstgpt_30d
+```
+
+The plot taxonomy mirrors the experiment taxonomy:
+
+```text
+plots/
+  cost_layer/
+    simulator/
+      plot_on_demand.py
+      plot_quota.py          # future 1.2
+      plot_concurrency.py    # future 1.3
+  latency_layer/
+    simulator/
+  end_to_end/
+    simulator/
+  ablations/
+```
+
 ---
 
 ## 6. Test and golden migration
