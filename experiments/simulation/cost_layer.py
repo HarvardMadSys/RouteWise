@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote, unquote
 
 from experiments.simulation.common import (
     COST_LAYER_P50_MS,
@@ -41,6 +42,9 @@ SECTION_NAME = "cost-layer"
 OFFLINE_POLICY = "offline"
 REAL_WORLD_SCENARIO = "cost_layer_real_world"
 QUOTA_SCENARIO = "quota"
+CONCURRENCY_SCENARIO = "concurrency"
+DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
+DEFAULT_CONCURRENCY_MODEL = "sharegpt"
 
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
 _QUOTA_LATENCY_FAMILIES = (*_SYNTHETIC_FAMILIES, "real_world")
@@ -51,6 +55,7 @@ _SCENARIO_NAMES = (
     "cost_layer_heavy_tail",
     REAL_WORLD_SCENARIO,
     QUOTA_SCENARIO,
+    CONCURRENCY_SCENARIO,
     "cost_layer_concurrency_c1",
     "cost_layer_concurrency_c2",
     "cost_layer_concurrency_c3",
@@ -67,6 +72,9 @@ def make_scenarios(
     *,
     subscription_plans: tuple[str, ...] = ("chutes",),
     subscription_counts: tuple[int, ...] | None = None,
+    concurrency_plans: tuple[str, ...] = (DEFAULT_CONCURRENCY_PLAN,),
+    concurrency_counts: tuple[int, ...] | None = None,
+    concurrency_model: str = DEFAULT_CONCURRENCY_MODEL,
     quota_latency_family: str = "heavy_tail",
 ) -> dict[str, ScenarioConfig]:
     """Build runnable cost-layer scenarios keyed by artifact label."""
@@ -80,6 +88,14 @@ def make_scenarios(
                     quota_latency_family=quota_latency_family,
                 )
             )
+        elif name == CONCURRENCY_SCENARIO:
+            scenarios.update(
+                _make_concurrency_plan_scenarios(
+                    concurrency_plans=concurrency_plans,
+                    concurrency_counts=concurrency_counts,
+                    model=concurrency_model,
+                )
+            )
         else:
             scenario = make_scenario(name)
             scenarios[scenario.name] = scenario
@@ -91,6 +107,9 @@ def make_scenario(
     *,
     subscription_plan: str = "chutes",
     subscription_count: int = 1,
+    concurrency_plan: str = DEFAULT_CONCURRENCY_PLAN,
+    concurrency_count: int = 1,
+    concurrency_model: str = DEFAULT_CONCURRENCY_MODEL,
     quota_latency_family: str = "heavy_tail",
 ) -> ScenarioConfig:
     """Build one cost-layer scenario by name."""
@@ -104,6 +123,12 @@ def make_scenario(
             subscription_count,
             latency_family=quota_latency_family,
         )
+    if name == CONCURRENCY_SCENARIO:
+        return _make_concurrency_scenario_for_plan(
+            concurrency_plan,
+            concurrency_count,
+            model=concurrency_model,
+        )
     parsed_quota = _parse_quota_artifact_label(name)
     if parsed_quota is not None:
         plan_id, count, latency_family = parsed_quota
@@ -111,6 +136,14 @@ def make_scenario(
             plan_id,
             count,
             latency_family=latency_family,
+        )
+    parsed_concurrency = _parse_concurrency_artifact_label(name)
+    if parsed_concurrency is not None:
+        plan_id, count, model = parsed_concurrency
+        return _make_concurrency_scenario_for_plan(
+            plan_id,
+            count,
+            model=model,
         )
     if name.startswith("cost_layer_concurrency_c"):
         return _make_concurrency_scenario(
@@ -179,6 +212,43 @@ def _split_quota_count_and_latency(value: str) -> tuple[str, str]:
     return count_part, latency_family
 
 
+def concurrency_artifact_label(
+    plan_id: str,
+    concurrency_count: int,
+    *,
+    model: str,
+) -> str:
+    """Return the stable artifact label for one concurrency plan/count/model."""
+    return (
+        f"concurrency__plan={plan_id}__n={concurrency_count}"
+        f"__model={_encode_label_value(model)}"
+    )
+
+
+def _parse_concurrency_artifact_label(name: str) -> tuple[str, int, str] | None:
+    prefix = "concurrency__plan="
+    marker = "__n="
+    model_marker = "__model="
+    if not name.startswith(prefix) or marker not in name or model_marker not in name:
+        return None
+    plan_part, rest = name.removeprefix(prefix).rsplit(marker, 1)
+    count_part, model_part = rest.split(model_marker, 1)
+    try:
+        count = int(count_part)
+    except ValueError as exc:
+        raise ValueError(f"invalid concurrency artifact label {name!r}") from exc
+    if count <= 0:
+        raise ValueError(f"invalid concurrency artifact label {name!r}: n must be > 0")
+    model = unquote(model_part)
+    if not model:
+        raise ValueError(f"invalid concurrency artifact label {name!r}: missing model")
+    return plan_part, count, model
+
+
+def _encode_label_value(value: str) -> str:
+    return quote(str(value), safe="-._~")
+
+
 def _make_quota_plan_scenarios(
     *,
     subscription_plans: tuple[str, ...],
@@ -203,6 +273,34 @@ def _make_quota_plan_scenarios(
                 plan.plan_id,
                 count,
                 latency_family=quota_latency_family,
+            )
+            scenarios[scenario.name] = scenario
+    return scenarios
+
+
+def _make_concurrency_plan_scenarios(
+    *,
+    concurrency_plans: tuple[str, ...],
+    concurrency_counts: tuple[int, ...] | None,
+    model: str,
+) -> dict[str, ScenarioConfig]:
+    plans = load_subscription_plans()
+    scenarios: dict[str, ScenarioConfig] = {}
+    for plan_id in concurrency_plans:
+        try:
+            plan = plans[plan_id]
+        except KeyError as exc:
+            known = ", ".join(sorted(plans))
+            raise ValueError(
+                f"unknown concurrency plan {plan_id!r}; known plans: {known}"
+            ) from exc
+        counts = concurrency_counts or plan.subscription_counts
+        _validate_subscription_counts(plan, counts)
+        for count in counts:
+            scenario = _make_concurrency_scenario_for_plan(
+                plan.plan_id,
+                count,
+                model=model,
             )
             scenarios[scenario.name] = scenario
     return scenarios
@@ -266,6 +364,31 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated quota scenario subscription counts, e.g. 1,2,3,4.",
     )
     parser.add_argument(
+        "--concurrency-plan",
+        help="Concurrency scenario subscription plan id, e.g. featherless_premium.",
+    )
+    parser.add_argument(
+        "--concurrency-plans",
+        help="Comma-separated concurrency scenario plan ids, e.g. featherless_premium.",
+    )
+    parser.add_argument(
+        "--concurrency-count",
+        type=int,
+        help="Concurrency scenario subscription/account count.",
+    )
+    parser.add_argument(
+        "--concurrency-counts",
+        help="Comma-separated concurrency scenario counts, e.g. 1,2,3,4.",
+    )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_CONCURRENCY_MODEL,
+        help=(
+            "Concurrency scenario model id or trace alias. Defaults to "
+            f"{DEFAULT_CONCURRENCY_MODEL}."
+        ),
+    )
+    parser.add_argument(
         "--latency-family",
         default="heavy_tail",
         choices=_QUOTA_LATENCY_FAMILIES,
@@ -307,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     p_values = tuple(args.p_values) if args.p_values else P_SWEEP
     selected_public_scenarios = tuple(args.scenario) if args.scenario else _SCENARIO_NAMES
     has_quota = QUOTA_SCENARIO in selected_public_scenarios
+    has_concurrency = CONCURRENCY_SCENARIO in selected_public_scenarios
     subscription_plan_ids = _parse_subscription_plan_args(
         args.subscription_plan,
         args.subscription_plans,
@@ -317,9 +441,22 @@ def main(argv: list[str] | None = None) -> int:
         args.subscription_counts,
         has_quota=has_quota,
     )
+    concurrency_plan_ids = _parse_concurrency_plan_args(
+        args.concurrency_plan,
+        args.concurrency_plans,
+        has_concurrency=has_concurrency,
+    )
+    concurrency_counts = _parse_concurrency_count_args(
+        args.concurrency_count,
+        args.concurrency_counts,
+        has_concurrency=has_concurrency,
+    )
     scenarios = make_scenarios(
         subscription_plans=subscription_plan_ids,
         subscription_counts=subscription_counts,
+        concurrency_plans=concurrency_plan_ids,
+        concurrency_counts=concurrency_counts,
+        concurrency_model=args.model,
         quota_latency_family=args.latency_family,
     )
     if args.scenario:
@@ -331,6 +468,14 @@ def main(argv: list[str] | None = None) -> int:
                         scenario_name: scenario
                         for scenario_name, scenario in scenarios.items()
                         if scenario.metadata.get("public_scenario") == QUOTA_SCENARIO
+                    }
+                )
+            elif name == CONCURRENCY_SCENARIO:
+                selected.update(
+                    {
+                        scenario_name: scenario
+                        for scenario_name, scenario in scenarios.items()
+                        if scenario.metadata.get("public_scenario") == CONCURRENCY_SCENARIO
                     }
                 )
             else:
@@ -396,6 +541,50 @@ def _parse_subscription_count_args(
     if not has_quota:
         if single is not None or multiple:
             raise SystemExit("subscription count flags require --scenario quota")
+        return None
+    if multiple:
+        return tuple(int(value) for value in _split_csv(multiple))
+    if single is not None:
+        return (int(single),)
+    return None
+
+
+def _parse_concurrency_plan_args(
+    single: str | None,
+    multiple: str | None,
+    *,
+    has_concurrency: bool,
+) -> tuple[str, ...]:
+    if single and multiple:
+        raise SystemExit("use either --concurrency-plan or --concurrency-plans, not both")
+    if not has_concurrency:
+        if single or multiple:
+            raise SystemExit("concurrency plan flags require --scenario concurrency")
+        return (DEFAULT_CONCURRENCY_PLAN,)
+    values = (
+        _split_csv(multiple)
+        if multiple
+        else ((single,) if single else (DEFAULT_CONCURRENCY_PLAN,))
+    )
+    plans = load_subscription_plans()
+    unknown = [value for value in values if value not in plans]
+    if unknown:
+        known = ", ".join(sorted(plans))
+        raise SystemExit(f"unknown concurrency plan {unknown[0]!r}; known plans: {known}")
+    return values
+
+
+def _parse_concurrency_count_args(
+    single: int | None,
+    multiple: str | None,
+    *,
+    has_concurrency: bool,
+) -> tuple[int, ...] | None:
+    if single is not None and multiple:
+        raise SystemExit("use either --concurrency-count or --concurrency-counts, not both")
+    if not has_concurrency:
+        if single is not None or multiple:
+            raise SystemExit("concurrency count flags require --scenario concurrency")
         return None
     if multiple:
         return tuple(int(value) for value in _split_csv(multiple))
@@ -685,6 +874,91 @@ def _make_concurrency_scenario(count: int) -> ScenarioConfig:
     )
 
 
+def _make_concurrency_scenario_for_plan(
+    plan_id: str,
+    concurrency_count: int,
+    *,
+    model: str,
+) -> ScenarioConfig:
+    plans = load_subscription_plans()
+    try:
+        plan = plans[plan_id]
+    except KeyError as exc:
+        known = ", ".join(sorted(plans))
+        raise ValueError(f"unknown concurrency plan {plan_id!r}; known plans: {known}") from exc
+    _validate_subscription_counts(plan, (concurrency_count,))
+    if "cost_layer_concurrency" not in plan.eligible_sections:
+        raise ValueError(
+            f"subscription plan {plan.plan_id!r} is not eligible for cost-layer concurrency runs"
+        )
+    if plan.concurrency_allotment is None:
+        raise ValueError(f"concurrency plan {plan.plan_id!r} lacks concurrency_allotment")
+    resolution = plan.resolve_model_class_with_cost(model)
+    if resolution is None:
+        raise ValueError(
+            f"concurrency plan {plan.plan_id!r} does not support model {model!r}"
+        )
+    label = concurrency_artifact_label(
+        plan.plan_id,
+        concurrency_count,
+        model=model,
+    )
+    concurrency_provider = make_concurrency_provider(
+        f"{plan.plan_id}_concurrency",
+        plan=plan,
+        concurrency_count=concurrency_count,
+        model=model,
+    )
+    providers = [
+        concurrency_provider,
+        make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=COST_RATIO_PER_MILLION[0],
+            latency_family="heavy_tail",
+        ),
+        make_api_provider(
+            "api_mid",
+            cost_per_million_tokens=COST_RATIO_PER_MILLION[1],
+            latency_family="heavy_tail",
+        ),
+        make_api_provider(
+            "api_expensive",
+            cost_per_million_tokens=COST_RATIO_PER_MILLION[2],
+            latency_family="heavy_tail",
+        ),
+    ]
+    capacity_units = int(plan.concurrency_allotment) * int(concurrency_count)
+    return ScenarioConfig(
+        name=label,
+        description=(
+            f"Cost-layer concurrency scenario: {plan.display_name} x{concurrency_count} "
+            f"for model {model!r} ({resolution.model_class}, cost={resolution.cost}) "
+            f"with weighted capacity {capacity_units}, fixed cheap/mid/expensive "
+            f"on-demand fallback providers, TTFT=heavy_tail P50={COST_LAYER_P50_MS:.0f}ms."
+        ),
+        providers=providers,
+        arrival_process="trace",
+        primary_slo_ms=2000.0,
+        metadata={
+            "public_scenario": CONCURRENCY_SCENARIO,
+            "artifact_label": label,
+            "concurrency_plan": plan.plan_id,
+            "concurrency_plan_display_name": plan.display_name,
+            "concurrency_count": concurrency_count,
+            "model": model,
+            "model_class": resolution.model_class,
+            "model_concurrency_cost": resolution.cost,
+            "concurrency_capacity_units": capacity_units,
+            "effective_concurrency_limit": concurrency_provider.concurrency.limit
+            if concurrency_provider.concurrency is not None
+            else 0,
+            "model_concurrency_costs_by_class": dict(
+                plan.model_concurrency_costs_by_class
+            ),
+        },
+    )
+
+
 def _offline_assignments(
     scenario: ScenarioConfig,
     requests: list[Request],
@@ -876,9 +1150,11 @@ def _offline_service_time_sec(provider: TieredProvider, request: Request) -> flo
 
 
 __all__ = [
+    "CONCURRENCY_SCENARIO",
     "OFFLINE_POLICY",
     "QUOTA_SCENARIO",
     "SECTION_NAME",
+    "concurrency_artifact_label",
     "list_scenarios",
     "make_scenario",
     "make_scenarios",

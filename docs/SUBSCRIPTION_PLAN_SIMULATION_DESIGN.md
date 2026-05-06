@@ -1049,6 +1049,7 @@ selected_concurrency_setting:
   workload_window: full_month
   concurrency_plan: featherless_premium
   concurrency_count: 1
+  model: llama-3.3-70b-instruct
   selection_metric: total_cost_usd
   tie_breaks: [smaller_concurrency_count, higher_weighted_utilization]
 ```

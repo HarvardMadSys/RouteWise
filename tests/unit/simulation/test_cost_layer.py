@@ -28,12 +28,17 @@ def test_cost_layer_scenarios_match_section_contract():
         "quota__plan=chutes__n=5",
         "quota__plan=chutes__n=6",
         "quota__plan=chutes__n=8",
+        "concurrency__plan=featherless_premium__n=1__model=sharegpt",
+        "concurrency__plan=featherless_premium__n=2__model=sharegpt",
+        "concurrency__plan=featherless_premium__n=3__model=sharegpt",
+        "concurrency__plan=featherless_premium__n=4__model=sharegpt",
         "cost_layer_concurrency_c1",
         "cost_layer_concurrency_c2",
         "cost_layer_concurrency_c3",
         "cost_layer_concurrency_c4",
     )
     assert "quota" in cost_layer.list_scenarios()
+    assert "concurrency" in cost_layer.list_scenarios()
     assert "cost_layer_quota_q1" not in cost_layer.list_scenarios()
 
 
@@ -102,6 +107,44 @@ def test_quota_scenario_can_use_real_world_latency_family():
     assert scenario.metadata["latency_family"] == "real_world"
     assert len({id(provider.ttft_dist) for provider in scenario.providers}) == 1
     assert scenario.providers[0].ttft_dist.label == "qwen3_24h/rw8_pooled"
+
+
+def test_concurrency_scenario_uses_plan_count_and_model():
+    scenario = cost_layer.make_scenario(
+        "concurrency",
+        concurrency_plan="featherless_premium",
+        concurrency_count=2,
+        concurrency_model="sharegpt",
+    )
+
+    assert scenario.name == "concurrency__plan=featherless_premium__n=2__model=sharegpt"
+    assert scenario.metadata["public_scenario"] == "concurrency"
+    assert scenario.metadata["concurrency_plan"] == "featherless_premium"
+    assert scenario.metadata["concurrency_count"] == 2
+    assert scenario.metadata["model"] == "sharegpt"
+    assert scenario.metadata["model_class"] == "ge_70b"
+    assert scenario.metadata["model_concurrency_cost"] == 4
+    assert scenario.metadata["concurrency_capacity_units"] == 8
+    assert scenario.metadata["effective_concurrency_limit"] == 2
+    assert [provider.tier for provider in scenario.providers] == [
+        ProviderTier.S_C,
+        ProviderTier.S_A,
+        ProviderTier.S_A,
+        ProviderTier.S_A,
+    ]
+    assert isinstance(scenario.providers[0].concurrency, WeightedConcurrencyState)
+    assert scenario.providers[0].concurrency.capacity_units == 8
+
+
+def test_concurrency_scenario_artifact_label_rebuilds_with_model():
+    scenario = cost_layer.make_scenario(
+        "concurrency__plan=featherless_premium__n=2__model=qwen3-coder-30b"
+    )
+
+    assert scenario.metadata["model"] == "qwen3-coder-30b"
+    assert scenario.metadata["model_class"] == "24_34b"
+    assert scenario.metadata["model_concurrency_cost"] == 2
+    assert scenario.metadata["effective_concurrency_limit"] == 4
 
 
 def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
