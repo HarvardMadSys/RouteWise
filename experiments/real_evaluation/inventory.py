@@ -22,8 +22,17 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     resolve_transport_config,
 )
+from experiments.subscriptions import load_subscription_plans
 
 PROFILE_WINDOW_SEC: float = 15 * 60.0
+
+
+@dataclass(frozen=True)
+class ProviderQuotaWindow:
+    """One quota window materialized from a subscription plan or inventory."""
+
+    window_sec: float
+    requests: int
 
 
 @dataclass
@@ -35,6 +44,9 @@ class ProviderSpec:
     transport_cfg: TransportConfig
     quota_window_sec: float | None = None
     quota_requests: int | None = None
+    quota_windows: tuple[ProviderQuotaWindow, ...] = ()
+    subscription_plan: str | None = None
+    subscription_count: int = 1
     concurrency_limit: int | None = None
 
     @property
@@ -63,21 +75,35 @@ def load_inventory(path: Path | str) -> InventoryConfig:
     provider_specs: list[ProviderSpec] = []
     for entry in raw["providers"]:
         transport_cfg = resolve_transport_config(entry)
+        plan_id = entry.get("subscription_plan")
+        subscription_count = int(entry.get("subscription_count", 1))
+        quota_windows = _quota_windows_from_entry(
+            entry,
+            subscription_count=subscription_count,
+        )
+        first_window = quota_windows[0] if quota_windows else None
         provider_specs.append(
             ProviderSpec(
                 name=entry["name"],
                 tier=entry["tier"],
                 transport_cfg=transport_cfg,
                 quota_window_sec=(
-                    float(entry["quota_window_sec"])
+                    first_window.window_sec
+                    if first_window is not None
+                    else float(entry["quota_window_sec"])
                     if entry.get("quota_window_sec") is not None
                     else None
                 ),
                 quota_requests=(
-                    int(entry["quota_requests"])
+                    first_window.requests
+                    if first_window is not None
+                    else int(entry["quota_requests"])
                     if entry.get("quota_requests") is not None
                     else None
                 ),
+                quota_windows=quota_windows,
+                subscription_plan=str(plan_id) if plan_id is not None else None,
+                subscription_count=subscription_count,
                 concurrency_limit=(
                     int(entry["concurrency_limit"])
                     if entry.get("concurrency_limit") is not None
@@ -91,6 +117,41 @@ def load_inventory(path: Path | str) -> InventoryConfig:
         primary_slo_ms=float(raw["primary_slo_ms"]),
         slo_thresholds_ms=[float(t) for t in raw["slo_thresholds_ms"]],
         providers=provider_specs,
+    )
+
+
+def _quota_windows_from_entry(
+    entry: dict,
+    *,
+    subscription_count: int,
+) -> tuple[ProviderQuotaWindow, ...]:
+    plan_id = entry.get("subscription_plan")
+    if plan_id is None:
+        return ()
+    if entry.get("quota_window_sec") is not None or entry.get("quota_requests") is not None:
+        raise ValueError(
+            f"provider {entry.get('name')!r} uses subscription_plan={plan_id!r}; "
+            "quota_window_sec/quota_requests must come from experiments/subscription_plans.yaml"
+        )
+    if subscription_count <= 0:
+        raise ValueError(
+            f"provider {entry.get('name')!r}: subscription_count must be > 0"
+        )
+    plans = load_subscription_plans()
+    try:
+        plan = plans[str(plan_id)]
+    except KeyError as exc:
+        known = ", ".join(sorted(plans))
+        raise ValueError(
+            f"provider {entry.get('name')!r}: unknown subscription_plan "
+            f"{plan_id!r}; known plans: {known}"
+        ) from exc
+    return tuple(
+        ProviderQuotaWindow(
+            window_sec=float(window.quota_window_sec),
+            requests=int(window.quota_requests) * subscription_count,
+        )
+        for window in plan.quota_windows
     )
 
 
@@ -139,6 +200,25 @@ class QuotaState:
     def charge(self, now: float) -> None:
         self.tick(now)
         self.used += 1
+
+
+@dataclass
+class MultiWindowQuotaState:
+    """Quota tracker for plans with simultaneous reset windows."""
+
+    windows: tuple[QuotaState, ...]
+
+    def is_available(self, now: float) -> bool:
+        return all(window.is_available(now) for window in self.windows)
+
+    def fraction_used(self, now: float) -> float:
+        if not self.windows:
+            return 0.0
+        return max(window.fraction_used(now) for window in self.windows)
+
+    def charge(self, now: float) -> None:
+        for window in self.windows:
+            window.charge(now)
 
 
 @dataclass
@@ -254,21 +334,33 @@ class ProviderState:
 
     spec: ProviderSpec
     profile: LatencyProfile
-    quota: QuotaState | None
+    quota: QuotaState | MultiWindowQuotaState | None
     concurrency: ConcurrencyState | None
 
     @classmethod
     def from_spec(
         cls, spec: ProviderSpec, window_sec: float = PROFILE_WINDOW_SEC
     ) -> ProviderState:
-        quota = (
-            QuotaState(
-                window_sec=spec.quota_window_sec,
-                limit=spec.quota_requests,
+        quota_windows = spec.quota_windows
+        if not quota_windows and (
+            spec.quota_requests is not None and spec.quota_window_sec is not None
+        ):
+            quota_windows = (
+                ProviderQuotaWindow(
+                    window_sec=spec.quota_window_sec,
+                    requests=spec.quota_requests,
+                ),
             )
-            if spec.quota_requests is not None and spec.quota_window_sec is not None
-            else None
+        quota_states = tuple(
+            QuotaState(window_sec=window.window_sec, limit=window.requests)
+            for window in quota_windows
         )
+        if len(quota_states) == 1:
+            quota = quota_states[0]
+        elif quota_states:
+            quota = MultiWindowQuotaState(quota_states)
+        else:
+            quota = None
         concurrency = (
             ConcurrencyState(limit=spec.concurrency_limit)
             if spec.concurrency_limit is not None
@@ -284,9 +376,10 @@ class ProviderState:
     def is_available(self, now: float) -> bool:
         if self.quota is not None and not self.quota.is_available(now):
             return False
-        if self.concurrency is not None and not self.concurrency.is_available(now):
-            return False
-        return True
+        return not (
+            self.concurrency is not None
+            and not self.concurrency.is_available(now)
+        )
 
 
 def build_provider_states(
@@ -301,10 +394,12 @@ def build_provider_states(
 
 
 __all__ = [
+    "PROFILE_WINDOW_SEC",
     "ConcurrencyState",
     "InventoryConfig",
     "LatencyProfile",
-    "PROFILE_WINDOW_SEC",
+    "MultiWindowQuotaState",
+    "ProviderQuotaWindow",
     "ProviderSpec",
     "ProviderState",
     "QuotaState",

@@ -202,7 +202,7 @@ plans:
     monthly_fee_usd: 20.0
     quota_windows:
       - {name: daily, quota_requests: 5000, quota_window_sec: 86400}
-    subscription_counts: [1, 2, 3, 4]
+    subscription_counts: [1, 2, 3, 4, 5, 6, 8]
     eligible_sections: [cost_layer_quota, end_to_end]
     cost_claim_allowed: true
     source: "experiments/offline_stage/configs/experiment.yaml subscriptions.chutes"
@@ -359,7 +359,7 @@ quota_saturated_in_trace =
 When `quota_saturated_in_trace=true`, the run does not exercise scarcity:
 RouteWise can send essentially every request in every reset window to quota.
 It should not be used as a main paper q-sweep result. This is why each plan
-has its own `subscription_counts`; Chutes can use `[1, 2, 3, 4]`, while
+has its own `subscription_counts`; Chutes can use `[1, 2, 3, 4, 5, 6, 8]`, while
 some MiniMax tiers may saturate after fewer counts.
 
 The CLI should support either a single value:
@@ -371,7 +371,7 @@ The CLI should support either a single value:
 or a comma-separated sweep:
 
 ```bash
---subscription-counts 1,2,3,4
+--subscription-counts 1,2,3,4,5,6,8
 ```
 
 Similarly, the full paper run can accept:
@@ -384,6 +384,11 @@ These are section-specific flags. They do not need to become generic
 `rwsim` engine concepts.
 
 ### 5.3 Provider set per scenario
+
+All §1.2 quota scenarios use `latency_family = heavy_tail`, which is the
+simulator's LogNormal latency family. §1.2 is a cost-layer quota-scarcity
+experiment, so distribution robustness is a follow-up check after the main
+subscription-count sweep rather than a dimension of the main grid.
 
 Each quota run should contain:
 
@@ -682,7 +687,7 @@ Add section CLI flags:
 --subscription-plan chutes
 --subscription-plans chutes,minimax_subscription_plus
 --subscription-count 2
---subscription-counts 1,2,3,4
+--subscription-counts 1,2,3,4,5,6,8
 ```
 
 The CLI expands these parameter lists internally into run cells. It should

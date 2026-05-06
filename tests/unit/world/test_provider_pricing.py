@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rwsim.schemas import Request
-from rwsim.world.capacity import ProviderTier
+from rwsim.world.capacity import ProviderTier, QuotaState
 from rwsim.world.distributions import Uniform
 from rwsim.world.providers import TieredProvider
 
@@ -45,3 +45,13 @@ def test_subscription_providers_have_zero_marginal_request_cost():
     request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=20, total_tokens=120)
 
     assert provider.marginal_cost_for_request(request, 0.0) == 0.0
+
+
+def test_quota_reset_can_anchor_to_trace_start():
+    quota = QuotaState(size=1, window_sec=10.0)
+
+    quota.reset(window_start=5.0)
+    quota.charge(14.0)
+
+    assert not quota.can_admit(14.0)
+    assert quota.can_admit(15.0)

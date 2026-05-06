@@ -42,8 +42,9 @@ class Simulator:
     ) -> Run:
         """Run a policy over pre-loaded requests."""
         rng = np.random.default_rng(self.seed)
+        quota_window_start = float(requests[0].timestamp) if requests else 0.0
         for provider in self.scenario.providers:
-            provider.reset_state()
+            provider.reset_state(quota_window_start=quota_window_start)
 
         providers = {provider.name: provider for provider in self.scenario.providers}
         state = SimulationState.from_providers(providers)

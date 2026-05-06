@@ -18,10 +18,12 @@ from experiments.real_evaluation.executor import (
     send_request,
 )
 from experiments.real_evaluation.inventory import (
+    PROFILE_WINDOW_SEC,
     ConcurrencyState,
     InventoryConfig,
     LatencyProfile,
-    PROFILE_WINDOW_SEC,
+    MultiWindowQuotaState,
+    ProviderQuotaWindow,
     ProviderSpec,
     ProviderState,
     QuotaState,
@@ -75,10 +77,11 @@ from experiments.real_evaluation.transports import (
 )
 
 __all__ = [
+    "CSV_FIELDS",
+    "PROFILE_WINDOW_SEC",
     "BasePolicy",
     "BaseTransport",
     "BudgetRangeHedgePolicy",
-    "CSV_FIELDS",
     "CheapestFixedPolicy",
     "ConcurrencyFirstPolicy",
     "ConcurrencyState",
@@ -86,11 +89,12 @@ __all__ = [
     "HedgedResult",
     "InventoryConfig",
     "LatencyProfile",
+    "MultiWindowQuotaState",
     "OpenAICompatStreamingTransport",
     "OpenRouterAutoPolicy",
     "OpenRouterCheapestFixedPolicy",
     "OpenRouterFastestFixedPolicy",
-    "PROFILE_WINDOW_SEC",
+    "ProviderQuotaWindow",
     "ProviderSpec",
     "ProviderState",
     "QuotaFirstPolicy",

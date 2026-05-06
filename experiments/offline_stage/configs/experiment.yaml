@@ -8,9 +8,7 @@ models:
     name: "Chutes Subscription"
     provider: chutes
     type: subscription
-    pricing:
-      monthly_fee: "20.0"      # $20/month
-      daily_quota: 5000        # 5000 requests per day
+    subscription_plan: chutes  # fee/quota loaded from experiments/subscription_plans.yaml
 
   # API provider - ChatGPT pricing
   - id: openai-chatgpt
@@ -268,14 +266,12 @@ plans:
 # =============================================================================
 # Stage 2: Subscription Provider Configurations
 # =============================================================================
-# Defines model compatibility and pricing for dual-subscription routing
+# Defines model compatibility for dual-subscription routing.
+# Fee/quota facts for Chutes come from experiments/subscription_plans.yaml.
 subscriptions:
   # S_Q: Daily Quota Subscription (Chutes)
-  # https://chutes.ai/ - $20/mo for 5000 requests/day
   chutes:
-    type: daily_quota
-    monthly_fee: 20.0
-    daily_quota: 5000
+    subscription_plan: chutes
     supported_models:
       - llama-3.3-70b-instruct
       - llama-4-scout

@@ -11,11 +11,10 @@
       "model": "MiniMaxAI/MiniMax-M2.5-TEE",
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
-      "quota_window_sec": 3600,
-      "quota_requests": 1000,
+      "subscription_plan": "chutes",
       "concurrency_limit": null,
       "billing_mode": "subscription",
-      "notes": "Chutes direct subscription: 5000/day physically. Policy state uses 1000 req/hr for pilot."
+      "notes": "Chutes direct subscription; fee and quota facts load from experiments/subscription_plans.yaml."
     },
     {
       "name": "Ollama_SQ",
@@ -37,11 +36,10 @@
       "model": "MiniMax-M2.5",
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
-      "quota_window_sec": 3600,
-      "quota_requests": 900,
+      "subscription_plan": "minimax_subscription_plus",
       "concurrency_limit": null,
       "billing_mode": "subscription",
-      "notes": "MiniMax native: estimated 4500/5h. Policy state uses 1h-scaled 900 req/hr."
+      "notes": "MiniMax Plus native subscription; fee and quota facts load from experiments/subscription_plans.yaml."
     },
     {
       "name": "Featherless_SC",
@@ -50,8 +48,6 @@
       "model": "MiniMaxAI/MiniMax-M2.5",
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
-      "quota_window_sec": null,
-      "quota_requests": null,
       "concurrency_limit": 1,
       "billing_mode": "subscription",
       "notes": "Featherless with hard C=1 on MiniMax-M2.5. P99 jumps to 3131ms at c>=2 per paper tab:provider_calibration."

@@ -209,7 +209,7 @@ plans:
     monthly_fee_usd: 20.0
     quota_windows:
       - {name: daily, quota_requests: 5000, quota_window_sec: 86400}
-    subscription_counts: [1, 2, 3, 4]
+    subscription_counts: [1, 2, 3, 4, 5, 6, 8]
     eligible_sections: [cost_layer_quota, end_to_end]
     cost_claim_allowed: true
     source: "experiments/offline_stage/configs/experiment.yaml subscriptions.chutes"
@@ -360,7 +360,7 @@ quota_saturated_in_trace =
 RouteWise 可以在每个 reset window 里几乎把所有 request 都发到 quota。这样的结果不应该进主 paper
 q-sweep 图。
 
-这也是为什么每个 plan 有自己的 `subscription_counts`。Chutes 可以用 `[1, 2, 3, 4]`，
+这也是为什么每个 plan 有自己的 `subscription_counts`。Chutes 可以用 `[1, 2, 3, 4, 5, 6, 8]`，
 某些 MiniMax tier 可能更少的 count 就已经 saturate。
 
 CLI 支持单值：
@@ -372,7 +372,7 @@ CLI 支持单值：
 也支持 sweep：
 
 ```bash
---subscription-counts 1,2,3,4
+--subscription-counts 1,2,3,4,5,6,8
 ```
 
 full paper run 也可以接受多个 plan：
@@ -384,6 +384,11 @@ full paper run 也可以接受多个 plan：
 这些都是 cost-layer section 的参数，不需要变成通用 `rwsim` engine 概念。
 
 ### 5.3 每个 scenario 的 provider set
+
+所有 §1.2 quota scenarios 都使用 `latency_family = heavy_tail`，也就是
+simulator 里的 LogNormal latency family。§1.2 是 cost-layer quota scarcity
+实验，所以 distribution robustness 是主 subscription-count sweep 之后的
+follow-up check，不放进主实验 grid。
 
 每个 quota run 应该包含：
 
@@ -667,7 +672,7 @@ def _make_quota_scenario_for_plan(plan_id: str, subscription_count: int) -> Scen
 --subscription-plan chutes
 --subscription-plans chutes,minimax_subscription_plus
 --subscription-count 2
---subscription-counts 1,2,3,4
+--subscription-counts 1,2,3,4,5,6,8
 ```
 
 CLI 内部把这些参数列表展开成 run cells，但不暴露生成的 scenario catalogue。

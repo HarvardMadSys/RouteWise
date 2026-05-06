@@ -163,10 +163,10 @@ class Provider:
             assert self.concurrency is not None
             self.concurrency.admit(request_id, now, service_time_sec)
 
-    def reset_state(self) -> None:
+    def reset_state(self, *, quota_window_start: float = 0.0) -> None:
         """Clear capacity state so a scenario can be re-run."""
         if self.quota is not None:
-            self.quota.reset()
+            self.quota.reset(window_start=quota_window_start)
         if self.concurrency is not None:
             self.concurrency.active = []
 

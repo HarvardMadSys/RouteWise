@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from experiments.real_evaluation.inventory import load_inventory
+from experiments.real_evaluation.inventory import ProviderState, load_inventory
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -54,6 +54,29 @@ def _write_trace(tmp_path, rows: list[dict] | list[str]):
             lines.append(json.dumps(row))
     trace_path.write_text("\n".join(lines) + "\n")
     return trace_path
+
+
+def test_inventory_loads_subscription_plan_facts_from_canonical_yaml() -> None:
+    inventory = load_inventory(_INVENTORY_PATH)
+    specs = {spec.name: spec for spec in inventory.providers}
+
+    chutes = specs["Chutes_SQ"]
+    assert chutes.subscription_plan == "chutes"
+    assert chutes.quota_requests == 5000
+    assert chutes.quota_window_sec == 86400
+    assert [(w.requests, w.window_sec) for w in chutes.quota_windows] == [
+        (5000, 86400.0)
+    ]
+
+    minimax = specs["MiniMax_SQ"]
+    assert minimax.subscription_plan == "minimax_subscription_plus"
+    assert [(w.requests, w.window_sec) for w in minimax.quota_windows] == [
+        (4500, 18000.0),
+        (45000, 604800.0),
+    ]
+    state = ProviderState.from_spec(minimax)
+    assert state.quota is not None
+    assert hasattr(state.quota, "windows")
 
 
 def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> None:

@@ -25,6 +25,9 @@ def test_cost_layer_scenarios_match_section_contract():
         "quota__plan=chutes__n=2",
         "quota__plan=chutes__n=3",
         "quota__plan=chutes__n=4",
+        "quota__plan=chutes__n=5",
+        "quota__plan=chutes__n=6",
+        "quota__plan=chutes__n=8",
         "cost_layer_concurrency_c1",
         "cost_layer_concurrency_c2",
         "cost_layer_concurrency_c3",
@@ -187,7 +190,7 @@ def test_subscription_plan_loader_validates_and_exposes_chutes():
     assert plan.monthly_fee_usd == 20.0
     assert plan.quota_windows[0].quota_requests == 5000
     assert plan.quota_windows[0].quota_window_sec == 86400
-    assert plan.subscription_counts == (1, 2, 3, 4)
+    assert plan.subscription_counts == (1, 2, 3, 4, 5, 6, 8)
 
 
 def test_subscription_plan_loader_exposes_minimax_tiers_with_quota_windows():
@@ -261,6 +264,15 @@ def test_make_quota_provider_aggregates_subscription_count_into_one_quota():
     assert provider.quota is not None
     assert provider.quota.size == 10000
     assert provider.quota.window_sec == 86400
+
+
+def test_make_quota_provider_rejects_subscription_count_without_plan():
+    with pytest.raises(ValueError, match="subscription_count requires plan"):
+        common.make_quota_provider(
+            "manual_quota",
+            quota_size=2000,
+            subscription_count=2,
+        )
 
 
 def test_minimax_quota_plan_uses_composite_quota_state():
@@ -342,10 +354,15 @@ def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
     )
 
     assert row["api_cost_usd"] == 0.0
+    assert row["run_count"] == 1
     assert row["subscription_fixed_cost_usd"] == pytest.approx(20.0 * 2 / 30.0)
+    assert row["subscription_fixed_cost_usd_per_run"] == pytest.approx(
+        row["subscription_fixed_cost_usd"]
+    )
     assert row["total_cost_usd"] == pytest.approx(
         row["api_cost_usd"] + row["subscription_fixed_cost_usd"]
     )
+    assert row["total_cost_usd_per_run"] == pytest.approx(row["total_cost_usd"])
     assert row["mean_api_cost_usd"] == 0.0
     assert row["mean_total_cost_usd"] == pytest.approx(row["total_cost_usd"] / 2)
     assert row["trace_paper_grade"] is False
@@ -358,12 +375,19 @@ def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
         runs=[run, run],
         requests=requests,
     )
+    assert two_seed_row["run_count"] == 2
     assert two_seed_row["subscription_fixed_cost_usd"] == pytest.approx(
         2 * row["subscription_fixed_cost_usd"]
+    )
+    assert two_seed_row["subscription_fixed_cost_usd_per_run"] == pytest.approx(
+        row["subscription_fixed_cost_usd_per_run"]
     )
     assert two_seed_row["total_cost_usd"] == pytest.approx(
         two_seed_row["api_cost_usd"]
         + two_seed_row["subscription_fixed_cost_usd"]
+    )
+    assert two_seed_row["total_cost_usd_per_run"] == pytest.approx(
+        row["total_cost_usd_per_run"]
     )
     assert two_seed_row["mean_total_cost_usd"] == pytest.approx(
         two_seed_row["total_cost_usd"] / 4

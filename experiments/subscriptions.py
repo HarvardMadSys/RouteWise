@@ -34,6 +34,7 @@ class SubscriptionPlan:
     eligible_sections: tuple[str, ...]
     cost_claim_allowed: bool
     source: str
+    transport: str | None = None
     notes: str = ""
     tier: str = "quota"
     billing_mode: str = "subscription"
@@ -42,6 +43,7 @@ class SubscriptionPlan:
     def subscription_cost_known(self) -> bool:
         """Return whether fixed-fee cost is known for this plan."""
         return self.monthly_fee_usd is not None
+
 
 def load_subscription_plans(
     path: Path | None = None,
@@ -106,6 +108,11 @@ def _parse_plan(plan_id: str, payload: Any) -> SubscriptionPlan:
         eligible_sections=eligible_sections,
         cost_claim_allowed=cost_claim_allowed,
         source=str(payload.get("source") or ""),
+        transport=(
+            str(payload["transport"])
+            if payload.get("transport") is not None
+            else None
+        ),
         notes=str(payload.get("notes") or ""),
         tier=tier,
         billing_mode=billing_mode,

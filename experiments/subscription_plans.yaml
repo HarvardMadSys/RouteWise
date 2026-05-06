@@ -4,11 +4,12 @@ plans:
     tier: quota
     billing_mode: subscription
     monthly_fee_usd: 20.0
+    transport: chutes
     quota_windows:
       - name: daily
         quota_requests: 5000
         quota_window_sec: 86400
-    subscription_counts: [1, 2, 3, 4]
+    subscription_counts: [1, 2, 3, 4, 5, 6, 8]
     eligible_sections: [cost_layer_quota, end_to_end]
     cost_claim_allowed: true
     source: "experiments/offline_stage/configs/experiment.yaml subscriptions.chutes"
@@ -19,6 +20,7 @@ plans:
     tier: quota
     billing_mode: subscription
     monthly_fee_usd: 10.0
+    transport: minimax_native
     quota_windows:
       - name: five_hour
         quota_requests: 1500
@@ -37,6 +39,7 @@ plans:
     tier: quota
     billing_mode: subscription
     monthly_fee_usd: 20.0
+    transport: minimax_native
     quota_windows:
       - name: five_hour
         quota_requests: 4500
@@ -55,6 +58,7 @@ plans:
     tier: quota
     billing_mode: subscription
     monthly_fee_usd: 50.0
+    transport: minimax_native
     quota_windows:
       - name: five_hour
         quota_requests: 15000
@@ -67,3 +71,7 @@ plans:
     cost_claim_allowed: true
     source: "User-provided MiniMax pricing screenshot, 2026-05-06"
     notes: "$50/mo; 15000 model requests / 5h; weekly allowance is 10x the 5-hour quota."
+
+# ollama_pro is intentionally not listed here yet. It has quota plus
+# concurrency semantics and should enter the canonical file with the §1.3
+# concurrency-plan migration, not the §1.2 quota sweep.

@@ -51,10 +51,10 @@ class QuotaState:
         self.roll_window(now)
         self.used += 1
 
-    def reset(self) -> None:
+    def reset(self, *, window_start: float = 0.0) -> None:
         """Reset mutable quota state."""
         self.used = 0
-        self.window_start = 0.0
+        self.window_start = float(window_start)
 
 
 @dataclass
@@ -82,10 +82,10 @@ class MultiWindowQuotaState:
         for window in self.windows:
             window.charge(now)
 
-    def reset(self) -> None:
+    def reset(self, *, window_start: float = 0.0) -> None:
         """Reset every quota window."""
         for window in self.windows:
-            window.reset()
+            window.reset(window_start=window_start)
 
 
 @dataclass

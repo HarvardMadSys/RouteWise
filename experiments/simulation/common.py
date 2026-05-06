@@ -194,6 +194,8 @@ def make_quota_provider(
     """Build a subscription/quota provider with zero marginal request cost."""
     if plan is not None and quota_size is not None:
         raise ValueError("make_quota_provider accepts either plan or quota_size, not both")
+    if quota_size is not None and subscription_count != 1:
+        raise ValueError("subscription_count requires plan=, not quota_size=")
     if subscription_count <= 0:
         raise ValueError(f"subscription_count must be > 0, got {subscription_count}")
     if plan is not None:
@@ -667,15 +669,25 @@ def _subscription_summary_fields(
     run_count: int,
 ) -> dict[str, Any]:
     metadata = dict(getattr(scenario, "metadata", {}) or {})
+    # TODO: end-to-end joint scenarios may compose several subscription plans;
+    # aggregate cost_claim_allowed / fixed fees over that plan set when they do.
     plan_id = metadata.get("subscription_plan")
     fields: dict[str, Any] = {
         "public_scenario": metadata.get("public_scenario", scenario.name),
         "artifact_label": metadata.get("artifact_label", scenario.name),
         "subscription_plan": plan_id,
         "subscription_count": metadata.get("subscription_count"),
+        "run_count": run_count,
         "api_cost_usd": float(api_cost_usd),
+        "api_cost_usd_per_run": (
+            float(api_cost_usd) / run_count if run_count else float("nan")
+        ),
         "subscription_fixed_cost_usd": 0.0,
+        "subscription_fixed_cost_usd_per_run": 0.0,
         "total_cost_usd": float(api_cost_usd),
+        "total_cost_usd_per_run": (
+            float(api_cost_usd) / run_count if run_count else float("nan")
+        ),
         "mean_api_cost_usd": (
             float(api_cost_usd) / mean_denominator
             if mean_denominator
@@ -697,11 +709,12 @@ def _subscription_summary_fields(
 
     plan = load_subscription_plans()[str(plan_id)]
     subscription_count = int(metadata.get("subscription_count") or 1)
-    fixed_cost = subscription_fixed_cost_usd(
+    fixed_cost_per_run = subscription_fixed_cost_usd(
         plan,
         subscription_count=subscription_count,
         trace_days=trace_info.trace_days,
-    ) * run_count
+    )
+    fixed_cost = fixed_cost_per_run * run_count
     total_cost = float(api_cost_usd) + fixed_cost
     min_window_sec = min(window.quota_window_sec for window in plan.quota_windows)
     trace_paper_grade = trace_info.trace_days >= 5.0 * min_window_sec / 86400.0
@@ -711,7 +724,11 @@ def _subscription_summary_fields(
             "subscription_plan_display_name": plan.display_name,
             "subscription_count": subscription_count,
             "subscription_fixed_cost_usd": fixed_cost,
+            "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
             "total_cost_usd": total_cost,
+            "total_cost_usd_per_run": (
+                total_cost / run_count if run_count else float("nan")
+            ),
             "mean_total_cost_usd": (
                 total_cost / mean_denominator
                 if mean_denominator
@@ -1084,6 +1101,7 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "subscription_plan",
         "subscription_plan_display_name",
         "subscription_count",
+        "run_count",
         "policy",
         "seeds",
         "n_requests",
@@ -1097,8 +1115,11 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "mean_api_cost_usd",
         "mean_total_cost_usd",
         "api_cost_usd",
+        "api_cost_usd_per_run",
         "subscription_fixed_cost_usd",
+        "subscription_fixed_cost_usd_per_run",
         "total_cost_usd",
+        "total_cost_usd_per_run",
         "subscription_cost_known",
         "cost_claim_allowed",
         "trace_paper_grade",
