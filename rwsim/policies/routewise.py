@@ -6,7 +6,7 @@ import math
 import heapq
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
@@ -17,6 +17,21 @@ from rwsim.world.capacity import ProviderTier
 if TYPE_CHECKING:
     from rwsim.engine.state import SimulationState
     from rwsim.world.providers import Provider
+
+
+class OutputPredictor(Protocol):
+    """Optional output-token predictor consulted at routing time.
+
+    Implementations live in the experiments tree (e.g. histogram, EMA,
+    constant, oracle). The simulator core uses duck-typed access only:
+    ``predict`` must return an object with the configured quantile attribute
+    (``q10`` / ``q50`` / ``q90``); ``update`` is called after each request
+    completes so streaming predictors can learn from realized output.
+    """
+
+    def predict(self, request: Request) -> Any: ...
+
+    def update(self, request: Request) -> None: ...
 
 _LP_EPS = 1e-9
 _COST_TIEBREAK_MS = 1e-3
@@ -105,7 +120,14 @@ class RollingLatencyProfile:
 
 @dataclass
 class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
-    """Complete RouteWise policy plus LP-only and LP+hedging ablation modes."""
+    """Complete RouteWise policy plus LP-only and LP+hedging ablation modes.
+
+    The ``output_predictor`` field is optional. When ``None`` (default), the
+    LP cost for S_A providers uses the request's ground-truth ``response_tokens``
+    as today. When set, the policy consults ``predictor.predict(request)`` for
+    the S_A cost term and calls ``predictor.update(request)`` after execution.
+    Service time and final billing always use the realized ``response_tokens``.
+    """
 
     hedging: str | bool = "probability_target"
     explorer: bool = True
@@ -114,6 +136,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     slo_ms: float = 2000.0
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
+    output_predictor: OutputPredictor | None = None
+    output_predictor_quantile: str = "q50"
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
 
@@ -132,6 +156,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 f"got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
+        if self.output_predictor_quantile not in {"q10", "q50", "q90"}:
+            raise ValueError(
+                "output_predictor_quantile must be one of q10, q50, q90; "
+                f"got {self.output_predictor_quantile!r}"
+            )
         self.rng = np.random.default_rng(self.seed)
 
     def route(self, request: Request, state: SimulationState) -> RoutingDecision:
@@ -145,7 +174,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
         L, U = self.cost_envelope
         c_eff = {
-            provider.name: effective_cost(
+            provider.name: self._effective_cost_for_request(
                 provider,
                 request,
                 state.now,
@@ -276,7 +305,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         outcome: RoutingOutcome,
     ) -> None:
         """Feed observed TTFT samples into policy-owned profiles."""
-        del request
+        if self.output_predictor is not None:
+            self.output_predictor.update(request)
         self._profile(decision.primary_provider).add_sample(
             outcome.metadata.get("primary_observed_at", 0.0),
             float(outcome.metadata.get("primary_ttft_ms", outcome.ttft_ms)),
@@ -287,6 +317,29 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             backup_observed_at = outcome.metadata.get("backup_observed_at")
             if backup and backup_ttft_ms is not None and backup_observed_at is not None:
                 self._profile(str(backup)).add_sample(float(backup_observed_at), float(backup_ttft_ms))
+
+    def _effective_cost_for_request(
+        self,
+        provider: Provider,
+        request: Request,
+        now: float,
+        *,
+        U: float,
+        L: float,
+    ) -> float:
+        """Effective cost with optional predictor-based S_A cost."""
+        if self.output_predictor is None or provider.tier != ProviderTier.S_A:
+            return effective_cost(provider, request, now, U=U, L=L)
+        prediction = self.output_predictor.predict(request)
+        predicted = max(
+            float(getattr(prediction, self.output_predictor_quantile)),
+            0.0,
+        )
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        return provider.token_cost(
+            request_tokens=request_tokens,
+            response_tokens=predicted,
+        )
 
     def _ensure_profiles(self, providers: dict[str, Provider]) -> None:
         for name in providers:

@@ -555,6 +555,22 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Number of parallel scenario-policy-seed cells to run. Defaults to 1.",
     )
+    parser.add_argument(
+        "--predictor",
+        default=None,
+        help=(
+            "Optional output-length predictor. Defaults to None (RouteWise uses "
+            "ground-truth response_tokens). Choices: oracle, histogram, ema, "
+            "constant_mean, constant_p1, constant_p10, constant_p25, constant_p50, "
+            "constant_p75, constant_p90, constant_p99, fixed:<value>."
+        ),
+    )
+    parser.add_argument(
+        "--predictor-quantile",
+        default="q50",
+        choices=("q10", "q50", "q90"),
+        help="Which quantile to use from the predictor's output. Defaults to q50.",
+    )
 
     args = parser.parse_args(argv)
     p_values = tuple(args.p_values) if args.p_values else P_SWEEP
@@ -624,7 +640,12 @@ def main(argv: list[str] | None = None) -> int:
                 selected[name] = scenarios[name]
         scenarios = selected
 
-    presets = make_routewise_presets(p_values=p_values, include_hedging=False)
+    presets = make_routewise_presets(
+        p_values=p_values,
+        include_hedging=False,
+        output_predictor=args.predictor,
+        output_predictor_quantile=args.predictor_quantile,
+    )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
     section_runners = {OFFLINE_POLICY: run_offline_policy}
     known_policies = set(presets) | set(section_runners)

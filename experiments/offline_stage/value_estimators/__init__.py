@@ -8,6 +8,7 @@ from .base import (
     PredictionContext,
     QuantilePrediction,
 )
+from .constant import ConstantOutputPredictor, workload_constant_value
 from .ema import EMAOutputPredictor, EMAState
 from .histogram import (
     HierarchicalStats,
@@ -20,6 +21,7 @@ from .oracle import OracleOutputPredictor
 
 __all__ = [
     "CombinedPredictor",
+    "ConstantOutputPredictor",
     "DurationPrediction",
     "DurationPredictor",
     "EMAOutputPredictor",
@@ -33,4 +35,5 @@ __all__ = [
     "PredictionContext",
     "QuantilePrediction",
     "StreamingHistogram",
+    "workload_constant_value",
 ]

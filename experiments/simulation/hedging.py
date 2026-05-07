@@ -125,29 +125,43 @@ def policies_for_section(p_value: float = DEFAULT_ROUTEWISE_P) -> tuple[str, ...
     )
 
 
-def make_policy_presets(p_value: float = DEFAULT_ROUTEWISE_P) -> dict[str, dict[str, Any]]:
-    """Build the section-local policy presets for §2.2."""
+def make_policy_presets(
+    p_value: float = DEFAULT_ROUTEWISE_P,
+    *,
+    output_predictor: str | dict[str, Any] | None = None,
+    output_predictor_quantile: str = "q50",
+) -> dict[str, dict[str, Any]]:
+    """Build the section-local policy presets for §2.2.
+
+    ``output_predictor`` is optional. ``None`` (default) keeps the existing
+    behavior: RouteWise uses ground-truth ``response_tokens``. See
+    ``experiments.simulation.common._normalize_predictor_arg`` for accepted
+    string forms.
+    """
+    from experiments.simulation.common import _normalize_predictor_arg
+
     p = float(p_value)
     lp_name = routewise_lp_policy_name(p)
     hedging_name = routewise_hedging_policy_name(p)
+    spec = _normalize_predictor_arg(output_predictor)
+
+    def _params(*, hedging: str | bool) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "hedging": hedging,
+            "explorer": False,
+            "p": p,
+            "cost_envelope": WORKLOAD_COST_ENVELOPE,
+        }
+        if spec is not None:
+            params["output_predictor_spec"] = dict(spec)
+            params["output_predictor_quantile"] = output_predictor_quantile
+        return params
+
     return {
-        lp_name: {
-            "policy": "RouteWisePolicy",
-            "params": {
-                "hedging": False,
-                "explorer": False,
-                "p": p,
-                "cost_envelope": WORKLOAD_COST_ENVELOPE,
-            },
-        },
+        lp_name: {"policy": "RouteWisePolicy", "params": _params(hedging=False)},
         hedging_name: {
             "policy": "RouteWisePolicy",
-            "params": {
-                "hedging": "probability_target",
-                "explorer": False,
-                "p": p,
-                "cost_envelope": WORKLOAD_COST_ENVELOPE,
-            },
+            "params": _params(hedging="probability_target"),
         },
     }
 
@@ -473,12 +487,31 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Number of parallel scenario-policy-seed cells to run. Defaults to 1.",
     )
+    parser.add_argument(
+        "--predictor",
+        default=None,
+        help=(
+            "Optional output-length predictor. Defaults to None (RouteWise uses "
+            "ground-truth response_tokens). Choices: oracle, histogram, ema, "
+            "constant_mean, constant_p1..p99, fixed:<value>."
+        ),
+    )
+    parser.add_argument(
+        "--predictor-quantile",
+        default="q50",
+        choices=("q10", "q50", "q90"),
+        help="Which quantile to use from the predictor's output. Defaults to q50.",
+    )
 
     args = parser.parse_args(argv)
     p_value = float(args.p_value)
     selected_scenarios = tuple(args.scenario) if args.scenario else list_scenarios()
     scenarios = {name: make_scenario(name) for name in selected_scenarios}
-    presets = make_policy_presets(p_value)
+    presets = make_policy_presets(
+        p_value,
+        output_predictor=args.predictor,
+        output_predictor_quantile=args.predictor_quantile,
+    )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_value)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:

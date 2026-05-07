@@ -56,6 +56,25 @@ DEFAULT_SEEDS = (42,)
 DEFAULT_WORKLOAD = "burstgpt"
 DEFAULT_TPS_P50 = 150.0
 WORKLOAD_COST_ENVELOPE = "workload_p10_p90"
+PREDICTOR_KIND_NONE = "none"
+PREDICTOR_KIND_ORACLE = "oracle"
+PREDICTOR_KIND_HISTOGRAM = "histogram"
+PREDICTOR_KIND_EMA = "ema"
+PREDICTOR_KIND_CONSTANT = "constant"
+SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
+    PREDICTOR_KIND_NONE,
+    PREDICTOR_KIND_ORACLE,
+    PREDICTOR_KIND_HISTOGRAM,
+    PREDICTOR_KIND_EMA,
+    "constant_mean",
+    "constant_p1",
+    "constant_p10",
+    "constant_p25",
+    "constant_p50",
+    "constant_p75",
+    "constant_p90",
+    "constant_p99",
+)
 _WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
@@ -118,34 +137,85 @@ def make_routewise_presets(
     p_values: tuple[float, ...] = P_SWEEP,
     include_hedging: bool = False,
     cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
+    output_predictor: str | dict[str, Any] | None = None,
+    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
-    """Build section-local policy presets with explorer disabled."""
+    """Build section-local policy presets with explorer disabled.
+
+    ``output_predictor`` is optional. ``None`` (default) keeps the existing
+    behavior: RouteWise uses ground-truth ``response_tokens`` for the LP S_A
+    cost. Pass a string like ``"ema"``, ``"histogram"``, ``"constant_p99"``
+    or a spec dict to override. The spec is materialized at policy build time
+    inside ``run_policy`` so workload-calibrated constants see the requests.
+    """
+    spec = _normalize_predictor_arg(output_predictor)
     presets: dict[str, dict[str, Any]] = {
         "greedy_cost": {"policy": "BaselinePolicy", "params": {"mode": "greedy_cost"}},
         "greedy_latency": {"policy": "BaselinePolicy", "params": {"mode": "greedy_latency"}},
         "random": {"policy": "BaselinePolicy", "params": {"mode": "random"}},
     }
     for value in p_values:
+        params: dict[str, Any] = {
+            "hedging": False,
+            "explorer": False,
+            "p": float(value),
+            "cost_envelope": cost_envelope,
+        }
+        if spec is not None:
+            params["output_predictor_spec"] = dict(spec)
+            params["output_predictor_quantile"] = output_predictor_quantile
         presets[routewise_lp_policy_name(value)] = {
             "policy": "RouteWisePolicy",
-            "params": {
-                "hedging": False,
+            "params": params,
+        }
+        if include_hedging:
+            hedging_params = {
+                "hedging": "probability_target",
                 "explorer": False,
                 "p": float(value),
                 "cost_envelope": cost_envelope,
-            },
-        }
-        if include_hedging:
+            }
+            if spec is not None:
+                hedging_params["output_predictor_spec"] = dict(spec)
+                hedging_params["output_predictor_quantile"] = output_predictor_quantile
             presets[routewise_hedging_policy_name(value)] = {
                 "policy": "RouteWisePolicy",
-                "params": {
-                    "hedging": "probability_target",
-                    "explorer": False,
-                    "p": float(value),
-                    "cost_envelope": cost_envelope,
-                },
+                "params": hedging_params,
             }
     return presets
+
+
+def _normalize_predictor_arg(
+    arg: str | dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Convert a CLI-style predictor name into the internal spec dict.
+
+    Accepted strings: ``oracle``, ``histogram``, ``ema``, ``constant_<kind>``,
+    ``fixed:<value>``. ``None`` and ``"none"`` disable the predictor (oracle
+    semantics through ground-truth ``response_tokens``).
+    """
+    if arg is None:
+        return None
+    if isinstance(arg, dict):
+        return arg
+    name = str(arg).strip()
+    if not name or name.lower() == PREDICTOR_KIND_NONE:
+        return None
+    lower = name.lower()
+    if lower == PREDICTOR_KIND_ORACLE:
+        return {"kind": PREDICTOR_KIND_ORACLE}
+    if lower == PREDICTOR_KIND_HISTOGRAM:
+        return {"kind": PREDICTOR_KIND_HISTOGRAM}
+    if lower == PREDICTOR_KIND_EMA:
+        return {"kind": PREDICTOR_KIND_EMA}
+    if lower.startswith("constant_"):
+        return {"kind": PREDICTOR_KIND_CONSTANT, "calibration": lower.removeprefix("constant_")}
+    if lower.startswith("fixed:"):
+        return {"kind": PREDICTOR_KIND_CONSTANT, "calibration": lower}
+    raise ValueError(
+        f"unknown predictor name {arg!r}; expected one of {SUPPORTED_PREDICTOR_KINDS} "
+        "or 'fixed:<value>'."
+    )
 
 
 def make_ttft_distribution(family: str, p50_ms: float):
@@ -553,18 +623,78 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
-    policy = build_policy(
-        policy_name,
-        presets=_materialize_workload_cost_envelope(
-            presets,
-            policy_name=policy_name,
-            scenario=scenario,
-            requests=requests,
-        ),
-        seed=seed,
+    materialized = _materialize_workload_cost_envelope(
+        presets,
+        policy_name=policy_name,
+        scenario=scenario,
+        requests=requests,
     )
+    materialized = _materialize_workload_predictor(
+        materialized,
+        policy_name=policy_name,
+        requests=requests,
+    )
+    policy = build_policy(policy_name, presets=materialized, seed=seed)
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
+
+
+def _materialize_workload_predictor(
+    presets: dict[str, dict[str, Any]],
+    *,
+    policy_name: str,
+    requests: list[Request],
+) -> dict[str, dict[str, Any]]:
+    """Replace ``output_predictor_spec`` with a concrete predictor instance.
+
+    Constants are calibrated against the workload here so the predictor can
+    see the actual request stream (e.g., for ``constant_mean`` or ``p99``).
+    """
+    try:
+        preset = presets[policy_name]
+    except KeyError:
+        return presets
+    params = dict(preset.get("params", {}))
+    spec = params.pop("output_predictor_spec", None)
+    if spec is None:
+        return presets
+
+    predictor = _build_workload_predictor(spec, requests=requests)
+    params["output_predictor"] = predictor
+    patched = dict(presets)
+    patched[policy_name] = {**preset, "params": params}
+    return patched
+
+
+def _build_workload_predictor(
+    spec: dict[str, Any],
+    *,
+    requests: list[Request],
+) -> Any:
+    """Materialize one predictor spec into a concrete predictor instance."""
+    kind = str(spec.get("kind", "")).lower()
+    if kind == PREDICTOR_KIND_ORACLE:
+        from experiments.offline_stage.value_estimators import OracleOutputPredictor
+
+        return OracleOutputPredictor()
+    if kind == PREDICTOR_KIND_HISTOGRAM:
+        from experiments.offline_stage.value_estimators import HistogramOutputPredictor
+
+        return HistogramOutputPredictor()
+    if kind == PREDICTOR_KIND_EMA:
+        from experiments.offline_stage.value_estimators import EMAOutputPredictor
+
+        return EMAOutputPredictor()
+    if kind == PREDICTOR_KIND_CONSTANT:
+        from experiments.offline_stage.value_estimators import (
+            ConstantOutputPredictor,
+            workload_constant_value,
+        )
+
+        calibration = str(spec.get("calibration", "mean"))
+        value = workload_constant_value(requests, kind=calibration)
+        return ConstantOutputPredictor(value=value, label=f"constant_{calibration}")
+    raise ValueError(f"unknown predictor spec kind {kind!r}")
 
 
 def _materialize_workload_cost_envelope(
