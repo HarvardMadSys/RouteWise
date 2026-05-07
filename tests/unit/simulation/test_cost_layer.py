@@ -176,7 +176,18 @@ def test_joint_scenario_combines_quota_and_concurrency_plans():
         ProviderTier.S_A,
         ProviderTier.S_A,
     ]
-    assert all(provider.true_p50_ms() == pytest.approx(300.0) for provider in scenario.providers)
+    assert scenario.providers[0].ttft_dist.label == "minimax_m25_subscriptions/chutes"
+    assert scenario.providers[1].ttft_dist.label == "minimax_m25_subscriptions/featherless"
+    assert scenario.providers[0].true_p50_ms() == pytest.approx(1210.2729224134237)
+    assert scenario.providers[1].true_p50_ms() == pytest.approx(8157.45)
+    assert all(
+        provider.true_p50_ms() == pytest.approx(300.0)
+        for provider in scenario.providers[2:]
+    )
+    assert scenario.metadata["latency_profile"] == "minimax_m25_subscriptions"
+    assert scenario.metadata["quota_latency_profile_provider"] == "chutes"
+    assert scenario.metadata["concurrency_latency_profile_provider"] == "featherless"
+    assert scenario.metadata["api_latency_family"] == "heavy_tail"
 
 
 def test_joint_scenarios_allow_explicit_counts_beyond_plan_defaults():
@@ -953,6 +964,10 @@ def test_subscription_summary_adds_joint_fixed_fee_and_fields():
     assert row["model_class"] == "ge_70b"
     assert row["concurrency_capacity_units"] == 8
     assert row["effective_concurrency_limit"] == 2
+    assert row["latency_profile"] == "minimax_m25_subscriptions"
+    assert row["quota_latency_profile_provider"] == "chutes"
+    assert row["concurrency_latency_profile_provider"] == "featherless"
+    assert row["api_latency_family"] == "heavy_tail"
     assert row["subscription_fixed_cost_usd"] == pytest.approx((20.0 * 2 + 25.0 * 2) / 30.0)
     assert row["total_cost_usd"] == pytest.approx(
         row["api_cost_usd"] + row["subscription_fixed_cost_usd"]

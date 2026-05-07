@@ -11,6 +11,7 @@ from rwsim.world.empirical import EmpiricalDistribution
 
 PROFILE_DIR = Path(__file__).resolve().with_name("latency_profiles")
 DEFAULT_POOLS_PATH = PROFILE_DIR / "pools.yaml"
+DEFAULT_SUBSCRIPTION_PROFILE = "minimax_m25_subscriptions"
 
 
 def load_profile_config(path: str | Path = DEFAULT_POOLS_PATH) -> dict[str, Any]:
@@ -68,6 +69,50 @@ def load_pooled_distribution(
     return EmpiricalDistribution.pooled_from_npz(artifact, providers, label=pooled_name)
 
 
+def load_empirical_profile_metadata(
+    profile_name: str | Path = DEFAULT_SUBSCRIPTION_PROFILE,
+) -> dict[str, Any]:
+    """Load a committed empirical profile metadata sidecar."""
+    metadata_path = _metadata_path(profile_name)
+    with metadata_path.open(encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"profile metadata must be a mapping: {metadata_path}")
+    if "artifact" not in payload:
+        raise ValueError(f"profile metadata must define artifact: {metadata_path}")
+    return payload
+
+
+def load_empirical_distribution(
+    profile_name: str | Path,
+    provider_name: str,
+) -> EmpiricalDistribution:
+    """Load one provider distribution from a committed empirical profile."""
+    metadata_path = _metadata_path(profile_name)
+    metadata = load_empirical_profile_metadata(metadata_path)
+    artifact = _artifact_path(metadata, metadata_path)
+    return EmpiricalDistribution.from_npz(artifact, provider_name)
+
+
+def load_empirical_profile(
+    profile_name: str | Path = DEFAULT_SUBSCRIPTION_PROFILE,
+    *,
+    provider_names: tuple[str, ...] | None = None,
+) -> dict[str, EmpiricalDistribution]:
+    """Load provider-specific distributions from a committed empirical profile."""
+    metadata_path = _metadata_path(profile_name)
+    metadata = load_empirical_profile_metadata(metadata_path)
+    providers = metadata.get("providers", {})
+    if not isinstance(providers, dict):
+        raise ValueError(f"profile metadata providers must be a mapping: {metadata_path}")
+    names = tuple(provider_names) if provider_names is not None else tuple(providers)
+    artifact = _artifact_path(metadata, metadata_path)
+    return {
+        provider_name: EmpiricalDistribution.from_npz(artifact, provider_name)
+        for provider_name in names
+    }
+
+
 def _artifact_path(config: dict[str, Any], config_path: Path) -> Path:
     artifact = Path(config["artifact"])
     if artifact.is_absolute():
@@ -75,9 +120,20 @@ def _artifact_path(config: dict[str, Any], config_path: Path) -> Path:
     return config_path.parent / artifact
 
 
+def _metadata_path(profile_name: str | Path) -> Path:
+    path = Path(profile_name)
+    if path.suffix:
+        return path
+    return PROFILE_DIR / f"{path}.json"
+
+
 __all__ = [
     "DEFAULT_POOLS_PATH",
+    "DEFAULT_SUBSCRIPTION_PROFILE",
     "PROFILE_DIR",
+    "load_empirical_distribution",
+    "load_empirical_profile",
+    "load_empirical_profile_metadata",
     "load_pool",
     "load_pooled_distribution",
     "load_profile_config",

@@ -857,6 +857,12 @@ def _subscription_summary_fields(
         "model_concurrency_cost": metadata.get("model_concurrency_cost"),
         "concurrency_capacity_units": metadata.get("concurrency_capacity_units"),
         "effective_concurrency_limit": metadata.get("effective_concurrency_limit"),
+        "latency_profile": metadata.get("latency_profile"),
+        "quota_latency_profile_provider": metadata.get("quota_latency_profile_provider"),
+        "concurrency_latency_profile_provider": metadata.get(
+            "concurrency_latency_profile_provider"
+        ),
+        "api_latency_family": metadata.get("api_latency_family"),
         "peak_used_concurrency_cost": None,
         "mean_concurrency_utilization": None,
         "concurrency_saturated_in_trace": None,
@@ -1443,6 +1449,10 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "model_concurrency_cost",
         "concurrency_capacity_units",
         "effective_concurrency_limit",
+        "latency_profile",
+        "quota_latency_profile_provider",
+        "concurrency_latency_profile_provider",
+        "api_latency_family",
         "peak_used_concurrency_cost",
         "mean_concurrency_utilization",
         "concurrency_saturated_in_trace",

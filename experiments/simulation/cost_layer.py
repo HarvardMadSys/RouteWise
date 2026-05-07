@@ -28,7 +28,11 @@ from experiments.simulation.common import (
     run_policy,
     run_section,
 )
-from experiments.simulation.latency_profiles import load_pooled_distribution
+from experiments.simulation.latency_profiles import (
+    DEFAULT_SUBSCRIPTION_PROFILE,
+    load_empirical_distribution,
+    load_pooled_distribution,
+)
 from experiments.simulation.offline_oracle import (
     OFFLINE_POLICY,
     run_offline_oracle_policy as run_offline_policy,
@@ -45,9 +49,19 @@ CONCURRENCY_SCENARIO = "concurrency"
 JOINT_SCENARIO = "joint"
 DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_MODEL = "sharegpt"
+SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
 
 _SYNTHETIC_FAMILIES = ("uniform", "normal", "heavy_tail")
 _QUOTA_LATENCY_FAMILIES = (*_SYNTHETIC_FAMILIES, "real_world")
+_QUOTA_PROFILE_PROVIDER_KEYS = {
+    "chutes": "chutes",
+    "minimax_subscription_starter": "minimax",
+    "minimax_subscription_plus": "minimax",
+    "minimax_subscription_max": "minimax",
+}
+_CONCURRENCY_PROFILE_PROVIDER_KEYS = {
+    "featherless_premium": "featherless",
+}
 _DEFAULT_SCENARIO_NAMES = (
     "cost_layer_uniform",
     "cost_layer_normal",
@@ -1094,6 +1108,18 @@ def _make_joint_scenario_for_plans(
         model=model,
         latency_family="heavy_tail",
     )
+    quota_profile_key = _subscription_latency_profile_key(quota_plan.plan_id)
+    concurrency_profile_key = _subscription_latency_profile_key(concurrency_plan.plan_id)
+    if quota_profile_key is not None:
+        quota_provider.ttft_dist = load_empirical_distribution(
+            SUBSCRIPTION_LATENCY_PROFILE,
+            quota_profile_key,
+        )
+    if concurrency_profile_key is not None:
+        concurrency_provider.ttft_dist = load_empirical_distribution(
+            SUBSCRIPTION_LATENCY_PROFILE,
+            concurrency_profile_key,
+        )
     providers = [
         quota_provider,
         concurrency_provider,
@@ -1126,7 +1152,8 @@ def _make_joint_scenario_for_plans(
             f"x{concurrency_count} for model {model!r} "
             f"({resolution.model_class}, cost={resolution.cost}), fixed "
             "cheap/mid/expensive on-demand fallback providers, "
-            f"TTFT=heavy_tail P50={COST_LAYER_P50_MS:.0f}ms for all tiers."
+            f"subscription TTFT={SUBSCRIPTION_LATENCY_PROFILE} and "
+            f"fallback API TTFT=heavy_tail P50={COST_LAYER_P50_MS:.0f}ms."
         ),
         providers=providers,
         arrival_process="trace",
@@ -1150,6 +1177,10 @@ def _make_joint_scenario_for_plans(
             "model_concurrency_costs_by_class": dict(
                 concurrency_plan.model_concurrency_costs_by_class
             ),
+            "latency_profile": SUBSCRIPTION_LATENCY_PROFILE,
+            "quota_latency_profile_provider": quota_profile_key,
+            "concurrency_latency_profile_provider": concurrency_profile_key,
+            "api_latency_family": "heavy_tail",
             "quota_windows": [
                 {
                     "name": window.name,
@@ -1160,6 +1191,13 @@ def _make_joint_scenario_for_plans(
                 for window in quota_plan.quota_windows
             ],
         },
+    )
+
+
+def _subscription_latency_profile_key(plan_id: str) -> str | None:
+    return _QUOTA_PROFILE_PROVIDER_KEYS.get(
+        plan_id,
+        _CONCURRENCY_PROFILE_PROVIDER_KEYS.get(plan_id),
     )
 
 
