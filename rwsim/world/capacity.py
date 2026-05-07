@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -99,9 +100,7 @@ class ConcurrencyState:
     def _sweep(self, now: float) -> None:
         """Remove intervals that completed before ``now``."""
         self.active = [
-            (t_start, t_end, rid)
-            for (t_start, t_end, rid) in self.active
-            if t_end > now
+            (t_start, t_end, rid) for (t_start, t_end, rid) in self.active if t_end > now
         ]
 
     def _active_count_at(self, now: float) -> int:
@@ -162,11 +161,15 @@ class WeightedConcurrencyState:
     capacity_units: int
     model_concurrency_costs_by_class: MappingProxyType[str, int]
     fixed_model_class: str | None = None
-    active: list[tuple[float, str, int]] = field(default_factory=list)
+    # Internal min-heap of (finish_time, sequence_number, model_class, cost).
+    active: list[tuple[float, int, str, int]] = field(default_factory=list)
     peak_used_concurrency_cost: int = 0
     total_capacity_unit_seconds_used: float = 0.0
+    _current_used_cost: int = field(default=0, init=False, repr=False)
+    _sequence: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self._rebuild_active_heap()
         self.capacity_units = int(self.capacity_units)
         if self.capacity_units <= 0:
             raise ValueError("WeightedConcurrencyState capacity_units must be > 0")
@@ -209,24 +212,22 @@ class WeightedConcurrencyState:
     def _model_class_for_interval(self, model_class: str | None = None) -> str:
         resolved = self.fixed_model_class if model_class is None else str(model_class)
         if resolved is None:
-            raise ValueError(
-                "WeightedConcurrencyState interval admission requires a model class"
-            )
+            raise ValueError("WeightedConcurrencyState interval admission requires a model class")
         return resolved
 
     def release_finished(self, now: float) -> None:
         """Release requests whose finish time is at or before ``now``."""
-        self.active = [
-            (finish_time, model_class, cost)
-            for finish_time, model_class, cost in self.active
-            if finish_time > now
-        ]
+        while self.active and self.active[0][0] <= now:
+            _, _, _, cost = heapq.heappop(self.active)
+            self._current_used_cost -= cost
+        if self._current_used_cost < 0:
+            raise RuntimeError("WeightedConcurrencyState used capacity became negative")
 
     def used_concurrency_cost(self, now: float | None = None) -> int:
         """Return currently occupied weighted capacity units."""
         if now is not None:
             self.release_finished(now)
-        return sum(cost for _, _, cost in self.active)
+        return self._current_used_cost
 
     def utilization(self, now: float | None = None) -> float:
         """Return weighted utilization as a value in [0, 1]."""
@@ -237,7 +238,9 @@ class WeightedConcurrencyState:
         cost = self.concurrency_cost(model_class)
         if cost is None:
             return False
-        return self.used_concurrency_cost(now) + cost <= self.capacity_units
+        if now is not None:
+            self.release_finished(now)
+        return self._current_used_cost + cost <= self.capacity_units
 
     def can_admit_interval(
         self,
@@ -266,18 +269,23 @@ class WeightedConcurrencyState:
         cost = self.concurrency_cost(model_class)
         if cost is None:
             return False
-        if self.used_concurrency_cost(now) + cost > self.capacity_units:
+        if now is not None:
+            self.release_finished(now)
+        if self._current_used_cost + cost > self.capacity_units:
             return False
-        self.active.append((float(finish_time), str(model_class), cost))
+        heapq.heappush(
+            self.active,
+            (float(finish_time), self._sequence, str(model_class), cost),
+        )
+        self._sequence += 1
+        self._current_used_cost += cost
         if now is not None:
             # Current cost-layer S_C runs do not cancel admitted requests; if
             # cancellation is added, account this at completion/cancel events.
-            self.total_capacity_unit_seconds_used += cost * (
-                float(finish_time) - float(now)
-            )
+            self.total_capacity_unit_seconds_used += cost * (float(finish_time) - float(now))
         self.peak_used_concurrency_cost = max(
             self.peak_used_concurrency_cost,
-            self.used_concurrency_cost(),
+            self._current_used_cost,
         )
         return True
 
@@ -299,6 +307,29 @@ class WeightedConcurrencyState:
         self.active = []
         self.peak_used_concurrency_cost = 0
         self.total_capacity_unit_seconds_used = 0.0
+        self._current_used_cost = 0
+        self._sequence = 0
+
+    def _rebuild_active_heap(self) -> None:
+        """Normalize ``active`` to the internal heap representation."""
+        heap: list[tuple[float, int, str, int]] = []
+        current_used = 0
+        sequence = 0
+        for item in self.active:
+            if len(item) == 3:
+                finish_time, model_class, cost = item  # type: ignore[misc]
+            elif len(item) == 4:
+                finish_time, _, model_class, cost = item  # type: ignore[misc]
+            else:
+                raise ValueError(f"invalid weighted concurrency active entry: {item!r}")
+            normalized = (float(finish_time), sequence, str(model_class), int(cost))
+            heap.append(normalized)
+            current_used += int(cost)
+            sequence += 1
+        heapq.heapify(heap)
+        self.active = heap
+        self._current_used_cost = current_used
+        self._sequence = sequence
 
 
 __all__ = [
