@@ -10,7 +10,7 @@ plans:
         quota_requests: 5000
         quota_window_sec: 86400
     subscription_counts: [1, 2, 3, 4, 5, 6, 8]
-    eligible_sections: [cost_layer_quota, end_to_end]
+    eligible_sections: [cost_layer_quota, cost_layer_joint, end_to_end]
     cost_claim_allowed: true
     source: "experiments/offline_stage/configs/experiment.yaml subscriptions.chutes"
     notes: "Chutes public plan: $20/mo for 5000 requests/day."
@@ -89,7 +89,7 @@ plans:
       qwen3-coder-30b: 24_34b
       llama-4-scout: le_15b
     subscription_counts: [1, 2, 3, 4]
-    eligible_sections: [cost_layer_concurrency]
+    eligible_sections: [cost_layer_concurrency, cost_layer_joint]
     cost_claim_allowed: true
     source: "Featherless docs: Plans and Concurrency Limits, checked 2026-05-06"
     notes: "Concurrency is weighted capacity, not request count. Premium allotment=4, so one 70B request with cost=4 fills the plan."

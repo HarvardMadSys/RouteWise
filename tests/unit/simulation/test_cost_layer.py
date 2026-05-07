@@ -7,10 +7,12 @@ import json
 import pytest
 
 from experiments.simulation import common, cost_layer
+from experiments.simulation.offline_oracle import OfflineOracleKind, assign_offline
 from experiments.subscriptions import load_subscription_plans
 from routewise_cli.main import main as routewise_main
 from rwsim.schemas import Request
 from rwsim.world.capacity import ProviderTier, WeightedConcurrencyState
+from rwsim.world.scenarios import ScenarioConfig
 
 
 def test_cost_layer_scenarios_match_section_contract():
@@ -35,6 +37,7 @@ def test_cost_layer_scenarios_match_section_contract():
     )
     assert "quota" in cost_layer.list_scenarios()
     assert "concurrency" in cost_layer.list_scenarios()
+    assert "joint" in cost_layer.list_scenarios()
     assert "cost_layer_quota_q1" not in cost_layer.list_scenarios()
 
 
@@ -143,6 +146,52 @@ def test_concurrency_scenario_artifact_label_rebuilds_with_model():
     assert scenario.metadata["effective_concurrency_limit"] == 4
 
 
+def test_joint_scenario_combines_quota_and_concurrency_plans():
+    scenario = cost_layer.make_scenario(
+        "joint",
+        subscription_plan="chutes",
+        subscription_count=14,
+        concurrency_plan="featherless_premium",
+        concurrency_count=12,
+        concurrency_model="sharegpt",
+    )
+
+    assert (
+        scenario.name
+        == "joint__quota_plan=chutes__q=14"
+        "__concurrency_plan=featherless_premium__c=12__model=sharegpt"
+    )
+    assert scenario.metadata["public_scenario"] == "joint"
+    assert scenario.metadata["subscription_plan"] == "chutes"
+    assert scenario.metadata["subscription_count"] == 14
+    assert scenario.metadata["concurrency_plan"] == "featherless_premium"
+    assert scenario.metadata["concurrency_count"] == 12
+    assert scenario.metadata["model"] == "sharegpt"
+    assert scenario.metadata["concurrency_capacity_units"] == 48
+    assert scenario.metadata["effective_concurrency_limit"] == 12
+    assert [provider.tier for provider in scenario.providers] == [
+        ProviderTier.S_Q,
+        ProviderTier.S_C,
+        ProviderTier.S_A,
+        ProviderTier.S_A,
+        ProviderTier.S_A,
+    ]
+    assert all(provider.true_p50_ms() == pytest.approx(300.0) for provider in scenario.providers)
+
+
+def test_joint_scenarios_allow_explicit_counts_beyond_plan_defaults():
+    scenarios = cost_layer.make_scenarios(
+        subscription_counts=(14,),
+        concurrency_counts=(12,),
+        include_joint=True,
+    )
+
+    assert (
+        "joint__quota_plan=chutes__q=14"
+        "__concurrency_plan=featherless_premium__c=12__model=sharegpt"
+    ) in scenarios
+
+
 def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
     policies = cost_layer.policies_for_section((0.0, 0.75, 1.0))
     presets = common.make_routewise_presets(p_values=(0.0, 0.75, 1.0), include_hedging=False)
@@ -200,10 +249,29 @@ def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
     run = cost_layer.run_offline_policy(scenario, requests, seed=42)
 
     assert run.policy == "offline"
+    assert {record.policy for record in run.records} == {"offline"}
+    assert {record.metadata["offline_oracle_kind"] for record in run.records} == {
+        OfflineOracleKind.API_ONLY.value
+    }
     assert run.provider_fractions() == {"api_cheap": 1.0}
     assert run.mean_cost_usd() == sum(
         request.request_tokens * 1e-6 + request.response_tokens * 5e-6 for request in requests
     ) / len(requests)
+
+
+def test_offline_cost_baseline_seed_is_interface_noop():
+    scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
+    requests = common.load_workload(max_requests=3)
+
+    left = cost_layer.run_offline_policy(scenario, requests, seed=42)
+    right = cost_layer.run_offline_policy(scenario, requests, seed=43)
+
+    assert [record.final_provider for record in left.records] == [
+        record.final_provider for record in right.records
+    ]
+    assert [record.metadata for record in left.records] == [
+        record.metadata for record in right.records
+    ]
 
 
 def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
@@ -217,8 +285,36 @@ def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
     run = cost_layer.run_offline_policy(scenario, requests, seed=42)
 
     assert run.policy == "offline"
+    assert {record.metadata["offline_oracle_kind"] for record in run.records} == {
+        OfflineOracleKind.STAGE_Q_EXACT_SINGLE_WINDOW.value
+    }
     assert run.provider_fractions() == {"chutes_quota": 1.0}
     assert run.mean_cost_usd() == 0.0
+
+
+def test_offline_cost_baseline_labels_multi_window_quota_as_greedy():
+    scenario = cost_layer.make_scenario(
+        "quota",
+        subscription_plan="minimax_subscription_plus",
+        subscription_count=1,
+    )
+    requests = common.load_workload(max_requests=5)
+
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    assert {record.metadata["offline_oracle_kind"] for record in run.records} == {
+        OfflineOracleKind.STAGE_Q_GREEDY_VALUE_MULTI_WINDOW.value
+    }
+
+
+def test_offline_assign_rejects_unimplemented_kinds():
+    scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
+    requests = common.load_workload(max_requests=3)
+
+    with pytest.raises(ValueError, match="requires S_C"):
+        assign_offline(scenario, requests, kind="stage_c_exact")
+    with pytest.raises(NotImplementedError, match="joint decomposition"):
+        assign_offline(scenario, requests, kind="stage_qc_best_decomposition")
 
 
 def test_offline_cost_baseline_can_use_concurrency_capacity():
@@ -233,8 +329,158 @@ def test_offline_cost_baseline_can_use_concurrency_capacity():
     run = cost_layer.run_offline_policy(scenario, requests, seed=42)
 
     assert run.policy == "offline"
+    assert {record.metadata["offline_oracle_kind"] for record in run.records} == {
+        OfflineOracleKind.STAGE_C_EXACT.value
+    }
     assert run.provider_fractions() == {"featherless_premium_concurrency": 1.0}
     assert run.mean_cost_usd() == 0.0
+
+
+def test_offline_concurrency_exact_beats_value_greedy_interval():
+    scenario = ScenarioConfig(
+        name="exact_concurrency_toy",
+        description="toy exact concurrency scenario",
+        providers=[
+            common.make_concurrency_provider(
+                "subscription_concurrency",
+                concurrency_limit=1,
+                latency_family="uniform",
+            ),
+            common.make_api_provider(
+                "api_cheap",
+                cost_per_million_tokens=1.0,
+                latency_family="uniform",
+            ),
+        ],
+        arrival_process="trace",
+        primary_slo_ms=2000.0,
+    )
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=0, response_tokens=1500, total_tokens=1500),
+        Request(id=1, timestamp=0.0, request_tokens=0, response_tokens=900, total_tokens=900),
+        Request(id=2, timestamp=6.4, request_tokens=0, response_tokens=900, total_tokens=900),
+    ]
+
+    greedy = assign_offline(
+        scenario,
+        requests,
+        kind=OfflineOracleKind.STAGE_C_GREEDY_INTERVAL,
+    )
+    exact = assign_offline(
+        scenario,
+        requests,
+        kind=OfflineOracleKind.STAGE_C_EXACT,
+    )
+
+    assert {
+        request_id
+        for request_id, assignment in greedy.items()
+        if assignment.provider_tier == ProviderTier.S_C
+    } == {0}
+    assert {
+        request_id
+        for request_id, assignment in exact.items()
+        if assignment.provider_tier == ProviderTier.S_C
+    } == {1, 2}
+
+
+def test_offline_joint_exact_assigns_quota_and_concurrency_globally():
+    scenario = ScenarioConfig(
+        name="exact_joint_toy",
+        description="toy exact joint scenario",
+        providers=[
+            common.make_quota_provider(
+                "subscription_quota",
+                quota_size=1,
+                quota_window_sec=86400.0,
+                latency_family="uniform",
+            ),
+            common.make_concurrency_provider(
+                "subscription_concurrency",
+                concurrency_limit=1,
+                latency_family="uniform",
+            ),
+            common.make_api_provider(
+                "api_cheap",
+                cost_per_million_tokens=1.0,
+                latency_family="uniform",
+            ),
+        ],
+        arrival_process="trace",
+        primary_slo_ms=2000.0,
+    )
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=0, response_tokens=1500, total_tokens=1500),
+        Request(id=1, timestamp=0.0, request_tokens=0, response_tokens=900, total_tokens=900),
+        Request(id=2, timestamp=6.4, request_tokens=0, response_tokens=900, total_tokens=900),
+    ]
+
+    assignments = assign_offline(
+        scenario,
+        requests,
+        kind=OfflineOracleKind.STAGE_QC_EXACT,
+    )
+
+    assert {
+        request_id
+        for request_id, assignment in assignments.items()
+        if assignment.provider_tier == ProviderTier.S_Q
+    } == {0}
+    assert {
+        request_id
+        for request_id, assignment in assignments.items()
+        if assignment.provider_tier == ProviderTier.S_C
+    } == {1, 2}
+    assert {
+        assignment.oracle_kind for assignment in assignments.values()
+    } == {OfflineOracleKind.STAGE_QC_EXACT}
+
+
+def test_offline_joint_exact_records_milp_solver_metadata(monkeypatch):
+    monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SOLVER", "cbc")
+    monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SEED", "123")
+    monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_TIME_LIMIT_SEC", "300")
+    monkeypatch.setenv("ROUTEWISE_OFFLINE_JOINT_MAX_REQUESTS", "50")
+    scenario = cost_layer.make_scenario(
+        "joint",
+        subscription_plan="chutes",
+        subscription_count=1,
+        concurrency_plan="featherless_premium",
+        concurrency_count=1,
+        concurrency_model="sharegpt",
+    )
+    requests = common.load_workload(max_requests=3)
+
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    assert {record.metadata["offline_oracle_kind"] for record in run.records} == {
+        OfflineOracleKind.STAGE_QC_EXACT.value
+    }
+    assert {record.metadata["offline_milp_solver"] for record in run.records} == {"cbc"}
+    assert {record.metadata["offline_milp_seed"] for record in run.records} == {123}
+    assert {record.metadata["offline_milp_time_limit_sec"] for record in run.records} == {
+        300.0
+    }
+    assert {record.metadata["offline_joint_max_requests"] for record in run.records} == {50}
+
+
+def test_offline_joint_exact_rejects_unknown_milp_solver(monkeypatch):
+    monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SOLVER", "highs")
+    scenario = cost_layer.make_scenario(
+        "joint",
+        subscription_plan="chutes",
+        subscription_count=1,
+        concurrency_plan="featherless_premium",
+        concurrency_count=1,
+        concurrency_model="sharegpt",
+    )
+
+    with pytest.raises(ValueError, match="must be one of"):
+        cost_layer.run_offline_policy(
+            scenario,
+            common.load_workload(max_requests=3),
+            seed=42,
+        )
 
 
 def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
@@ -308,7 +554,7 @@ def test_subscription_plan_loader_exposes_featherless_premium_concurrency():
     with pytest.raises(ValueError, match="no concurrency model class resolved"):
         plan.concurrency_cost_for_model("unknown-model")
     assert plan.subscription_counts == (1, 2, 3, 4)
-    assert plan.eligible_sections == ("cost_layer_concurrency",)
+    assert plan.eligible_sections == ("cost_layer_concurrency", "cost_layer_joint")
 
 
 def test_subscription_plan_loader_rejects_missing_quota_size(tmp_path):
@@ -665,6 +911,49 @@ def test_subscription_summary_adds_concurrency_fields_and_fixed_fee():
     assert row["concurrency_saturated_in_trace"] is False
     assert row["trace_paper_grade"] is False
     assert row["subscription_fixed_cost_usd"] == pytest.approx(25.0 * 2 / 30.0)
+    assert row["total_cost_usd"] == pytest.approx(
+        row["api_cost_usd"] + row["subscription_fixed_cost_usd"]
+    )
+
+
+def test_subscription_summary_adds_joint_fixed_fee_and_fields():
+    scenario = cost_layer.make_scenario(
+        "joint",
+        subscription_plan="chutes",
+        subscription_count=2,
+        concurrency_plan="featherless_premium",
+        concurrency_count=2,
+        concurrency_model="sharegpt",
+    )
+    requests = [
+        Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2),
+        Request(
+            id=1,
+            timestamp=86400.0,
+            request_tokens=10,
+            response_tokens=10,
+            total_tokens=20,
+        ),
+    ]
+    run = cost_layer.run_offline_policy(scenario, requests, seed=42)
+
+    row = common.summarize_runs(
+        scenario=scenario,
+        policy="offline",
+        seeds=(42,),
+        runs=[run],
+        requests=requests,
+    )
+
+    assert row["subscription_plan"] == "chutes"
+    assert row["subscription_count"] == 2
+    assert row["concurrency_plan"] == "featherless_premium"
+    assert row["concurrency_count"] == 2
+    assert row["model"] == "sharegpt"
+    assert row["model_class"] == "ge_70b"
+    assert row["concurrency_capacity_units"] == 8
+    assert row["effective_concurrency_limit"] == 2
+    assert row["subscription_fixed_cost_usd"] == pytest.approx((20.0 * 2 + 25.0 * 2) / 30.0)
     assert row["total_cost_usd"] == pytest.approx(
         row["api_cost_usd"] + row["subscription_fixed_cost_usd"]
     )

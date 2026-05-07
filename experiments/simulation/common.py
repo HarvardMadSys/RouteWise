@@ -809,8 +809,6 @@ def _subscription_summary_fields(
     run_count: int,
 ) -> dict[str, Any]:
     metadata = dict(getattr(scenario, "metadata", {}) or {})
-    # TODO: end-to-end joint scenarios may compose several subscription plans;
-    # aggregate cost_claim_allowed / fixed fees over that plan set when they do.
     plan_id = metadata.get("subscription_plan")
     concurrency_plan_id = metadata.get("concurrency_plan")
     fields: dict[str, Any] = {
@@ -861,7 +859,78 @@ def _subscription_summary_fields(
         return fields
 
     if plan_id is not None and concurrency_plan_id is not None:
-        raise ValueError("joint subscription/concurrency summaries are not supported yet")
+        quota_plan = load_subscription_plans()[str(plan_id)]
+        concurrency_plan = load_subscription_plans()[str(concurrency_plan_id)]
+        quota_count = int(metadata.get("subscription_count") or 1)
+        concurrency_count = int(metadata.get("concurrency_count") or 1)
+        quota_fixed_cost_per_run = subscription_fixed_cost_usd(
+            quota_plan,
+            subscription_count=quota_count,
+            trace_days=trace_info.trace_days,
+        )
+        concurrency_fixed_cost_per_run = subscription_fixed_cost_usd(
+            concurrency_plan,
+            subscription_count=concurrency_count,
+            trace_days=trace_info.trace_days,
+        )
+        fixed_cost_per_run = quota_fixed_cost_per_run + concurrency_fixed_cost_per_run
+        fixed_cost = fixed_cost_per_run * run_count
+        total_cost = float(api_cost_usd) + fixed_cost
+        min_window_sec = min(window.quota_window_sec for window in quota_plan.quota_windows)
+        quota_paper_grade = trace_info.trace_days >= 5.0 * min_window_sec / 86400.0
+        concurrency_paper_grade = trace_info.trace_days >= 5.0
+        model = str(metadata.get("model") or "")
+        concurrency_metrics = _concurrency_trace_metrics(
+            concurrency_plan,
+            concurrency_count=concurrency_count,
+            model=model,
+            requests=requests,
+            trace_duration_sec=trace_info.span_sec,
+        )
+        fields.update(
+            {
+                "subscription_plan": quota_plan.plan_id,
+                "subscription_plan_display_name": quota_plan.display_name,
+                "subscription_count": quota_count,
+                "concurrency_plan": concurrency_plan.plan_id,
+                "concurrency_plan_display_name": concurrency_plan.display_name,
+                "concurrency_count": concurrency_count,
+                "subscription_fixed_cost_usd": fixed_cost,
+                "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
+                "total_cost_usd": total_cost,
+                "total_cost_usd_per_run": (
+                    total_cost / run_count if run_count else float("nan")
+                ),
+                "mean_total_cost_usd": (
+                    total_cost / mean_denominator
+                    if mean_denominator
+                    else float("nan")
+                ),
+                "subscription_cost_known": (
+                    quota_plan.subscription_cost_known
+                    and concurrency_plan.subscription_cost_known
+                ),
+                "cost_claim_allowed": (
+                    quota_plan.cost_claim_allowed and concurrency_plan.cost_claim_allowed
+                ),
+                "trace_paper_grade": quota_paper_grade and concurrency_paper_grade,
+                "quota_fits_in_trace": quota_fits_in_trace(
+                    quota_plan,
+                    subscription_count=quota_count,
+                    requests=requests,
+                ),
+                "peak_used_concurrency_cost": concurrency_metrics[
+                    "peak_used_concurrency_cost"
+                ],
+                "mean_concurrency_utilization": concurrency_metrics[
+                    "mean_concurrency_utilization"
+                ],
+                "concurrency_saturated_in_trace": concurrency_metrics[
+                    "concurrency_saturated_in_trace"
+                ],
+            }
+        )
+        return fields
 
     if plan_id is not None:
         plan = load_subscription_plans()[str(plan_id)]
