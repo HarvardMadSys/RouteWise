@@ -41,20 +41,21 @@ def make_scenarios(
     *,
     phase: str = PHASE_QUOTA,
     subscription_plan: str = DEFAULT_SUBSCRIPTION_PLAN,
-    qstar: int = DEFAULT_QSTAR,
+    qstar: int | tuple[int, ...] = DEFAULT_QSTAR,
     latency_family: str = DEFAULT_LATENCY_FAMILY,
 ) -> dict[str, ScenarioConfig]:
     """Build scenarios for the current Method A implementation."""
     _require_quota_phase(phase)
-    if qstar <= 0:
-        raise ValueError(f"qstar must be > 0, got {qstar}")
-    label = cost_layer.quota_artifact_label(
-        subscription_plan,
-        qstar,
-        latency_family=latency_family,
-    )
-    scenario = cost_layer.make_scenario(label)
-    return {scenario.name: scenario}
+    scenarios: dict[str, ScenarioConfig] = {}
+    for value in _qstar_values(qstar):
+        label = cost_layer.quota_artifact_label(
+            subscription_plan,
+            value,
+            latency_family=latency_family,
+        )
+        scenario = cost_layer.make_scenario(label)
+        scenarios[scenario.name] = scenario
+    return scenarios
 
 
 def make_scenario(name: str) -> ScenarioConfig:
@@ -184,8 +185,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--qstar",
         type=int,
-        default=DEFAULT_QSTAR,
-        help=f"Quota subscription count q*. Defaults to {DEFAULT_QSTAR}.",
+        action="append",
+        dest="qstar_values",
+        help=f"Quota subscription count q*. Repeat to sweep. Defaults to {DEFAULT_QSTAR}.",
     )
     parser.add_argument(
         "--latency-family",
@@ -231,10 +233,11 @@ def main(argv: list[str] | None = None) -> int:
     _require_quota_phase(args.phase)
     curves = tuple(args.curve) if args.curve else DEFAULT_QUOTA_CURVES
     p_values = tuple(args.p_values) if args.p_values else DEFAULT_P_VALUES
+    qstar_values = tuple(args.qstar_values) if args.qstar_values else (DEFAULT_QSTAR,)
     scenarios = make_scenarios(
         phase=args.phase,
         subscription_plan=args.subscription_plan,
-        qstar=args.qstar,
+        qstar=qstar_values,
         latency_family=args.latency_family,
     )
     presets = make_ablation_presets(curves=curves, p_values=p_values)
@@ -305,6 +308,18 @@ def _require_quota_phase(phase: str) -> None:
             f"effective-cost ablation phase {phase!r} is deferred until Phase A "
             "and the 1.3 concurrency configuration are stable"
         )
+
+
+def _qstar_values(qstar: int | tuple[int, ...]) -> tuple[int, ...]:
+    values = (qstar,) if isinstance(qstar, int) else qstar
+    if not values:
+        raise ValueError("qstar sweep must contain at least one value")
+    for value in values:
+        if value <= 0:
+            raise ValueError(f"qstar must be > 0, got {value}")
+    if len(set(values)) != len(values):
+        raise ValueError(f"qstar sweep values must be unique, got {values}")
+    return values
 
 
 __all__ = [

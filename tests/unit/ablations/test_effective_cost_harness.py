@@ -31,6 +31,70 @@ def test_default_phase_a_scenario_is_locked_to_qstar_16_heavy_tail() -> None:
     }
 
 
+def test_repeated_qstar_expands_one_scenario_per_q() -> None:
+    q_values = (2, 4, 8, 12, 16)
+
+    scenarios = harness.make_scenarios(qstar=q_values)
+    presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, p_values=(0.0,))
+
+    assert tuple(scenarios) == tuple(f"quota__plan=chutes__n={value}" for value in q_values)
+    assert len(scenarios) * len(presets) * 1 == 20
+
+
+def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_run_section(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(harness.common, "run_section", fake_run_section)
+
+    assert (
+        harness.main(
+            [
+                "--curve",
+                "exp_lu",
+                "--curve",
+                "linear_lu",
+                "--curve",
+                "constant_l",
+                "--curve",
+                "constant_u",
+                "--qstar",
+                "2",
+                "--qstar",
+                "4",
+                "--qstar",
+                "8",
+                "--qstar",
+                "12",
+                "--qstar",
+                "16",
+                "--p",
+                "0",
+                "--seed",
+                "42",
+                "--output-dir",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+
+    assert tuple(captured["scenarios"]) == (
+        "quota__plan=chutes__n=2",
+        "quota__plan=chutes__n=4",
+        "quota__plan=chutes__n=8",
+        "quota__plan=chutes__n=12",
+        "quota__plan=chutes__n=16",
+    )
+    assert len(captured["policies"]) == 4
+    assert captured["seeds"] == (42,)
+    assert all(parse_ablation_policy_name(policy)[2] == 0.0 for policy in captured["policies"])
+    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 20
+
+
 def test_policies_for_phase_default_curve_grid() -> None:
     policies = harness.policies_for_phase()
 
