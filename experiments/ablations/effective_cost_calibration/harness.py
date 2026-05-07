@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -21,21 +22,30 @@ from experiments.ablations.effective_cost_calibration.envelope import (
     workload_cost_envelope,
 )
 from experiments.simulation import common
+from experiments.simulation.latency_profiles import load_pooled_distribution
+from experiments.subscriptions import load_subscription_plans
 from rwsim.engine.simulator import Simulator
+from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
     from experiments.ablations.effective_cost.curves import ScarcityCurve
     from rwsim.metrics import Run
     from rwsim.schemas import Request
-    from rwsim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "effective-cost-calibration"
 DEFAULT_QUOTA_CURVE: ScarcityCurve = "exp_lu"
 DEFAULT_P_VALUES = (0.5,)
-DEFAULT_SWEEP = "all"
+DEFAULT_SWEEP = "percentile"
 SWEEPS = ("percentile", "reference", "all", "cross-product")
 Sweep = Literal["percentile", "reference", "all", "cross-product"]
 DEFAULT_OUTPUT_DIR = common.OUTPUT_DIR / "ablations" / "effective_cost_calibration"
+API_SURFACE = "quota_plus_api_cheap"
+_CALIBRATION_COLUMNS = (
+    "api_reference",
+    "percentile_envelope",
+    "envelope_L",
+    "envelope_U",
+)
 
 
 def list_scenarios() -> tuple[str, ...]:
@@ -49,18 +59,33 @@ def make_scenarios(
     qstar: int | tuple[int, ...] = curve_harness.DEFAULT_QSTAR,
     latency_family: str = curve_harness.DEFAULT_LATENCY_FAMILY,
 ) -> dict[str, ScenarioConfig]:
-    """Build the quota-only scenario set used by envelope calibration."""
-    return curve_harness.make_scenarios(
-        phase=curve_harness.PHASE_QUOTA,
-        subscription_plan=subscription_plan,
-        qstar=qstar,
-        latency_family=latency_family,
-    )
+    """Build clean quota + cheap-API scenarios for envelope calibration."""
+    scenarios: dict[str, ScenarioConfig] = {}
+    for value in _positive_unique_values("qstar", qstar):
+        scenario = _make_clean_quota_scenario_for_plan(
+            subscription_plan,
+            value,
+            latency_family=latency_family,
+        )
+        scenarios[scenario.name] = scenario
+    return scenarios
 
 
 def make_scenario(name: str) -> ScenarioConfig:
     """Rebuild a calibration scenario from its stable artifact label."""
-    return curve_harness.make_scenario(name)
+    parsed = _parse_clean_quota_artifact_label(name)
+    if parsed is None:
+        raise ValueError(
+            "unknown effective-cost calibration scenario "
+            f"{name!r}; expected label like "
+            "'quota_clean__plan=chutes__n=16'"
+        )
+    plan_id, subscription_count, latency_family = parsed
+    return _make_clean_quota_scenario_for_plan(
+        plan_id,
+        subscription_count,
+        latency_family=latency_family,
+    )
 
 
 def calibration_specs(
@@ -259,6 +284,175 @@ def run_calibration_cell(
     )
 
 
+def clean_quota_artifact_label(
+    plan_id: str,
+    subscription_count: int,
+    *,
+    latency_family: str = curve_harness.DEFAULT_LATENCY_FAMILY,
+) -> str:
+    """Return the stable label for the clean quota + cheap-API surface."""
+    label = f"quota_clean__plan={plan_id}__n={subscription_count}"
+    if latency_family != curve_harness.DEFAULT_LATENCY_FAMILY:
+        label += f"__latency={latency_family}"
+    return label
+
+
+def _make_clean_quota_scenario_for_plan(
+    plan_id: str,
+    subscription_count: int,
+    *,
+    latency_family: str = curve_harness.DEFAULT_LATENCY_FAMILY,
+) -> ScenarioConfig:
+    _validate_latency_family(latency_family)
+    plans = load_subscription_plans()
+    try:
+        plan = plans[plan_id]
+    except KeyError as exc:
+        known = ", ".join(sorted(plans))
+        raise ValueError(f"unknown subscription plan {plan_id!r}; known plans: {known}") from exc
+    if "cost_layer_quota" not in plan.eligible_sections:
+        raise ValueError(
+            f"subscription plan {plan.plan_id!r} is not eligible for quota calibration"
+        )
+
+    ttft_dist = load_pooled_distribution("rw8_pooled") if latency_family == "real_world" else None
+    providers = [
+        common.make_quota_provider(
+            f"{plan.plan_id}_quota",
+            plan=plan,
+            subscription_count=subscription_count,
+            latency_family=(
+                curve_harness.DEFAULT_LATENCY_FAMILY
+                if ttft_dist is not None
+                else latency_family
+            ),
+        ),
+        common.make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=common.COST_RATIO_PER_MILLION[0],
+            latency_family=(
+                curve_harness.DEFAULT_LATENCY_FAMILY
+                if ttft_dist is not None
+                else latency_family
+            ),
+        ),
+    ]
+    if ttft_dist is not None:
+        for provider in providers:
+            provider.ttft_dist = ttft_dist
+
+    label = clean_quota_artifact_label(
+        plan.plan_id,
+        subscription_count,
+        latency_family=latency_family,
+    )
+    quota_window_text = ", ".join(
+        f"{window.quota_requests * subscription_count:g}/{window.quota_window_sec:g}s"
+        for window in plan.quota_windows
+    )
+    latency_text = (
+        "real-world pooled rw8_pooled"
+        if latency_family == "real_world"
+        else f"{latency_family}, P50={common.COST_LAYER_P50_MS:.0f}ms"
+    )
+    return ScenarioConfig(
+        name=label,
+        description=(
+            "Effective-cost calibration scenario: "
+            f"{plan.display_name} x{subscription_count} ({quota_window_text}) "
+            "as one aggregate quota provider plus exactly one cheap on-demand "
+            f"API fallback, TTFT={latency_text}."
+        ),
+        providers=providers,
+        arrival_process="trace",
+        primary_slo_ms=2000.0,
+        metadata={
+            "public_scenario": "quota_clean",
+            "artifact_label": label,
+            "api_surface": API_SURFACE,
+            "subscription_plan": plan.plan_id,
+            "subscription_plan_display_name": plan.display_name,
+            "subscription_count": subscription_count,
+            "latency_family": latency_family,
+            "quota_windows": [
+                {
+                    "name": window.name,
+                    "quota_requests": window.quota_requests,
+                    "quota_window_sec": window.quota_window_sec,
+                    "aggregate_quota_requests": (
+                        window.quota_requests * subscription_count
+                    ),
+                }
+                for window in plan.quota_windows
+            ],
+        },
+    )
+
+
+def calibration_envelope_records(
+    *,
+    scenarios: dict[str, ScenarioConfig],
+    policies: tuple[str, ...],
+    presets: dict[str, dict[str, Any]],
+    requests: list[Request],
+) -> list[dict[str, Any]]:
+    """Return materialized L/U metadata for each scenario-policy pair."""
+    records: list[dict[str, Any]] = []
+    for scenario in scenarios.values():
+        for policy in policies:
+            spec = _preset_envelope_spec(policy, presets=presets)
+            L, U = workload_cost_envelope(scenario.providers, requests, spec=spec)
+            records.append(
+                {
+                    "scenario": scenario.name,
+                    "policy": policy,
+                    "api_reference": spec.api_reference,
+                    "percentile_envelope": spec.percentile_envelope,
+                    "envelope_L": L,
+                    "envelope_U": U,
+                }
+            )
+    return records
+
+
+def enrich_calibration_rows(
+    rows: list[dict[str, Any]],
+    *,
+    scenarios: dict[str, ScenarioConfig],
+    policies: tuple[str, ...],
+    presets: dict[str, dict[str, Any]],
+    requests: list[Request],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Attach numeric L/U envelope columns to summary rows."""
+    records = calibration_envelope_records(
+        scenarios=scenarios,
+        policies=policies,
+        presets=presets,
+        requests=requests,
+    )
+    by_key = {
+        (record["scenario"], record["policy"]): record
+        for record in records
+    }
+    enriched: list[dict[str, Any]] = []
+    for row in rows:
+        key = (row.get("scenario"), row.get("policy"))
+        try:
+            record = by_key[key]
+        except KeyError as exc:
+            raise ValueError(
+                "cannot attach calibration envelope to summary row for "
+                f"scenario={key[0]!r}, policy={key[1]!r}"
+            ) from exc
+        enriched.append(
+            {
+                **row,
+                **{column: record[column] for column in _CALIBRATION_COLUMNS},
+            }
+        )
+    return enriched, records
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the envelope calibration ablation harness."""
     parser = argparse.ArgumentParser(
@@ -386,6 +580,17 @@ def main(argv: list[str] | None = None) -> int:
         retain_records=False,
         jobs=args.jobs,
     )
+    if rows:
+        rows = _write_calibration_outputs(
+            root=output_dir,
+            rows=rows,
+            scenarios=scenarios,
+            policies=policies,
+            presets=presets,
+            workload_dataset=args.workload,
+            duration_sec=args.duration_sec,
+            max_requests=args.max_requests,
+        )
     print(
         json.dumps(
             {
@@ -425,6 +630,152 @@ def _runner_for_policy(policy_name: str, presets: dict[str, dict[str, Any]]):
     return run
 
 
+def _parse_clean_quota_artifact_label(name: str) -> tuple[str, int, str] | None:
+    prefix = "quota_clean__plan="
+    marker = "__n="
+    if not name.startswith(prefix) or marker not in name:
+        return None
+    plan_part, rest = name.removeprefix(prefix).rsplit(marker, 1)
+    count_part = rest
+    latency_family = curve_harness.DEFAULT_LATENCY_FAMILY
+    latency_marker = "__latency="
+    if latency_marker in rest:
+        count_part, latency_family = rest.split(latency_marker, 1)
+    try:
+        count = int(count_part)
+    except ValueError as exc:
+        raise ValueError(f"invalid clean quota scenario label {name!r}") from exc
+    return plan_part, count, latency_family
+
+
+def _positive_unique_values(label: str, values: int | tuple[int, ...]) -> tuple[int, ...]:
+    raw_values = (values,) if isinstance(values, int) else tuple(values)
+    if not raw_values:
+        raise ValueError(f"{label} sweep must contain at least one value")
+    unique_values = tuple(dict.fromkeys(int(value) for value in raw_values))
+    invalid = [value for value in unique_values if value <= 0]
+    if invalid:
+        raise ValueError(f"{label} values must be > 0, got {invalid[0]}")
+    return unique_values
+
+
+def _validate_latency_family(latency_family: str) -> None:
+    known = ("uniform", "normal", "heavy_tail", "real_world")
+    if latency_family not in known:
+        raise ValueError(
+            f"unknown calibration latency family {latency_family!r}; "
+            f"known: {', '.join(known)}"
+        )
+
+
+def _write_calibration_outputs(
+    *,
+    root: Path,
+    rows: list[dict[str, Any]],
+    scenarios: dict[str, ScenarioConfig],
+    policies: tuple[str, ...],
+    presets: dict[str, dict[str, Any]],
+    workload_dataset: str,
+    duration_sec: float | None,
+    max_requests: int | None,
+) -> list[dict[str, Any]]:
+    """Rewrite section artifacts with calibration-specific L/U fields."""
+    requests = common.load_workload(
+        dataset=workload_dataset,
+        duration_sec=duration_sec,
+        max_requests=max_requests,
+    )
+    enriched_rows, envelope_records = enrich_calibration_rows(
+        rows,
+        scenarios=scenarios,
+        policies=policies,
+        presets=presets,
+        requests=requests,
+    )
+
+    metadata_path = root / "metadata.json"
+    metadata = _read_json_object(metadata_path)
+    metadata["calibration_envelopes"] = envelope_records
+    common.write_json(metadata_path, metadata)
+    common.write_json(root / "summary.json", enriched_rows)
+    summary_csv_path = root / "summary.csv"
+    _write_calibration_summary_csv(
+        summary_csv_path,
+        enriched_rows,
+        preferred_fieldnames=_read_csv_header(summary_csv_path),
+    )
+    return enriched_rows
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object at {path}, got {type(payload).__name__}")
+    return payload
+
+
+def _write_calibration_summary_csv(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    preferred_fieldnames: tuple[str, ...] = (),
+) -> None:
+    """Write summary rows while preserving calibration-only columns."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames: list[str] = list(preferred_fieldnames)
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    key: (
+                        json.dumps(value, sort_keys=True)
+                        if isinstance(value, (dict, list, tuple))
+                        else value
+                    )
+                    for key, value in row.items()
+                }
+            )
+
+
+def _read_csv_header(path: Path) -> tuple[str, ...]:
+    if not path.exists():
+        return ()
+    with path.open(newline="", encoding="utf-8") as handle:
+        try:
+            return tuple(next(csv.reader(handle)))
+        except StopIteration:
+            return ()
+
+
+def _preset_envelope_spec(
+    policy_name: str,
+    *,
+    presets: dict[str, dict[str, Any]],
+) -> EnvelopeSpec:
+    try:
+        preset = presets[policy_name]
+    except KeyError as exc:
+        known = ", ".join(sorted(presets))
+        raise ValueError(
+            f"unknown effective-cost calibration policy {policy_name!r}; known: {known}"
+        ) from exc
+    params = preset.get("params", {})
+    spec = params.get("cost_envelope_spec")
+    if not isinstance(spec, EnvelopeSpec):
+        raise ValueError(
+            f"effective-cost calibration preset {policy_name!r} lacks EnvelopeSpec"
+        )
+    return spec
+
+
 def _dedupe_specs(specs: list[EnvelopeSpec]) -> tuple[EnvelopeSpec, ...]:
     return tuple(dict.fromkeys(specs))
 
@@ -444,8 +795,10 @@ __all__ = [
     "SECTION_NAME",
     "SWEEPS",
     "build_calibration_policy",
+    "calibration_envelope_records",
     "calibration_policy_name",
     "calibration_specs",
+    "enrich_calibration_rows",
     "list_scenarios",
     "make_calibration_presets",
     "make_scenario",

@@ -7,9 +7,7 @@ import pytest
 
 from experiments.ablations.effective_cost_calibration import harness
 from experiments.ablations.effective_cost_calibration.envelope import (
-    API_REFERENCES,
     DEFAULT_API_REFERENCE,
-    DEFAULT_PERCENTILE_ENVELOPE,
     PERCENTILE_ENVELOPES,
     EnvelopeSpec,
     percentile_bounds,
@@ -98,23 +96,17 @@ def test_workload_cost_envelope_applies_reference_and_percentile_pair() -> None:
     assert pytest.approx(float(np.percentile(values, 90.0))) == U
 
 
-def test_calibration_specs_default_runs_two_one_dimensional_sweeps() -> None:
+def test_calibration_specs_default_runs_percentile_sweep() -> None:
     specs = harness.calibration_specs()
 
-    assert len(specs) == len(PERCENTILE_ENVELOPES) + len(API_REFERENCES) - 1
+    assert len(specs) == len(PERCENTILE_ENVELOPES)
     assert specs[0] == EnvelopeSpec(
         api_reference=DEFAULT_API_REFERENCE,
         percentile_envelope="p05_p95",
     )
-    assert specs.count(
-        EnvelopeSpec(
-            api_reference=DEFAULT_API_REFERENCE,
-            percentile_envelope=DEFAULT_PERCENTILE_ENVELOPE,
-        )
-    ) == 1
     assert specs[-1] == EnvelopeSpec(
-        api_reference="max_api",
-        percentile_envelope=DEFAULT_PERCENTILE_ENVELOPE,
+        api_reference=DEFAULT_API_REFERENCE,
+        percentile_envelope="min_max",
     )
 
 
@@ -145,6 +137,22 @@ def test_calibration_policy_name_encodes_reference_envelope_curve_and_p() -> Non
     )
 
 
+def test_default_calibration_scenario_is_clean_quota_plus_cheap_api() -> None:
+    scenarios = harness.make_scenarios()
+
+    assert tuple(scenarios) == ("quota_clean__plan=chutes__n=16",)
+    scenario = scenarios["quota_clean__plan=chutes__n=16"]
+    assert scenario.metadata["public_scenario"] == "quota_clean"
+    assert scenario.metadata["api_surface"] == "quota_plus_api_cheap"
+    assert scenario.metadata["subscription_plan"] == "chutes"
+    assert scenario.metadata["subscription_count"] == 16
+    assert scenario.metadata["latency_family"] == "heavy_tail"
+    assert [provider.name for provider in scenario.providers] == [
+        "chutes_quota",
+        "api_cheap",
+    ]
+
+
 def test_build_calibration_policy_materializes_envelope() -> None:
     scenario = ScenarioConfig(
         name="test",
@@ -169,7 +177,106 @@ def test_build_calibration_policy_materializes_envelope() -> None:
     assert policy.cost_envelope == pytest.approx((0.0024, 0.0048))
 
 
-def test_cli_default_grid_uses_q16_and_seven_calibrations(monkeypatch, tmp_path) -> None:
+def test_enrich_calibration_rows_adds_numeric_envelope_columns() -> None:
+    scenario = ScenarioConfig(
+        name="test",
+        description="test",
+        providers=[
+            make_quota_provider("quota", quota_size=10),
+            *_providers(),
+        ],
+    )
+    spec = EnvelopeSpec(api_reference="max_api", percentile_envelope="min_max")
+    presets = harness.make_calibration_presets(specs=(spec,), p_values=(0.5,))
+    policy_name = next(iter(presets))
+
+    enriched, records = harness.enrich_calibration_rows(
+        [{"scenario": "test", "policy": policy_name, "n_requests": 2}],
+        scenarios={"test": scenario},
+        policies=(policy_name,),
+        presets=presets,
+        requests=_requests(),
+    )
+
+    assert len(records) == 1
+    assert records[0]["scenario"] == "test"
+    assert records[0]["policy"] == policy_name
+    assert records[0]["api_reference"] == "max_api"
+    assert records[0]["percentile_envelope"] == "min_max"
+    assert records[0]["envelope_L"] == pytest.approx(0.0024)
+    assert records[0]["envelope_U"] == pytest.approx(0.0048)
+    assert enriched[0]["api_reference"] == "max_api"
+    assert enriched[0]["percentile_envelope"] == "min_max"
+    assert enriched[0]["envelope_L"] == pytest.approx(0.0024)
+    assert enriched[0]["envelope_U"] == pytest.approx(0.0048)
+
+
+def test_main_rewrites_summary_and_metadata_with_lu_artifacts(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    scenario = ScenarioConfig(
+        name="test",
+        description="test",
+        providers=[
+            make_quota_provider("quota", quota_size=10),
+            *_providers(),
+        ],
+    )
+
+    def fake_make_scenarios(**kwargs):
+        return {"test": scenario}
+
+    def fake_run_section(**kwargs):
+        root = kwargs["output_dir"]
+        root.mkdir(parents=True, exist_ok=True)
+        harness.common.write_json(
+            root / "metadata.json",
+            {"section": harness.SECTION_NAME, "rows_before_enrichment": 1},
+        )
+        return [
+            {
+                "scenario": "test",
+                "policy": next(iter(kwargs["policies"])),
+                "n_requests": 2,
+            }
+        ]
+
+    monkeypatch.setattr(harness, "make_scenarios", fake_make_scenarios)
+    monkeypatch.setattr(harness.common, "run_section", fake_run_section)
+    monkeypatch.setattr(harness.common, "load_workload", lambda **kwargs: _requests())
+
+    assert (
+        harness.main(
+            [
+                "--sweep",
+                "reference",
+                "--api-reference",
+                "max_api",
+                "--percentile-envelope",
+                "min_max",
+                "--max-requests",
+                "2",
+                "--seed",
+                "42",
+                "--output-dir",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+
+    metadata = (tmp_path / "metadata.json").read_text(encoding="utf-8")
+    summary_json = (tmp_path / "summary.json").read_text(encoding="utf-8")
+    summary_csv = (tmp_path / "summary.csv").read_text(encoding="utf-8")
+
+    assert '"calibration_envelopes"' in metadata
+    assert '"envelope_L": 0.0024' in metadata
+    assert '"envelope_U": 0.0048' in summary_json
+    assert "api_reference,percentile_envelope,envelope_L,envelope_U" in summary_csv
+
+
+def test_cli_default_grid_uses_clean_q16_and_four_calibrations(monkeypatch, tmp_path) -> None:
     captured = {}
 
     def fake_run_section(**kwargs):
@@ -192,8 +299,8 @@ def test_cli_default_grid_uses_q16_and_seven_calibrations(monkeypatch, tmp_path)
         == 0
     )
 
-    assert tuple(captured["scenarios"]) == ("quota__plan=chutes__n=16",)
-    assert len(captured["policies"]) == 7
+    assert tuple(captured["scenarios"]) == ("quota_clean__plan=chutes__n=16",)
+    assert len(captured["policies"]) == 4
     assert captured["workload_dataset"] == "burstgpt"
     assert captured["retain_records"] is False
 
