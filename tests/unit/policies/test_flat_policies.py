@@ -96,6 +96,51 @@ def test_routewise_declares_in_flight_hedge_checkpoints():
     assert decision.hedge_checkpoints == tuple(sorted(decision.hedge_checkpoints))
 
 
+def test_routewise_hedging_selects_backup_by_success_probability():
+    primary = TieredProvider(
+        name="primary",
+        cost_per_token=1e-6,
+        ttft_dist=Uniform(3000.0, 4000.0),
+        tps_dist=Uniform(100.0, 200.0),
+        tier=ProviderTier.S_A,
+    )
+    cheap_but_too_slow = TieredProvider(
+        name="cheap_but_too_slow",
+        cost_per_token=1e-6,
+        ttft_dist=Uniform(1400.0, 3000.0),
+        tps_dist=Uniform(100.0, 200.0),
+        tier=ProviderTier.S_A,
+    )
+    expensive_but_safe = TieredProvider(
+        name="expensive_but_safe",
+        cost_per_token=10e-6,
+        ttft_dist=Uniform(100.0, 200.0),
+        tps_dist=Uniform(100.0, 200.0),
+        tier=ProviderTier.S_A,
+    )
+    providers = [primary, cheap_but_too_slow, expensive_but_safe]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = RouteWisePolicy(
+        hedging="probability_target",
+        explorer=False,
+        p=0.75,
+        seed=7,
+        slo_ms=2000.0,
+        cost_envelope=(1e-6, 1e-3),
+    )
+    decision = RoutingDecision(
+        primary_provider="primary",
+        hedge_checkpoints=(0.5,),
+    )
+    state.now = 0.5
+
+    dispatch = policy.tick(request, decision, 0.5, state)
+
+    assert dispatch is not None
+    assert dispatch.backup_provider == "expensive_but_safe"
+
+
 def test_routewise_uses_cost_tiebreak_when_latency_objective_is_equal():
     providers = [
         TieredProvider(

@@ -217,7 +217,13 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             return None
         providers = state.providers
         primary = providers[decision.primary_provider]
-        backup = self._pick_backup(primary, request, state)
+        elapsed_ms = elapsed * 1000.0
+        backup = self._pick_backup(
+            primary,
+            request,
+            state,
+            elapsed_ms=elapsed_ms,
+        )
         if backup is None:
             return None
 
@@ -225,7 +231,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             self,
             primary,
             backup,
-            elapsed_ms=elapsed * 1000.0,
+            elapsed_ms=elapsed_ms,
             now=state.now,
             slo_ms=self.slo_ms,
         )
@@ -236,14 +242,22 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         for future_elapsed in decision.hedge_checkpoints:
             if future_elapsed <= elapsed + _LP_EPS:
                 continue
-            future = _combined_success_probability(
-                self,
-                primary,
-                backup,
-                elapsed_ms=future_elapsed * 1000.0,
-                now=state.now,
-                slo_ms=self.slo_ms,
-            )
+            future_ms = future_elapsed * 1000.0
+            if self.explorer:
+                future = _combined_success_probability(
+                    self,
+                    primary,
+                    backup,
+                    elapsed_ms=future_ms,
+                    now=state.now,
+                    slo_ms=self.slo_ms,
+                )
+            else:
+                future = self._best_backup_success_probability(
+                    primary,
+                    state,
+                    elapsed_ms=future_ms,
+                )
             if future >= _HEDGE_SUCCESS_TARGET - _LP_EPS:
                 future_safe = True
                 break
@@ -301,24 +315,81 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         primary: Provider,
         request: Request,
         state: SimulationState,
+        *,
+        elapsed_ms: float,
     ) -> Provider | None:
-        candidates = [
+        candidates = self._backup_candidates(primary, state)
+        if not candidates:
+            return None
+        if self.explorer:
+            # TODO(routewise-hedging-ablation): replace this coarse random
+            # fallback with an explicit random/spread backup-selection mode for
+            # hedge-as-probe experiments. The default hedging path below stays
+            # probability-driven and optimizes the current request's SLO success.
+            return candidates[int(self.rng.integers(0, len(candidates)))]
+
+        scored = [
+            (
+                _combined_success_probability(
+                    self,
+                    primary,
+                    provider,
+                    elapsed_ms=elapsed_ms,
+                    now=state.now,
+                    slo_ms=self.slo_ms,
+                ),
+                provider.marginal_cost_for_request(request, state.now),
+                provider.true_mean_ms(state.now),
+                provider.name,
+                provider,
+            )
+            for provider in candidates
+        ]
+        feasible = [
+            item for item in scored if item[0] >= _HEDGE_SUCCESS_TARGET - _LP_EPS
+        ]
+        if feasible:
+            return min(
+                feasible,
+                key=lambda item: (item[1], -item[0], item[2], item[3]),
+            )[4]
+        return min(
+            scored,
+            key=lambda item: (-item[0], item[1], item[2], item[3]),
+        )[4]
+
+    def _best_backup_success_probability(
+        self,
+        primary: Provider,
+        state: SimulationState,
+        *,
+        elapsed_ms: float,
+    ) -> float:
+        candidates = self._backup_candidates(primary, state)
+        if not candidates:
+            return 0.0
+        return max(
+            _combined_success_probability(
+                self,
+                primary,
+                provider,
+                elapsed_ms=elapsed_ms,
+                now=state.now,
+                slo_ms=self.slo_ms,
+            )
+            for provider in candidates
+        )
+
+    @staticmethod
+    def _backup_candidates(
+        primary: Provider,
+        state: SimulationState,
+    ) -> list[Provider]:
+        return [
             provider
             for provider in state.providers.values()
             if provider.name != primary.name and provider.is_available(state.now)
         ]
-        if not candidates:
-            return None
-        if self.explorer:
-            return candidates[int(self.rng.integers(0, len(candidates)))]
-        return min(
-            candidates,
-            key=lambda provider: (
-                provider.marginal_cost_for_request(request, state.now),
-                provider.true_mean_ms(state.now),
-                provider.name,
-            ),
-        )
 
 
 def quota_shadow_price(
