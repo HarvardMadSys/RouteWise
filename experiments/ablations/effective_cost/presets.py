@@ -14,6 +14,14 @@ DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (
     "constant_l",
     "constant_u",
 )
+DEFAULT_CONCURRENCY_CURVES: tuple[ScarcityCurve, ...] = (
+    "legacy_linear_u",
+    "exp_lu",
+    "linear_lu",
+    "constant_l",
+    "constant_u",
+)
+CONCURRENCY_ONLY_QUOTA_CURVE: ScarcityCurve = "exp_lu"
 DEFAULT_CONCURRENCY_CURVE: ScarcityCurve = "legacy_linear_u"
 
 
@@ -69,6 +77,34 @@ def make_ablation_presets(
     return presets
 
 
+def make_concurrency_ablation_presets(
+    *,
+    concurrency_curves: tuple[ScarcityCurve, ...] = DEFAULT_CONCURRENCY_CURVES,
+    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
+    quota_curve: ScarcityCurve = CONCURRENCY_ONLY_QUOTA_CURVE,
+    cost_envelope: tuple[float, float] | str = WORKLOAD_COST_ENVELOPE,
+) -> dict[str, dict[str, Any]]:
+    """Build Phase B presets that sweep only the concurrency curve."""
+    presets: dict[str, dict[str, Any]] = {}
+    for p in p_values:
+        for concurrency_curve in concurrency_curves:
+            name = ablation_policy_name(
+                quota_curve,
+                p=p,
+                concurrency_curve=concurrency_curve,
+            )
+            presets[name] = {
+                "policy": "LPOnlyAblationPolicy",
+                "params": {
+                    "quota_curve": quota_curve,
+                    "concurrency_curve": concurrency_curve,
+                    "p": float(p),
+                    "cost_envelope": cost_envelope,
+                },
+            }
+    return presets
+
+
 def _parse_p_label(label: str) -> float:
     if not label.startswith("p"):
         raise ValueError(f"invalid p label {label!r}")
@@ -86,10 +122,13 @@ def _validate_curve(curve: str) -> ScarcityCurve:
 
 
 __all__ = [
+    "CONCURRENCY_ONLY_QUOTA_CURVE",
     "DEFAULT_CONCURRENCY_CURVE",
+    "DEFAULT_CONCURRENCY_CURVES",
     "DEFAULT_P_VALUES",
     "DEFAULT_QUOTA_CURVES",
     "ablation_policy_name",
     "make_ablation_presets",
+    "make_concurrency_ablation_presets",
     "parse_ablation_policy_name",
 ]

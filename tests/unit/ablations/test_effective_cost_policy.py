@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy
-from experiments.simulation.common import make_api_provider, make_quota_provider
+from experiments.simulation.common import (
+    make_api_provider,
+    make_concurrency_provider,
+    make_quota_provider,
+)
 from rwsim.engine.state import SimulationState
 from rwsim.policies.routewise import RouteWisePolicy, quota_shadow_price
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
@@ -44,6 +48,27 @@ def test_exp_lu_quota_effective_cost_matches_production_formula() -> None:
         L=1.0,
         U=100.0,
     ) == pytest.approx(quota_shadow_price(provider, 0.0, L=1.0, U=100.0))
+
+
+def test_legacy_linear_u_concurrency_effective_cost_uses_utilization_times_u() -> None:
+    provider = make_concurrency_provider("concurrency", concurrency_limit=10)
+    for request_id in range(4):
+        provider.concurrency.admit(request_id, 0.0, 10.0)
+
+    policy = LPOnlyAblationPolicy(
+        quota_curve="exp_lu",
+        concurrency_curve="legacy_linear_u",
+        p=0.5,
+        cost_envelope=(1.0, 100.0),
+    )
+
+    assert policy.effective_cost_for_provider(
+        provider,
+        _request(),
+        0.0,
+        L=1.0,
+        U=100.0,
+    ) == pytest.approx(40.0)
 
 
 def test_lp_only_current_curve_matches_routewise_cost_router_metadata() -> None:
