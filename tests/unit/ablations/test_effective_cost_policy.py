@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from experiments.ablations.effective_cost import policy as effective_cost_policy
 from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy, RollingLatencyProfile
 from experiments.simulation.common import (
     make_api_provider,
@@ -153,6 +154,97 @@ def test_p_changes_budget_without_changing_cost_envelope() -> None:
     assert low.metadata["L"] == pytest.approx(high.metadata["L"])
     assert low.metadata["U"] == pytest.approx(high.metadata["U"])
     assert low.metadata["budget"] < high.metadata["budget"]
+
+
+def test_p_zero_fast_path_matches_lp_enumerator() -> None:
+    providers = [
+        make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=1.0,
+            latency_family="heavy_tail",
+        ),
+        make_api_provider(
+            "api_expensive",
+            cost_per_million_tokens=4.0,
+            latency_family="heavy_tail",
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = _request()
+    cost_envelope = (0.0001, 0.001)
+    policy = LPOnlyAblationPolicy(
+        quota_curve="exp_lu",
+        concurrency_curve="legacy_linear_u",
+        p=0.0,
+        cost_envelope=cost_envelope,
+        seed=7,
+    )
+
+    names = [provider.name for provider in providers]
+    c_eff = {
+        provider.name: policy.effective_cost_for_provider(
+            provider,
+            request,
+            state.now,
+            L=cost_envelope[0],
+            U=cost_envelope[1],
+        )
+        for provider in providers
+    }
+    tbar = {
+        provider.name: policy._latency_objective_ms(provider, state.now) for provider in providers
+    }
+    budget = min(c_eff.values())
+    success, vector = effective_cost_policy._solve_lp(
+        objective=effective_cost_policy._cost_tiebroken_objective(
+            [tbar[name] for name in names],
+            [c_eff[name] for name in names],
+        ),
+        upper_constraint=[c_eff[name] for name in names],
+        upper_bound=budget,
+    )
+
+    decision = policy.route(request, state)
+
+    assert success
+    assert vector is not None
+    assert decision.metadata["weights"] == pytest.approx(
+        effective_cost_policy._normalize_weights(names, vector)
+    )
+
+
+def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
+    providers = [
+        make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=1.0,
+            latency_family="heavy_tail",
+        ),
+        make_api_provider(
+            "api_expensive",
+            cost_per_million_tokens=4.0,
+            latency_family="heavy_tail",
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = _request()
+    policy = LPOnlyAblationPolicy(
+        quota_curve="exp_lu",
+        concurrency_curve="legacy_linear_u",
+        p=0.0,
+        cost_envelope=(0.0001, 0.001),
+        seed=7,
+    )
+
+    def fail_solve_lp(*args, **kwargs):
+        raise AssertionError("_solve_lp should not run for p=0")
+
+    monkeypatch.setattr(effective_cost_policy, "_solve_lp", fail_solve_lp)
+
+    decision = policy.route(request, state)
+
+    assert decision.primary_provider == "api_cheap"
+    assert decision.metadata["weights"] == {"api_cheap": 1.0}
 
 
 def test_p_changes_weights_after_latency_profile_observations() -> None:

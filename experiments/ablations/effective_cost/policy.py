@@ -84,15 +84,25 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         c_max = max(c_eff.values())
         budget = c_min + self.p * (c_max - c_min)
 
-        success, vector = _solve_lp(
-            objective=_cost_tiebroken_objective(
-                [tbar[name] for name in names],
-                [c_eff[name] for name in names],
-            ),
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
-        )
-        weights = _normalize_weights(names, vector) if success and vector is not None else {}
+        latency_objective = [tbar[name] for name in names]
+        effective_costs = [c_eff[name] for name in names]
+        if self.p <= _LP_EPS:
+            weights = _p_zero_weights(
+                names,
+                latency_objective=latency_objective,
+                effective_costs=effective_costs,
+                budget=budget,
+            )
+        else:
+            success, vector = _solve_lp(
+                objective=_cost_tiebroken_objective(
+                    latency_objective,
+                    effective_costs,
+                ),
+                upper_constraint=effective_costs,
+                upper_bound=budget,
+            )
+            weights = _normalize_weights(names, vector) if success and vector is not None else {}
         if not weights:
             best = min(
                 providers,
@@ -258,6 +268,29 @@ def _cost_tiebroken_objective(
 
     normalized_costs = (costs - costs.min()) / cost_span
     return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+
+
+def _p_zero_weights(
+    names: list[str],
+    *,
+    latency_objective: list[float],
+    effective_costs: list[float],
+    budget: float,
+) -> dict[str, float]:
+    """Return the p=0 LP optimum without running the generic enumerator."""
+    objective = _cost_tiebroken_objective(latency_objective, effective_costs)
+    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
+    best_name: str | None = None
+    n = len(names)
+    for index, (name, cost) in enumerate(zip(names, effective_costs, strict=True)):
+        if cost > budget + _LP_EPS:
+            continue
+        rounded = tuple(1.0 if position == index else 0.0 for position in range(n))
+        key = (float(objective[index]), float(cost), 1, rounded)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    return {best_name: 1.0} if best_name is not None else {}
 
 
 def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:

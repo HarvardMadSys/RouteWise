@@ -333,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,
         output_dir=output_dir,
-        retain_records=True,
+        retain_records=False,
         jobs=args.jobs,
     )
     print(

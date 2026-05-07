@@ -122,6 +122,7 @@ def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path)
     )
     assert len(captured["policies"]) == 4
     assert captured["seeds"] == (42,)
+    assert captured["retain_records"] is False
     assert all(parse_ablation_policy_name(policy)[2] == 0.0 for policy in captured["policies"])
     assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 20
 
@@ -196,6 +197,7 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
     assert {item[0] for item in parsed} == {CONCURRENCY_ONLY_QUOTA_CURVE}
     assert {item[2] for item in parsed} == {0.0}
     assert captured["seeds"] == (42,)
+    assert captured["retain_records"] is False
     assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 40
 
 
