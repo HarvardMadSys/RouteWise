@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "source_log": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/phase5_qwen3_7d_clean/run_20260410_171625/evaluation_log.csv",
+  "source_log": "internal_cached_24h_openrouter_evaluation_log",
   "model": "qwen3_235b",
   "tier": "S_A",
   "subsample_seed": 42,

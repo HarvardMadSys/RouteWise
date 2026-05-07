@@ -1,7 +1,7 @@
 # Real-World Latency Profiles
 
 This directory stores compact empirical TTFT artifacts used by simulator
-experiments that need real-world OpenRouter latency distributions.
+experiments that need real-world provider latency distributions.
 
 ## Artifact
 
@@ -9,13 +9,19 @@ experiments that need real-world OpenRouter latency distributions.
   24-hour OpenRouter run.
 - `qwen3_24h.json`: provenance and per-provider summary statistics.
 - `pools.yaml`: canonical RW3/RW8 provider pools and the pooled RW8 profile.
+- `minimax_m25_subscriptions.npz`: empirical TTFT samples for Minimax M2.5
+  subscription providers used by cost-layer quota/concurrency experiments.
+- `minimax_m25_subscriptions.json`: provenance and per-provider summary
+  statistics for the subscription-provider profile.
 
-The raw CSV is not committed to this repository. The current artifact was
-prepared from:
+The Qwen3 artifact was prepared from an internal cached 24-hour OpenRouter
+evaluation log. The raw CSV is not committed to this repository.
 
-```text
-/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/phase5_qwen3_7d_clean/run_20260410_171625/evaluation_log.csv
-```
+The Minimax M2.5 subscription artifact keeps successful TTFT samples for Chutes
+direct subscription, Featherless direct subscription, and MiniMax native
+subscription. Chutes samples are per-request records from an internal joint
+online run filtered to direct Chutes transport. Featherless and MiniMax native
+samples are hourly direct-probe snapshots with one request per snapshot.
 
 ## Refresh
 

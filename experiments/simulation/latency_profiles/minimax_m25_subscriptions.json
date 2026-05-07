@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0",
+  "artifact": "minimax_m25_subscriptions.npz",
+  "model_family": "minimax-m2.5",
+  "description": "Empirical TTFT samples for subscription-provider Minimax M2.5 experiments.",
+  "sample_semantics": {
+    "chutes": "Per-request TTFT from an internal joint online run, filtered to successful rows with direct Chutes transport.",
+    "featherless": "Hourly direct-probe snapshots against the Featherless endpoint; the probe used one request per snapshot.",
+    "minimax": "Hourly direct-probe snapshots against the MiniMax native endpoint; the probe used one request per snapshot."
+  },
+  "providers": {
+    "chutes": {
+      "provider_label": "Chutes direct subscription",
+      "tier": "quota",
+      "transport": "chutes",
+      "model": "MiniMaxAI/MiniMax-M2.5-TEE",
+      "model_family": "minimax-m2.5",
+      "n_samples": 210,
+      "p50_ms": 1210.2729224134237,
+      "p90_ms": 2176.5753270126875,
+      "p99_ms": 7994.402353367768,
+      "mean_ms": 1584.978475222098,
+      "max_ms": 9305.87508995086,
+      "timestamp_min": "2026-04-23T12:57:12Z",
+      "timestamp_max": "2026-04-23T13:56:46Z",
+      "sources": [
+        "internal_joint_online_run"
+      ]
+    },
+    "featherless": {
+      "provider_label": "Featherless direct subscription",
+      "tier": "concurrency",
+      "transport": "featherless",
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "model_family": "minimax-m2.5",
+      "n_samples": 296,
+      "p50_ms": 8157.45,
+      "p90_ms": 13970.65,
+      "p99_ms": 24351.700000000063,
+      "mean_ms": 9087.333445945947,
+      "max_ms": 34878.6,
+      "timestamp_min": "2026-03-27T12:27:57Z",
+      "timestamp_max": "2026-04-10T23:42:04Z",
+      "sources": [
+        "hourly_direct_probe_snapshots"
+      ]
+    },
+    "minimax": {
+      "provider_label": "MiniMax native subscription",
+      "tier": "quota",
+      "transport": "minimax_native",
+      "model": "MiniMax-M2.5",
+      "model_family": "minimax-m2.5",
+      "n_samples": 506,
+      "p50_ms": 2506.0,
+      "p90_ms": 16550.15,
+      "p99_ms": 49793.56999999996,
+      "mean_ms": 6354.863833992095,
+      "max_ms": 84142.0,
+      "timestamp_min": "2026-03-24T20:33:16Z",
+      "timestamp_max": "2026-04-10T23:42:04Z",
+      "sources": [
+        "hourly_direct_probe_snapshots"
+      ]
+    }
+  },
+  "collection": {
+    "chutes": "Successful streaming requests from an internal joint online run, filtered to direct Chutes transport.",
+    "featherless": "Successful hourly direct-probe snapshots against the Featherless endpoint; the probe used one request per snapshot.",
+    "minimax": "Successful hourly direct-probe snapshots against the MiniMax native endpoint; the probe used one request per snapshot."
+  }
+}
