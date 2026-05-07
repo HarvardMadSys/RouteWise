@@ -23,6 +23,14 @@ SIMULATOR_SECTION_DESCRIPTIONS = {
     "cost-layer": "paper §3.2 — same latency / different cost",
 }
 
+ABLATION_COMMANDS = {
+    "effective-cost": "experiments.ablations.effective_cost.harness",
+}
+
+ABLATION_COMMAND_DESCRIPTIONS = {
+    "effective-cost": "effective-cost formula ablation harness",
+}
+
 
 def _json_dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
@@ -49,7 +57,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--policy", required=True)
     run_parser.add_argument("--seed", type=int, default=42)
 
-    simulator_parser = subparsers.add_parser("simulator", help="Run section-based simulator experiments.")
+    simulator_parser = subparsers.add_parser(
+        "simulator", help="Run section-based simulator experiments."
+    )
     simulator_subparsers = simulator_parser.add_subparsers(dest="simulator_command")
     simulator_subparsers.add_parser("list", help="List registered simulator sections.")
     for section_name in SIMULATOR_SECTIONS:
@@ -58,6 +68,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "section_args",
             nargs=argparse.REMAINDER,
             help="Arguments passed through to the section after an optional -- separator.",
+        )
+
+    ablation_parser = subparsers.add_parser("ablation", help="Run ablation experiment harnesses.")
+    ablation_subparsers = ablation_parser.add_subparsers(dest="ablation_command")
+    ablation_subparsers.add_parser("list", help="List registered ablation harnesses.")
+    for command_name in ABLATION_COMMANDS:
+        command_parser = ablation_subparsers.add_parser(
+            command_name,
+            help=ABLATION_COMMAND_DESCRIPTIONS.get(command_name, f"Run {command_name}."),
+        )
+        command_parser.add_argument(
+            "command_args",
+            nargs=argparse.REMAINDER,
+            help="Arguments passed through to the ablation harness after an optional -- separator.",
         )
 
     return parser
@@ -88,6 +112,19 @@ def _simulator_list_payload() -> dict[str, Any]:
     return {"sections": sections}
 
 
+def _ablation_list_payload() -> dict[str, Any]:
+    return {
+        "ablations": [
+            {
+                "name": name,
+                "module": module_name,
+                "description": ABLATION_COMMAND_DESCRIPTIONS.get(name, ""),
+            }
+            for name, module_name in ABLATION_COMMANDS.items()
+        ]
+    }
+
+
 def _dispatch_simulator(raw_args: list[str]) -> int | None:
     if not raw_args or raw_args[0] != "simulator" or len(raw_args) < 2:
         return None
@@ -101,12 +138,28 @@ def _dispatch_simulator(raw_args: list[str]) -> int | None:
     return None
 
 
+def _dispatch_ablation(raw_args: list[str]) -> int | None:
+    if not raw_args or raw_args[0] != "ablation" or len(raw_args) < 2:
+        return None
+    command = raw_args[1]
+    if command == "list":
+        print(_json_dump(_ablation_list_payload()))
+        return 0
+    if command in ABLATION_COMMANDS:
+        module = importlib.import_module(ABLATION_COMMANDS[command])
+        return int(module.main(raw_args[2:]))
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the RouteWise CLI."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
     simulator_result = _dispatch_simulator(raw_args)
     if simulator_result is not None:
         return simulator_result
+    ablation_result = _dispatch_ablation(raw_args)
+    if ablation_result is not None:
+        return ablation_result
 
     parser = _build_parser()
     args = parser.parse_args(raw_args)
@@ -131,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
                 payload = {"experiment": args.experiment, "validated": [scenario.name]}
             else:
                 scenarios = experiment.load_all_scenarios()
-                payload = {"experiment": args.experiment, "validated": [item.name for item in scenarios]}
+                payload = {
+                    "experiment": args.experiment,
+                    "validated": [item.name for item in scenarios],
+                }
         except RuntimeError as exc:
             raise SystemExit(f"error: {exc}") from exc
         print(_json_dump(payload))

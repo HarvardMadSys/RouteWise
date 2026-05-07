@@ -5,7 +5,7 @@
 > and 1.3 exist as plan-backed simulator sections, and defines the next
 > experiment harness without changing the main cost-layer figure path.
 
-Last updated: 2026-05-06.
+Last updated: 2026-05-07.
 
 ---
 
@@ -20,8 +20,10 @@ We need this ablation to answer two separate questions:
    formula?
 
 The implementation should live in a centralized ablation package that reuses
-the existing simulation and oracle systems without turning every ablation into
-a top-level experiment subsystem:
+the existing simulator orchestration without changing the production
+`RouteWisePolicy` surface. Use **Method A**: the ablation owns a small
+LP-only policy that implements the cost-router decision needed for formula
+sweeps.
 
 ```text
 experiments/
@@ -31,8 +33,10 @@ experiments/
   ablations/
     effective_cost/
       curves.py                    # ablation candidate formulas
-      experiment.py                # Phase A/B/C harness
-      oracle_adapter.py            # Stage Q / Stage QC adapter
+      policy.py                    # LPOnlyAblationPolicy, no hedging/explorer
+      presets.py                   # curve/p sweep -> section-local presets
+      harness.py                   # scenario/policy listing, CLI, run_cell
+      oracle.py                    # deferred Stage Q / Stage QC adapter
       README.md
 ```
 
@@ -45,11 +49,19 @@ S_Q: c_eff = quota scarcity price
 S_C: c_eff = concurrency scarcity price
 ```
 
-The current 1.1 / 1.2 / 1.3 simulator code is ready enough to start this
-ablation implementation. The main missing piece is the oracle baseline: the
-cost-layer section-local `offline` runner is a smoke baseline, not the
-ablation oracle. The ablation should use or adapt the existing
-`experiments/offline_stage/` Stage Q and Stage QC logic.
+The first implementation target is **Phase A quota-only** using the existing
+1.2 configuration:
+
+```text
+q* = 16
+latency_family = heavy_tail
+workload = burstgpt
+seed = 42
+```
+
+The first run should compare formulas and inspect routing behavior. The Stage
+Q / Stage QC oracle remains important for final regret numbers, but it should
+not block the first formula sweep.
 
 ---
 
@@ -77,9 +89,12 @@ The ablation should compare this against at least one linear alternative:
 psi_linear_lu(z; L, U) = L + z * (U - L)
 ```
 
-The decision criterion is not which curve is prettier. The criterion is
-which curve yields lower cost regret against the quota oracle while keeping
-the same latency distribution and the same purchased subscription plan.
+The decision criterion is not which curve is prettier. For the first sweep,
+the criterion is which curve produces the most reasonable cost, latency, and
+quota-allocation behavior under the fixed 1.2 configuration. For the final
+paper result, this should be backed by lower regret against the quota oracle
+while keeping the same latency distribution and the same purchased
+subscription plan.
 
 ### Q2. Can quota and concurrency share one formula?
 
@@ -121,23 +136,27 @@ ablation:
 - Cost-layer 1.1 has API-only scenarios with workload-level cost envelopes.
 - Cost-layer 1.2 has plan-backed quota scenarios, including Chutes and
   MiniMax-style multi-window quota.
-- Cost-layer 1.3 has plan-backed Featherless weighted concurrency.
+- Cost-layer 1.3 has plan-backed Featherless weighted concurrency design, but
+  the final concurrency configuration/results are still in progress.
 - `RouteWisePolicy` now uses explicit workload-level `(L, U)`, not
   per-request calibration.
 - `effective_cost()` is piecewise by provider tier and follows the paper
   structure.
-- Summary rows include fixed subscription fees, quota-fit flags, and
-  weighted concurrency metrics.
+- Summary rows already cover the main cost/latency outputs needed for the
+  first quota-only sweep.
 
 ### Not Ready For Final Ablation
 
-Two gaps matter before headline ablation results:
+Three gaps matter before headline ablation results:
 
 1. **Oracle gap.** `experiments/simulation/cost_layer.py` has a local
    `offline` runner that performs greedy quota selection and first-fit
    concurrency packing. That is acceptable for smoke tests, but it is not
    the Stage Q / Stage QC lower bound.
-2. **Preset gap.** Global `rwsim.policies.DEFAULT_PRESETS` still expose
+2. **Concurrency gap.** The 1.3 concurrency configuration has not fully
+   settled, so Phase B and Phase C should wait until the selected concurrency
+   setup is reproducible.
+3. **Preset gap.** Global `rwsim.policies.DEFAULT_PRESETS` still expose
    RouteWise presets without a `cost_envelope`. Section-local simulator
    harnesses inject the envelope, but generic `build_policy("routewise")`
    currently fails. This is not a blocker for the ablation harness if the
@@ -148,37 +167,35 @@ Two gaps matter before headline ablation results:
 
 ## 4. Experimental Design
 
-### Phase 0. Oracle Adapter Sanity
+### Phase 0. Method A Harness Sanity
 
-Before formula comparisons, wire the ablation to a trustworthy lower bound.
+Before formula comparisons, build the smallest Method A harness that can run a
+single quota-only scenario with a curve-specific LP-only policy.
 
 Use:
 
-- **Stage Q** for quota-only scenarios.
-- **Stage QC** for quota + concurrency scenarios.
-- Stage QC with quota disabled, or a small adapter around the same MILP, for
-  concurrency-only scenarios.
+- `experiments/ablations/effective_cost/policy.py`
+- `experiments/ablations/effective_cost/presets.py`
+- `experiments/ablations/effective_cost/harness.py`
 
-The adapter should produce the same run-level summary shape as simulator
-policies:
+The ablation policy should not subclass or modify `RouteWisePolicy`. It should
+implement only:
 
-```text
-scenario
-policy
-seed
-n_requests
-api_cost_usd
-subscription_fixed_cost_usd
-total_cost_usd
-provider_mix
-tier_mix
-oracle_gap_usd
-oracle_gap_pct
-```
+1. compute per-provider `c_eff` using `scarcity_price()`;
+2. compute `B_p = c_min + p * (c_max - c_min)`;
+3. solve the same LP-only routing decision;
+4. sample a primary provider with the provided seed.
 
-Do not compare formula curves until this adapter has a small deterministic
-test case showing that the oracle uses high-cost API-equivalent requests for
-scarce quota/concurrency before low-cost requests.
+Solver implementation is locked: copy the current hand-written LP enumerator
+from `RouteWisePolicy` rather than using `scipy.optimize.linprog`. This is
+acceptable duplication for the ablation because it preserves the production
+cost-router tie-break, normalization, and sampling semantics. The goal is to
+measure curve changes, not solver differences.
+
+Sanity test the Method A policy against the production formula: when the
+ablation curve is `exp_lu`, S_Q effective cost should match the current
+RouteWise quota formula. This prevents the sweep from accidentally measuring a
+different router rather than a different curve.
 
 ### Phase A. Quota-Only Curve Ablation
 
@@ -186,13 +203,15 @@ Goal: answer Q1.
 
 Setup:
 
-- Scenario family: cost-layer quota only.
+- Scenario family: cost-layer quota only, reusing the mature 1.2 builder.
 - Primary plan: `chutes`.
 - Optional sensitivity: `minimax_subscription_plus`.
-- Counts: use each plan's configured `subscription_counts`.
-- Latency: hold equal with the existing cost-layer `heavy_tail` default.
-- Dataset: ShareGPT one-month trace for paper results; `--max-requests`
-  smoke runs for development.
+- Headline count: `q* = 16`.
+- Latency: `heavy_tail`.
+- Dataset: `burstgpt` (the BurstGPT 30-day trace used by the §1.2 Chutes main
+  run).
+- Seed: `42`.
+- Development smoke: same config with `--max-requests`.
 
 Curves:
 
@@ -208,21 +227,44 @@ Primary metrics:
 - `total_cost_usd_per_run`
 - `api_cost_usd_per_run`
 - `subscription_fixed_cost_usd_per_run`
-- `oracle_gap_pct`
 - `tier_mix`
 - `quota_fits_in_trace`
-- selected subscription count under each curve
+- quota/API routing split
+- quota exhaustion time, if exhausted
+- quota utilization over time
+- API fallback concentration before/after quota scarcity
+- mean / p95 / p99 latency
+
+Derived analysis:
+
+- average API-equivalent value of requests routed to S_Q
+- average API-equivalent value of requests routed to S_A
+- percentile rank of S_Q-routed requests in the request value distribution
+- high-value requests forced to S_A after quota is depleted
+
+Implementation decision: choose option (b). These derived analyses are a
+post-run script or notebook over the normal simulator outputs and per-request
+records, not new `summary.csv` fields in the first harness. Do not expand the
+shared summary schema or touch `experiments/simulation/common.py` just to
+support this first sweep. If records are insufficient for one derived view,
+report that view qualitatively and keep the first paper-facing comparison on
+the primary metrics above.
 
 Success criterion:
 
-The exponential curve is justified if it has lower oracle regret than the
-linear curve across the binding quota regimes and does not simply win by
-avoiding quota usage entirely.
+The exponential curve is justified for the first quota-only result if it lowers
+API fallback / total cost relative to linear and constant baselines while
+showing a sensible quota trajectory: it should not win by leaving quota unused,
+nor by burning quota early on low-value requests and pushing later high-value
+requests to S_A. Tail latency must not degrade enough to erase the cost
+argument.
 
 ### Phase B. Concurrency-Only Curve Ablation
 
 Goal: understand whether the existing concurrency formula is enough before
 testing a unified formula.
+
+Status: wait until the 1.3 concurrency configuration is reproducible.
 
 Setup:
 
@@ -264,6 +306,8 @@ Q2.
 ### Phase C. Joint Quota + Concurrency Ablation
 
 Goal: answer Q2.
+
+Status: wait until Phase A and Phase B both have stable configurations.
 
 This phase is mandatory. A unified formula cannot be validated in isolated
 quota-only or concurrency-only runs because the real question is whether the
@@ -334,7 +378,7 @@ provider, policy, or simulator engine types. Candidate curves stay in the
 ablation package until the experiment justifies changing the stable RouteWise
 formula.
 
-### 5.2 RouteWise integration boundary
+### 5.2 Method A policy boundary
 
 Do not add every candidate curve to `rwsim.policies` as a core policy surface.
 The stable `rwsim` implementation should keep the paper-current formula:
@@ -344,35 +388,66 @@ S_Q: exp_lu
 S_C: legacy_linear_u
 ```
 
-If the ablation policy needs to reuse RouteWise's LP and sampling logic, add
-only a minimal hook to `RouteWisePolicy` such as:
+Do not add an `effective_cost_fn` field, subclass hook, or ablation-specific
+branch to `RouteWisePolicy`. The ablation policy is a separate cost-layer-only
+tool and should stay inside `experiments/ablations/effective_cost/`.
 
-```python
-def effective_cost_for_provider(...):
-    return effective_cost(...)
+Add:
+
+```text
+experiments/ablations/effective_cost/policy.py
 ```
 
-Then the ablation package can subclass and override that hook. The hook keeps
-default behavior unchanged and avoids copying the whole RouteWise route body.
+Suggested surface:
+
+```python
+@dataclass
+class LPOnlyAblationPolicy:
+    quota_curve: ScarcityCurve
+    concurrency_curve: ScarcityCurve
+    p: float
+    cost_envelope: tuple[float, float]
+    seed: int = 0
+
+    def route(self, request, state):
+        ...
+```
+
+This policy intentionally omits hedging, explorer feedback, and latency-profile
+learning. It should duplicate only the small LP-only cost-router logic needed
+for a clean formula ablation.
+
+Policy construction is ablation-local. `presets.py` may emit curve/p metadata,
+but `harness.py` should instantiate `LPOnlyAblationPolicy` through a small
+local builder after the workload cost envelope is materialized. Do not register
+`LPOnlyAblationPolicy` in `rwsim.policies.DEFAULT_PRESETS`, and do not route it
+through the generic `build_policy()` path.
 
 Do not add ablation-specific branching to `cost_layer.py`.
 
 ### 5.3 Ablation harness
 
-Add:
+Add two small modules plus the harness:
 
 ```text
-experiments/ablations/effective_cost/experiment.py
+experiments/ablations/effective_cost/presets.py
+experiments/ablations/effective_cost/harness.py
 ```
 
 Responsibilities:
 
-- Build Phase A, B, and C scenarios from existing plan-backed builders.
-- Build curve-specific RouteWise presets.
+- Build Phase A quota-only scenarios from existing plan-backed builders.
+- Prefer public `cost_layer.make_scenarios()` / `make_scenario()` APIs. If the
+  private quota builder is unavoidable, wrap it once in the harness rather than
+  spreading private imports.
+- Build curve-specific LP-only ablation presets.
 - Call the shared `run_section()` helper.
-- Attach oracle rows through the Stage Q / Stage QC adapter.
 - Write `metadata.json`, `summary.csv`, `summary.json`, and histograms using
   the same shape as other simulator sections.
+- Leave Stage Q / Stage QC oracle attachment for the later `oracle.py` step.
+- The implementation may add a thin `ablation` subcommand group to
+  `routewise_cli/main.py` that delegates to this harness. This is a user-facing
+  CLI entry point, not a change to the production `rwsim` policy path.
 
 Proposed CLI:
 
@@ -381,7 +456,11 @@ routewise ablation effective-cost \
   --phase quota \
   --curve exp_lu \
   --curve linear_lu \
+  --qstar 16 \
+  --latency-family heavy_tail \
+  --workload burstgpt \
   --p 0.5 \
+  --seed 42 \
   --max-requests 1000
 
 routewise ablation effective-cost \
@@ -397,19 +476,23 @@ Add unit tests before running full traces:
 
 ```text
 tests/unit/ablations/test_effective_cost_curves.py
-tests/unit/ablations/test_effective_cost_ablation.py
+tests/unit/ablations/test_effective_cost_policy.py
+tests/unit/ablations/test_effective_cost_harness.py
 ```
 
 Minimum coverage:
 
 - `scarcity_price()` returns expected values at `x = 0`, `x = 0.5`, and
   near exhaustion.
-- RouteWise defaults still match current behavior.
+- Current-curve ablation S_Q effective cost matches production
+  `quota_shadow_price()`.
+- `p` changes the LP budget and not the workload cost envelope.
 - Curve-specific presets pass explicit workload cost envelopes.
-- Phase A scenario construction uses only S_Q + S_A.
-- Phase B scenario construction uses only S_C + S_A.
-- Phase C scenario construction uses S_Q + S_C + S_A.
-- Oracle adapter is not the local cost-layer greedy `offline` runner.
+- Phase A scenario construction uses only S_Q + S_A for the first harness.
+- The headline Phase A config is fixed to `q*=16`, `heavy_tail`,
+  `burstgpt`, `seed=42`.
+- No test requires modifying `rwsim/policies/routewise.py` or
+  `experiments/simulation/common.py`.
 
 ---
 
@@ -501,20 +584,26 @@ That would confound the current effective-cost formula ablation.
    stability?
 5. Should global `DEFAULT_PRESETS` receive a safe default `cost_envelope`, or
    should generic runners be forced to pass one explicitly?
+6. Should Phase A include a square/root-style curve mentioned in the May 5
+   discussion, or keep the first paper-facing grid to exp/linear/constants?
 
 ---
 
 ## 10. Suggested Implementation Order
 
-1. Add `experiments/ablations/effective_cost/curves.py` plus unit tests.
-2. Add only the minimal RouteWise hook needed by the ablation policy, if needed.
-3. Fix or explicitly guard the global preset `cost_envelope` issue.
-4. Add the ablation harness skeleton and Phase A scenario/preset generation.
-5. Add the Stage Q oracle adapter.
-6. Run Phase A smoke and full trace.
-7. Add Phase B scenario/preset generation.
-8. Add the concurrency-only oracle adapter.
-9. Run Phase B smoke and full trace.
-10. Add Phase C joint scenario generation and Stage QC oracle adapter.
-11. Run Phase C smoke.
-12. Only then run the full joint grid and produce paper/appx plots.
+1. Keep `experiments/ablations/effective_cost/curves.py` plus unit tests as the
+   formula surface.
+2. Add `policy.py` with the self-contained Method A LP-only ablation policy.
+3. Add `presets.py` for curve/p sweep preset generation.
+4. Add `harness.py` with Phase A scenario/preset generation for `q*=16`,
+   `heavy_tail`, `burstgpt`, `seed=42`.
+5. Run Phase A smoke with `--max-requests`, then the full Phase A trace.
+6. Analyze cost, quota trajectory, request-value allocation, and latency tails.
+7. Add `oracle.py` with the Stage Q adapter once the formula sweep is
+   reproducible.
+8. After 1.3 settles, add Phase B scenario/preset generation.
+9. Add the concurrency-only oracle adapter.
+10. Run Phase B smoke and full trace.
+11. Add Phase C joint scenario generation and Stage QC oracle adapter.
+12. Run Phase C smoke.
+13. Only then run the full joint grid and produce paper/appx plots.
