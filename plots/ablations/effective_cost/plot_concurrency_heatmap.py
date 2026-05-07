@@ -339,7 +339,7 @@ def _plot_total_cost_curves(
     output_dir: Path,
 ) -> None:
     _apply_effective_cost_style()
-    fig = plt.figure(figsize=(5.45, 3.35))
+    fig = plt.figure(figsize=(6.75, 3.65))
     grid = fig.add_gridspec(2, 1, height_ratios=(3.2, 1.35), hspace=0.08)
     ax = fig.add_subplot(grid[0])
     util_ax = fig.add_subplot(grid[1], sharex=ax)
@@ -365,15 +365,6 @@ def _plot_total_cost_curves(
             color=CURVE_COLORS[curve],
             linestyle="-",
         )
-        util_ax.plot(
-            [row["n"] for row in curve_rows],
-            [row["mean_concurrency_utilization"] for row in curve_rows],
-            marker="o",
-            color=CURVE_COLORS[curve],
-            linewidth=1.25,
-            markersize=3.2,
-            alpha=0.9,
-        )
 
     for baseline in ("offline", "greedy_cost"):
         baseline_curve_rows = _rows_for_label(baseline_rows, baseline)
@@ -391,8 +382,29 @@ def _plot_total_cost_curves(
     ax.set_ylabel("Total cost ($)")
     ax.grid(True, alpha=0.24)
     ax.tick_params(axis="x", labelbottom=False)
-    ax.legend(frameon=False, ncols=4, loc="upper center", bbox_to_anchor=(0.5, 1.28))
+    ax.legend(
+        frameon=False,
+        ncols=4,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.2),
+        columnspacing=0.9,
+        handlelength=1.6,
+    )
 
+    util_by_count = {
+        count: float(
+            np.mean([row["mean_concurrency_utilization"] for row in rows if row["n"] == count])
+        )
+        for count in counts
+    }
+    util_ax.plot(
+        list(counts),
+        [util_by_count[count] for count in counts],
+        marker="o",
+        color="#666666",
+        linewidth=1.25,
+        markersize=3.2,
+    )
     util_ax.set_xlabel("Featherless Premium accounts (n)")
     util_ax.set_ylabel("mean\nutil.")
     util_ax.set_xticks(list(counts))
@@ -442,12 +454,19 @@ def _plot_line_with_argmin(
         zorder=5,
     )
     if annotate:
+        offset_by_label = {
+            "constant L": (5, -12),
+            "exp L-U": (5, 4),
+            "linear L-U": (5, 7),
+            "legacy U*u": (5, 8),
+            "constant U": (5, 7),
+        }
         ax.annotate(
             f"({best['n']}, ${best['total_cost_usd_per_run']:.0f})",
             xy=(best["n"], best["total_cost_usd_per_run"]),
-            xytext=(3, 5),
+            xytext=offset_by_label.get(label, (5, 5)),
             textcoords="offset points",
-            fontsize=6.4,
+            fontsize=5.8,
             color=color,
         )
 
@@ -567,6 +586,7 @@ def _apply_effective_cost_style() -> None:
             "axes.titlesize": 9,
             "xtick.labelsize": 7,
             "ytick.labelsize": 7,
+            "legend.fontsize": 6.2,
             "figure.dpi": 150,
             "savefig.dpi": 300,
             "savefig.pad_inches": 0.02,
