@@ -18,11 +18,13 @@ from experiments import available_experiments, get_experiment
 SIMULATOR_SECTIONS = {
     "cost-layer": "experiments.simulation.cost_layer",
     "latency-layer": "experiments.simulation.latency_layer",
+    "hedging": "experiments.simulation.hedging",
 }
 
 SIMULATOR_SECTION_DESCRIPTIONS = {
     "cost-layer": "paper §3.2 — same latency / different cost",
     "latency-layer": "paper §3.3 — same cost / different latency, band overlap",
+    "hedging": "paper §3.4 — probability-target hedging stress test",
 }
 
 ABLATION_COMMANDS = {

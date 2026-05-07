@@ -1,0 +1,95 @@
+"""Tests for the §2.2 hedging simulator section."""
+
+from __future__ import annotations
+
+import csv
+import json
+
+import pytest
+
+from experiments.simulation import hedging
+from routewise_cli.main import main as routewise_main
+
+
+def test_hedging_scenarios_match_section_contract():
+    assert hedging.list_scenarios() == (
+        "hedging_heavy_tail",
+        "hedging_real_world_rw3",
+    )
+
+
+def test_hedging_policy_set_uses_hedging_only_routewise():
+    assert hedging.policies_for_section() == (
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p75",
+    )
+
+    presets = hedging.make_policy_presets()
+    assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
+    assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
+
+
+def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
+    heavy = hedging.make_scenario("hedging_heavy_tail")
+    real_world = hedging.make_scenario("hedging_real_world_rw3")
+
+    assert heavy.metadata["source_latency_scenario"] == "latency_layer_heavy_tail_half_overlap"
+    assert heavy.metadata["latency_family"] == "heavy_tail"
+    assert heavy.primary_slo_ms == pytest.approx(500.0)
+    assert heavy.metadata["slo_ms"] == pytest.approx(500.0)
+    assert heavy.metadata["backup_selection"] == "probability_target_non_primary"
+
+    assert real_world.metadata["source_latency_scenario"] == "latency_layer_real_world"
+    assert real_world.metadata["latency_family"] == "real_world"
+    assert real_world.primary_slo_ms == pytest.approx(2000.0)
+    assert real_world.metadata["slo_ms"] == pytest.approx(2000.0)
+
+
+def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
+    output_dir = tmp_path / "hedging"
+
+    assert routewise_main(
+        [
+            "simulator",
+            "hedging",
+            "--scenario",
+            "hedging_heavy_tail",
+            "--seed",
+            "42",
+            "--max-requests",
+            "12",
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
+
+    rows = json.loads((output_dir / "summary.json").read_text())
+    assert [row["policy"] for row in rows] == [
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p75",
+    ]
+
+    baseline, hedging_row = rows
+    assert baseline["hedging_policy_mode"] == "lp_only"
+    assert baseline["backup_selection"] == "none"
+    assert baseline["hedge_rate"] == 0.0
+    assert hedging_row["hedging_policy_mode"] == "routewise_hedging"
+    assert hedging_row["backup_selection"] == "probability_target_non_primary"
+    assert hedging_row["learns_from_backup"] is False
+
+    for row in rows:
+        assert row["slo_ms"] == 500.0
+        assert "hedge_rate" in row
+        assert "p99_ms" in row
+        assert "mean_ttft_ms" in row
+        assert "p50_ms" in row
+        assert "cost_multiplier_vs_lp_only" in row
+
+    with (output_dir / "summary.csv").open() as handle:
+        csv_rows = list(csv.DictReader(handle))
+    assert len(csv_rows) == 2
+    assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
+    assert csv_rows[1]["backup_selection"] == "probability_target_non_primary"
+    assert csv_rows[1]["slo_ms"] == "500.0"

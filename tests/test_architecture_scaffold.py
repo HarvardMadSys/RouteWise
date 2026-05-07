@@ -247,6 +247,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             {
                 "cost-layer": "experiments.simulation.cost_layer",
                 "latency-layer": "experiments.simulation.latency_layer",
+                "hedging": "experiments.simulation.hedging",
             },
         )
         for module_name in (
