@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import heapq
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -30,27 +31,71 @@ class RollingLatencyProfile:
 
     window_sec: float = 15 * 60.0
     samples: deque[tuple[float, float]] = field(default_factory=deque)
+    _mean_pending: list[tuple[float, int, float]] = field(default_factory=list, init=False, repr=False)
+    _mean_active: list[tuple[float, int, float]] = field(default_factory=list, init=False, repr=False)
+    _mean_sum: float = field(default=0.0, init=False, repr=False)
+    _mean_count: int = field(default=0, init=False, repr=False)
+    _mean_clock_sec: float = field(default=float("-inf"), init=False, repr=False)
+    _sample_seq: int = field(default=0, init=False, repr=False)
 
     def add_sample(self, timestamp: float, ttft_ms: float) -> None:
-        self.samples.append((float(timestamp), float(ttft_ms)))
+        ts = float(timestamp)
+        value = float(ttft_ms)
+        self.samples.append((ts, value))
+        item = (ts, self._sample_seq, value)
+        self._sample_seq += 1
+        if ts <= self._mean_clock_sec:
+            if ts >= self._mean_clock_sec - self.window_sec:
+                heapq.heappush(self._mean_active, item)
+                self._mean_sum += value
+                self._mean_count += 1
+        else:
+            heapq.heappush(self._mean_pending, item)
 
     def values(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
-        while self.samples and self.samples[0][0] < cutoff:
-            self.samples.popleft()
-        return [ttft_ms for ts, ttft_ms in self.samples if ts <= now]
+        kept: deque[tuple[float, float]] = deque()
+        visible: list[float] = []
+        for ts, ttft_ms in self.samples:
+            if ts < cutoff:
+                continue
+            kept.append((ts, ttft_ms))
+            if ts <= now:
+                visible.append(ttft_ms)
+        self.samples = kept
+        return visible
 
     def mean(self, now: float) -> float | None:
-        values = self.values(now)
-        if not values:
+        if now < self._mean_clock_sec:
+            values = [ttft_ms for ts, ttft_ms in self.samples if now - self.window_sec <= ts <= now]
+            if not values:
+                return None
+            return float(np.mean(values))
+
+        self._advance_mean_window(float(now))
+        if self._mean_count == 0:
             return None
-        return float(np.mean(values))
+        return self._mean_sum / self._mean_count
 
     def cdf(self, value_ms: float, now: float) -> float | None:
         values = self.values(now)
         if not values:
             return None
         return float(np.mean(np.asarray(values) <= value_ms))
+
+    def _advance_mean_window(self, now: float) -> None:
+        self._mean_clock_sec = now
+        cutoff = now - self.window_sec
+        while self._mean_pending and self._mean_pending[0][0] <= now:
+            ts, seq, value = heapq.heappop(self._mean_pending)
+            if ts >= cutoff:
+                heapq.heappush(self._mean_active, (ts, seq, value))
+                self._mean_sum += value
+                self._mean_count += 1
+        while self._mean_active and self._mean_active[0][0] < cutoff:
+            _, _, value = heapq.heappop(self._mean_active)
+            self._mean_sum -= value
+            self._mean_count -= 1
 
 
 @dataclass

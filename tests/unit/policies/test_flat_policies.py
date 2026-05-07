@@ -8,6 +8,7 @@ from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy
 from rwsim.policies import routewise as routewise_module
 from rwsim.policies.routewise import (
+    RollingLatencyProfile,
     RouteWisePolicy,
     _cost_tiebroken_objective,
     _normalize_weights,
@@ -201,6 +202,33 @@ def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatc
 
     assert decision.primary_provider == "fast"
     assert decision.metadata["weights"] == {"fast": 1.0}
+
+
+def test_rolling_latency_profile_does_not_use_future_observations() -> None:
+    profile = RollingLatencyProfile(window_sec=100.0)
+
+    profile.add_sample(10.0, 1000.0)
+    profile.add_sample(2.0, 100.0)
+
+    assert profile.mean(1.0) is None
+    assert profile.mean(3.0) == pytest.approx(100.0)
+    assert profile.mean(11.0) == pytest.approx(550.0)
+
+
+def test_rolling_latency_profile_expires_out_of_order_observations() -> None:
+    profile = RollingLatencyProfile(window_sec=5.0)
+
+    profile.add_sample(10.0, 1000.0)
+    profile.add_sample(2.0, 100.0)
+    profile.add_sample(12.0, 300.0)
+    profile.add_sample(4.0, 200.0)
+
+    assert profile.mean(6.0) == pytest.approx(150.0)
+    assert profile.cdf(150.0, 6.0) == pytest.approx(0.5)
+    assert profile.mean(11.0) == pytest.approx(1000.0)
+    assert profile.cdf(500.0, 11.0) == pytest.approx(0.0)
+    assert profile.mean(13.0) == pytest.approx(650.0)
+    assert profile.cdf(500.0, 13.0) == pytest.approx(0.5)
 
 
 def test_routewise_requires_explicit_cost_envelope():
