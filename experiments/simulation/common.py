@@ -9,7 +9,7 @@ import math
 import multiprocessing
 import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -53,15 +53,16 @@ COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
 OUTPUT_COST_MULTIPLIER = 5.0
 COST_LAYER_P50_MS = 300.0
 DEFAULT_SEEDS = (42,)
-DEFAULT_WORKLOAD = "sharegpt_burstgpt"
+DEFAULT_WORKLOAD = "burstgpt"
 DEFAULT_TPS_P50 = 150.0
 WORKLOAD_COST_ENVELOPE = "workload_p10_p90"
 _WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
-    "sharegpt_burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
 }
+_TRACE_CACHE_WORKLOADS = ("freeinference", "rednote")
+WORKLOAD_CHOICES = (*_WORKLOAD_PATHS, *_TRACE_CACHE_WORKLOADS)
 
 
 @dataclass(frozen=True)
@@ -315,6 +316,11 @@ def _load_cached_workload(dataset: str) -> tuple[Request, ...]:
 
 def ensure_workload_cache(dataset: str = DEFAULT_WORKLOAD) -> Path:
     """Build the compact simulator workload cache if it is missing or stale."""
+    if dataset in _TRACE_CACHE_WORKLOADS:
+        from experiments.simulation.dataset_cache import _dataset_cache_path, ensure_caches
+
+        ensure_caches([dataset])
+        return _dataset_cache_path(dataset)
     path = _workload_path(dataset)
     cache_path, manifest_path = _workload_cache_paths(path)
     if not _workload_cache_is_valid(path, cache_path, manifest_path):
@@ -382,8 +388,27 @@ def _workload_path(dataset: str) -> Path:
     try:
         return _WORKLOAD_PATHS[dataset]
     except KeyError as exc:
-        known = ", ".join(sorted(_WORKLOAD_PATHS))
+        known = ", ".join(WORKLOAD_CHOICES)
         raise ValueError(f"unknown workload {dataset!r}; expected one of: {known}") from exc
+
+
+@cache
+def _load_cached_trace_workload(dataset: str) -> tuple[Request, ...]:
+    """Load a dataset-cache workload and normalize it for simulator replay."""
+    from experiments.simulation.dataset_cache import load_cached
+
+    requests = tuple(load_cached(dataset))
+    if not requests:
+        return ()
+    first_timestamp = float(requests[0].timestamp)
+    return tuple(
+        replace(
+            request,
+            id=index,
+            timestamp=float(request.timestamp) - first_timestamp,
+        )
+        for index, request in enumerate(requests)
+    )
 
 
 def _read_jsonl_workload(
@@ -453,6 +478,13 @@ def load_workload(
     requests and their metadata as read-only. Request IDs are dense simulator
     request indexes, not raw JSONL line numbers.
     """
+    if dataset in _TRACE_CACHE_WORKLOADS:
+        selected = _select_cached_requests(
+            _load_cached_trace_workload(dataset),
+            duration_sec=duration_sec,
+            max_requests=max_requests,
+        )
+        return list(selected)
     path = _workload_path(dataset)
     cache_path, manifest_path = _workload_cache_paths(path)
     if (
@@ -1507,6 +1539,7 @@ __all__ = [
     "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
     "P_SWEEP",
+    "WORKLOAD_CHOICES",
     "WORKLOAD_COST_ENVELOPE",
     "SectionCell",
     "SectionCellResult",

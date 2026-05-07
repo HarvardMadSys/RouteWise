@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from experiments.simulation import common
+from rwsim.schemas import Request
 
 
 def _write_jsonl(path, rows):
@@ -103,3 +104,23 @@ def test_truncated_smoke_load_does_not_build_full_cache(tmp_path, monkeypatch):
 
     assert len(common.load_workload(dataset="unit_smoke", max_requests=2)) == 2
     assert not source.with_name(f"{source.name}.simcache.pkl").exists()
+
+
+def test_load_workload_supports_dataset_cache_traces(monkeypatch):
+    cached_requests = (
+        Request(id=7, timestamp=1000.0, request_tokens=10, response_tokens=20),
+        Request(id=8, timestamp=1005.0, request_tokens=11, response_tokens=21),
+        Request(id=9, timestamp=1009.0, request_tokens=12, response_tokens=22),
+    )
+    monkeypatch.setattr(common, "_TRACE_CACHE_WORKLOADS", ("cached_unit",))
+    monkeypatch.setattr(
+        "experiments.simulation.dataset_cache.load_cached",
+        lambda dataset: cached_requests,
+    )
+    common._load_cached_trace_workload.cache_clear()
+
+    requests = common.load_workload(dataset="cached_unit", duration_sec=5.0)
+
+    assert [request.id for request in requests] == [0, 1]
+    assert [request.timestamp for request in requests] == [0.0, 5.0]
+    assert [request.request_tokens for request in requests] == [10, 11]

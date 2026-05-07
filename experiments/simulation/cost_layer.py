@@ -15,6 +15,7 @@ from experiments.simulation.common import (
     OUTPUT_COST_MULTIPLIER,
     OUTPUT_DIR,
     P_SWEEP,
+    WORKLOAD_CHOICES,
     SectionCell,
     SectionCellResult,
     load_workload,
@@ -515,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--workload",
         default=DEFAULT_WORKLOAD,
-        choices=("sharegpt_burstgpt", "burstgpt"),
+        choices=WORKLOAD_CHOICES,
         help="Trace workload to replay.",
     )
     parser.add_argument(

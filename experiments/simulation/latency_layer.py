@@ -5,7 +5,7 @@ providers (fast / medium / slow) with P50 = 100 / 300 / 1000 ms and a target
 Q10-Q90 band coverage on the (fast, medium) anchor pair (see
 :mod:`experiments.simulation.latency_overlap`).
 
-Scenario grid: 3 synthetic families × 2 overlap labels, plus one RW3
+Scenario grid: 3 synthetic families x 2 overlap labels, plus one RW3
 real-world scenario = 7 scenarios.
 
 Policies: random, greedy_latency, plus one LP-only RouteWise setting at the
@@ -31,6 +31,7 @@ from experiments.simulation.common import (
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
     OUTPUT_DIR,
+    WORKLOAD_CHOICES,
     SectionCell,
     SectionCellResult,
     load_workload,
@@ -46,8 +47,8 @@ from experiments.simulation.latency_overlap import (
     LATENCY_LAYER_P50_MS,
     OVERLAP_TARGETS,
     PROVIDER_NAMES,
-    OverlapSpec,
     SYNTHETIC_FAMILIES,
+    OverlapSpec,
     build_distributions,
     summarise_realised_overlap,
     verify_calibration,
@@ -55,7 +56,6 @@ from experiments.simulation.latency_overlap import (
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
-
 
 SECTION_NAME = "latency-layer"
 
@@ -364,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--workload",
         default=DEFAULT_WORKLOAD,
-        choices=("sharegpt_burstgpt", "burstgpt"),
+        choices=WORKLOAD_CHOICES,
         help="Trace workload to replay.",
     )
     parser.add_argument(
