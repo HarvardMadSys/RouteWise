@@ -27,7 +27,12 @@ _DISPATCH_OVERHEAD_MS = 50.0
 
 @dataclass
 class RollingLatencyProfile:
-    """Causal moving-window empirical latency profile for one provider."""
+    """Causal moving-window empirical latency profile for one provider.
+
+    The simulator queries profiles with nondecreasing route-observation time.
+    ``mean`` keeps a defensive backwards-query fallback for tests and ad hoc
+    probes, but hot-path callers should treat this as a monotonic-time API.
+    """
 
     window_sec: float = 15 * 60.0
     samples: deque[tuple[float, float]] = field(default_factory=deque)

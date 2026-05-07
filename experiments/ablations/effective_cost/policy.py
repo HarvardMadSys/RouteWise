@@ -8,7 +8,6 @@ fields to the production RouteWisePolicy surface.
 from __future__ import annotations
 
 import math
-from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -16,6 +15,7 @@ import numpy as np
 
 from experiments.ablations.effective_cost.curves import ScarcityCurve, scarcity_price
 from rwsim.policies.base import NoOpTickMixin
+from rwsim.policies.routewise import RollingLatencyProfile
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -27,29 +27,6 @@ if TYPE_CHECKING:
 
 _LP_EPS = 1e-9
 _COST_TIEBREAK_MS = 1e-3
-
-
-@dataclass
-class RollingLatencyProfile:
-    """Causal moving-window empirical latency profile for one provider."""
-
-    window_sec: float = 15 * 60.0
-    samples: deque[tuple[float, float]] = field(default_factory=deque)
-
-    def add_sample(self, timestamp: float, ttft_ms: float) -> None:
-        self.samples.append((float(timestamp), float(ttft_ms)))
-
-    def values(self, now: float) -> list[float]:
-        cutoff = now - self.window_sec
-        while self.samples and self.samples[0][0] < cutoff:
-            self.samples.popleft()
-        return [ttft_ms for timestamp, ttft_ms in self.samples if timestamp <= now]
-
-    def mean(self, now: float) -> float | None:
-        values = self.values(now)
-        if not values:
-            return None
-        return float(np.mean(values))
 
 
 @dataclass

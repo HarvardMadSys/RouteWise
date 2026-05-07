@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy
+from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy, RollingLatencyProfile
 from experiments.simulation.common import (
     make_api_provider,
     make_concurrency_provider,
@@ -211,6 +211,19 @@ def test_p_changes_weights_after_latency_profile_observations() -> None:
 
     assert low.metadata["weights"] == {"api_cheap": 1.0}
     assert high.metadata["weights"] == {"api_expensive": 1.0}
+
+
+def test_ablation_uses_optimized_rolling_latency_profile_semantics() -> None:
+    profile = RollingLatencyProfile(window_sec=5.0)
+
+    profile.add_sample(10.0, 1000.0)
+    profile.add_sample(2.0, 100.0)
+    profile.add_sample(12.0, 300.0)
+    profile.add_sample(4.0, 200.0)
+
+    assert profile.mean(6.0) == pytest.approx(150.0)
+    assert profile.mean(11.0) == pytest.approx(1000.0)
+    assert profile.mean(13.0) == pytest.approx(650.0)
 
 
 @pytest.mark.parametrize("p", [-0.1, 1.1])
