@@ -8,17 +8,20 @@ fields to the production RouteWisePolicy surface.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from experiments.ablations.effective_cost.curves import ScarcityCurve, scarcity_price
-from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
-from rwsim.schemas import Request, RoutingDecision
+from rwsim.policies.base import NoOpTickMixin
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from rwsim.engine.state import SimulationState
     from rwsim.world.providers import Provider
 
@@ -27,7 +30,30 @@ _COST_TIEBREAK_MS = 1e-3
 
 
 @dataclass
-class LPOnlyAblationPolicy(NoOpTickMixin, NoOpObserveMixin):
+class RollingLatencyProfile:
+    """Causal moving-window empirical latency profile for one provider."""
+
+    window_sec: float = 15 * 60.0
+    samples: deque[tuple[float, float]] = field(default_factory=deque)
+
+    def add_sample(self, timestamp: float, ttft_ms: float) -> None:
+        self.samples.append((float(timestamp), float(ttft_ms)))
+
+    def values(self, now: float) -> list[float]:
+        cutoff = now - self.window_sec
+        while self.samples and self.samples[0][0] < cutoff:
+            self.samples.popleft()
+        return [ttft_ms for timestamp, ttft_ms in self.samples if timestamp <= now]
+
+    def mean(self, now: float) -> float | None:
+        values = self.values(now)
+        if not values:
+            return None
+        return float(np.mean(values))
+
+
+@dataclass
+class LPOnlyAblationPolicy(NoOpTickMixin):
     """Cost-router-only ablation policy with experiment-scoped curves."""
 
     quota_curve: ScarcityCurve
@@ -35,7 +61,9 @@ class LPOnlyAblationPolicy(NoOpTickMixin, NoOpObserveMixin):
     p: float
     cost_envelope: tuple[float, float]
     seed: int = 0
+    profile_window_sec: float = 15 * 60.0
     rng: np.random.Generator = field(init=False, repr=False)
+    profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.p <= 1.0:
@@ -50,6 +78,7 @@ class LPOnlyAblationPolicy(NoOpTickMixin, NoOpObserveMixin):
 
     def route(self, request: Request, state: SimulationState) -> RoutingDecision:
         """Solve the LP-only cost-router decision and return a primary provider."""
+        self._ensure_profiles(state.providers)
         providers = [
             provider for provider in state.providers.values() if provider.is_available(state.now)
         ]
@@ -69,7 +98,9 @@ class LPOnlyAblationPolicy(NoOpTickMixin, NoOpObserveMixin):
             )
             for provider in providers
         }
-        tbar = {provider.name: provider.true_mean_ms(state.now) for provider in providers}
+        tbar = {
+            provider.name: self._latency_objective_ms(provider, state.now) for provider in providers
+        }
 
         names = [provider.name for provider in providers]
         c_min = min(c_eff.values())
@@ -140,6 +171,35 @@ class LPOnlyAblationPolicy(NoOpTickMixin, NoOpObserveMixin):
         raise ValueError(
             f"unsupported provider tier for effective-cost ablation: {provider.tier!r}"
         )
+
+    def observe(
+        self,
+        request: Request,
+        decision: RoutingDecision,
+        outcome: RoutingOutcome,
+    ) -> None:
+        """Feed observed TTFT samples into the LP-only latency objective."""
+        del request
+        self._profile(decision.primary_provider).add_sample(
+            float(outcome.metadata.get("primary_observed_at", 0.0)),
+            float(outcome.metadata.get("primary_ttft_ms", outcome.ttft_ms)),
+        )
+
+    def _ensure_profiles(self, providers: Mapping[str, Provider]) -> None:
+        for name in providers:
+            self._profile(name)
+
+    def _profile(self, name: str) -> RollingLatencyProfile:
+        return self.profiles.setdefault(
+            name,
+            RollingLatencyProfile(window_sec=self.profile_window_sec),
+        )
+
+    def _latency_objective_ms(self, provider: Provider, now: float) -> float:
+        mean = self._profile(provider.name).mean(now)
+        if mean is not None:
+            return mean
+        return provider.true_mean_ms(now)
 
 
 def _solve_lp(
@@ -242,4 +302,5 @@ def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str
 
 __all__ = [
     "LPOnlyAblationPolicy",
+    "RollingLatencyProfile",
 ]

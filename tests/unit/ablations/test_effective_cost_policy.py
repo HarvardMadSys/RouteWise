@@ -8,7 +8,7 @@ from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy
 from experiments.simulation.common import make_api_provider, make_quota_provider
 from rwsim.engine.state import SimulationState
 from rwsim.policies.routewise import RouteWisePolicy, quota_shadow_price
-from rwsim.schemas import Request
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 
 
 def _request() -> Request:
@@ -128,6 +128,64 @@ def test_p_changes_budget_without_changing_cost_envelope() -> None:
     assert low.metadata["L"] == pytest.approx(high.metadata["L"])
     assert low.metadata["U"] == pytest.approx(high.metadata["U"])
     assert low.metadata["budget"] < high.metadata["budget"]
+
+
+def test_p_changes_weights_after_latency_profile_observations() -> None:
+    providers = [
+        make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=1.0,
+            latency_family="heavy_tail",
+        ),
+        make_api_provider(
+            "api_expensive",
+            cost_per_million_tokens=4.0,
+            latency_family="heavy_tail",
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = _request()
+    cost_envelope = (0.0001, 0.001)
+
+    def policy_with_profile(p: float) -> LPOnlyAblationPolicy:
+        policy = LPOnlyAblationPolicy(
+            quota_curve="exp_lu",
+            concurrency_curve="legacy_linear_u",
+            p=p,
+            cost_envelope=cost_envelope,
+            seed=7,
+        )
+        policy.observe(
+            request,
+            RoutingDecision(primary_provider="api_cheap"),
+            RoutingOutcome(
+                request_id=request.id,
+                primary_provider="api_cheap",
+                final_provider="api_cheap",
+                ttft_ms=500.0,
+                cost_usd=0.0,
+                metadata={"primary_observed_at": 0.0, "primary_ttft_ms": 500.0},
+            ),
+        )
+        policy.observe(
+            request,
+            RoutingDecision(primary_provider="api_expensive"),
+            RoutingOutcome(
+                request_id=request.id,
+                primary_provider="api_expensive",
+                final_provider="api_expensive",
+                ttft_ms=100.0,
+                cost_usd=0.0,
+                metadata={"primary_observed_at": 0.0, "primary_ttft_ms": 100.0},
+            ),
+        )
+        return policy
+
+    low = policy_with_profile(0.0).route(request, state)
+    high = policy_with_profile(1.0).route(request, state)
+
+    assert low.metadata["weights"] == {"api_cheap": 1.0}
+    assert high.metadata["weights"] == {"api_expensive": 1.0}
 
 
 @pytest.mark.parametrize("p", [-0.1, 1.1])

@@ -408,14 +408,17 @@ class LPOnlyAblationPolicy:
     p: float
     cost_envelope: tuple[float, float]
     seed: int = 0
+    profile_window_sec: float = 15 * 60
 
     def route(self, request, state):
         ...
 ```
 
-This policy intentionally omits hedging, explorer feedback, and latency-profile
-learning. It should duplicate only the small LP-only cost-router logic needed
-for a clean formula ablation.
+This policy intentionally omits hedging and explorer feedback. It should keep
+the same rolling latency-profile objective as production LP-only RouteWise so
+the `p` sweep remains meaningful under equal configured provider latency
+distributions. It should duplicate only the small LP-only cost-router and
+profile logic needed for a clean formula ablation.
 
 Policy construction is ablation-local. `presets.py` may emit curve/p metadata,
 but `harness.py` should instantiate `LPOnlyAblationPolicy` through a small
@@ -560,7 +563,6 @@ This ablation should not include:
 - explorer feedback
 - live OpenRouter calls
 - service-time-aware concurrency pricing
-- latency-profile learning
 - queueing policies for S_C
 - real invoice reconciliation
 
