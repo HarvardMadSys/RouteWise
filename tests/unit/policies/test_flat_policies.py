@@ -6,7 +6,14 @@ import pytest
 
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy
-from rwsim.policies.routewise import RouteWisePolicy
+from rwsim.policies import routewise as routewise_module
+from rwsim.policies.routewise import (
+    RouteWisePolicy,
+    _cost_tiebroken_objective,
+    _normalize_weights,
+    _same_cost_shortcut_weights,
+    _solve_lp,
+)
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier, QuotaState
 from rwsim.world.distributions import Uniform
@@ -126,6 +133,74 @@ def test_routewise_uses_cost_tiebreak_when_latency_objective_is_equal():
 
     assert decision.primary_provider == "cheap"
     assert decision.metadata["weights"] == {"cheap": 1.0}
+
+
+@pytest.mark.parametrize(
+    ("latencies", "costs", "p_value"),
+    [
+        ([100.0, 300.0, 1000.0], [1.0, 1.0, 1.0], 0.75),
+        ([100.0, 100.0, 1000.0], [1.0, 1.0, 1.0], 0.75),
+        ([100.0, 100.0, 100.0], [1.0, 1.0 + 1e-10, 1.0 + 5e-10], 0.0),
+    ],
+)
+def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
+    latencies: list[float],
+    costs: list[float],
+    p_value: float,
+) -> None:
+    names = ["fast", "medium", "slow"]
+    objective = _cost_tiebroken_objective(latencies, costs)
+    c_min = min(costs)
+    c_max = max(costs)
+    success, vector = _solve_lp(
+        objective=objective,
+        upper_constraint=costs,
+        upper_bound=c_min + p_value * (c_max - c_min),
+    )
+
+    assert success
+    assert vector is not None
+    assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == (
+        _normalize_weights(names, vector)
+    )
+
+
+def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
+    providers = [
+        TieredProvider(
+            name="slow",
+            cost_per_token=1e-6,
+            ttft_dist=Uniform(900.0, 1100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+        TieredProvider(
+            name="fast",
+            cost_per_token=1e-6,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = RouteWisePolicy(
+        hedging=False,
+        explorer=False,
+        p=0.75,
+        seed=7,
+        cost_envelope=(1e-6, 1e-3),
+    )
+
+    def fail_solve_lp(*args, **kwargs):
+        raise AssertionError("_solve_lp should not run for same-cost providers")
+
+    monkeypatch.setattr(routewise_module, "_solve_lp", fail_solve_lp)
+
+    decision = policy.route(request, state)
+
+    assert decision.primary_provider == "fast"
+    assert decision.metadata["weights"] == {"fast": 1.0}
 
 
 def test_routewise_requires_explicit_cost_envelope():

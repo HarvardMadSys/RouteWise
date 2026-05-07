@@ -113,16 +113,24 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         c_min = min(c_eff.values())
         c_max = max(c_eff.values())
         budget = c_min + self.p * (c_max - c_min)
-
-        success, vector = _solve_lp(
-            objective=_cost_tiebroken_objective(
-                [tbar[name] for name in names],
-                [c_eff[name] for name in names],
-            ),
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
+        objective = _cost_tiebroken_objective(
+            [tbar[name] for name in names],
+            [c_eff[name] for name in names],
         )
-        weights = _normalize_weights(names, vector) if success and vector is not None else {}
+
+        if c_max - c_min <= _LP_EPS:
+            weights = _same_cost_shortcut_weights(
+                names,
+                objective=objective,
+                costs=[c_eff[name] for name in names],
+            )
+        else:
+            success, vector = _solve_lp(
+                objective=objective,
+                upper_constraint=[c_eff[name] for name in names],
+                upper_bound=budget,
+            )
+            weights = _normalize_weights(names, vector) if success and vector is not None else {}
         if not weights:
             best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
             weights = {best.name: 1.0}
@@ -413,6 +421,25 @@ def _cost_tiebroken_objective(
 
     normalized_costs = (costs - costs.min()) / cost_span
     return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+
+
+def _same_cost_shortcut_weights(
+    names: list[str],
+    *,
+    objective: list[float],
+    costs: list[float],
+) -> dict[str, float]:
+    """Return the one-hot LP optimum when every provider has the same cost."""
+    best_name: str | None = None
+    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
+    n = len(names)
+    for index, name in enumerate(names):
+        vector = tuple(1.0 if position == index else 0.0 for position in range(n))
+        key = (float(objective[index]), float(costs[index]), 1, vector)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    return {best_name: 1.0} if best_name is not None else {}
 
 
 def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
