@@ -69,7 +69,25 @@ class TtftHistogram:
 
     def add(self, value_ms: float) -> None:
         """Add one latency value."""
-        self.add_array(np.asarray([value_ms], dtype=float))
+        value = float(value_ms)
+        if not np.isfinite(value):
+            return
+
+        self.sum_value += value
+        self.sum_sq += value * value
+        self.n += 1
+        self.min_value = min(self.min_value, value)
+        self.max_value = max(self.max_value, value)
+
+        edges = self.bin_edges_ms
+        assert self.counts is not None
+        if value < edges[0]:
+            self.counts[0] += 1
+        elif value >= edges[-1]:
+            self.counts[-1] += 1
+        else:
+            bin_idx = int(np.searchsorted(edges, value, side="right"))
+            self.counts[bin_idx] += 1
 
     def add_array(self, values_ms: np.ndarray) -> None:
         """Add latency values."""

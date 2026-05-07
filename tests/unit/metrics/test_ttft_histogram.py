@@ -35,6 +35,25 @@ def test_histogram_counts_underflow_overflow_and_values() -> None:
     assert histogram.mean() == pytest.approx((1.0 + 10.0 + 50.0 + 100.0 + 500.0 + 5000.0) / 6)
 
 
+def test_scalar_add_matches_batch_add() -> None:
+    values = np.asarray(
+        [float("-inf"), 1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, float("nan")],
+    )
+    scalar = TtftHistogram(bin_edges_ms=np.asarray([10.0, 100.0, 1000.0]))
+    batch = TtftHistogram(bin_edges_ms=np.asarray([10.0, 100.0, 1000.0]))
+
+    for value in values:
+        scalar.add(float(value))
+    batch.add_array(values)
+
+    assert scalar.n == batch.n
+    assert scalar.counts.tolist() == batch.counts.tolist()
+    assert scalar.mean() == pytest.approx(batch.mean())
+    assert scalar.std() == pytest.approx(batch.std())
+    assert scalar.min_value == pytest.approx(batch.min_value)
+    assert scalar.max_value == pytest.approx(batch.max_value)
+
+
 def test_histogram_quantiles_track_numpy_reference_with_reasonable_precision() -> None:
     rng = np.random.default_rng(0)
     values = rng.lognormal(mean=np.log(300.0), sigma=0.7, size=20_000)
