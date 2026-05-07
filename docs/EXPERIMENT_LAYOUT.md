@@ -61,8 +61,9 @@ one file in `experiments/simulation/` per
 - **§2 Latency layer** (`latency_layer.py` + `hedging.py`) — same cost /
   different latency. Sub-experiments sweep distribution family
   (uniform / normal / heavy_tail / real_world) and overlap (no_overlap /
-  half_overlap). §2.2 adds the Hedging-Explorer on three- and
-  eight-provider configurations.
+  half_overlap). Synthetic overlap construction is defined in
+  [`LATENCY_LAYER_DESIGN.md`](LATENCY_LAYER_DESIGN.md). §2.2 adds the
+  Hedging-Explorer on three- and eight-provider configurations.
 - **§3 End-to-end** (`end_to_end.py`) — real-world cost and real-world
   latency, multi-tier deployments. §3.1 hedging on, §3.2 sweep `p`. The
   three-provider config is `1 SA + 1 SQ + 1 SC`; the eight-provider config
@@ -190,7 +191,7 @@ These need a decision or an owner before the relevant experiment can run.
 |---|---|---|
 | Queueing-vs-input-length measurement data for motivation figure | Juncheng | He said "added in the last few days" — need export |
 | Subscription count answer (1 vs 2/3/4) under 1-month ShareGPT | Murphy | Can run once cost-layer harness is ready |
-| Distribution-overlap parameterisation (KL? area? σ ratio?) | Murphy + Haoran | Pick one before latency layer |
+| Latency-layer overlap implementation | Murphy + Haoran | Design locked in [`LATENCY_LAYER_DESIGN.md`](LATENCY_LAYER_DESIGN.md); implement before latency-layer runner |
 | Hedging probing frequency in `live/` runs | Murphy | Soft default = 1 hour bootstrap |
 | Per-provider prefix-hit-rate modelling for `live/` | (defer) | Locked: assume 100% in `simulation/`; revisit only if `live/` results need it |
 | End-to-end: keep no-hedge column? | Juncheng | Soft default = yes for ablation |

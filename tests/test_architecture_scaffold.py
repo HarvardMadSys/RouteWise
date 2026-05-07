@@ -242,7 +242,13 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_section_simulator_phase0_surface_is_registered_incrementally(self) -> None:
         from routewise_cli.main import SIMULATOR_SECTIONS
 
-        self.assertEqual(SIMULATOR_SECTIONS, {"cost-layer": "experiments.simulation.cost_layer"})
+        self.assertEqual(
+            SIMULATOR_SECTIONS,
+            {
+                "cost-layer": "experiments.simulation.cost_layer",
+                "latency-layer": "experiments.simulation.latency_layer",
+            },
+        )
         for module_name in (
             "experiments.simulation.cost_layer",
             "experiments.simulation.latency_layer",

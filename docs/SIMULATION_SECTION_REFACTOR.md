@@ -480,9 +480,9 @@ factories, doc) but `routewise_cli/main.py` does not add the
 form also wires the CLI subcommand at the same time.
 
 `--policy`, `--scenario`, `--seed` are repeatable; default is the
-section's full set. `--p` is a repeatable float in [0, 1]; default is
-`P_SWEEP` for sections that vary `p`, single value `0.75` for sections
-that don't.
+section's full set. `--p` is section-specific: cost-layer uses repeatable
+values for p sweeps, while latency-layer accepts a single representative
+value and defaults to `0.75`.
 
 `routewise simulator list` prints:
 
@@ -724,8 +724,8 @@ reviewer can trace each parameter back to a decision.
 | cost_layer subscription-count sweep | `{1, 2, 3, 4}` for both quota and concurrency | Murphy + Juncheng 5/4 |
 | cost_layer real-world distribution | `cost_layer_real_world` uses `rw8_pooled` empirical Qwen3/OpenRouter TTFT for all three S_A providers | Murphy |
 | latency_layer P50 ladder | `100ms / 300ms / 1000ms` (10× geometric) | Notion §2.1 + 5/4 stage1 spec |
-| latency_layer overlap regimes | `no_overlap` + `half_overlap` only (two regimes, not three) | Notion §2.1 |
-| latency_layer p sweep | not the dominant axis here; default `p = 0.75`. Add sweep only if a paper figure asks | Murphy |
+| latency_layer overlap regimes | `no_overlap` + `half_overlap` only; `half_overlap` means fast-to-medium Q10-Q90 directional band coverage = 0.5 | Notion §2.1 + `docs/LATENCY_LAYER_DESIGN.md` |
+| latency_layer p value | no p sweep in §2.1 because equal provider costs make `B_p` independent of `p`; default single value `p = 0.75` | Murphy |
 | hedging cells | heavy_tail (synthetic) + real_world (later) — two scenarios per Notion §2.2 | Notion §2.2 |
 | hedging policies | `ablation_lp_only` vs `ablation_lp_hedging` (no `routewise` preset) | derived from explorer-off invariant |
 | end_to_end no-hedge column | yes — keep as ablation column | Murphy + Juncheng 5/4 |
@@ -806,8 +806,8 @@ results, stop and re-litigate before proceeding to Phase 2.
 
 Lands:
 
-- `experiments/simulation/latency_layer.py` full form, including
-  `_construct_overlap_distributions()`.
+- `experiments/simulation/latency_overlap.py` helper for construction/reporting
+  metrics, plus `experiments/simulation/latency_layer.py` full section runner.
 - `routewise_cli/main.py` registers `latency-layer` subcommand.
 - `tests/golden/latency_layer/*.json` for the 6 `family × overlap`
   cells.
