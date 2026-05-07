@@ -1255,7 +1255,8 @@ def _run_section_parallel(
         "mp_context": context,
     }
     if "max_tasks_per_child" in inspect.signature(ProcessPoolExecutor).parameters:
-        executor_kwargs["max_tasks_per_child"] = 10
+        tasks_per_worker = math.ceil(len(cells) / max_workers)
+        executor_kwargs["max_tasks_per_child"] = max(10, tasks_per_worker + 1)
     with ProcessPoolExecutor(**executor_kwargs) as executor:
         futures = [
             executor.submit(
