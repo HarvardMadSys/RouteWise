@@ -51,10 +51,12 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     assert rw3.primary_slo_ms == pytest.approx(2000.0)
     assert rw3.metadata["slo_ms"] == pytest.approx(2000.0)
 
-    assert rw8.metadata["source_latency_scenario"] == "latency_pool_rw8"
+    assert rw8.metadata["source_latency_scenario"] is None
     assert rw8.metadata["latency_family"] == "real_world"
     assert rw8.metadata["real_world_pool"] == "rw8"
     assert len(rw8.providers) == 8
+    assert len({provider.effective_input_cost_per_token for provider in rw8.providers}) == 1
+    assert len({provider.effective_output_cost_per_token for provider in rw8.providers}) == 1
     assert rw8.primary_slo_ms == pytest.approx(2000.0)
 
 
@@ -90,6 +92,7 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert hedging_row["backup_selection"] == "probability_target_non_primary"
     assert hedging_row["learns_from_backup"] is False
     assert hedging_row["latency_profile_mode"] == "configured"
+    assert "real_world_pool" in hedging_row
 
     for row in rows:
         assert row["slo_ms"] == 500.0

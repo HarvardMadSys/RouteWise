@@ -57,11 +57,12 @@ HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
 REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
 REAL_WORLD_RW8_SCENARIO_NAME: str = "hedging_real_world_rw8"
 REAL_WORLD_SCENARIO_NAME: str = REAL_WORLD_RW3_SCENARIO_NAME
+REAL_WORLD_RW8_POOL_NAME: str = "rw8"
 
-_SOURCE_LATENCY_SCENARIOS: dict[str, str] = {
+_SOURCE_LATENCY_SCENARIOS: dict[str, str | None] = {
     HEAVY_TAIL_SCENARIO_NAME: "latency_layer_heavy_tail_half_overlap",
     REAL_WORLD_RW3_SCENARIO_NAME: latency_layer.REAL_WORLD_SCENARIO_NAME,
-    REAL_WORLD_RW8_SCENARIO_NAME: "latency_pool_rw8",
+    REAL_WORLD_RW8_SCENARIO_NAME: None,
 }
 
 # Heavy-tail synthetic uses a tighter SLO to make hedge decisions observable.
@@ -96,8 +97,14 @@ def make_scenario(name: str) -> ScenarioConfig:
         raise ValueError(f"unknown hedging scenario {name!r}; known: {known}") from exc
 
     if name == REAL_WORLD_RW8_SCENARIO_NAME:
-        base = _make_rw8_scenario()
+        base = _make_real_world_pool_scenario(
+            pool_name=REAL_WORLD_RW8_POOL_NAME,
+            scenario_name=name,
+            slo_ms=_SCENARIO_SLO_MS[name],
+        )
     else:
+        if source_name is None:
+            raise ValueError(f"hedging scenario {name!r} has no source latency scenario")
         base = latency_layer.make_scenario(source_name)
     slo_ms = _SCENARIO_SLO_MS[name]
     base_meta = dict(base.metadata or {})
@@ -129,9 +136,14 @@ def make_scenario(name: str) -> ScenarioConfig:
     )
 
 
-def _make_rw8_scenario() -> ScenarioConfig:
-    """Build the eight-provider real-world scenario for §2.2 hedging ablations."""
-    pool = load_pool("rw8")
+def _make_real_world_pool_scenario(
+    *,
+    pool_name: str,
+    scenario_name: str,
+    slo_ms: float,
+) -> ScenarioConfig:
+    """Build one same-cost real-world provider-pool scenario for §2.2."""
+    pool = load_pool(pool_name)
     providers = [
         TieredProvider(
             name=provider_name,
@@ -148,19 +160,19 @@ def _make_rw8_scenario() -> ScenarioConfig:
         for provider_name, ttft_dist in pool.items()
     ]
     return ScenarioConfig(
-        name=REAL_WORLD_RW8_SCENARIO_NAME,
+        name=scenario_name,
         description=(
-            "§2.2 hedging: eight-provider real-world RW8 latency pool, "
+            f"§2.2 hedging: real-world {pool_name.upper()} latency pool, "
             "same provider costs, probability-target hedging."
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=_SCENARIO_SLO_MS[REAL_WORLD_RW8_SCENARIO_NAME],
+        primary_slo_ms=slo_ms,
         metadata={
             "public_scenario": latency_layer.PUBLIC_SCENARIO_TAG,
-            "artifact_label": REAL_WORLD_RW8_SCENARIO_NAME,
+            "artifact_label": scenario_name,
             "latency_family": "real_world",
-            "real_world_pool": "rw8",
+            "real_world_pool": pool_name,
             "overlap_label": None,
             "overlap_construction_metric": None,
             "target_anchor_pair": None,
@@ -317,6 +329,7 @@ def _enrich_rows_with_hedging_metadata(
             {
                 "hedging_scenario": meta.get("hedging_scenario"),
                 "source_latency_scenario": meta.get("source_latency_scenario"),
+                "real_world_pool": meta.get("real_world_pool"),
                 "latency_family": meta.get("latency_family"),
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
@@ -418,6 +431,7 @@ _HEDGING_CSV_FIELDNAMES: tuple[str, ...] = (
     "artifact_label",
     "hedging_scenario",
     "source_latency_scenario",
+    "real_world_pool",
     "latency_family",
     "overlap_label",
     "policy",

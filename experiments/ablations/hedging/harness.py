@@ -283,6 +283,7 @@ def _enrich_rows(
             {
                 "hedging_scenario": meta.get("hedging_scenario"),
                 "source_latency_scenario": meta.get("source_latency_scenario"),
+                "real_world_pool": meta.get("real_world_pool"),
                 "latency_family": meta.get("latency_family"),
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
@@ -357,6 +358,7 @@ _CSV_FIELDNAMES: tuple[str, ...] = (
     "policy",
     "hedging_scenario",
     "source_latency_scenario",
+    "real_world_pool",
     "latency_family",
     "overlap_label",
     "dispatch_timing",

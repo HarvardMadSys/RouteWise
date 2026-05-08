@@ -259,6 +259,7 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> N
     assert rows[0]["dispatch_timing"] == "latest_safe"
     assert rows[0]["backup_selection"] == "probability"
     assert rows[0]["latency_profile_mode"] == "configured"
+    assert "real_world_pool" in rows[0]
     assert rows[0]["production_baseline_policy"] == production_baseline_policy_name()
     assert rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert rows[0]["p99_delta_vs_production_ms"] == 0.0
