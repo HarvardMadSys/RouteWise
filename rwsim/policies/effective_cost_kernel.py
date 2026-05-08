@@ -1,9 +1,8 @@
-"""Candidate scarcity-price curves for the effective-cost ablation.
+"""Shared scarcity-price curves for RouteWise effective-cost routing.
 
-This module is intentionally experiment-scoped. It does not import provider,
-policy, or simulator engine types. The stable RouteWise implementation in
-``rwsim`` should only adopt one of these curves after the ablation result is
-settled.
+This module is intentionally pure: it does not import provider, policy, or
+simulator engine types. Callers extract the scarcity signal from their own
+state objects, then delegate the curve math here.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from typing import Literal
 ScarcityCurve = Literal[
     "exp_lu",
     "linear_lu",
-    "legacy_linear_u",
+    "util_linear_u",
     "constant_l",
     "constant_u",
 ]
@@ -22,7 +21,7 @@ ScarcityCurve = Literal[
 SCARCITY_CURVES: tuple[ScarcityCurve, ...] = (
     "exp_lu",
     "linear_lu",
-    "legacy_linear_u",
+    "util_linear_u",
     "constant_l",
     "constant_u",
 )
@@ -52,7 +51,7 @@ def scarcity_price(
         _validate_lu(curve, L=L, U=U)
         scarcity = _clamp(x)
         return L + scarcity * (U - L)
-    if curve == "legacy_linear_u":
+    if curve == "util_linear_u":
         _validate_positive("U", U, curve=curve)
         return U * _clamp(x)
     if curve == "constant_l":

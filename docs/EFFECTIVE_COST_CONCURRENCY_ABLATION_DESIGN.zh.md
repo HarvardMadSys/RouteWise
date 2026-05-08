@@ -24,7 +24,7 @@ concurrency 是请求结束后可复用资源。
 
 ```text
 在 S_C + S_A 的 concurrency-only 场景里，
-current legacy concurrency price 是否已经足够？
+util_linear_u concurrency price 是否已经足够？
 exp_lu / linear_lu 这类 unified candidate 是否真的更好？
 ```
 
@@ -114,7 +114,7 @@ Curves:
 
 | Curve | Formula | Interpretation |
 |---|---|---|
-| `legacy_linear_u` | `U * u` | 旧版 RouteWise concurrency behavior |
+| `util_linear_u` | `U * u` | 旧版 RouteWise concurrency behavior |
 | `exp_lu` | `L * (U/L)^u` | Unified exponential candidate |
 | `linear_lu` | `L + u(U-L)` | Unified linear alternative |
 | `constant_l` | `L` | Selected RouteWise concurrency default |
@@ -138,7 +138,7 @@ Expected qualitative result:
   concurrency as almost free at routing time. This is a strong mechanism
   hypothesis, not just a sanity check.
 - If `constant_l ≈ greedy_cost`, it confirms that the current p0 gap is caused
-  by legacy concurrency pricing being less aggressive than greedy admission.
+  by utilization-linear concurrency pricing being less aggressive than greedy admission.
 - If `exp_lu` also approaches greedy/offline without pathological saturation,
   it is a viable unified formula candidate.
 - If only `constant_l` approaches greedy/offline, concurrency likely needs a
@@ -192,7 +192,7 @@ Mechanism metrics:
 
 ## 6. Main Figures
 
-### Figure A. Percent Delta Heatmap vs `legacy_linear_u`
+### Figure A. Percent Delta Heatmap vs `util_linear_u`
 
 Rows:
 
@@ -200,7 +200,7 @@ Rows:
 constant_l
 exp_lu
 linear_lu
-legacy_linear_u
+util_linear_u
 constant_u
 ```
 
@@ -214,8 +214,8 @@ Cell value:
 
 ```text
 delta_pct(curve, n) =
-  (total_cost(curve, n) - total_cost(legacy_linear_u, n))
-  / total_cost(legacy_linear_u, n) * 100
+  (total_cost(curve, n) - total_cost(util_linear_u, n))
+  / total_cost(util_linear_u, n) * 100
 ```
 
 Interpretation:
@@ -234,7 +234,7 @@ Line plot:
 ```text
 x = n
 y = total_cost_usd_per_run
-lines = offline, greedy_cost, legacy_linear_u, exp_lu, linear_lu, constant_l, constant_u
+lines = offline, greedy_cost, util_linear_u, exp_lu, linear_lu, constant_l, constant_u
 ```
 
 Each line must mark its own argmin n with a star:
@@ -327,7 +327,7 @@ routewise ablation effective-cost \
   --concurrency-count 10 --concurrency-count 11 \
   --concurrency-count 12 --concurrency-count 13 \
   --concurrency-count 14 --concurrency-count 16 \
-  --concurrency-curve legacy_linear_u \
+  --concurrency-curve util_linear_u \
   --concurrency-curve exp_lu \
   --concurrency-curve linear_lu \
   --concurrency-curve constant_l \
@@ -367,7 +367,7 @@ Split by curve group:
 ```text
 freeinference-gpu:
   n={6,8,10,11,12,13,14,16}
-  curves={legacy_linear_u, exp_lu, linear_lu}
+  curves={util_linear_u, exp_lu, linear_lu}
   24 cells
 
 freeinference-gpu1:
@@ -425,7 +425,7 @@ subscription_fixed_cost_usd_per_run ≈ 25 * n * trace_days / 30
 4. `constant_l` should usually use more S_C than `constant_u`.
 5. `constant_u` should usually fall back to S_A more often.
 6. TTFT / P99 should be close across curves for the same n.
-7. If a curve beats `legacy_linear_u`, confirm it is not doing so by causing
+7. If a curve beats `util_linear_u`, confirm it is not doing so by causing
    pathological saturation or latency artifacts.
 
 ---
@@ -438,8 +438,9 @@ Use the full n-sweep:
 
 - If `exp_lu` closes the gap to greedy/offline and does not over-saturate S_C,
   it becomes a serious unified candidate for Phase C.
-- If `legacy_linear_u` is consistently best or close to best, keep the current
-  split formula: quota can use `exp_lu`, concurrency can keep legacy linear.
+- If `util_linear_u` is consistently best or close to best, keep the
+  utilization-linear split formula: quota can use `exp_lu`, concurrency can
+  use `util_linear_u`.
 - If `constant_l` wins only by saturating S_C and pushing latency/utilization
   into bad territory, treat it as an invalid aggressive baseline.
 - If `constant_u` wins at small n, interpret it as evidence that scarce
@@ -448,9 +449,9 @@ Use the full n-sweep:
 The Phase B output should decide which concurrency curve(s) enter Phase C:
 
 ```text
-current_paper: quota=exp_lu, concurrency=legacy_linear_u
-unified_exp:   quota=exp_lu, concurrency=exp_lu
-best_split:    quota=best Phase A, concurrency=best Phase B
+util_split:  quota=exp_lu, concurrency=util_linear_u
+unified_exp: quota=exp_lu, concurrency=exp_lu
+best_split:  quota=best Phase A, concurrency=best Phase B
 ```
 
 ---

@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from experiments.ablations.effective_cost.curves import ScarcityCurve, scarcity_price
 from rwsim.policies.base import NoOpTickMixin
+from rwsim.policies.effective_cost_kernel import ScarcityCurve, scarcity_price
 from rwsim.policies.routewise import RollingLatencyProfile
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier

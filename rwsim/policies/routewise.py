@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import heapq
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -20,6 +20,7 @@ from rwsim.policies.hedging import (
     has_feasible_backup,
     select_probability_backup,
 )
+from rwsim.policies.effective_cost_kernel import scarcity_price
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -481,10 +482,7 @@ def quota_shadow_price(
         return 0.0
     if provider.quota is None:
         return 0.0
-    if L <= 0 or U <= 0 or U <= L:
-        raise ValueError(f"Require 0 < L < U; got L={L}, U={U}")
-    z = min(max(provider.quota.fraction_used(now), 0.0), 0.9999)
-    return L * math.pow(U / L, z)
+    return scarcity_price("exp_lu", provider.quota.fraction_used(now), L=L, U=U)
 
 
 def concurrency_shadow_price(
@@ -496,14 +494,12 @@ def concurrency_shadow_price(
     alpha: float = 1.0,
 ) -> float:
     """Constant reusable-capacity price used by RouteWise effective cost."""
-    del now, U, alpha
+    del now, alpha
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.concurrency is None:
         return 0.0
-    if L <= 0:
-        raise ValueError(f"Require L > 0 for concurrency shadow price; got L={L}")
-    return L
+    return scarcity_price("constant_l", 0.0, L=L, U=U)
 
 
 def effective_cost(

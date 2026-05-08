@@ -37,7 +37,7 @@ def test_exp_lu_quota_effective_cost_matches_production_formula() -> None:
 
     policy = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.5,
         cost_envelope=(1.0, 100.0),
     )
@@ -51,14 +51,14 @@ def test_exp_lu_quota_effective_cost_matches_production_formula() -> None:
     ) == pytest.approx(quota_shadow_price(provider, 0.0, L=1.0, U=100.0))
 
 
-def test_legacy_linear_u_concurrency_effective_cost_uses_utilization_times_u() -> None:
+def test_util_linear_u_concurrency_effective_cost_uses_utilization_times_u() -> None:
     provider = make_concurrency_provider("concurrency", concurrency_limit=10)
     for request_id in range(4):
         provider.concurrency.admit(request_id, 0.0, 10.0)
 
     policy = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.5,
         cost_envelope=(1.0, 100.0),
     )
@@ -92,7 +92,7 @@ def test_lp_only_current_curve_matches_routewise_cost_router_metadata() -> None:
 
     ablation = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.5,
         cost_envelope=cost_envelope,
         seed=7,
@@ -140,13 +140,13 @@ def test_p_changes_budget_without_changing_cost_envelope() -> None:
 
     low = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.0,
         cost_envelope=cost_envelope,
     ).route(request, state)
     high = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=1.0,
         cost_envelope=cost_envelope,
     ).route(request, state)
@@ -174,7 +174,7 @@ def test_p_zero_fast_path_matches_lp_enumerator() -> None:
     cost_envelope = (0.0001, 0.001)
     policy = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.0,
         cost_envelope=cost_envelope,
         seed=7,
@@ -230,7 +230,7 @@ def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatc
     request = _request()
     policy = LPOnlyAblationPolicy(
         quota_curve="exp_lu",
-        concurrency_curve="legacy_linear_u",
+        concurrency_curve="util_linear_u",
         p=0.0,
         cost_envelope=(0.0001, 0.001),
         seed=7,
@@ -267,7 +267,7 @@ def test_p_changes_weights_after_latency_profile_observations() -> None:
     def policy_with_profile(p: float) -> LPOnlyAblationPolicy:
         policy = LPOnlyAblationPolicy(
             quota_curve="exp_lu",
-            concurrency_curve="legacy_linear_u",
+            concurrency_curve="util_linear_u",
             p=p,
             cost_envelope=cost_envelope,
             seed=7,
@@ -323,7 +323,7 @@ def test_rejects_invalid_p(p: float) -> None:
     with pytest.raises(ValueError, match="p must be in \\[0, 1\\]"):
         LPOnlyAblationPolicy(
             quota_curve="exp_lu",
-            concurrency_curve="legacy_linear_u",
+            concurrency_curve="util_linear_u",
             p=p,
             cost_envelope=(1.0, 2.0),
         )

@@ -1,25 +1,11 @@
-"""Shadow-price functions for real-eval tiered providers.
-
-This module **mirrors the formulas** in :mod:`rwsim.policies.routewise` but
-operates on :class:`experiments.real_evaluation.inventory.ProviderState`
-instead of ``rwsim.world.providers.TieredProvider``. The two implementations
-must stay in lock-step:
-
-- ``quota_shadow_price``        : ``L * (U/L)^z`` with ``z`` = quota fraction used
-- ``concurrency_shadow_price``  : ``L`` for reusable concurrency capacity
-- ``effective_cost``            : paper-formula piecewise cost by provider tier
-- ``calibrate_envelopes``       : ``U = max api cost``, ``L = max(U*floor_ratio, 1e-9)``
-
-If you change a formula here, change it in ``rwsim.policies.routewise`` too,
-and update the real-eval policy tests.
-"""
+"""Shadow-price adapters for real-eval tiered providers."""
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 from experiments.real_evaluation.transports import compute_request_cost_usd
+from rwsim.policies.effective_cost_kernel import scarcity_price
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -38,13 +24,7 @@ def quota_shadow_price(
     if state.quota is None:
         return 0.0
 
-    z = state.quota.fraction_used(now)
-    z = min(max(z, 0.0), 0.9999)
-
-    if L <= 0 or U <= 0 or U <= L:
-        raise ValueError(f"Require 0 < L < U; got L={L}, U={U}")
-
-    return L * math.pow(U / L, z)
+    return scarcity_price("exp_lu", state.quota.fraction_used(now), L=L, U=U)
 
 
 def concurrency_shadow_price(
@@ -56,12 +36,10 @@ def concurrency_shadow_price(
     alpha: float = 1.0,
 ) -> float:
     """Constant price ``L`` for a concurrency-limited reusable-capacity provider."""
-    del now, U, alpha
+    del now, alpha
     if state.concurrency is None:
         return 0.0
-    if L <= 0:
-        raise ValueError(f"Require L > 0 for concurrency shadow price; got L={L}")
-    return L
+    return scarcity_price("constant_l", 0.0, L=L, U=U)
 
 
 def request_marginal_cost(

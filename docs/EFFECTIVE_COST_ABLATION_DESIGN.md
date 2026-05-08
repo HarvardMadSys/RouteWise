@@ -280,7 +280,7 @@ Curves:
 
 | Curve id | Formula | Purpose |
 |---|---|---|
-| `conc_legacy_linear_u` | `U * u` | Former RouteWise concurrency baseline |
+| `conc_util_linear_u` | `U * u` | Former RouteWise concurrency baseline |
 | `conc_linear_lu` | `L + u * (U - L)` | Same linear shape as quota |
 | `conc_exp_lu` | `L * (U / L)^u` | Exponential unified candidate |
 | `conc_constant_l` | `L` | Sanity baseline: overuses concurrency |
@@ -329,7 +329,7 @@ Candidate policies:
 | `separate_best` | best Phase A curve | best Phase B curve | Upper bar for online formulas |
 | `unified_exp_lu` | exponential | exponential | Can one exponential curve work? |
 | `unified_linear_lu` | linear LU | linear LU | Can one linear curve work? |
-| `current_paper` | exponential | legacy linear U | Current RouteWise behavior |
+| `util_split` | exponential | utilization-linear U | Previous RouteWise utilization-price behavior |
 
 Primary metrics:
 
@@ -364,7 +364,7 @@ Suggested surface:
 ScarcityCurve = Literal[
     "exp_lu",
     "linear_lu",
-    "legacy_linear_u",
+    "util_linear_u",
     "constant_l",
     "constant_u",
 ]
@@ -551,7 +551,7 @@ Retire:
 - section-local one-off curve logic embedded in `cost_layer.py`
 
 If useful, recreate his c1-c4 sweep inside the new ablation harness as a
-legacy sensitivity run.
+utilization-linear sensitivity run.
 
 ---
 

@@ -263,7 +263,7 @@ quota 烧在 low-value requests 上、导致后期 high-value requests 被推到
 
 | Curve id | Formula | Purpose |
 |---|---|---|
-| `conc_legacy_linear_u` | `U * u` | 旧版 RouteWise concurrency baseline |
+| `conc_util_linear_u` | `U * u` | 旧版 RouteWise concurrency baseline |
 | `conc_linear_lu` | `L + u * (U - L)` | 和 quota 相同的 linear shape |
 | `conc_exp_lu` | `L * (U / L)^u` | Exponential unified candidate |
 | `conc_constant_l` | `L` | Sanity baseline：过度使用 concurrency |
@@ -311,7 +311,7 @@ runs 验证，因为真正的问题是：当 S_Q、S_C、S_A 都 feasible 时，
 | `separate_best` | best Phase A curve | best Phase B curve | Online formulas 的上界参考 |
 | `unified_exp_lu` | exponential | exponential | 一个 exponential curve 是否可行？ |
 | `unified_linear_lu` | linear LU | linear LU | 一个 linear curve 是否可行？ |
-| `current_paper` | exponential | legacy linear U | 当前 RouteWise 行为 |
+| `util_split` | exponential | utilization-linear U | 旧版 RouteWise utilization-price 行为 |
 
 主要指标：
 
@@ -345,7 +345,7 @@ experiments/ablations/effective_cost/curves.py
 ScarcityCurve = Literal[
     "exp_lu",
     "linear_lu",
-    "legacy_linear_u",
+    "util_linear_u",
     "constant_l",
     "constant_u",
 ]
@@ -365,7 +365,7 @@ Stable `rwsim` implementation 应保持 paper-current formula：
 
 ```text
 S_Q: exp_lu
-S_C: legacy_linear_u
+S_C: constant_l
 ```
 
 不要给 `RouteWisePolicy` 添加 `effective_cost_fn` field、subclass hook 或
@@ -527,8 +527,8 @@ Yangsun 的 c1-c4 concurrency comparison 可以作为 Phase B context 保留，�
 - additive effective cost
 - 嵌在 `cost_layer.py` 里的 section-local one-off curve logic
 
-如果有用，可以在新的 ablation harness 里重建他的 c1-c4 sweep，作为 legacy
-sensitivity run。
+如果有用，可以在新的 ablation harness 里重建他的 c1-c4 sweep，作为
+utilization-linear sensitivity run。
 
 ---
 

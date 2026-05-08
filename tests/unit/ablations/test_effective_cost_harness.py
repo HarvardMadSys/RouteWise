@@ -162,7 +162,7 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
                 "--concurrency-count",
                 "16",
                 "--concurrency-curve",
-                "legacy_linear_u",
+                "util_linear_u",
                 "--concurrency-curve",
                 "exp_lu",
                 "--concurrency-curve",
@@ -232,12 +232,12 @@ def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None
 
 def test_phase_b_presets_sweep_concurrency_curve_only() -> None:
     presets = make_concurrency_ablation_presets(
-        concurrency_curves=("legacy_linear_u", "exp_lu"),
+        concurrency_curves=("util_linear_u", "exp_lu"),
         p_values=(0.0,),
     )
 
     assert tuple(presets) == (
-        "effective_cost__q=exp_lu__c=legacy_linear_u__p0",
+        "effective_cost__q=exp_lu__c=util_linear_u__p0",
         "effective_cost__q=exp_lu__c=exp_lu__p0",
     )
     for preset in presets.values():

@@ -6,14 +6,14 @@ import math
 
 import pytest
 
-from experiments.ablations.effective_cost.curves import SCARCITY_CURVES, scarcity_price
+from rwsim.policies.effective_cost_kernel import SCARCITY_CURVES, scarcity_price
 
 
 def test_registered_curve_set_is_intentional() -> None:
     assert SCARCITY_CURVES == (
         "exp_lu",
         "linear_lu",
-        "legacy_linear_u",
+        "util_linear_u",
         "constant_l",
         "constant_u",
     )
@@ -35,10 +35,10 @@ def test_linear_lu_spans_exact_L_to_U() -> None:
     assert scarcity_price("linear_lu", 1.0, L=1.0, U=1000.0) == pytest.approx(1000.0)
 
 
-def test_legacy_linear_u_matches_current_concurrency_formula() -> None:
-    assert scarcity_price("legacy_linear_u", 0.0, L=0.0, U=10.0) == pytest.approx(0.0)
-    assert scarcity_price("legacy_linear_u", 0.5, L=0.0, U=10.0) == pytest.approx(5.0)
-    assert scarcity_price("legacy_linear_u", 1.0, L=0.0, U=10.0) == pytest.approx(10.0)
+def test_util_linear_u_matches_former_concurrency_formula() -> None:
+    assert scarcity_price("util_linear_u", 0.0, L=0.0, U=10.0) == pytest.approx(0.0)
+    assert scarcity_price("util_linear_u", 0.5, L=0.0, U=10.0) == pytest.approx(5.0)
+    assert scarcity_price("util_linear_u", 1.0, L=0.0, U=10.0) == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize("x", [0.0, 0.25, 0.5, 0.75, 1.0])
@@ -50,7 +50,7 @@ def test_constant_curves_ignore_scarcity(x: float) -> None:
 def test_clamps_below_zero_to_zero_scarcity() -> None:
     assert scarcity_price("exp_lu", -0.5, L=1.0, U=1000.0) == pytest.approx(1.0)
     assert scarcity_price("linear_lu", -0.5, L=1.0, U=1000.0) == pytest.approx(1.0)
-    assert scarcity_price("legacy_linear_u", -0.5, L=0.0, U=10.0) == pytest.approx(0.0)
+    assert scarcity_price("util_linear_u", -0.5, L=0.0, U=10.0) == pytest.approx(0.0)
 
 
 def test_clamps_above_one_per_curve_semantics() -> None:
@@ -58,12 +58,12 @@ def test_clamps_above_one_per_curve_semantics() -> None:
         scarcity_price("exp_lu", 0.9999, L=1.0, U=1000.0)
     )
     assert scarcity_price("linear_lu", 1.5, L=1.0, U=1000.0) == pytest.approx(1000.0)
-    assert scarcity_price("legacy_linear_u", 1.5, L=0.0, U=10.0) == pytest.approx(10.0)
+    assert scarcity_price("util_linear_u", 1.5, L=0.0, U=10.0) == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize(
     "curve",
-    ["exp_lu", "linear_lu", "legacy_linear_u"],
+    ["exp_lu", "linear_lu", "util_linear_u"],
 )
 def test_variable_curves_are_monotone(curve: str) -> None:
     values = [scarcity_price(curve, x, L=1.0, U=100.0) for x in (0.0, 0.25, 0.5, 0.75, 1.0)]
@@ -81,7 +81,7 @@ def test_lu_curves_reject_invalid_envelopes(curve: str, L: float, U: float) -> N
 
 
 @pytest.mark.parametrize("U", [0.0, -1.0])
-@pytest.mark.parametrize("curve", ["legacy_linear_u", "constant_u"])
+@pytest.mark.parametrize("curve", ["util_linear_u", "constant_u"])
 def test_u_only_curves_reject_nonpositive_U(curve: str, U: float) -> None:
     with pytest.raises(ValueError, match=rf"{curve} requires U > 0"):
         scarcity_price(curve, 0.5, L=1.0, U=U)

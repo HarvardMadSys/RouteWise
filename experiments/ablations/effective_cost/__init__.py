@@ -1,6 +1,6 @@
 """Effective-cost formula ablation package."""
 
-from experiments.ablations.effective_cost.curves import (
+from rwsim.policies.effective_cost_kernel import (
     SCARCITY_CURVES,
     ScarcityCurve,
     scarcity_price,

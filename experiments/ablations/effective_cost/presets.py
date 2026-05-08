@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from experiments.ablations.effective_cost.curves import SCARCITY_CURVES, ScarcityCurve
 from experiments.simulation.common import WORKLOAD_COST_ENVELOPE, p_label
+from rwsim.policies.effective_cost_kernel import SCARCITY_CURVES, ScarcityCurve
 
 DEFAULT_P_VALUES = (0.5,)
 DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (
@@ -15,7 +15,7 @@ DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (
     "constant_u",
 )
 DEFAULT_CONCURRENCY_CURVES: tuple[ScarcityCurve, ...] = (
-    "legacy_linear_u",
+    "util_linear_u",
     "exp_lu",
     "linear_lu",
     "constant_l",
