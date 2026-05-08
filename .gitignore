@@ -16,3 +16,6 @@ artifacts/
 outputs/*
 !outputs/.gitkeep
 *.egg-info/
+
+AGENTS.md
+CLAUDE.md
