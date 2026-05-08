@@ -22,6 +22,7 @@ Real-world pools are locked. See [`latency_profiles/pools.yaml`](latency_profile
 
 - `RW3 = [WandB, DeepInfra, Novita]`
 - `RW8 = [WandB, DeepInfra, Google, Alibaba, Novita, Cerebras, SiliconFlow, AtlasCloud]`
+- `minimax_m25_rw8 = [Inceptron, Friendli, DeepInfra, SambaNova, Venice, AtlasCloud, Chutes, SiliconFlow]`
 - `rw8_pooled` — RW8 samples concatenated; used wherever latency must be held
   constant across providers (cost layer real-world case).
 
@@ -111,13 +112,17 @@ counts come from §1.2 / §1.3 results.
 ### 3.1 Hedging (Hedging-Explorer on)
 
 - Three-provider config: 1 on-demand + 1 quota + 1 concurrency
-- Eight-provider config: 6 on-demand (RW8) + 1 quota + 1 concurrency
+- Controlled cost-tier config: 3 on-demand providers with §1 synthetic API
+  prices (`$1/$5`, `$2/$10`, `$4/$20` per million input/output tokens) and
+  dispersed real-world latency profiles, plus 1 quota + 1 concurrency
+- RW8+capacity config: 8 MiniMax M2.5 OpenRouter on-demand providers
+  (`minimax_m25_rw8`) + 1 quota + 1 concurrency
+  (10 providers total)
 
 ### 3.2 Varying `p` (LP budget knob)
 
 Same two configs as §3.1; sweep `p ∈ [0, 1]` for the cost-vs-latency Pareto.
-
-Additional metric: fraction of requests that hit `429` rate limits.
+HTTP `429` rates belong to live real-evaluation runs, not simulator runs.
 
 ---
 

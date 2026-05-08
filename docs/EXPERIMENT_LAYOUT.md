@@ -66,8 +66,10 @@ one file in `experiments/simulation/` per
   Hedging-Explorer on three- and eight-provider configurations.
 - **§3 End-to-end** (`end_to_end.py`) — real-world cost and real-world
   latency, multi-tier deployments. §3.1 hedging on, §3.2 sweep `p`. The
-  three-provider config is `1 SA + 1 SQ + 1 SC`; the eight-provider config
-  is `6 SA + 1 SQ + 1 SC`.
+  three-provider config is `1 SA + 1 SQ + 1 SC`; the RW8 config uses the
+  full RW8 `SA` pool plus `1 SQ + 1 SC` (10 providers total). A controlled
+  cost-tier config keeps the §1 synthetic `SA` prices while replacing synthetic
+  latency with three dispersed real-world latency profiles.
 
 **Deprecated naming.** The earlier `S0 / S1 / S2 / S3` scenario tags are
 retired; use the section / sub-experiment names above.
@@ -102,7 +104,7 @@ isolating one decision axis. The detailed sub-experiment tree lives in
 | **§1 Cost layer** | Show RouteWise minimises cost when latency is held equal | same latency / different cost; ShareGPT 1-month workload | per-provider cost, request fraction, TTFT distribution |
 | **§2 Latency layer** | Show RouteWise picks fast providers when cost is held equal | same cost / different latency | mean / P50 / P90 / P99 TTFT |
 | **§2.2 Hedging** | Show Hedging-Explorer cuts P99 with bounded cost overhead | inside latency layer; probe + moving-average online profile; backup = random non-primary (Explorer style); evaluate trigger at P25 / P50 / P75 / P90 | P99 reduction, hedge trigger rate, cost multiplier |
-| **§3 End-to-end** | Show RouteWise wins on real-world workload | real-world distribution; 3-provider and 8-provider configs | cost vs latency Pareto, SLO violation, tier mix |
+| **§3 End-to-end** | Show RouteWise wins on real-world workload | real-world distribution; 3-provider and RW8+capacity-tier configs | cost vs latency Pareto, SLO violation, tier mix |
 
 ### Sub-experiment tree
 
@@ -129,10 +131,11 @@ isolating one decision axis. The detailed sub-experiment tree lives in
 §3 End-to-end (real-world cost and latency)
   3.1 Hedging on:
       3-provider: 1 SA + 1 SQ + 1 SC
-      8-provider: 6 SA (RW8) + 1 SQ + 1 SC
+      controlled cost-tier: 3 SA ($1/$5, $2/$10, $4/$20 per M) + 1 SQ + 1 SC
+      RW8+capacity: 8 SA (MiniMax M2.5 OpenRouter `minimax_m25_rw8`) + 1 SQ + 1 SC
   3.2 Sweep p (LP budget knob)
       same two configs as §3.1
-  + fraction of requests hitting 429
+  HTTP 429 rates are reported by live real-evaluation runs, not simulator runs.
 ```
 
 Latency families come from `rwsim/world/distributions.py`; the real-world

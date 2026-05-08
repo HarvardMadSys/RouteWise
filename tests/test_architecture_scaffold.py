@@ -248,6 +248,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
                 "cost-layer": "experiments.simulation.cost_layer",
                 "latency-layer": "experiments.simulation.latency_layer",
                 "hedging": "experiments.simulation.hedging",
+                "end-to-end": "experiments.simulation.end_to_end",
             },
         )
         for module_name in (
@@ -262,7 +263,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertTrue(hasattr(module, "make_scenarios"))
 
         end_to_end = importlib.import_module("experiments.simulation.end_to_end")
-        self.assertFalse(hasattr(end_to_end, "main"))
+        self.assertTrue(hasattr(end_to_end, "main"))
 
 
 if __name__ == "__main__":

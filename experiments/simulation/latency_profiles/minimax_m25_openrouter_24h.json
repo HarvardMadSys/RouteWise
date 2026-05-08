@@ -1,0 +1,327 @@
+{
+  "schema_version": "1.0",
+  "artifact": "minimax_m25_openrouter_24h.npz",
+  "source_log": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/phase5_minimax_m25_24h/run_20260412_045326/evaluation_log.csv",
+  "source_run_label": "phase5_minimax_m25_24h",
+  "source_note": "Directory name says 24h, but run_stats.observed_duration_hours is the actual CSV coverage.",
+  "model": "minimax_m25",
+  "model_family": "minimax-m2.5",
+  "tier": "S_A",
+  "subsample_seed": 42,
+  "max_samples_per_provider": 50000,
+  "min_samples_per_provider": 1000,
+  "run_stats": {
+    "total_rows": 201097,
+    "valid_ttft_rows": 200697,
+    "skipped_rows": 400,
+    "timestamp_min": "2026-04-12T04:58:28Z",
+    "timestamp_max": "2026-04-12T07:47:27Z",
+    "observed_duration_hours": 2.816319104300605,
+    "is_full_day_observation": false
+  },
+  "price_snapshot": {
+    "source": "https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints",
+    "captured_from": "/tmp/openrouter_minimax_m25_endpoints.json",
+    "unit": "USD per 1M tokens",
+    "note": "Provider prices can change; refresh before paper numbers."
+  },
+  "n_providers": 16,
+  "providers": {
+    "AkashML": {
+      "n_samples": 2952,
+      "p50_ms": 1004.1119799716398,
+      "p90_ms": 8444.790141517311,
+      "p99_ms": 12784.718457856186,
+      "mean_ms": 2422.133443353074,
+      "max_ms": 19313.965030945837,
+      "openrouter_price": {
+        "provider_name": "AkashML",
+        "tag": "akashml/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.19999999999999998,
+        "output_price_per_m": 1.18,
+        "input_cache_read_price_per_m": null,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 96.26525383245756,
+        "status": 0
+      }
+    },
+    "AtlasCloud": {
+      "n_samples": 1891,
+      "p50_ms": 1393.6100909486413,
+      "p90_ms": 4313.764942111447,
+      "p99_ms": 7298.938165442085,
+      "mean_ms": 2036.973017993955,
+      "max_ms": 22972.958392929286,
+      "openrouter_price": {
+        "provider_name": "AtlasCloud",
+        "tag": "atlas-cloud/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.295,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.06,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 99.53736486805457,
+        "status": 0
+      }
+    },
+    "Chutes": {
+      "n_samples": 33407,
+      "p50_ms": 2037.3656710144132,
+      "p90_ms": 6010.550142545255,
+      "p99_ms": 13257.81789886301,
+      "mean_ms": 2958.8265811595666,
+      "max_ms": 85050.6364479661,
+      "openrouter_price": {
+        "provider_name": "Chutes",
+        "tag": "chutes/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.15,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.075,
+        "context_length": 196608,
+        "max_completion_tokens": 65536,
+        "uptime_last_1d": 99.82479891693876,
+        "status": 0
+      }
+    },
+    "DeepInfra": {
+      "n_samples": 3657,
+      "p50_ms": 963.198252953589,
+      "p90_ms": 1979.1443173773587,
+      "p99_ms": 6051.506820758807,
+      "mean_ms": 1231.3029676157419,
+      "max_ms": 30879.93621896021,
+      "openrouter_price": {
+        "provider_name": "DeepInfra",
+        "tag": "deepinfra/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.15,
+        "output_price_per_m": 1.15,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 196608,
+        "max_completion_tokens": 131072,
+        "uptime_last_1d": 99.96702550674037,
+        "status": 0
+      }
+    },
+    "Friendli": {
+      "n_samples": 6860,
+      "p50_ms": 463.5703570675105,
+      "p90_ms": 1146.9793262192982,
+      "p99_ms": 2682.8500721231085,
+      "mean_ms": 665.5330869025732,
+      "max_ms": 20826.553849037737,
+      "openrouter_price": {
+        "provider_name": "Friendli",
+        "tag": "friendli",
+        "quantization": "unknown",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.06,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 99.22683368894396,
+        "status": 0
+      }
+    },
+    "Inceptron": {
+      "n_samples": 50000,
+      "p50_ms": 432.4401100166142,
+      "p90_ms": 1129.235154343769,
+      "p99_ms": 2788.611310145355,
+      "mean_ms": 636.4352341004414,
+      "max_ms": 82149.7902260162,
+      "openrouter_price": {
+        "provider_name": "Inceptron",
+        "tag": "inceptron/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.24,
+        "output_price_per_m": 0.8999999999999999,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 99.94302832043813,
+        "status": 0
+      }
+    },
+    "Mara": {
+      "n_samples": 6116,
+      "p50_ms": 1243.1017535272986,
+      "p90_ms": 1833.7172685423866,
+      "p99_ms": 2546.2110385065903,
+      "mean_ms": 1304.4311273361475,
+      "max_ms": 11998.97325411439,
+      "openrouter_price": {
+        "provider_name": "Mara",
+        "tag": "mara",
+        "quantization": "unknown",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": null,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 99.31800681993181,
+        "status": 0
+      }
+    },
+    "Minimax": {
+      "n_samples": 9995,
+      "p50_ms": 1434.917193138972,
+      "p90_ms": 3477.0098533015703,
+      "p99_ms": 11247.466977024449,
+      "mean_ms": 1998.5225442553283,
+      "max_ms": 37715.56704910472,
+      "openrouter_price": {
+        "provider_name": "Minimax",
+        "tag": "minimax/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 204800,
+        "max_completion_tokens": 131072,
+        "uptime_last_1d": 98.49153648332246,
+        "status": 0
+      }
+    },
+    "Nebius": {
+      "n_samples": 2831,
+      "p50_ms": 1080.4873609449714,
+      "p90_ms": 1840.5453169252723,
+      "p99_ms": 6759.833603980942,
+      "mean_ms": 1375.8898784930536,
+      "max_ms": 46746.4015961159,
+      "openrouter_price": {
+        "provider_name": "Nebius",
+        "tag": "nebius/fp4",
+        "quantization": "fp4",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": null,
+        "context_length": 196608,
+        "max_completion_tokens": null,
+        "uptime_last_1d": 96.81071900358558,
+        "status": 0
+      }
+    },
+    "NextBit": {
+      "n_samples": 2857,
+      "p50_ms": 711.4011170342565,
+      "p90_ms": 2041.45919517614,
+      "p99_ms": 8185.459451116622,
+      "mean_ms": 1153.7846219322507,
+      "max_ms": 15764.103731838986
+    },
+    "Novita": {
+      "n_samples": 1899,
+      "p50_ms": 1042.1025489922613,
+      "p90_ms": 1823.8809306174517,
+      "p99_ms": 4379.525162223722,
+      "mean_ms": 1247.2487861356046,
+      "max_ms": 20884.171918034554,
+      "openrouter_price": {
+        "provider_name": "Novita",
+        "tag": "novita/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 204800,
+        "max_completion_tokens": 131100,
+        "uptime_last_1d": 99.96104710886816,
+        "status": 0
+      }
+    },
+    "Parasail": {
+      "n_samples": 3473,
+      "p50_ms": 644.4547779392451,
+      "p90_ms": 1761.06317266822,
+      "p99_ms": 6742.817363077766,
+      "mean_ms": 949.9569706814677,
+      "max_ms": 12074.14341182448,
+      "openrouter_price": {
+        "provider_name": "Parasail",
+        "tag": "parasail/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 196608,
+        "max_completion_tokens": 196608,
+        "uptime_last_1d": 99.96953058445314,
+        "status": 0
+      }
+    },
+    "SambaNova": {
+      "n_samples": 6245,
+      "p50_ms": 642.4726308323443,
+      "p90_ms": 1257.0684910286218,
+      "p99_ms": 10608.899088650942,
+      "mean_ms": 943.501990115616,
+      "max_ms": 13575.25831181556,
+      "openrouter_price": {
+        "provider_name": "SambaNova",
+        "tag": "sambanova",
+        "quantization": "unknown",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": null,
+        "context_length": 163840,
+        "max_completion_tokens": 32768,
+        "uptime_last_1d": 97.86326684731908,
+        "status": 0
+      }
+    },
+    "SiliconFlow": {
+      "n_samples": 17257,
+      "p50_ms": 10978.046897100285,
+      "p90_ms": 39890.25807147844,
+      "p99_ms": 149592.64881490712,
+      "mean_ms": 20185.913263201586,
+      "max_ms": 1628660.5350528844,
+      "openrouter_price": {
+        "provider_name": "SiliconFlow",
+        "tag": "siliconflow/fp8",
+        "quantization": "fp8",
+        "input_price_per_m": 0.3,
+        "output_price_per_m": 1.2,
+        "input_cache_read_price_per_m": 0.03,
+        "context_length": 196608,
+        "max_completion_tokens": 131072,
+        "uptime_last_1d": 87.62169356490013,
+        "status": -5
+      }
+    },
+    "Together": {
+      "n_samples": 3969,
+      "p50_ms": 635.4679388459772,
+      "p90_ms": 1593.8760282006115,
+      "p99_ms": 6678.718451121871,
+      "mean_ms": 1056.9488268255723,
+      "max_ms": 198514.33947612531
+    },
+    "Venice": {
+      "n_samples": 1142,
+      "p50_ms": 1026.262147934176,
+      "p90_ms": 2113.122088252568,
+      "p99_ms": 6489.532104690986,
+      "mean_ms": 1354.9006200306226,
+      "max_ms": 12762.478252872825,
+      "openrouter_price": {
+        "provider_name": "Venice",
+        "tag": "venice",
+        "quantization": "unknown",
+        "input_price_per_m": 0.33999999999999997,
+        "output_price_per_m": 1.19,
+        "input_cache_read_price_per_m": 0.04,
+        "context_length": 198000,
+        "max_completion_tokens": 32768,
+        "uptime_last_1d": 99.39485627836612,
+        "status": 0
+      }
+    }
+  }
+}

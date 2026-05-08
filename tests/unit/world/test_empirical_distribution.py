@@ -28,6 +28,16 @@ RW8 = (
     "SiliconFlow",
     "AtlasCloud",
 )
+MINIMAX_M25_RW8 = (
+    "Inceptron",
+    "Friendli",
+    "DeepInfra",
+    "SambaNova",
+    "Venice",
+    "AtlasCloud",
+    "Chutes",
+    "SiliconFlow",
+)
 
 
 def _metadata() -> dict:
@@ -64,6 +74,10 @@ def test_profile_pools_yaml_locks_canonical_rw3_rw8_and_pooled_sets():
     assert config["artifact"] == "qwen3_24h.npz"
     assert tuple(config["pools"]["rw3"]["providers"]) == RW3
     assert tuple(config["pools"]["rw8"]["providers"]) == RW8
+    assert config["pools"]["minimax_m25_rw8"]["artifact"] == (
+        "minimax_m25_openrouter_24h.npz"
+    )
+    assert tuple(config["pools"]["minimax_m25_rw8"]["providers"]) == MINIMAX_M25_RW8
     assert tuple(config["pooled"]["rw8_pooled"]["source_providers"]) == RW8
 
 

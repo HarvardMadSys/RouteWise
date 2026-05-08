@@ -29,6 +29,28 @@ pools:
       - SiliconFlow
       - AtlasCloud
 
+  minimax_m25_rw8:
+    description: "MiniMax M2.5 OpenRouter S_A pool selected for cost/latency spread with low distribution overlap."
+    model: minimax_m25
+    source: minimax_m25_openrouter_24h
+    artifact: minimax_m25_openrouter_24h.npz
+    metadata: minimax_m25_openrouter_24h.json
+    selection:
+      representative_request_tokens:
+        input: 200
+        output: 300
+      average_pairwise_latency_overlap: 0.361
+      note: "SiliconFlow had degraded OpenRouter status in the captured price snapshot; keep this caveat in paper text if used."
+    providers:
+      - Inceptron
+      - Friendli
+      - DeepInfra
+      - SambaNova
+      - Venice
+      - AtlasCloud
+      - Chutes
+      - SiliconFlow
+
 pooled:
   rw8_pooled:
     description: "All RW8 samples concatenated into one shared latency distribution."

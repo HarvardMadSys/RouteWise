@@ -6,6 +6,17 @@ import pytest
 
 from experiments.simulation import latency_profiles
 
+MINIMAX_M25_RW8 = (
+    "Inceptron",
+    "Friendli",
+    "DeepInfra",
+    "SambaNova",
+    "Venice",
+    "AtlasCloud",
+    "Chutes",
+    "SiliconFlow",
+)
+
 
 def test_load_pool_returns_provider_specific_empirical_distributions():
     pool = latency_profiles.load_pool("rw3")
@@ -23,6 +34,17 @@ def test_load_pooled_distribution_uses_rw8_source_samples():
     assert pooled.samples.size == sum(dist.samples.size for dist in rw8.values())
 
 
+def test_load_minimax_m25_rw8_pool_uses_pool_artifact_and_prices():
+    pool = latency_profiles.load_pool("minimax_m25_rw8")
+    prices = latency_profiles.load_pool_provider_prices("minimax_m25_rw8")
+
+    assert tuple(pool) == MINIMAX_M25_RW8
+    assert pool["Inceptron"].label == "minimax_m25_openrouter_24h/Inceptron"
+    assert pool["SiliconFlow"].p50() > pool["Inceptron"].p50()
+    assert prices["Inceptron"] == pytest.approx((0.24, 0.9))
+    assert prices["Chutes"] == pytest.approx((0.15, 1.2))
+
+
 def test_load_empirical_subscription_profile_distributions():
     profile = latency_profiles.load_empirical_profile("minimax_m25_subscriptions")
 
@@ -34,6 +56,25 @@ def test_load_empirical_subscription_profile_distributions():
     assert profile["chutes"].p50() == pytest.approx(1210.2729224134237)
     assert profile["featherless"].p50() == pytest.approx(8157.45)
     assert profile["minimax"].p50() == pytest.approx(2506.0)
+
+
+def test_load_empirical_minimax_openrouter_profile_distributions():
+    metadata = latency_profiles.load_empirical_profile_metadata(
+        "minimax_m25_openrouter_24h"
+    )
+    profile = latency_profiles.load_empirical_profile("minimax_m25_openrouter_24h")
+
+    assert metadata["run_stats"]["is_full_day_observation"] is False
+    assert metadata["run_stats"]["observed_duration_hours"] == pytest.approx(
+        2.816319104300605
+    )
+    assert tuple(profile) == tuple(metadata["providers"])
+    assert profile["Inceptron"].samples.size == 50_000
+    assert profile["SiliconFlow"].p50() > profile["Inceptron"].p50()
+    assert metadata["providers"]["Inceptron"]["openrouter_price"][
+        "output_price_per_m"
+    ] == pytest.approx(0.9)
+    assert "openrouter_price" not in metadata["providers"]["Together"]
 
 
 def test_load_empirical_distribution_rejects_missing_provider():

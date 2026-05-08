@@ -19,12 +19,14 @@ SIMULATOR_SECTIONS = {
     "cost-layer": "experiments.simulation.cost_layer",
     "latency-layer": "experiments.simulation.latency_layer",
     "hedging": "experiments.simulation.hedging",
+    "end-to-end": "experiments.simulation.end_to_end",
 }
 
 SIMULATOR_SECTION_DESCRIPTIONS = {
     "cost-layer": "paper §3.2 — same latency / different cost",
     "latency-layer": "paper §3.3 — same cost / different latency, band overlap",
     "hedging": "paper §3.4 — probability-target hedging stress test",
+    "end-to-end": "paper §3.5 — real-world cost + real-world latency joint routing",
 }
 
 ABLATION_COMMANDS = {

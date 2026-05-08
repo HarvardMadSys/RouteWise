@@ -31,20 +31,54 @@ def load_pool(
 ) -> dict[str, EmpiricalDistribution]:
     """Load provider-specific real-world latency distributions for one named pool."""
     config_path = Path(config_path)
-    config = load_profile_config(config_path)
-    pools = config.get("pools", {})
-    try:
-        pool = pools[pool_name]
-    except KeyError as exc:
-        known = ", ".join(sorted(pools))
-        raise KeyError(f"unknown real-world profile pool {pool_name!r}; known pools: {known}") from exc
+    config, pool = _load_pool_entry(pool_name, config_path)
 
-    artifact = _artifact_path(config, config_path)
+    artifact = _entry_artifact_path(config, pool, config_path)
     providers = tuple(pool["providers"])
     return {
         provider_name: EmpiricalDistribution.from_npz(artifact, provider_name)
         for provider_name in providers
     }
+
+
+def load_pool_provider_prices(
+    pool_name: str,
+    *,
+    config_path: str | Path = DEFAULT_POOLS_PATH,
+) -> dict[str, tuple[float, float]]:
+    """Load per-provider OpenRouter prices for a pool when its metadata has them.
+
+    Prices are returned as ``(input_per_m_tokens, output_per_m_tokens)``. Pools
+    without price metadata return an empty mapping so callers can fall back to
+    their section-local cost model.
+    """
+    config_path = Path(config_path)
+    config, pool = _load_pool_entry(pool_name, config_path)
+    metadata_path = _entry_metadata_path(config, pool, config_path)
+    if metadata_path is None or not metadata_path.exists():
+        return {}
+
+    with metadata_path.open(encoding="utf-8") as handle:
+        metadata = yaml.safe_load(handle)
+    if not isinstance(metadata, dict):
+        raise ValueError(f"profile metadata must be a mapping: {metadata_path}")
+    providers = metadata.get("providers", {})
+    if not isinstance(providers, dict):
+        return {}
+
+    prices: dict[str, tuple[float, float]] = {}
+    for provider_name, provider_meta in providers.items():
+        if not isinstance(provider_meta, dict):
+            continue
+        price = provider_meta.get("openrouter_price")
+        if not isinstance(price, dict):
+            continue
+        input_per_m = price.get("input_price_per_m")
+        output_per_m = price.get("output_price_per_m")
+        if input_per_m is None or output_per_m is None:
+            continue
+        prices[provider_name] = (float(input_per_m), float(output_per_m))
+    return prices
 
 
 def load_pooled_distribution(
@@ -64,7 +98,7 @@ def load_pooled_distribution(
             f"unknown pooled real-world profile {pooled_name!r}; known pooled profiles: {known}"
         ) from exc
 
-    artifact = _artifact_path(config, config_path)
+    artifact = _entry_artifact_path(config, pool, config_path)
     providers = tuple(pool["source_providers"])
     return EmpiricalDistribution.pooled_from_npz(artifact, providers, label=pooled_name)
 
@@ -120,6 +154,44 @@ def _artifact_path(config: dict[str, Any], config_path: Path) -> Path:
     return config_path.parent / artifact
 
 
+def _load_pool_entry(
+    pool_name: str,
+    config_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    config = load_profile_config(config_path)
+    pools = config.get("pools", {})
+    try:
+        pool = pools[pool_name]
+    except KeyError as exc:
+        known = ", ".join(sorted(pools))
+        raise KeyError(f"unknown real-world profile pool {pool_name!r}; known pools: {known}") from exc
+    if not isinstance(pool, dict):
+        raise ValueError(f"profile pool {pool_name!r} must be a mapping: {config_path}")
+    return config, pool
+
+
+def _entry_artifact_path(
+    config: dict[str, Any],
+    entry: dict[str, Any],
+    config_path: Path,
+) -> Path:
+    return _artifact_path(entry if "artifact" in entry else config, config_path)
+
+
+def _entry_metadata_path(
+    config: dict[str, Any],
+    entry: dict[str, Any],
+    config_path: Path,
+) -> Path | None:
+    metadata = entry.get("metadata", config.get("metadata"))
+    if metadata is None:
+        return None
+    path = Path(metadata)
+    if path.is_absolute():
+        return path
+    return config_path.parent / path
+
+
 def _metadata_path(profile_name: str | Path) -> Path:
     path = Path(profile_name)
     if path.suffix:
@@ -135,6 +207,7 @@ __all__ = [
     "load_empirical_profile",
     "load_empirical_profile_metadata",
     "load_pool",
+    "load_pool_provider_prices",
     "load_pooled_distribution",
     "load_profile_config",
 ]

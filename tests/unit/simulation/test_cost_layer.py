@@ -565,7 +565,11 @@ def test_subscription_plan_loader_exposes_featherless_premium_concurrency():
     with pytest.raises(ValueError, match="no concurrency model class resolved"):
         plan.concurrency_cost_for_model("unknown-model")
     assert plan.subscription_counts == (1, 2, 3, 4)
-    assert plan.eligible_sections == ("cost_layer_concurrency", "cost_layer_joint")
+    assert plan.eligible_sections == (
+        "cost_layer_concurrency",
+        "cost_layer_joint",
+        "end_to_end",
+    )
 
 
 def test_subscription_plan_loader_rejects_missing_quota_size(tmp_path):
