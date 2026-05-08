@@ -11,6 +11,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
+from rwsim.policies.hedging import (
+    DISPATCH_OVERHEAD_MS,
+    HEDGE_SUCCESS_TARGET,
+    BackupCandidate,
+    collect_backup_candidates,
+    combined_success_probability,
+    has_feasible_backup,
+    select_probability_backup,
+)
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -21,8 +30,6 @@ if TYPE_CHECKING:
 _LP_EPS = 1e-9
 _COST_TIEBREAK_MS = 1e-3
 _DEFAULT_HEDGE_CHECKPOINTS = (0.25, 0.50, 0.75, 0.90)
-_HEDGE_SUCCESS_TARGET = 0.99
-_DISPATCH_OVERHEAD_MS = 50.0
 
 
 @dataclass
@@ -218,55 +225,33 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         providers = state.providers
         primary = providers[decision.primary_provider]
         elapsed_ms = elapsed * 1000.0
-        backup = self._pick_backup(
+        candidates = self._collect_backup_candidates(
             primary,
             request,
             state,
             elapsed_ms=elapsed_ms,
         )
-        if backup is None:
+        selected = self._select_backup_candidate(candidates)
+        if selected is None or not selected.feasible:
             return None
 
-        current = _combined_success_probability(
-            self,
+        future_feasible = self._has_future_feasible_backup(
             primary,
-            backup,
-            elapsed_ms=elapsed_ms,
-            now=state.now,
-            slo_ms=self.slo_ms,
+            selected,
+            request,
+            decision,
+            elapsed,
+            state,
         )
-        if current < _HEDGE_SUCCESS_TARGET - _LP_EPS:
-            return None
-
-        future_safe = False
-        for future_elapsed in decision.hedge_checkpoints:
-            if future_elapsed <= elapsed + _LP_EPS:
-                continue
-            future_ms = future_elapsed * 1000.0
-            if self.explorer:
-                future = _combined_success_probability(
-                    self,
-                    primary,
-                    backup,
-                    elapsed_ms=future_ms,
-                    now=state.now,
-                    slo_ms=self.slo_ms,
-                )
-            else:
-                future = self._best_backup_success_probability(
-                    primary,
-                    state,
-                    elapsed_ms=future_ms,
-                )
-            if future >= _HEDGE_SUCCESS_TARGET - _LP_EPS:
-                future_safe = True
-                break
-        if future_safe:
+        if not self._should_dispatch_now(
+            selected,
+            future_feasible=future_feasible,
+        ):
             return None
 
         return HedgeDispatch(
-            backup_provider=backup.name,
-            metadata={"combined_success": current},
+            backup_provider=selected.provider.name,
+            metadata={"combined_success": selected.success_probability},
         )
 
     def observe(
@@ -310,15 +295,34 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             return empirical
         return provider._active_ttft_dist(now).cdf(value_ms)
 
-    def _pick_backup(
+    def _collect_backup_candidates(
         self,
         primary: Provider,
         request: Request,
         state: SimulationState,
         *,
         elapsed_ms: float,
-    ) -> Provider | None:
-        candidates = self._backup_candidates(primary, state)
+    ) -> list[BackupCandidate]:
+        return collect_backup_candidates(
+            state.providers.values(),
+            primary,
+            request,
+            now=state.now,
+            elapsed_ms=elapsed_ms,
+            slo_ms=self.slo_ms,
+            cdf_ms=lambda provider, value_ms: self._cdf_ms(
+                provider,
+                value_ms,
+                state.now,
+            ),
+            success_target=HEDGE_SUCCESS_TARGET,
+            dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+        )
+
+    def _select_backup_candidate(
+        self,
+        candidates: list[BackupCandidate],
+    ) -> BackupCandidate | None:
         if not candidates:
             return None
         if self.explorer:
@@ -327,69 +331,55 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             # hedge-as-probe experiments. The default hedging path below stays
             # probability-driven and optimizes the current request's SLO success.
             return candidates[int(self.rng.integers(0, len(candidates)))]
+        return select_probability_backup(candidates)
 
-        scored = [
-            (
-                _combined_success_probability(
-                    self,
-                    primary,
-                    provider,
-                    elapsed_ms=elapsed_ms,
-                    now=state.now,
-                    slo_ms=self.slo_ms,
-                ),
-                provider.marginal_cost_for_request(request, state.now),
-                provider.true_mean_ms(state.now),
-                provider.name,
-                provider,
-            )
-            for provider in candidates
-        ]
-        feasible = [
-            item for item in scored if item[0] >= _HEDGE_SUCCESS_TARGET - _LP_EPS
-        ]
-        if feasible:
-            return min(
-                feasible,
-                key=lambda item: (item[1], -item[0], item[2], item[3]),
-            )[4]
-        return min(
-            scored,
-            key=lambda item: (-item[0], item[1], item[2], item[3]),
-        )[4]
-
-    def _best_backup_success_probability(
+    def _has_future_feasible_backup(
         self,
         primary: Provider,
+        selected: BackupCandidate,
+        request: Request,
+        decision: RoutingDecision,
+        elapsed: float,
         state: SimulationState,
-        *,
-        elapsed_ms: float,
-    ) -> float:
-        candidates = self._backup_candidates(primary, state)
-        if not candidates:
-            return 0.0
-        return max(
-            _combined_success_probability(
-                self,
-                primary,
-                provider,
-                elapsed_ms=elapsed_ms,
-                now=state.now,
-                slo_ms=self.slo_ms,
-            )
-            for provider in candidates
-        )
+    ) -> bool:
+        for future_elapsed in decision.hedge_checkpoints:
+            if future_elapsed <= elapsed + _LP_EPS:
+                continue
+            future_ms = future_elapsed * 1000.0
+            if self.explorer:
+                future = combined_success_probability(
+                    lambda provider, value_ms: self._cdf_ms(
+                        provider,
+                        value_ms,
+                        state.now,
+                    ),
+                    primary,
+                    selected.provider,
+                    elapsed_ms=future_ms,
+                    slo_ms=self.slo_ms,
+                    dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+                )
+                if future >= HEDGE_SUCCESS_TARGET - _LP_EPS:
+                    return True
+                continue
 
-    @staticmethod
-    def _backup_candidates(
-        primary: Provider,
-        state: SimulationState,
-    ) -> list[Provider]:
-        return [
-            provider
-            for provider in state.providers.values()
-            if provider.name != primary.name and provider.is_available(state.now)
-        ]
+            candidates = self._collect_backup_candidates(
+                primary,
+                request,
+                state,
+                elapsed_ms=future_ms,
+            )
+            if has_feasible_backup(candidates):
+                return True
+        return False
+
+    def _should_dispatch_now(
+        self,
+        selected: BackupCandidate,
+        *,
+        future_feasible: bool,
+    ) -> bool:
+        return selected.feasible and not future_feasible
 
 
 def quota_shadow_price(
@@ -580,28 +570,6 @@ def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str
     probs = np.asarray([weights[name] for name in names], dtype=float)
     probs = probs / probs.sum()
     return str(rng.choice(names, p=probs))
-
-
-def _combined_success_probability(
-    policy: RouteWisePolicy,
-    primary: Provider,
-    backup: Provider,
-    *,
-    elapsed_ms: float,
-    now: float,
-    slo_ms: float,
-) -> float:
-    primary_cdf_t = policy._cdf_ms(primary, elapsed_ms, now)
-    primary_cdf_slo = policy._cdf_ms(primary, slo_ms, now)
-    primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
-    if primary_survival_t <= _LP_EPS:
-        return 0.0
-
-    p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
-    p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
-    remaining_ms = slo_ms - elapsed_ms - _DISPATCH_OVERHEAD_MS
-    backup_success = 0.0 if remaining_ms <= 0.0 else policy._cdf_ms(backup, remaining_ms, now)
-    return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
 
 
 __all__ = [
