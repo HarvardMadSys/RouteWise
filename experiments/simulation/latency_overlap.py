@@ -10,11 +10,13 @@ This is *asymmetric* (anchored on d_a's band length), as decided in the §2.1
 design discussion (Slack 2026-05-07).
 
 Construction (per parametric family, all three providers share one shape ratio
-or one log-space sigma so the family stays self-similar):
+or one log-space sigma so the family stays self-similar). Synthetic tiers are
+anchored by real-space mean TTFT because RouteWise's LP latency term is an
+expected TTFT objective:
 
-- Uniform:  shared half-width ratio ρ = W / P50; closed-form solve.
-- Normal:   shared sigma ratio ρ = σ / P50;   closed-form solve.
-- LogNormal: shared σ_log;                     closed-form solve in log-space.
+- Uniform:  shared half-width ratio rho = W / mean; closed-form solve.
+- Normal:   shared sigma ratio rho = sigma / mean;  closed-form solve.
+- LogNormal: shared sigma_log;                    closed-form solve in log-space.
 - real_world: empirical RW3 pool; no construction target, realised coverage reported.
 
 Realised metrics (reported in summary csv):
@@ -36,7 +38,10 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from rwsim.world.distributions import LogNormal, Normal, Uniform
+from experiments.simulation.latency_factory import (
+    SyntheticLatencySpec,
+    make_synthetic_ttft,
+)
 
 if TYPE_CHECKING:
     from rwsim.world.distributions import LatencyDistribution
@@ -46,8 +51,8 @@ if TYPE_CHECKING:
 # Constants
 # ----------------------------------------------------------------------------
 
-# Three latency tiers — fast / medium / slow.
-LATENCY_LAYER_P50_MS: tuple[float, float, float] = (100.0, 300.0, 1000.0)
+# Three latency tiers — fast / medium / slow, anchored by configured mean TTFT.
+LATENCY_LAYER_MEAN_MS: tuple[float, float, float] = (100.0, 300.0, 1000.0)
 
 # Shared one-sided z-score for q10/q90: P(Z <= z) = 0.90 → z ≈ 1.2816.
 # Used for Normal and LogNormal band-edge computations.
@@ -86,7 +91,7 @@ class OverlapSpec:
 
     family: str
     overlap_label: str | None = None
-    p50_anchors_ms: tuple[float, ...] = LATENCY_LAYER_P50_MS
+    mean_anchors_ms: tuple[float, ...] = LATENCY_LAYER_MEAN_MS
 
     def __post_init__(self) -> None:
         if self.family not in LATENCY_FAMILIES:
@@ -104,20 +109,20 @@ class OverlapSpec:
             )
         if self.family == "real_world" and self.overlap_label is not None:
             raise ValueError("real_world latency scenarios do not accept overlap_label")
-        if len(self.p50_anchors_ms) != 3:
+        if len(self.mean_anchors_ms) != 3:
             raise ValueError(
-                f"p50_anchors_ms must have exactly 3 entries (fast, medium, slow); "
-                f"got {self.p50_anchors_ms!r}"
+                f"mean_anchors_ms must have exactly 3 entries (fast, medium, slow); "
+                f"got {self.mean_anchors_ms!r}"
             )
-        anchors = self.p50_anchors_ms
+        anchors = self.mean_anchors_ms
         if not (anchors[0] < anchors[1] < anchors[2]):
             raise ValueError(
-                f"p50_anchors_ms must be strictly increasing (fast < medium < slow); "
+                f"mean_anchors_ms must be strictly increasing (fast < medium < slow); "
                 f"got {anchors!r}"
             )
         if anchors[0] <= 0.0:
             raise ValueError(
-                f"p50_anchors_ms[0] (fast) must be positive; got {anchors[0]}"
+                f"mean_anchors_ms[0] (fast) must be positive; got {anchors[0]}"
             )
 
     @property
@@ -133,100 +138,103 @@ class OverlapSpec:
 
 
 def calibrate_uniform_ratio(
-    p50_fast: float,
-    p50_medium: float,
+    mean_fast: float,
+    mean_medium: float,
     target_cov: float,
 ) -> float:
-    """Return shared half-width ratio ρ = W / P50 for Uniform.
+    """Return shared half-width ratio rho = W / mean for Uniform.
 
-    Derived from cov(fast, medium) = (0.8(W_a + W_b) - Δ) / (1.6 W_a) with
-    W_a = ρ p50_fast, W_b = ρ p50_medium, Δ = p50_medium - p50_fast.
+    Derived from cov(fast, medium) = (0.8(W_a + W_b) - delta) / (1.6 W_a)
+    with W_a = rho * mean_fast, W_b = rho * mean_medium, and
+    delta = mean_medium - mean_fast.
 
     Solving:
-        ρ = (p50_medium - p50_fast) /
-            (0.8 (p50_fast + p50_medium) - 1.6 p50_fast · target_cov)
+        rho = (mean_medium - mean_fast) /
+              (0.8 * (mean_fast + mean_medium) - 1.6 * mean_fast * target_cov)
     """
     if not 0.0 <= target_cov < 1.0:
         raise ValueError(
             f"target_cov must be in [0, 1); got {target_cov}"
         )
-    delta = p50_medium - p50_fast
-    denom = 0.8 * (p50_fast + p50_medium) - 1.6 * p50_fast * target_cov
+    delta = mean_medium - mean_fast
+    denom = 0.8 * (mean_fast + mean_medium) - 1.6 * mean_fast * target_cov
     if denom <= 0.0:
         raise _infeasible(
-            "uniform", p50_fast, p50_medium, target_cov, "denominator non-positive"
+            "uniform", mean_fast, mean_medium, target_cov, "denominator non-positive"
         )
     rho = delta / denom
-    # Uniform requires low ≥ 0, i.e. ρ ≤ 1. Always true here for the
-    # 100/300/1000 anchors with target ≤ 0.5, but check defensively.
+    # Uniform requires low >= 0, i.e. rho <= 1. Always true here for the
+    # 100/300/1000 anchors with target <= 0.5, but check defensively.
     if rho >= 1.0:
         raise _infeasible(
             "uniform",
-            p50_fast,
-            p50_medium,
+            mean_fast,
+            mean_medium,
             target_cov,
-            f"ρ={rho:.4f} would put low ≤ 0 on the fast provider",
+            f"rho={rho:.4f} would put low <= 0 on the fast provider",
         )
     return rho
 
 
 def calibrate_normal_ratio(
-    p50_fast: float,
-    p50_medium: float,
+    mean_fast: float,
+    mean_medium: float,
     target_cov: float,
 ) -> float:
-    """Return shared sigma ratio ρ = σ / P50 for clipped Normal.
+    """Return shared sigma ratio rho = sigma / mean for clipped Normal.
 
-    Same derivation as Uniform but with band half-width = z·σ where z = z(0.90).
+    Same derivation as Uniform but with band half-width = z * sigma.
 
     Solving:
-        ρ = (p50_medium - p50_fast) /
-            (z (p50_fast + p50_medium) - 2z p50_fast · target_cov)
+        rho = (mean_medium - mean_fast) /
+              (z * (mean_fast + mean_medium) - 2 * z * mean_fast * target_cov)
     """
     if not 0.0 <= target_cov < 1.0:
         raise ValueError(f"target_cov must be in [0, 1); got {target_cov}")
     z = _Z_P90
-    delta = p50_medium - p50_fast
-    denom = z * (p50_fast + p50_medium) - 2.0 * z * p50_fast * target_cov
+    delta = mean_medium - mean_fast
+    denom = z * (mean_fast + mean_medium) - 2.0 * z * mean_fast * target_cov
     if denom <= 0.0:
         raise _infeasible(
-            "normal", p50_fast, p50_medium, target_cov, "denominator non-positive"
+            "normal", mean_fast, mean_medium, target_cov, "denominator non-positive"
         )
     return delta / denom
 
 
 def calibrate_lognormal_sigma(
-    p50_fast: float,
-    p50_medium: float,
+    mean_fast: float,
+    mean_medium: float,
     target_cov: float,
 ) -> float:
-    """Return shared σ_log for LogNormal.
+    """Return shared sigma_log for LogNormal.
 
     LogNormal bands in real space:
-        B(d) = [P50 · exp(-z σ),  P50 · exp(z σ)]
-    where z = z(0.90). Setting y = exp(2 z σ),
+        B(d) = [mean * exp(-0.5 * sigma^2 - z * sigma),
+                mean * exp(-0.5 * sigma^2 + z * sigma)]
+    where z = z(0.90). The shared exp(-0.5 * sigma^2) factor cancels in the
+    coverage solve, so setting y = exp(2 * z * sigma),
 
-        cov(fast, medium) = (p50_fast · y - p50_medium) /
-                            (p50_fast · (y - 1))
+        cov(fast, medium) = (mean_fast * y - mean_medium) /
+                            (mean_fast * (y - 1))
     Solving:
-        y = (p50_medium - target_cov · p50_fast) /
-            (p50_fast · (1 - target_cov))
-        σ_log = ln(y) / (2 z)
+        y = (mean_medium - target_cov * mean_fast) /
+            (mean_fast * (1 - target_cov))
+        sigma_log = ln(y) / (2 * z)
     """
     if not 0.0 <= target_cov < 1.0:
         raise ValueError(f"target_cov must be in [0, 1); got {target_cov}")
     z = _Z_P90
     if target_cov == 0.0:
-        # Boundary: y = p50_medium / p50_fast (just-touching bands).
-        y = p50_medium / p50_fast
+        # Boundary: y = mean_medium / mean_fast (just-touching bands).
+        y = mean_medium / mean_fast
     else:
-        numerator = p50_medium - target_cov * p50_fast
-        denom = p50_fast * (1.0 - target_cov)
+        numerator = mean_medium - target_cov * mean_fast
+        denom = mean_fast * (1.0 - target_cov)
         if numerator <= 0.0 or denom <= 0.0:
             raise _infeasible(
                 "heavy_tail",
-                p50_fast,
-                p50_medium,
+                mean_fast,
+                mean_medium,
                 target_cov,
                 "log-space y term non-positive",
             )
@@ -234,24 +242,24 @@ def calibrate_lognormal_sigma(
     if y <= 1.0:
         raise _infeasible(
             "heavy_tail",
-            p50_fast,
-            p50_medium,
+            mean_fast,
+            mean_medium,
             target_cov,
-            f"y={y:.4f} would yield σ_log ≤ 0",
+            f"y={y:.4f} would yield sigma_log <= 0",
         )
     return math.log(y) / (2.0 * z)
 
 
 def _infeasible(
     family: str,
-    p50_fast: float,
-    p50_medium: float,
+    mean_fast: float,
+    mean_medium: float,
     target_cov: float,
     reason: str,
 ) -> ValueError:
     return ValueError(
         f"latency overlap calibration infeasible: family={family!r} "
-        f"P50=({p50_fast}, {p50_medium}) target_cov={target_cov} — {reason}"
+        f"mean=({mean_fast}, {mean_medium}) target_cov={target_cov} — {reason}"
     )
 
 
@@ -260,32 +268,60 @@ def _infeasible(
 # ----------------------------------------------------------------------------
 
 
-def build_distributions(spec: OverlapSpec) -> tuple["LatencyDistribution", ...]:
+def build_distributions(spec: OverlapSpec) -> tuple[LatencyDistribution, ...]:
     """Return three same-family distributions for fast/medium/slow."""
     if spec.family == "real_world":
         return _load_real_world_distributions()
 
-    p50s = spec.p50_anchors_ms
+    means = spec.mean_anchors_ms
     target_cov = spec.target_coverage
     if target_cov is None:
         raise ValueError(f"synthetic family {spec.family!r} requires overlap_label")
-    p50_fast, p50_medium = p50s[0], p50s[1]
+    mean_fast, mean_medium = means[0], means[1]
 
     if spec.family == "uniform":
-        rho = calibrate_uniform_ratio(p50_fast, p50_medium, target_cov)
+        rho = calibrate_uniform_ratio(mean_fast, mean_medium, target_cov)
         return tuple(
-            Uniform(low=p50 * (1.0 - rho), high=p50 * (1.0 + rho)) for p50 in p50s
+            make_synthetic_ttft(
+                SyntheticLatencySpec(
+                    family="uniform",
+                    anchor_ms=mean,
+                    anchor_kind="mean",
+                    uniform_half_width_ratio=rho,
+                )
+            )
+            for mean in means
         )
     if spec.family == "normal":
-        rho = calibrate_normal_ratio(p50_fast, p50_medium, target_cov)
-        return tuple(Normal(mean_ms=p50, sigma=rho * p50) for p50 in p50s)
+        rho = calibrate_normal_ratio(mean_fast, mean_medium, target_cov)
+        return tuple(
+            make_synthetic_ttft(
+                SyntheticLatencySpec(
+                    family="normal",
+                    anchor_ms=mean,
+                    anchor_kind="mean",
+                    normal_sigma_ratio=rho,
+                )
+            )
+            for mean in means
+        )
     if spec.family == "heavy_tail":
-        sigma_log = calibrate_lognormal_sigma(p50_fast, p50_medium, target_cov)
-        return tuple(LogNormal(mu=math.log(p50), sigma=sigma_log) for p50 in p50s)
+        sigma_log = calibrate_lognormal_sigma(mean_fast, mean_medium, target_cov)
+        return tuple(
+            make_synthetic_ttft(
+                SyntheticLatencySpec(
+                    family="heavy_tail",
+                    anchor_ms=mean,
+                    anchor_kind="mean",
+                    lognormal_sigma=sigma_log,
+                )
+            )
+            for mean in means
+        )
     raise ValueError(f"unknown family {spec.family!r}")
 
 
-def _load_real_world_distributions() -> tuple["LatencyDistribution", ...]:
+def _load_real_world_distributions() -> tuple[LatencyDistribution, ...]:
     """Load RW3 fast/medium/slow distributions from the committed pool."""
     # Lazy import to avoid pulling yaml at module-import time.
     from experiments.simulation.latency_profiles import load_pool
@@ -307,8 +343,8 @@ def _load_real_world_distributions() -> tuple["LatencyDistribution", ...]:
 
 
 def measure_band_coverage(
-    d_a: "LatencyDistribution",
-    d_b: "LatencyDistribution",
+    d_a: LatencyDistribution,
+    d_b: LatencyDistribution,
 ) -> float:
     """Asymmetric Q10-Q90 band coverage: |B(d_a) ∩ B(d_b)| / |B(d_a)|."""
     a_lo = d_a.quantile(0.10)
@@ -324,7 +360,7 @@ def measure_band_coverage(
     return overlap / a_band
 
 
-def measure_normal_clip_fraction(d: "LatencyDistribution") -> float:
+def measure_normal_clip_fraction(d: LatencyDistribution) -> float:
     """Fraction of probability mass below MIN_LATENCY_MS (Normal only).
 
     Returns 0.0 for non-Normal distributions.
@@ -377,7 +413,7 @@ class RealisedOverlapSummary:
 
 def summarise_realised_overlap(
     spec: OverlapSpec,
-    distributions: tuple["LatencyDistribution", ...],
+    distributions: tuple[LatencyDistribution, ...],
 ) -> RealisedOverlapSummary:
     """Compute the full realised-overlap block for one scenario."""
     if len(distributions) != 3:
@@ -435,12 +471,12 @@ def verify_calibration(
 
 __all__ = [
     "LATENCY_FAMILIES",
-    "LATENCY_LAYER_P50_MS",
+    "LATENCY_LAYER_MEAN_MS",
     "OVERLAP_TARGETS",
-    "OverlapSpec",
     "PROVIDER_NAMES",
-    "RealisedOverlapSummary",
     "SYNTHETIC_FAMILIES",
+    "OverlapSpec",
+    "RealisedOverlapSummary",
     "build_distributions",
     "calibrate_lognormal_sigma",
     "calibrate_normal_ratio",

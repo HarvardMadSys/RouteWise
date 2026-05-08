@@ -46,9 +46,10 @@ def test_latency_layer_synthetic_provider_invariants_and_band_targets():
                 "api_medium",
                 "api_slow",
             ]
-            assert [provider.true_p50_ms() for provider in scenario.providers] == pytest.approx(
+            assert [provider.true_mean_ms() for provider in scenario.providers] == pytest.approx(
                 [100.0, 300.0, 1000.0]
             )
+            assert scenario.metadata["mean_anchors_ms"] == [100.0, 300.0, 1000.0]
             assert len({provider.effective_input_cost_per_token for provider in scenario.providers}) == 1
             assert len({provider.effective_output_cost_per_token for provider in scenario.providers}) == 1
             assert "realised_tvo_fast_medium" not in scenario.metadata

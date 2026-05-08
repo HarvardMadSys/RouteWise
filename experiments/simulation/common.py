@@ -17,6 +17,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from tqdm.auto import tqdm
 
+from experiments.simulation.latency_factory import (
+    DEFAULT_LATENCY_ANCHOR_KIND,
+    LatencyAnchorKind,
+    SyntheticLatencySpec,
+    make_synthetic_ttft,
+)
 from experiments.subscriptions import (
     SubscriptionPlan,
     load_subscription_plans,
@@ -34,7 +40,7 @@ from rwsim.world.capacity import (
     QuotaState,
     WeightedConcurrencyState,
 )
-from rwsim.world.distributions import LogNormal, Normal, Uniform
+from rwsim.world.distributions import LogNormal
 from rwsim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
@@ -51,7 +57,7 @@ OUTPUT_DIR = ROOT_DIR / "outputs" / "simulation"
 P_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
 COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
 OUTPUT_COST_MULTIPLIER = 5.0
-COST_LAYER_P50_MS = 300.0
+COST_LAYER_LATENCY_ANCHOR_MS = 300.0
 DEFAULT_SEEDS = (42,)
 DEFAULT_WORKLOAD = "burstgpt"
 DEFAULT_TPS_P50 = 150.0
@@ -148,15 +154,20 @@ def make_routewise_presets(
     return presets
 
 
-def make_ttft_distribution(family: str, p50_ms: float):
-    """Construct the synthetic latency family used by the current section."""
-    if family == "uniform":
-        return Uniform(low=0.5 * p50_ms, high=1.5 * p50_ms)
-    if family == "normal":
-        return Normal(mean_ms=p50_ms, sigma=0.3 * p50_ms)
-    if family in {"heavy_tail", "lognormal"}:
-        return LogNormal(mu=math.log(p50_ms), sigma=0.5)
-    raise ValueError(f"unknown latency family: {family!r}")
+def make_ttft_distribution(
+    family: str,
+    anchor_ms: float = COST_LAYER_LATENCY_ANCHOR_MS,
+    *,
+    anchor_kind: LatencyAnchorKind = DEFAULT_LATENCY_ANCHOR_KIND,
+):
+    """Construct a synthetic TTFT distribution through the shared factory."""
+    return make_synthetic_ttft(
+        SyntheticLatencySpec(
+            family=family,
+            anchor_ms=anchor_ms,
+            anchor_kind=anchor_kind,
+        )
+    )
 
 
 def make_tps_distribution() -> LogNormal:
@@ -170,7 +181,8 @@ def make_api_provider(
     cost_per_million_tokens: float,
     output_cost_per_million_tokens: float | None = None,
     latency_family: str,
-    p50_ms: float = COST_LAYER_P50_MS,
+    latency_anchor_ms: float = COST_LAYER_LATENCY_ANCHOR_MS,
+    latency_anchor_kind: LatencyAnchorKind = DEFAULT_LATENCY_ANCHOR_KIND,
 ) -> TieredProvider:
     """Build an on-demand API provider."""
     output_price = (
@@ -183,7 +195,11 @@ def make_api_provider(
         cost_per_token=cost_per_million_tokens / 1_000_000.0,
         input_cost_per_token=cost_per_million_tokens / 1_000_000.0,
         output_cost_per_token=output_price / 1_000_000.0,
-        ttft_dist=make_ttft_distribution(latency_family, p50_ms),
+        ttft_dist=make_ttft_distribution(
+            latency_family,
+            latency_anchor_ms,
+            anchor_kind=latency_anchor_kind,
+        ),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_A,
     )
@@ -196,7 +212,8 @@ def make_quota_provider(
     plan: SubscriptionPlan | None = None,
     subscription_count: int = 1,
     latency_family: str = "heavy_tail",
-    p50_ms: float = COST_LAYER_P50_MS,
+    latency_anchor_ms: float = COST_LAYER_LATENCY_ANCHOR_MS,
+    latency_anchor_kind: LatencyAnchorKind = DEFAULT_LATENCY_ANCHOR_KIND,
     quota_window_sec: float = 86400.0,
 ) -> TieredProvider:
     """Build a subscription/quota provider with zero marginal request cost."""
@@ -231,7 +248,11 @@ def make_quota_provider(
         cost_per_token=0.0,
         input_cost_per_token=0.0,
         output_cost_per_token=0.0,
-        ttft_dist=make_ttft_distribution(latency_family, p50_ms),
+        ttft_dist=make_ttft_distribution(
+            latency_family,
+            latency_anchor_ms,
+            anchor_kind=latency_anchor_kind,
+        ),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_Q,
         quota=quota,
@@ -246,7 +267,8 @@ def make_concurrency_provider(
     concurrency_count: int = 1,
     model: str | None = None,
     latency_family: str = "heavy_tail",
-    p50_ms: float = COST_LAYER_P50_MS,
+    latency_anchor_ms: float = COST_LAYER_LATENCY_ANCHOR_MS,
+    latency_anchor_kind: LatencyAnchorKind = DEFAULT_LATENCY_ANCHOR_KIND,
 ) -> TieredProvider:
     """Build a subscription/concurrency provider with zero marginal request cost."""
     if plan is not None and concurrency_limit is not None:
@@ -288,7 +310,11 @@ def make_concurrency_provider(
         cost_per_token=0.0,
         input_cost_per_token=0.0,
         output_cost_per_token=0.0,
-        ttft_dist=make_ttft_distribution(latency_family, p50_ms),
+        ttft_dist=make_ttft_distribution(
+            latency_family,
+            latency_anchor_ms,
+            anchor_kind=latency_anchor_kind,
+        ),
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_C,
         concurrency=concurrency,
@@ -828,7 +854,10 @@ def _estimated_concurrency_service_time_sec(
     if p50_service_time_ms is not None:
         return max(float(p50_service_time_ms), 0.0) / 1000.0
     response_tokens = request.response_tokens or 1
-    return (COST_LAYER_P50_MS + (response_tokens / DEFAULT_TPS_P50) * 1000.0) / 1000.0
+    return (
+        COST_LAYER_LATENCY_ANCHOR_MS
+        + (response_tokens / DEFAULT_TPS_P50) * 1000.0
+    ) / 1000.0
 
 
 def _subscription_summary_fields(
@@ -858,11 +887,28 @@ def _subscription_summary_fields(
         "concurrency_capacity_units": metadata.get("concurrency_capacity_units"),
         "effective_concurrency_limit": metadata.get("effective_concurrency_limit"),
         "latency_profile": metadata.get("latency_profile"),
+        "latency_generation_version": metadata.get("latency_generation_version"),
+        "latency_family": metadata.get("latency_family"),
+        "latency_anchor_kind": metadata.get("latency_anchor_kind"),
+        "latency_anchor_ms": metadata.get("latency_anchor_ms"),
+        "latency_distribution_mean_ms": metadata.get("latency_distribution_mean_ms"),
+        "latency_distribution_p50_ms": metadata.get("latency_distribution_p50_ms"),
+        "latency_shape": metadata.get("latency_shape"),
         "quota_latency_profile_provider": metadata.get("quota_latency_profile_provider"),
         "concurrency_latency_profile_provider": metadata.get(
             "concurrency_latency_profile_provider"
         ),
         "api_latency_family": metadata.get("api_latency_family"),
+        "api_latency_generation_version": metadata.get("api_latency_generation_version"),
+        "api_latency_anchor_kind": metadata.get("api_latency_anchor_kind"),
+        "api_latency_anchor_ms": metadata.get("api_latency_anchor_ms"),
+        "api_latency_distribution_mean_ms": metadata.get(
+            "api_latency_distribution_mean_ms"
+        ),
+        "api_latency_distribution_p50_ms": metadata.get(
+            "api_latency_distribution_p50_ms"
+        ),
+        "api_latency_shape": metadata.get("api_latency_shape"),
         "peak_used_concurrency_cost": None,
         "mean_concurrency_utilization": None,
         "concurrency_saturated_in_trace": None,
@@ -1450,9 +1496,22 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "concurrency_capacity_units",
         "effective_concurrency_limit",
         "latency_profile",
+        "latency_generation_version",
+        "latency_family",
+        "latency_anchor_kind",
+        "latency_anchor_ms",
+        "latency_distribution_mean_ms",
+        "latency_distribution_p50_ms",
+        "latency_shape",
         "quota_latency_profile_provider",
         "concurrency_latency_profile_provider",
         "api_latency_family",
+        "api_latency_generation_version",
+        "api_latency_anchor_kind",
+        "api_latency_anchor_ms",
+        "api_latency_distribution_mean_ms",
+        "api_latency_distribution_p50_ms",
+        "api_latency_shape",
         "peak_used_concurrency_cost",
         "mean_concurrency_utilization",
         "concurrency_saturated_in_trace",
@@ -1543,7 +1602,7 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
 
 
 __all__ = [
-    "COST_LAYER_P50_MS",
+    "COST_LAYER_LATENCY_ANCHOR_MS",
     "COST_RATIO_PER_MILLION",
     "DEFAULT_SEEDS",
     "DEFAULT_WORKLOAD",

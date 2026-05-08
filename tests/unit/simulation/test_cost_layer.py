@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
@@ -181,13 +182,19 @@ def test_joint_scenario_combines_quota_and_concurrency_plans():
     assert scenario.providers[0].true_p50_ms() == pytest.approx(1210.2729224134237)
     assert scenario.providers[1].true_p50_ms() == pytest.approx(8157.45)
     assert all(
-        provider.true_p50_ms() == pytest.approx(300.0)
+        provider.true_mean_ms() == pytest.approx(300.0)
+        for provider in scenario.providers[2:]
+    )
+    assert all(
+        provider.true_p50_ms() == pytest.approx(300.0 * math.exp(-0.125))
         for provider in scenario.providers[2:]
     )
     assert scenario.metadata["latency_profile"] == "minimax_m25_subscriptions"
     assert scenario.metadata["quota_latency_profile_provider"] == "chutes"
     assert scenario.metadata["concurrency_latency_profile_provider"] == "featherless"
     assert scenario.metadata["api_latency_family"] == "heavy_tail"
+    assert scenario.metadata["api_latency_anchor_kind"] == "mean"
+    assert scenario.metadata["api_latency_anchor_ms"] == 300.0
 
 
 def test_joint_scenarios_allow_explicit_counts_beyond_plan_defaults():

@@ -1,8 +1,9 @@
 """§2.1 latency-layer simulator section.
 
 Same cost across providers, different latency profiles. Three same-family
-providers (fast / medium / slow) with P50 = 100 / 300 / 1000 ms and a target
-Q10-Q90 band coverage on the (fast, medium) anchor pair (see
+providers (fast / medium / slow) with configured mean TTFT anchors =
+100 / 300 / 1000 ms and a target Q10-Q90 band coverage on the
+(fast, medium) anchor pair (see
 :mod:`experiments.simulation.latency_overlap`).
 
 Scenario grid: 3 synthetic families x 2 overlap labels, plus one RW3
@@ -42,9 +43,10 @@ from experiments.simulation.common import (
     run_section,
     write_json,
 )
+from experiments.simulation.latency_factory import SYNTHETIC_LATENCY_VERSION
 from experiments.simulation.latency_overlap import (
     LATENCY_FAMILIES,
-    LATENCY_LAYER_P50_MS,
+    LATENCY_LAYER_MEAN_MS,
     OVERLAP_TARGETS,
     PROVIDER_NAMES,
     SYNTHETIC_FAMILIES,
@@ -127,13 +129,22 @@ def _make_latency_layer_scenario(
     spec = OverlapSpec(
         family=family,
         overlap_label=overlap_label,
-        p50_anchors_ms=LATENCY_LAYER_P50_MS,
+        mean_anchors_ms=LATENCY_LAYER_MEAN_MS,
     )
     if family in SYNTHETIC_FAMILIES:
         # Fail loudly if a refactor ever breaks the closed-form derivation.
         verify_calibration(spec)
     distributions = build_distributions(spec)
     realised = summarise_realised_overlap(spec, distributions)
+    latency_metadata: dict[str, Any] = {}
+    if family in SYNTHETIC_FAMILIES:
+        latency_metadata = {
+            "latency_generation_version": SYNTHETIC_LATENCY_VERSION,
+            "latency_anchor_kind": "mean",
+            "latency_anchor_ms": list(LATENCY_LAYER_MEAN_MS),
+            "latency_distribution_mean_ms": [dist.mean() for dist in distributions],
+            "latency_distribution_p50_ms": [dist.p50() for dist in distributions],
+        }
     providers = [
         TieredProvider(
             name=provider_name,
@@ -155,10 +166,11 @@ def _make_latency_layer_scenario(
         "overlap_construction_metric": "q10_q90_directional_band_coverage",
         "target_anchor_pair": "fast_medium" if overlap_label is not None else None,
         "overlap_metric_source": "configured_distribution",
-        "p50_anchors_ms": list(LATENCY_LAYER_P50_MS),
+        "mean_anchors_ms": list(LATENCY_LAYER_MEAN_MS),
         "provider_names": list(PROVIDER_NAMES),
         "input_cost_per_million_tokens": LATENCY_LAYER_INPUT_COST_PER_M_TOKENS,
         "output_cost_per_million_tokens": LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS,
+        **latency_metadata,
         **realised.as_dict(),
     }
     if spec.target_coverage is None:
@@ -167,7 +179,7 @@ def _make_latency_layer_scenario(
         target_text = f"target_band_coverage(fast, medium)={spec.target_coverage:.2f}"
     description = (
         f"§2.1 latency-layer: family={family} overlap={overlap_label}, "
-        f"P50={LATENCY_LAYER_P50_MS} ms, {target_text}, "
+        f"mean={LATENCY_LAYER_MEAN_MS} ms, {target_text}, "
         f"realised={realised.realised_band_coverage_fast_medium:.4f}. "
         "Cost is identical across providers; routing differentiates on latency only."
     )
@@ -230,6 +242,11 @@ _LATENCY_CSV_FIELDNAMES: tuple[str, ...] = (
     "public_scenario",
     "artifact_label",
     "latency_family",
+    "latency_generation_version",
+    "latency_anchor_kind",
+    "latency_anchor_ms",
+    "latency_distribution_mean_ms",
+    "latency_distribution_p50_ms",
     "overlap_label",
     "policy",
     "seeds",
@@ -279,6 +296,11 @@ def _enrich_rows_with_overlap_metadata(
         merged = dict(row)
         for key in (
             "latency_family",
+            "latency_generation_version",
+            "latency_anchor_kind",
+            "latency_anchor_ms",
+            "latency_distribution_mean_ms",
+            "latency_distribution_p50_ms",
             "overlap_label",
             "overlap_construction_metric",
             "target_anchor_pair",

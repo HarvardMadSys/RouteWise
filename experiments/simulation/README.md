@@ -58,7 +58,8 @@ incrementally so the contribution of each capacity model is isolatable.
 
 ### 1.1 On-demand only — three providers, three cost points
 
-Sample setup: cost = `$1 / $2 / $4 per M tokens`, all P50 = 300 ms.
+Sample setup: cost = `$1 / $2 / $4 per M tokens`, all synthetic mean TTFT =
+300 ms.
 
 - 1.1.1 `uniform` family
 - 1.1.2 `normal` family

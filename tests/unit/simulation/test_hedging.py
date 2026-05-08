@@ -43,6 +43,8 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
 
     assert heavy.metadata["source_latency_scenario"] == "latency_layer_heavy_tail_half_overlap"
     assert heavy.metadata["latency_family"] == "heavy_tail"
+    assert heavy.metadata["latency_anchor_kind"] == "mean"
+    assert heavy.metadata["latency_anchor_ms"] == [100.0, 300.0, 1000.0]
     assert heavy.primary_slo_ms == pytest.approx(500.0)
     assert heavy.metadata["slo_ms"] == pytest.approx(500.0)
     assert heavy.metadata["backup_selection"] == "probability_target_non_primary"
@@ -109,6 +111,8 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
         assert "mean_ttft_ms" in row
         assert "p50_ms" in row
         assert "cost_multiplier_vs_lp_only" in row
+        assert row["latency_anchor_kind"] == "mean"
+        assert row["latency_anchor_ms"] == [100.0, 300.0, 1000.0]
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
@@ -117,3 +121,5 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert csv_rows[1]["backup_selection"] == "probability_target_non_primary"
     assert csv_rows[1]["latency_profile_mode"] == "configured"
     assert csv_rows[1]["slo_ms"] == "500.0"
+    assert csv_rows[1]["latency_anchor_kind"] == "mean"
+    assert csv_rows[1]["latency_anchor_ms"] == "[100.0, 300.0, 1000.0]"

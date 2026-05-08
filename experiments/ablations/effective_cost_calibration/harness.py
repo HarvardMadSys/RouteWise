@@ -22,6 +22,11 @@ from experiments.ablations.effective_cost_calibration.envelope import (
     workload_cost_envelope,
 )
 from experiments.simulation import common
+from experiments.simulation.latency_factory import (
+    SyntheticLatencySpec,
+    describe_synthetic_latency,
+    synthetic_latency_metadata,
+)
 from experiments.simulation.latency_profiles import load_pooled_distribution
 from experiments.subscriptions import load_subscription_plans
 from rwsim.engine.simulator import Simulator
@@ -353,7 +358,22 @@ def _make_clean_quota_scenario_for_plan(
     latency_text = (
         "real-world pooled rw8_pooled"
         if latency_family == "real_world"
-        else f"{latency_family}, P50={common.COST_LAYER_P50_MS:.0f}ms"
+        else describe_synthetic_latency(
+            SyntheticLatencySpec(
+                family=latency_family,
+                anchor_ms=common.COST_LAYER_LATENCY_ANCHOR_MS,
+            )
+        )
+    )
+    latency_metadata = (
+        {}
+        if latency_family == "real_world"
+        else synthetic_latency_metadata(
+            SyntheticLatencySpec(
+                family=latency_family,
+                anchor_ms=common.COST_LAYER_LATENCY_ANCHOR_MS,
+            )
+        )
     )
     return ScenarioConfig(
         name=label,
@@ -374,6 +394,7 @@ def _make_clean_quota_scenario_for_plan(
             "subscription_plan_display_name": plan.display_name,
             "subscription_count": subscription_count,
             "latency_family": latency_family,
+            **latency_metadata,
             "quota_windows": [
                 {
                     "name": window.name,

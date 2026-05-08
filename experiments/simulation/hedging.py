@@ -346,6 +346,15 @@ def _enrich_rows_with_hedging_metadata(
                 "source_latency_scenario": meta.get("source_latency_scenario"),
                 "real_world_pool": meta.get("real_world_pool"),
                 "latency_family": meta.get("latency_family"),
+                "latency_generation_version": meta.get("latency_generation_version"),
+                "latency_anchor_kind": meta.get("latency_anchor_kind"),
+                "latency_anchor_ms": meta.get("latency_anchor_ms"),
+                "latency_distribution_mean_ms": meta.get(
+                    "latency_distribution_mean_ms"
+                ),
+                "latency_distribution_p50_ms": meta.get(
+                    "latency_distribution_p50_ms"
+                ),
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
@@ -448,6 +457,11 @@ _HEDGING_CSV_FIELDNAMES: tuple[str, ...] = (
     "source_latency_scenario",
     "real_world_pool",
     "latency_family",
+    "latency_generation_version",
+    "latency_anchor_kind",
+    "latency_anchor_ms",
+    "latency_distribution_mean_ms",
+    "latency_distribution_p50_ms",
     "overlap_label",
     "policy",
     "hedging_policy_mode",

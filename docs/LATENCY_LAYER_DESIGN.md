@@ -27,7 +27,7 @@ cost-latency tradeoff experiment. Hedging lives in `experiments/simulation/hedgi
 
 Each synthetic scenario uses three on-demand API providers:
 
-| Provider | P50 latency |
+| Provider | Mean TTFT |
 |---|---:|
 | `fast` | `100ms` |
 | `medium` | `300ms` |
@@ -182,8 +182,10 @@ This is a valid `half_overlap` construction example.
 ## 7. Family Parameterisation
 
 Within one synthetic scenario, each family uses one shared shape parameter
-across the three providers. The shape is relative to P50, so fast, medium,
-and slow keep the same distributional form at different latency scales.
+across the three providers. The shape is relative to the real-space mean TTFT,
+so fast, medium, and slow keep the same distributional form at different
+latency scales. Mean anchoring matches the RouteWise LP objective, which uses
+expected TTFT.
 
 Let:
 
@@ -202,7 +204,7 @@ Uniform latency uses a relative half-width `r`:
 d_m = Uniform[m * (1 - r), m * (1 + r)]
 ```
 
-where `m` is the provider P50. The implementation must keep `r < 1` so the
+where `m` is the provider mean TTFT. The implementation must keep `r < 1` so the
 lower support remains non-negative.
 
 The Q10-Q90 band is:
@@ -241,10 +243,10 @@ Heavy-tail latency uses the simulator's `LogNormal` distribution with shared
 log-space standard deviation `sigma_log`:
 
 ```text
-d_m = LogNormal(mu = ln(m), sigma = sigma_log)
+d_m = LogNormal(mu = ln(m) - 0.5 * sigma_log^2, sigma = sigma_log)
 ```
 
-The P50 is `m`, because the median of this distribution is `exp(mu)`.
+The mean is `m`; the P50 is lower than `m` whenever `sigma_log > 0`.
 
 Let:
 
@@ -384,7 +386,7 @@ The latency-layer implementation should add tests for:
 
 - scenario names and grid size;
 - equal-cost provider invariant;
-- P50 ladder `100ms / 300ms / 1000ms`;
+- mean TTFT ladder `100ms / 300ms / 1000ms`;
 - half-overlap fast-to-medium band coverage;
 - no-overlap fast-to-medium band coverage;
 - presence of realised overlap metrics in scenario/run summaries.

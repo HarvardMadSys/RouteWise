@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from experiments.simulation.common import (
-    COST_LAYER_P50_MS,
+    COST_LAYER_LATENCY_ANCHOR_MS,
     COST_RATIO_PER_MILLION,
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
@@ -27,6 +27,11 @@ from experiments.simulation.common import (
     routewise_lp_policy_name,
     run_policy,
     run_section,
+)
+from experiments.simulation.latency_factory import (
+    SyntheticLatencySpec,
+    describe_synthetic_latency,
+    synthetic_latency_metadata,
 )
 from experiments.simulation.latency_profiles import (
     DEFAULT_SUBSCRIPTION_PROFILE,
@@ -70,6 +75,32 @@ _DEFAULT_SCENARIO_NAMES = (
     QUOTA_SCENARIO,
     CONCURRENCY_SCENARIO,
 )
+
+
+def _synthetic_latency_spec(family: str = "heavy_tail") -> SyntheticLatencySpec:
+    return SyntheticLatencySpec(
+        family=family,
+        anchor_ms=COST_LAYER_LATENCY_ANCHOR_MS,
+    )
+
+
+def _api_latency_metadata(family: str = "heavy_tail") -> dict[str, object]:
+    metadata = synthetic_latency_metadata(_synthetic_latency_spec(family))
+    return {
+        "api_latency_generation_version": metadata["latency_generation_version"],
+        "api_latency_family": metadata["latency_family"],
+        "api_latency_anchor_kind": metadata["latency_anchor_kind"],
+        "api_latency_anchor_ms": metadata["latency_anchor_ms"],
+        "api_latency_distribution_mean_ms": metadata["latency_distribution_mean_ms"],
+        "api_latency_distribution_p50_ms": metadata["latency_distribution_p50_ms"],
+        "api_latency_shape": metadata["latency_shape"],
+    }
+
+
+def _synthetic_latency_text(family: str = "heavy_tail") -> str:
+    return describe_synthetic_latency(_synthetic_latency_spec(family))
+
+
 _SCENARIO_NAMES = (*_DEFAULT_SCENARIO_NAMES, JOINT_SCENARIO)
 
 
@@ -788,6 +819,7 @@ def run_cost_layer_cell(
 
 
 def _make_api_cost_scenario(family: str) -> ScenarioConfig:
+    latency_spec = _synthetic_latency_spec(family)
     providers = [
         make_api_provider(
             "api_cheap",
@@ -809,12 +841,17 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         name=f"cost_layer_{family}",
         description=(
             "Cost-layer on-demand API scenario: identical TTFT distribution "
-            f"({family}, P50={COST_LAYER_P50_MS:.0f}ms), input cost ratio $1/$2/$4 "
+            f"({_synthetic_latency_text(family)}), input cost ratio $1/$2/$4 "
             "and output cost ratio $5/$10/$20 per million tokens."
         ),
         providers=providers,
         arrival_process="trace",
         primary_slo_ms=2000.0,
+        metadata={
+            "public_scenario": f"cost_layer_{family}",
+            "artifact_label": f"cost_layer_{family}",
+            **synthetic_latency_metadata(latency_spec),
+        },
     )
 
 
@@ -926,7 +963,12 @@ def _make_quota_scenario_for_plan(
     latency_text = (
         "real-world pooled rw8_pooled"
         if latency_family == "real_world"
-        else f"{latency_family}, P50={COST_LAYER_P50_MS:.0f}ms"
+        else _synthetic_latency_text(latency_family)
+    )
+    latency_metadata = (
+        {}
+        if latency_family == "real_world"
+        else synthetic_latency_metadata(_synthetic_latency_spec(latency_family))
     )
     return ScenarioConfig(
         name=label,
@@ -946,6 +988,7 @@ def _make_quota_scenario_for_plan(
             "subscription_plan_display_name": plan.display_name,
             "subscription_count": subscription_count,
             "latency_family": latency_family,
+            **latency_metadata,
             "quota_windows": [
                 {
                     "name": window.name,
@@ -990,6 +1033,7 @@ def _make_concurrency_scenario_for_plan(
         concurrency_count,
         model=model,
     )
+    latency_metadata = synthetic_latency_metadata(_synthetic_latency_spec("heavy_tail"))
     concurrency_provider = make_concurrency_provider(
         f"{plan.plan_id}_concurrency",
         plan=plan,
@@ -1021,7 +1065,7 @@ def _make_concurrency_scenario_for_plan(
             f"Cost-layer concurrency scenario: {plan.display_name} x{concurrency_count} "
             f"for model {model!r} ({resolution.model_class}, cost={resolution.cost}) "
             f"with weighted capacity {capacity_units}, fixed cheap/mid/expensive "
-            f"on-demand fallback providers, TTFT=heavy_tail P50={COST_LAYER_P50_MS:.0f}ms."
+            f"on-demand fallback providers, TTFT={_synthetic_latency_text()}."
         ),
         providers=providers,
         arrival_process="trace",
@@ -1042,6 +1086,7 @@ def _make_concurrency_scenario_for_plan(
             "model_concurrency_costs_by_class": dict(
                 plan.model_concurrency_costs_by_class
             ),
+            **latency_metadata,
         },
     )
 
@@ -1144,6 +1189,7 @@ def _make_joint_scenario_for_plans(
         for window in quota_plan.quota_windows
     )
     capacity_units = int(concurrency_plan.concurrency_allotment) * int(concurrency_count)
+    api_latency_metadata = _api_latency_metadata("heavy_tail")
     return ScenarioConfig(
         name=label,
         description=(
@@ -1153,7 +1199,7 @@ def _make_joint_scenario_for_plans(
             f"({resolution.model_class}, cost={resolution.cost}), fixed "
             "cheap/mid/expensive on-demand fallback providers, "
             f"subscription TTFT={SUBSCRIPTION_LATENCY_PROFILE} and "
-            f"fallback API TTFT=heavy_tail P50={COST_LAYER_P50_MS:.0f}ms."
+            f"fallback API TTFT={_synthetic_latency_text()}."
         ),
         providers=providers,
         arrival_process="trace",
@@ -1180,7 +1226,7 @@ def _make_joint_scenario_for_plans(
             "latency_profile": SUBSCRIPTION_LATENCY_PROFILE,
             "quota_latency_profile_provider": quota_profile_key,
             "concurrency_latency_profile_provider": concurrency_profile_key,
-            "api_latency_family": "heavy_tail",
+            **api_latency_metadata,
             "quota_windows": [
                 {
                     "name": window.name,
