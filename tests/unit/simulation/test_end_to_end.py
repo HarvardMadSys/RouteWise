@@ -89,6 +89,7 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
 
     assert scenario.metadata["real_world_pool"] == "minimax_m25_rw8"
     assert scenario.metadata["api_provider_count"] == 8
+    assert scenario.metadata["api_price_source"] == "metadata_openrouter_price"
     assert len(scenario.providers) == 10
     assert [provider.tier for provider in scenario.providers[:2]] == [
         ProviderTier.S_Q,

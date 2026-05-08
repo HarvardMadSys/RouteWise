@@ -48,9 +48,8 @@ from experiments.simulation.common import (
 from experiments.simulation.latency_profiles import (
     DEFAULT_SUBSCRIPTION_PROFILE,
     load_empirical_distribution,
-    load_pool,
-    load_pool_provider_prices,
 )
+from experiments.simulation.provider_profiles import load_provider_pool
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
@@ -91,25 +90,6 @@ _QUOTA_PROFILE_PROVIDER_KEYS = {
 }
 _CONCURRENCY_PROFILE_PROVIDER_KEYS = {
     "featherless_premium": "featherless",
-}
-
-# Provider-price fallback used when a pool sidecar lacks OpenRouter endpoint
-# prices. MiniMax M2.5 pools prefer the price snapshot in their metadata.
-_DEFAULT_API_PRICE_PER_M = (0.30, 1.20)
-_API_PRICE_PER_M: dict[str, tuple[float, float]] = {
-    "Alibaba": (0.30, 1.20),
-    "Chutes": (0.15, 1.20),
-    "AtlasCloud": (0.295, 1.20),
-    "Cerebras": (0.30, 1.20),
-    "DeepInfra": (0.27, 0.95),
-    "Friendli": (0.30, 1.20),
-    "Google": (0.30, 1.20),
-    "Inceptron": (0.24, 0.90),
-    "Novita": (0.30, 1.20),
-    "SambaNova": (0.30, 1.20),
-    "SiliconFlow": (0.30, 1.20),
-    "Venice": (0.34, 1.19),
-    "WandB": (0.30, 1.20),
 }
 
 # Controlled §3 setting that preserves the §1 cost-layer API prices while using
@@ -295,7 +275,7 @@ def _make_end_to_end_scenario(
     concurrency_count: int,
     model: str,
     api_specs: tuple[tuple[str, str, float, float], ...] | None = None,
-    api_price_source: str = "pool_metadata_or_committed_inventory_or_common_default",
+    api_price_source: str | None = None,
 ) -> ScenarioConfig:
     plans = load_subscription_plans()
     quota_plan = _require_plan(plans, quota_plan_id, tier="quota")
@@ -310,29 +290,24 @@ def _make_end_to_end_scenario(
             f"concurrency plan {concurrency_plan.plan_id!r} does not support model {model!r}"
         )
 
-    api_pool = load_pool(pool_name)
-    api_price_lookup = load_pool_provider_prices(pool_name)
+    provider_pool = load_provider_pool(pool_name)
     if api_specs is None:
-        api_items = list(api_pool.items())
+        api_items = list(provider_pool.providers)
         if api_provider_limit is not None:
             api_items = api_items[:api_provider_limit]
         if not api_items:
             raise ValueError(f"real-world pool {pool_name!r} did not yield API providers")
-        api_providers = []
-        for provider_name, ttft_dist in api_items:
-            input_per_m, output_per_m = _price_for_provider(
-                provider_name,
-                api_price_lookup,
+        api_providers = [
+            _make_empirical_api_provider(
+                item.name,
+                item.ttft_dist,
+                input_per_m=item.input_per_m,
+                output_per_m=item.output_per_m,
             )
-            api_providers.append(
-                _make_empirical_api_provider(
-                    provider_name,
-                    ttft_dist,
-                    input_per_m=input_per_m,
-                    output_per_m=output_per_m,
-                )
-            )
-        api_latency_provider_names = [provider_name for provider_name, _ in api_items]
+            for item in api_items
+        ]
+        api_latency_provider_names = [item.name for item in api_items]
+        resolved_api_price_source = api_price_source or provider_pool.price_source
         api_price_tiers_per_m = [
             {
                 "provider": provider.name,
@@ -342,14 +317,15 @@ def _make_end_to_end_scenario(
             for provider in api_providers
         ]
     else:
+        api_pool_by_name = provider_pool.by_name()
         api_providers = []
         api_latency_provider_names = []
         api_price_tiers_per_m = []
         for api_name, latency_provider_name, input_per_m, output_per_m in api_specs:
             try:
-                ttft_dist = api_pool[latency_provider_name]
+                ttft_dist = api_pool_by_name[latency_provider_name].ttft_dist
             except KeyError as exc:
-                known = ", ".join(sorted(api_pool))
+                known = ", ".join(sorted(api_pool_by_name))
                 raise ValueError(
                     f"cost-tiered API latency provider {latency_provider_name!r} "
                     f"not found in pool {pool_name!r}; known: {known}"
@@ -372,6 +348,7 @@ def _make_end_to_end_scenario(
                     "output_per_m": output_per_m,
                 }
             )
+        resolved_api_price_source = api_price_source or "scenario_api_specs"
 
     quota_provider = make_quota_provider(
         f"{quota_plan.plan_id}_quota",
@@ -427,7 +404,7 @@ def _make_end_to_end_scenario(
             "api_provider_count": len(api_providers),
             "api_provider_names": [provider.name for provider in api_providers],
             "api_latency_provider_names": api_latency_provider_names,
-            "api_price_source": api_price_source,
+            "api_price_source": resolved_api_price_source,
             "api_price_tiers_per_m": api_price_tiers_per_m,
             "subscription_plan": quota_plan.plan_id,
             "subscription_plan_display_name": quota_plan.display_name,
@@ -467,11 +444,9 @@ def _make_empirical_api_provider(
     ttft_dist,
     *,
     provider_name: str | None = None,
-    input_per_m: float | None = None,
-    output_per_m: float | None = None,
+    input_per_m: float,
+    output_per_m: float,
 ) -> TieredProvider:
-    if input_per_m is None or output_per_m is None:
-        input_per_m, output_per_m = _price_for_provider(latency_provider_name, {})
     return TieredProvider(
         name=provider_name or f"api_{latency_provider_name}",
         cost_per_token=input_per_m / 1_000_000.0,
@@ -480,16 +455,6 @@ def _make_empirical_api_provider(
         ttft_dist=ttft_dist,
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_A,
-    )
-
-
-def _price_for_provider(
-    provider_name: str,
-    pool_prices: dict[str, tuple[float, float]],
-) -> tuple[float, float]:
-    return pool_prices.get(
-        provider_name,
-        _API_PRICE_PER_M.get(provider_name, _DEFAULT_API_PRICE_PER_M),
     )
 
 

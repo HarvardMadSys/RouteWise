@@ -71,13 +71,18 @@ def test_pooled_from_npz_concatenates_provider_samples():
 def test_profile_pools_yaml_locks_canonical_rw3_rw8_and_pooled_sets():
     config = yaml.safe_load(POOLS_YAML.read_text())
 
-    assert config["artifact"] == "qwen3_24h.npz"
-    assert tuple(config["pools"]["rw3"]["providers"]) == RW3
-    assert tuple(config["pools"]["rw8"]["providers"]) == RW8
-    assert config["pools"]["minimax_m25_rw8"]["artifact"] == (
+    assert config["schema_version"] == 2
+    assert config["profiles"]["qwen3_24h"]["artifact"] == "qwen3_24h.npz"
+    assert config["profiles"]["minimax_m25_openrouter"]["artifact"] == (
         "minimax_m25_openrouter_24h.npz"
     )
+    assert config["pools"]["rw3"]["profile"] == "qwen3_24h"
+    assert tuple(config["pools"]["rw3"]["providers"]) == RW3
+    assert config["pools"]["rw8"]["profile"] == "qwen3_24h"
+    assert tuple(config["pools"]["rw8"]["providers"]) == RW8
+    assert config["pools"]["minimax_m25_rw8"]["profile"] == "minimax_m25_openrouter"
     assert tuple(config["pools"]["minimax_m25_rw8"]["providers"]) == MINIMAX_M25_RW8
+    assert config["pooled"]["rw8_pooled"]["profile"] == "qwen3_24h"
     assert tuple(config["pooled"]["rw8_pooled"]["source_providers"]) == RW8
 
 

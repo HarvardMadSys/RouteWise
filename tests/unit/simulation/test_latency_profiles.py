@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from experiments.simulation import latency_profiles
+from experiments.simulation.provider_profiles import load_provider_pool
 
 MINIMAX_M25_RW8 = (
     "Inceptron",
@@ -34,15 +35,24 @@ def test_load_pooled_distribution_uses_rw8_source_samples():
     assert pooled.samples.size == sum(dist.samples.size for dist in rw8.values())
 
 
-def test_load_minimax_m25_rw8_pool_uses_pool_artifact_and_prices():
+def test_load_minimax_m25_rw8_pool_uses_pool_artifact():
     pool = latency_profiles.load_pool("minimax_m25_rw8")
-    prices = latency_profiles.load_pool_provider_prices("minimax_m25_rw8")
 
     assert tuple(pool) == MINIMAX_M25_RW8
     assert pool["Inceptron"].label == "minimax_m25_openrouter_24h/Inceptron"
     assert pool["SiliconFlow"].p50() > pool["Inceptron"].p50()
-    assert prices["Inceptron"] == pytest.approx((0.24, 0.9))
-    assert prices["Chutes"] == pytest.approx((0.15, 1.2))
+
+
+def test_load_minimax_m25_provider_pool_uses_metadata_prices():
+    pool = load_provider_pool("minimax_m25_rw8")
+
+    assert pool.profile_name == "minimax_m25_openrouter"
+    assert pool.price_source == "metadata_openrouter_price"
+    assert tuple(provider.name for provider in pool.providers) == MINIMAX_M25_RW8
+    assert pool.by_name()["Inceptron"].input_per_m == pytest.approx(0.24)
+    assert pool.by_name()["Inceptron"].output_per_m == pytest.approx(0.9)
+    assert pool.by_name()["Chutes"].input_per_m == pytest.approx(0.15)
+    assert pool.by_name()["Chutes"].output_per_m == pytest.approx(1.2)
 
 
 def test_load_empirical_subscription_profile_distributions():

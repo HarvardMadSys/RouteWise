@@ -8,8 +8,9 @@ experiments that need real-world provider latency distributions.
 - `qwen3_24h.npz`: per-provider TTFT samples for Qwen3-235B from the cached
   24-hour OpenRouter run.
 - `qwen3_24h.json`: provenance and per-provider summary statistics.
-- `pools.yaml`: canonical RW3/RW8 provider pools, the MiniMax M2.5 RW8
-  provider pool, and the pooled RW8 profile.
+- `pools.yaml`: profile registry plus canonical RW3/RW8 provider pools, the
+  MiniMax M2.5 RW8 provider pool, pricing source policy, and the pooled RW8
+  profile.
 - `minimax_m25_subscriptions.npz`: empirical TTFT samples for Minimax M2.5
   subscription providers used by cost-layer quota/concurrency experiments.
 - `minimax_m25_subscriptions.json`: provenance and per-provider summary
@@ -49,11 +50,14 @@ latency shape for bootstrap sampling.
 
 ## Pool Semantics
 
-- `rw3` and `rw8` keep provider-specific Qwen3 empirical distributions. Use
-  them when provider latency differences are the point of the experiment.
+- `rw3` and `rw8` keep provider-specific Qwen3 empirical distributions and
+  static committed price metadata for simulator sections that need API costs.
+  Use them when provider latency differences are the point of the experiment.
 - `minimax_m25_rw8` keeps the selected eight MiniMax M2.5 OpenRouter providers:
   Inceptron, Friendli, DeepInfra, SambaNova, Venice, AtlasCloud, Chutes, and
-  SiliconFlow. This is the §3 end-to-end OpenRouter API pool.
+  SiliconFlow. This is the §3 end-to-end OpenRouter API pool. Its prices are
+  resolved from `minimax_m25_openrouter_24h.json` rather than hardcoded in the
+  scenario.
 - `rw8_pooled` concatenates all RW8 provider samples into one anonymous
   distribution. Use it when latency must be held constant and the experiment
   varies another axis, such as cost.

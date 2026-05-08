@@ -1,17 +1,33 @@
 # Real-world latency profiles for simulator S_A experiments.
-#
-# Source artifact provenance is in qwen3_24h.json. Cost is intentionally not
-# represented here; each paper section owns its own cost model.
 
-schema_version: 1
-model: qwen3_235b
-source: qwen3_24h
-artifact: qwen3_24h.npz
-metadata: qwen3_24h.json
+schema_version: 2
+
+profiles:
+  qwen3_24h:
+    model: qwen3_235b
+    source: qwen3_24h
+    artifact: qwen3_24h.npz
+    metadata: qwen3_24h.json
+
+  minimax_m25_openrouter:
+    model: minimax/minimax-m2.5
+    source: minimax_m25_openrouter_24h
+    artifact: minimax_m25_openrouter_24h.npz
+    metadata: minimax_m25_openrouter_24h.json
+    price_source: openrouter_endpoint_snapshot
 
 pools:
   rw3:
     description: "Small real-world S_A pool with clear latency spread."
+    profile: qwen3_24h
+    pricing:
+      source: static
+      default_input_per_m: 0.30
+      default_output_per_m: 1.20
+      overrides:
+        DeepInfra:
+          input_per_m: 0.27
+          output_per_m: 0.95
     providers:
       - WandB
       - DeepInfra
@@ -19,6 +35,15 @@ pools:
 
   rw8:
     description: "Larger real-world OpenRouter S_A pool with realistic overlap."
+    profile: qwen3_24h
+    pricing:
+      source: static
+      default_input_per_m: 0.30
+      default_output_per_m: 1.20
+      overrides:
+        DeepInfra:
+          input_per_m: 0.27
+          output_per_m: 0.95
     providers:
       - WandB
       - DeepInfra
@@ -31,10 +56,9 @@ pools:
 
   minimax_m25_rw8:
     description: "MiniMax M2.5 OpenRouter S_A pool selected for cost/latency spread with low distribution overlap."
-    model: minimax_m25
-    source: minimax_m25_openrouter_24h
-    artifact: minimax_m25_openrouter_24h.npz
-    metadata: minimax_m25_openrouter_24h.json
+    profile: minimax_m25_openrouter
+    pricing:
+      source: metadata_openrouter_price
     selection:
       representative_request_tokens:
         input: 200
@@ -54,6 +78,7 @@ pools:
 pooled:
   rw8_pooled:
     description: "All RW8 samples concatenated into one shared latency distribution."
+    profile: qwen3_24h
     source_providers:
       - WandB
       - DeepInfra
