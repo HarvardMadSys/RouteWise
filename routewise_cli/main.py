@@ -30,11 +30,13 @@ SIMULATOR_SECTION_DESCRIPTIONS = {
 ABLATION_COMMANDS = {
     "effective-cost": "experiments.ablations.effective_cost.harness",
     "effective-cost-calibration": "experiments.ablations.effective_cost_calibration.harness",
+    "hedging": "experiments.ablations.hedging.harness",
 }
 
 ABLATION_COMMAND_DESCRIPTIONS = {
     "effective-cost": "effective-cost formula ablation harness",
     "effective-cost-calibration": "effective-cost L/U envelope calibration harness",
+    "hedging": "hedging timing and backup-selection ablation harness",
 }
 
 
