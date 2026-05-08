@@ -257,8 +257,11 @@ def test_rolling_latency_profile_does_not_use_future_observations() -> None:
     profile.add_sample(2.0, 100.0)
 
     assert profile.mean(1.0) is None
+    assert profile.cdf(500.0, 1.0) is None
     assert profile.mean(3.0) == pytest.approx(100.0)
+    assert profile.cdf(500.0, 3.0) == pytest.approx(1.0)
     assert profile.mean(11.0) == pytest.approx(550.0)
+    assert profile.cdf(500.0, 11.0) == pytest.approx(0.5)
 
 
 def test_rolling_latency_profile_expires_out_of_order_observations() -> None:

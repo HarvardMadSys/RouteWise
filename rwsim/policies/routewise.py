@@ -48,13 +48,36 @@ class RollingLatencyProfile:
     _mean_sum: float = field(default=0.0, init=False, repr=False)
     _mean_count: int = field(default=0, init=False, repr=False)
     _mean_clock_sec: float = field(default=float("-inf"), init=False, repr=False)
+    _cdf_pending: list[tuple[float, int, float]] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
+    _cdf_active: list[tuple[float, int, float]] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
+    _cdf_active_values: dict[int, float] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _cdf_threshold_counts: dict[float, int] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _cdf_active_count: int = field(default=0, init=False, repr=False)
+    _cdf_clock_sec: float = field(default=float("-inf"), init=False, repr=False)
     _sample_seq: int = field(default=0, init=False, repr=False)
 
     def add_sample(self, timestamp: float, ttft_ms: float) -> None:
         ts = float(timestamp)
         value = float(ttft_ms)
         self.samples.append((ts, value))
-        item = (ts, self._sample_seq, value)
+        seq = self._sample_seq
+        item = (ts, seq, value)
         self._sample_seq += 1
         if ts <= self._mean_clock_sec:
             if ts >= self._mean_clock_sec - self.window_sec:
@@ -63,6 +86,11 @@ class RollingLatencyProfile:
                 self._mean_count += 1
         else:
             heapq.heappush(self._mean_pending, item)
+        if ts <= self._cdf_clock_sec:
+            if ts >= self._cdf_clock_sec - self.window_sec:
+                self._cdf_add_active(ts, seq, value)
+        else:
+            heapq.heappush(self._cdf_pending, item)
 
     def values(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
@@ -90,10 +118,25 @@ class RollingLatencyProfile:
         return self._mean_sum / self._mean_count
 
     def cdf(self, value_ms: float, now: float) -> float | None:
-        values = self.values(now)
-        if not values:
+        if now < self._cdf_clock_sec:
+            values = [
+                ttft_ms
+                for ts, ttft_ms in self.samples
+                if now - self.window_sec <= ts <= now
+            ]
+            if not values:
+                return None
+            return float(np.mean(np.asarray(values) <= value_ms))
+
+        self._advance_cdf_window(float(now))
+        if self._cdf_active_count == 0:
             return None
-        return float(np.mean(np.asarray(values) <= value_ms))
+        threshold = float(value_ms)
+        if threshold not in self._cdf_threshold_counts:
+            self._cdf_threshold_counts[threshold] = sum(
+                1 for value in self._cdf_active_values.values() if value <= threshold
+            )
+        return self._cdf_threshold_counts[threshold] / self._cdf_active_count
 
     def _advance_mean_window(self, now: float) -> None:
         self._mean_clock_sec = now
@@ -108,6 +151,34 @@ class RollingLatencyProfile:
             _, _, value = heapq.heappop(self._mean_active)
             self._mean_sum -= value
             self._mean_count -= 1
+
+    def _advance_cdf_window(self, now: float) -> None:
+        self._cdf_clock_sec = now
+        cutoff = now - self.window_sec
+        while self._cdf_pending and self._cdf_pending[0][0] <= now:
+            ts, seq, value = heapq.heappop(self._cdf_pending)
+            if ts >= cutoff:
+                self._cdf_add_active(ts, seq, value)
+        while self._cdf_active and self._cdf_active[0][0] < cutoff:
+            _, seq, value = heapq.heappop(self._cdf_active)
+            self._cdf_remove_active(seq, value)
+
+    def _cdf_add_active(self, ts: float, seq: int, value: float) -> None:
+        heapq.heappush(self._cdf_active, (ts, seq, value))
+        self._cdf_active_values[seq] = value
+        self._cdf_active_count += 1
+        for threshold in self._cdf_threshold_counts:
+            if value <= threshold:
+                self._cdf_threshold_counts[threshold] += 1
+
+    def _cdf_remove_active(self, seq: int, value: float) -> None:
+        if seq not in self._cdf_active_values:
+            return
+        del self._cdf_active_values[seq]
+        self._cdf_active_count -= 1
+        for threshold in self._cdf_threshold_counts:
+            if value <= threshold:
+                self._cdf_threshold_counts[threshold] -= 1
 
 
 @dataclass
