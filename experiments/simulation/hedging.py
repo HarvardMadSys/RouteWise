@@ -32,16 +32,20 @@ from experiments.simulation.common import (
     SectionCell,
     SectionCellResult,
     load_workload,
+    make_tps_distribution,
     routewise_hedging_policy_name,
     routewise_lp_policy_name,
     run_policy,
     run_section,
     write_json,
 )
+from experiments.simulation.latency_profiles import load_pool
+from rwsim.world.capacity import ProviderTier
+from rwsim.world.providers import TieredProvider
+from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
     from rwsim.schemas import Request
-    from rwsim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "hedging"
 
@@ -50,18 +54,22 @@ DEFAULT_ROUTEWISE_P: float = 0.75
 TARGET_SUCCESS_PROBABILITY: float = 0.99
 
 HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
-REAL_WORLD_SCENARIO_NAME: str = "hedging_real_world_rw3"
+REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
+REAL_WORLD_RW8_SCENARIO_NAME: str = "hedging_real_world_rw8"
+REAL_WORLD_SCENARIO_NAME: str = REAL_WORLD_RW3_SCENARIO_NAME
 
 _SOURCE_LATENCY_SCENARIOS: dict[str, str] = {
     HEAVY_TAIL_SCENARIO_NAME: "latency_layer_heavy_tail_half_overlap",
-    REAL_WORLD_SCENARIO_NAME: latency_layer.REAL_WORLD_SCENARIO_NAME,
+    REAL_WORLD_RW3_SCENARIO_NAME: latency_layer.REAL_WORLD_SCENARIO_NAME,
+    REAL_WORLD_RW8_SCENARIO_NAME: "latency_pool_rw8",
 }
 
 # Heavy-tail synthetic uses a tighter SLO to make hedge decisions observable.
-# RW3 keeps the simulator default, matching the real-world latency scale.
+# Real-world scenarios keep the simulator default, matching the latency scale.
 _SCENARIO_SLO_MS: dict[str, float] = {
     HEAVY_TAIL_SCENARIO_NAME: 500.0,
-    REAL_WORLD_SCENARIO_NAME: 2000.0,
+    REAL_WORLD_RW3_SCENARIO_NAME: 2000.0,
+    REAL_WORLD_RW8_SCENARIO_NAME: 2000.0,
 }
 
 
@@ -69,7 +77,8 @@ def list_scenarios() -> tuple[str, ...]:
     """Return §2.2 scenario names."""
     return (
         HEAVY_TAIL_SCENARIO_NAME,
-        REAL_WORLD_SCENARIO_NAME,
+        REAL_WORLD_RW3_SCENARIO_NAME,
+        REAL_WORLD_RW8_SCENARIO_NAME,
     )
 
 
@@ -86,7 +95,10 @@ def make_scenario(name: str) -> ScenarioConfig:
         known = ", ".join(list_scenarios())
         raise ValueError(f"unknown hedging scenario {name!r}; known: {known}") from exc
 
-    base = latency_layer.make_scenario(source_name)
+    if name == REAL_WORLD_RW8_SCENARIO_NAME:
+        base = _make_rw8_scenario()
+    else:
+        base = latency_layer.make_scenario(source_name)
     slo_ms = _SCENARIO_SLO_MS[name]
     base_meta = dict(base.metadata or {})
     metadata = {
@@ -114,6 +126,53 @@ def make_scenario(name: str) -> ScenarioConfig:
         description=description,
         primary_slo_ms=slo_ms,
         metadata=metadata,
+    )
+
+
+def _make_rw8_scenario() -> ScenarioConfig:
+    """Build the eight-provider real-world scenario for §2.2 hedging ablations."""
+    pool = load_pool("rw8")
+    providers = [
+        TieredProvider(
+            name=provider_name,
+            cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
+            / 1_000_000.0,
+            input_cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
+            / 1_000_000.0,
+            output_cost_per_token=latency_layer.LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS
+            / 1_000_000.0,
+            ttft_dist=ttft_dist,
+            tps_dist=make_tps_distribution(),
+            tier=ProviderTier.S_A,
+        )
+        for provider_name, ttft_dist in pool.items()
+    ]
+    return ScenarioConfig(
+        name=REAL_WORLD_RW8_SCENARIO_NAME,
+        description=(
+            "§2.2 hedging: eight-provider real-world RW8 latency pool, "
+            "same provider costs, probability-target hedging."
+        ),
+        providers=providers,
+        arrival_process="trace",
+        primary_slo_ms=_SCENARIO_SLO_MS[REAL_WORLD_RW8_SCENARIO_NAME],
+        metadata={
+            "public_scenario": latency_layer.PUBLIC_SCENARIO_TAG,
+            "artifact_label": REAL_WORLD_RW8_SCENARIO_NAME,
+            "latency_family": "real_world",
+            "real_world_pool": "rw8",
+            "overlap_label": None,
+            "overlap_construction_metric": None,
+            "target_anchor_pair": None,
+            "overlap_metric_source": "configured_distribution",
+            "provider_names": list(pool),
+            "input_cost_per_million_tokens": latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS,
+            "output_cost_per_million_tokens": latency_layer.LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS,
+            "target_band_coverage_fast_medium": None,
+            "realised_band_coverage_fast_medium": None,
+            "realised_band_coverage_medium_slow": None,
+            "realised_band_coverage_fast_slow": None,
+        },
     )
 
 

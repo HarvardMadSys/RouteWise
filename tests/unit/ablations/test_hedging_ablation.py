@@ -283,6 +283,7 @@ def test_harness_lists_section_hedging_scenarios() -> None:
     assert harness.list_scenarios() == (
         "hedging_heavy_tail",
         "hedging_real_world_rw3",
+        "hedging_real_world_rw8",
     )
     assert harness.policies_for_ablation() == tuple(make_ablation_presets())
     assert ablation_policy_name("latest_safe", "probability", p=0.75) in (
