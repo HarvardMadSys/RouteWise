@@ -79,6 +79,7 @@ def make_ablation_presets(
                     "backup_selection": backup_selection,
                     "p": float(p),
                     "cost_envelope": cost_envelope,
+                    "latency_profile_mode": "configured",
                 },
             }
     return presets

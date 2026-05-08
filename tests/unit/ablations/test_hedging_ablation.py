@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import csv
 import copy
+import csv
 import json
 
 from experiments.ablations.hedging import harness
@@ -43,6 +43,9 @@ def test_presets_define_core_hedging_ablation_grid() -> None:
     ) == ("earliest_safe", "random_feasible", 0.25)
     assert presets[production_baseline_policy_name()]["params"]["backup_selection"] == (
         "probability"
+    )
+    assert presets[production_baseline_policy_name()]["params"]["latency_profile_mode"] == (
+        "configured"
     )
 
 
@@ -255,6 +258,7 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> N
     )
     assert rows[0]["dispatch_timing"] == "latest_safe"
     assert rows[0]["backup_selection"] == "probability"
+    assert rows[0]["latency_profile_mode"] == "configured"
     assert rows[0]["production_baseline_policy"] == production_baseline_policy_name()
     assert rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert rows[0]["p99_delta_vs_production_ms"] == 0.0
@@ -268,6 +272,7 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> N
     assert len(csv_rows) == 3
     assert csv_rows[0]["production_baseline_policy"] == production_baseline_policy_name()
     assert csv_rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
+    assert csv_rows[0]["latency_profile_mode"] == "configured"
 
 
 def test_routewise_cli_registers_hedging_ablation() -> None:

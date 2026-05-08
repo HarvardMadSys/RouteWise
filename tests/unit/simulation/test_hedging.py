@@ -27,8 +27,10 @@ def test_hedging_policy_set_uses_hedging_only_routewise():
     presets = hedging.make_policy_presets()
     assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
     assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["latency_profile_mode"] == "configured"
     assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
     assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
 
 
 def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
@@ -40,6 +42,7 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     assert heavy.primary_slo_ms == pytest.approx(500.0)
     assert heavy.metadata["slo_ms"] == pytest.approx(500.0)
     assert heavy.metadata["backup_selection"] == "probability_target_non_primary"
+    assert heavy.metadata["latency_profile_source"] == "configured_distribution"
 
     assert real_world.metadata["source_latency_scenario"] == "latency_layer_real_world"
     assert real_world.metadata["latency_family"] == "real_world"
@@ -78,6 +81,7 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert hedging_row["hedging_policy_mode"] == "routewise_hedging"
     assert hedging_row["backup_selection"] == "probability_target_non_primary"
     assert hedging_row["learns_from_backup"] is False
+    assert hedging_row["latency_profile_mode"] == "configured"
 
     for row in rows:
         assert row["slo_ms"] == 500.0
@@ -92,4 +96,5 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert len(csv_rows) == 2
     assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
     assert csv_rows[1]["backup_selection"] == "probability_target_non_primary"
+    assert csv_rows[1]["latency_profile_mode"] == "configured"
     assert csv_rows[1]["slo_ms"] == "500.0"

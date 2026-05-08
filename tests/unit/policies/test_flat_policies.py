@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rwsim.engine.state import SimulationState
-from rwsim.policies import build_policy
-from rwsim.policies import routewise as routewise_module
+from rwsim.policies import build_policy, routewise as routewise_module
 from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
@@ -297,6 +296,57 @@ def test_rolling_latency_profile_expires_out_of_order_observations() -> None:
     assert profile.cdf(500.0, 11.0) == pytest.approx(0.0)
     assert profile.mean(13.0) == pytest.approx(650.0)
     assert profile.cdf(500.0, 13.0) == pytest.approx(0.5)
+
+
+def test_routewise_configured_latency_profile_ignores_observations() -> None:
+    providers = [
+        TieredProvider(
+            name="slow",
+            cost_per_token=1e-6,
+            ttft_dist=Uniform(900.0, 1100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+        TieredProvider(
+            name="fast",
+            cost_per_token=1e-6,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = RouteWisePolicy(
+        hedging=False,
+        explorer=False,
+        p=0.75,
+        seed=7,
+        cost_envelope=(1e-6, 1e-3),
+        latency_profile_mode="configured",
+    )
+
+    decision = policy.route(request, state)
+    policy.observe(
+        request,
+        decision,
+        RoutingOutcome(
+            request_id=request.id,
+            primary_provider=decision.primary_provider,
+            final_provider=decision.primary_provider,
+            ttft_ms=10_000.0,
+            cost_usd=0.0,
+            metadata={
+                "primary_observed_at": 0.0,
+                "primary_ttft_ms": 10_000.0,
+            },
+        ),
+    )
+    next_decision = policy.route(request, state)
+
+    assert decision.primary_provider == "fast"
+    assert next_decision.primary_provider == "fast"
+    assert policy.profiles == {}
 
 
 def test_routewise_requires_explicit_cost_envelope():

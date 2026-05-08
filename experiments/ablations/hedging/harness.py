@@ -15,8 +15,7 @@ from experiments.ablations.hedging.presets import (
     parse_ablation_policy_name,
     production_baseline_policy_name,
 )
-from experiments.simulation import common
-from experiments.simulation import hedging as hedging_section
+from experiments.simulation import common, hedging as hedging_section
 from rwsim.engine.simulator import Simulator
 
 if TYPE_CHECKING:
@@ -298,6 +297,7 @@ def _enrich_rows(
                 ),
                 "explorer_enabled": False,
                 "learns_from_backup": False,
+                "latency_profile_mode": params.get("latency_profile_mode", "observed"),
                 "production_baseline_policy": production_baseline_policy_name(p=p_value),
                 "cost_multiplier_basis": _COST_MULTIPLIER_BASIS,
             }
@@ -368,6 +368,7 @@ _CSV_FIELDNAMES: tuple[str, ...] = (
     "target_success_probability",
     "explorer_enabled",
     "learns_from_backup",
+    "latency_profile_mode",
     "seeds",
     "n_requests",
     "mean_ttft_ms",

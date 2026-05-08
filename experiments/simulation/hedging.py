@@ -100,7 +100,7 @@ def make_scenario(name: str) -> ScenarioConfig:
         "target_success_probability": TARGET_SUCCESS_PROBABILITY,
         "hedging_trigger": "probability_target",
         "backup_selection": "probability_target_non_primary",
-        "latency_profile_source": "configured_or_observed_policy_profile",
+        "latency_profile_source": "configured_distribution",
         "explorer_profile_learning": "disabled",
         "same_cost_providers": True,
     }
@@ -138,6 +138,7 @@ def make_policy_presets(p_value: float = DEFAULT_ROUTEWISE_P) -> dict[str, dict[
                 "explorer": False,
                 "p": p,
                 "cost_envelope": WORKLOAD_COST_ENVELOPE,
+                "latency_profile_mode": "configured",
             },
         },
         hedging_name: {
@@ -147,6 +148,7 @@ def make_policy_presets(p_value: float = DEFAULT_ROUTEWISE_P) -> dict[str, dict[
                 "explorer": False,
                 "p": p,
                 "cost_envelope": WORKLOAD_COST_ENVELOPE,
+                "latency_profile_mode": "configured",
             },
         },
     }
@@ -266,6 +268,7 @@ def _enrich_rows_with_hedging_metadata(
                 "hedging_policy_mode": _hedging_policy_mode(row["policy"], params),
                 "backup_selection": _backup_selection(params),
                 "learns_from_backup": bool(params.get("explorer")),
+                "latency_profile_mode": params.get("latency_profile_mode", "observed"),
             }
         )
         for key in (
@@ -364,6 +367,7 @@ _HEDGING_CSV_FIELDNAMES: tuple[str, ...] = (
     "explorer_enabled",
     "backup_selection",
     "learns_from_backup",
+    "latency_profile_mode",
     "routewise_p",
     "slo_ms",
     "target_success_probability",
