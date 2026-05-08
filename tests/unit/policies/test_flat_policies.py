@@ -264,6 +264,25 @@ def test_rolling_latency_profile_does_not_use_future_observations() -> None:
     assert profile.cdf(500.0, 11.0) == pytest.approx(0.5)
 
 
+def test_rolling_latency_profile_cdf_state_is_lazy() -> None:
+    profile = RollingLatencyProfile(window_sec=100.0)
+
+    for index in range(100):
+        profile.add_sample(float(index), float(index))
+
+    assert profile._cdf_pending == []
+    assert profile._cdf_active == []
+    assert profile._cdf_active_count == 0
+    assert profile.mean(99.0) == pytest.approx(49.5)
+    assert profile._cdf_pending == []
+    assert profile._cdf_active == []
+
+    assert profile.cdf(49.0, 99.0) == pytest.approx(0.5)
+    assert profile._cdf_active_count == 100
+    profile.add_sample(101.0, 101.0)
+    assert len(profile._cdf_pending) == 1
+
+
 def test_rolling_latency_profile_expires_out_of_order_observations() -> None:
     profile = RollingLatencyProfile(window_sec=5.0)
 

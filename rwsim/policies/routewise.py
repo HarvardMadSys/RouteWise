@@ -86,11 +86,12 @@ class RollingLatencyProfile:
                 self._mean_count += 1
         else:
             heapq.heappush(self._mean_pending, item)
-        if ts <= self._cdf_clock_sec:
-            if ts >= self._cdf_clock_sec - self.window_sec:
-                self._cdf_add_active(ts, seq, value)
-        else:
-            heapq.heappush(self._cdf_pending, item)
+        if self._cdf_clock_sec > float("-inf"):
+            if ts <= self._cdf_clock_sec:
+                if ts >= self._cdf_clock_sec - self.window_sec:
+                    self._cdf_add_active(ts, seq, value)
+            else:
+                heapq.heappush(self._cdf_pending, item)
 
     def values(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
@@ -128,7 +129,11 @@ class RollingLatencyProfile:
                 return None
             return float(np.mean(np.asarray(values) <= value_ms))
 
-        self._advance_cdf_window(float(now))
+        now = float(now)
+        if self._cdf_clock_sec == float("-inf"):
+            self._initialize_cdf_window(now)
+        else:
+            self._advance_cdf_window(now)
         if self._cdf_active_count == 0:
             return None
         threshold = float(value_ms)
@@ -151,6 +156,17 @@ class RollingLatencyProfile:
             _, _, value = heapq.heappop(self._mean_active)
             self._mean_sum -= value
             self._mean_count -= 1
+
+    def _initialize_cdf_window(self, now: float) -> None:
+        self._cdf_clock_sec = now
+        cutoff = now - self.window_sec
+        for seq, (ts, value) in enumerate(self.samples):
+            if ts < cutoff:
+                continue
+            if ts <= now:
+                self._cdf_add_active(ts, seq, value)
+            else:
+                heapq.heappush(self._cdf_pending, (ts, seq, value))
 
     def _advance_cdf_window(self, now: float) -> None:
         self._cdf_clock_sec = now
