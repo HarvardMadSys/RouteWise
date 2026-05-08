@@ -15,12 +15,16 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FixedLocator, NullFormatter, ScalarFormatter
+from matplotlib.ticker import (
+    FixedLocator,
+    NullFormatter,
+    PercentFormatter,
+    ScalarFormatter,
+)
 
 from plots.helpers import save_figure
 from plots.style import apply_style
 from rwsim.metrics.histogram import TtftHistogram
-
 
 SCENARIOS = (
     "cost_layer_uniform",
@@ -43,12 +47,35 @@ SCENARIO_SLUGS = {
     "cost_layer_real_world": "real_world",
 }
 
+SCENARIO_COLORS = {
+    "cost_layer_uniform": "#4C78A8",
+    "cost_layer_normal": "#F58518",
+    "cost_layer_heavy_tail": "#54A24B",
+    "cost_layer_real_world": "#E45756",
+}
+
 POLICIES = (
     "greedy_cost",
     "random",
     "offline",
     "ablation_lp_only_p0",
 )
+
+P_SWEEP_POLICIES = (
+    "ablation_lp_only_p0",
+    "ablation_lp_only_p25",
+    "ablation_lp_only_p50",
+    "ablation_lp_only_p75",
+    "ablation_lp_only_p100",
+)
+
+P_SWEEP_VALUES = {
+    "ablation_lp_only_p0": 0.0,
+    "ablation_lp_only_p25": 0.25,
+    "ablation_lp_only_p50": 0.50,
+    "ablation_lp_only_p75": 0.75,
+    "ablation_lp_only_p100": 1.0,
+}
 
 CDF_POLICIES = (
     "greedy_cost",
@@ -61,6 +88,10 @@ POLICY_LABELS = {
     "random": "Random",
     "offline": "Offline",
     "ablation_lp_only_p0": "RW p=0",
+    "ablation_lp_only_p25": "RW p=.25",
+    "ablation_lp_only_p50": "RW p=.50",
+    "ablation_lp_only_p75": "RW p=.75",
+    "ablation_lp_only_p100": "RW p=1",
 }
 
 POLICY_COLORS = {
@@ -130,7 +161,7 @@ def _log_axis_human_ticks(
     axis: str = "x",
     ticks: tuple[float, ...] = (100.0, 200.0, 300.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0),
 ) -> None:
-    """Replace matplotlib's ``2 × 10²`` style log ticks with plain numbers."""
+    """Replace matplotlib's ``2 x 10^2`` style log ticks with plain numbers."""
     target = ax.xaxis if axis == "x" else ax.yaxis
     target.set_major_locator(FixedLocator(list(ticks)))
     formatter = ScalarFormatter()
@@ -244,9 +275,9 @@ def plot_provider_mix(
     for provider in PROVIDER_ORDER:
         values = []
         for policy in POLICIES:
-                row = summary_row(rows, scenario=scenario, policy=policy)
-                mix = json.loads(row["provider_mix"])
-                values.append(float(mix.get(provider, 0.0)))
+            row = summary_row(rows, scenario=scenario, policy=policy)
+            mix = json.loads(row["provider_mix"])
+            values.append(float(mix.get(provider, 0.0)))
         ax.barh(
             y_pos,
             values,
@@ -280,6 +311,114 @@ def plot_provider_mix(
         output_dir,
         f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_provider_mix",
         formats=["pdf"],
+    )
+    plt.close(fig)
+
+
+def plot_p_sweep_cost_vs_latency(rows: list[dict[str, str]], output_dir: Path) -> None:
+    """Plot the p-sweep sanity result: cost moves, latency does not."""
+    fig, axes = plt.subplots(1, 2, figsize=(6.7, 2.45), sharex=True)
+    p_values = [P_SWEEP_VALUES[policy] for policy in P_SWEEP_POLICIES]
+
+    for scenario in SCENARIOS:
+        costs = [
+            float(summary_row(rows, scenario=scenario, policy=policy)["total_cost_usd"])
+            for policy in P_SWEEP_POLICIES
+        ]
+        p99_values = [
+            float(summary_row(rows, scenario=scenario, policy=policy)["p99_ms"])
+            for policy in P_SWEEP_POLICIES
+        ]
+        axes[0].plot(
+            p_values,
+            costs,
+            marker="o",
+            color=SCENARIO_COLORS[scenario],
+            label=SCENARIO_LABELS[scenario],
+        )
+        axes[1].plot(
+            p_values,
+            p99_values,
+            marker="o",
+            color=SCENARIO_COLORS[scenario],
+            label=SCENARIO_LABELS[scenario],
+        )
+
+    axes[0].set_ylabel("Total cost ($)")
+    axes[0].set_title("Cost rises with p")
+    axes[0].grid(True, alpha=0.22)
+    axes[1].set_ylabel("P99 TTFT (ms)")
+    axes[1].set_yscale("log")
+    axes[1].set_title("Latency stays flat")
+    axes[1].grid(True, which="both", alpha=0.18)
+    for ax in axes:
+        ax.set_xlabel("p")
+        ax.set_xticks(p_values)
+        ax.set_xticklabels(["0", ".25", ".50", ".75", "1"])
+    axes[0].legend(frameon=False, ncols=2, loc="upper left")
+    fig.suptitle("On-demand p-sweep: p changes spend, not latency", y=1.04, fontsize=10)
+    save_figure(
+        fig,
+        output_dir,
+        "cost_layer_on_demand_p_sweep_cost_vs_latency",
+        formats=["png", "pdf"],
+    )
+    plt.close(fig)
+
+
+def plot_p_sweep_provider_mix(rows: list[dict[str, str]], output_dir: Path) -> None:
+    """Plot how the p sweep changes provider mix across latency families."""
+    fig, axes = plt.subplots(2, 2, figsize=(6.7, 4.1), sharex=True, sharey=True)
+    x = np.arange(len(P_SWEEP_POLICIES))
+    axes_flat = axes.ravel()
+
+    for ax, scenario in zip(axes_flat, SCENARIOS, strict=True):
+        bottom = np.zeros(len(P_SWEEP_POLICIES))
+        for provider in PROVIDER_ORDER:
+            values = []
+            for policy in P_SWEEP_POLICIES:
+                row = summary_row(rows, scenario=scenario, policy=policy)
+                mix = json.loads(row["provider_mix"])
+                values.append(float(mix.get(provider, 0.0)))
+            ax.bar(
+                x,
+                values,
+                bottom=bottom,
+                color=PROVIDER_COLORS[provider],
+                label=PROVIDER_LABELS[provider],
+                width=0.68,
+            )
+            bottom += np.asarray(values)
+        ax.set_title(SCENARIO_LABELS[scenario])
+        ax.set_ylim(0.0, 1.0)
+        ax.grid(axis="y", alpha=0.18)
+        ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+        ax.set_xticks(x)
+        ax.set_xticklabels(["0", ".25", ".50", ".75", "1"])
+
+    axes[1, 0].set_xlabel("p")
+    axes[1, 1].set_xlabel("p")
+    axes[0, 0].set_ylabel("Request fraction")
+    axes[1, 0].set_ylabel("Request fraction")
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        frameon=False,
+        ncols=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.03),
+    )
+    fig.suptitle(
+        "On-demand p-sweep: p moves traffic to pricier providers",
+        y=1.10,
+        fontsize=10,
+    )
+    save_figure(
+        fig,
+        output_dir,
+        "cost_layer_on_demand_p_sweep_provider_mix",
+        formats=["png", "pdf"],
     )
     plt.close(fig)
 
@@ -387,13 +526,20 @@ def write_cost_table(
                     "policy": POLICY_LABELS[policy],
                     "n_requests": row["n_requests"],
                     "total_cost_usd": f"{total:.6f}",
-                    "mean_cost_usd": f"{float(row['mean_cost_usd']):.9f}",
+                    "mean_cost_usd": f"{_mean_cost_usd(row):.9f}",
                     "vs_offline": (
                         f"{total / offline_cost:.4f}" if offline_cost > 0 else "n/a"
                     ),
                 }
             )
     print(f"Saved: {path}")
+
+
+def _mean_cost_usd(row: dict[str, str]) -> float:
+    """Return mean request cost across old and current summary schemas."""
+    if "mean_total_cost_usd" in row:
+        return float(row["mean_total_cost_usd"])
+    return float(row["mean_cost_usd"])
 
 
 def write_latency_percentile_table(
@@ -465,6 +611,8 @@ def make_on_demand_plots(input_dir: Path, output_dir: Path) -> None:
         plot_provider_mix(summary_rows, output_dir, scenario=scenario)
         plot_ttft_cdf(summary_rows, histogram_rows, output_dir, scenario=scenario)
         write_latency_percentile_table(summary_rows, output_dir, scenario=scenario)
+    plot_p_sweep_cost_vs_latency(summary_rows, output_dir)
+    plot_p_sweep_provider_mix(summary_rows, output_dir)
 
 
 def main(argv: list[str] | None = None) -> int:

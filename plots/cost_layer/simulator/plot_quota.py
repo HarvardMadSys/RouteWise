@@ -297,7 +297,7 @@ def plot_total_cost_all_policies(
         fig,
         output_dir,
         f"cost_layer_quota_{plan}_q_sweep_all_policies",
-        formats=["pdf"],
+        formats=["png", "pdf"],
     )
     plt.close(fig)
 
@@ -336,7 +336,7 @@ def plot_quota_fraction(
         fig,
         output_dir,
         f"cost_layer_quota_{plan}_q_sweep_quota_fraction",
-        formats=["pdf"],
+        formats=["png", "pdf"],
     )
     plt.close(fig)
 
@@ -394,6 +394,73 @@ def plot_marginal_saving(
         output_dir,
         f"cost_layer_quota_{plan}_q_sweep_marginal_saving",
         formats=["pdf"],
+    )
+    plt.close(fig)
+
+
+def plot_p0_cost_decomposition(
+    rows: list[dict[str, str]],
+    output_dir: Path,
+    *,
+    plan: str,
+) -> None:
+    """Plot RW p=0 API spillover cost versus fixed subscription cost."""
+    policy_rows = _policy_rows(rows, "ablation_lp_only_p0", plan=plan)
+    if not policy_rows:
+        return
+
+    counts = np.asarray([_int(row, "subscription_count") for row in policy_rows])
+    api_cost = np.asarray([_float(row, "api_cost_usd_per_run") for row in policy_rows])
+    fixed_cost = np.asarray(
+        [_float(row, "subscription_fixed_cost_usd_per_run") for row in policy_rows]
+    )
+    total_cost = api_cost + fixed_cost
+    best = _best_row(policy_rows)
+
+    fig, ax = plt.subplots(figsize=(4.5, 2.75))
+    ax.stackplot(
+        counts,
+        api_cost,
+        fixed_cost,
+        labels=("API spillover", "Fixed subscription"),
+        colors=("#9ecae1", "#fdae6b"),
+        alpha=0.9,
+    )
+    ax.plot(
+        counts,
+        total_cost,
+        color=POLICY_COLORS["ablation_lp_only_p0"],
+        marker="o",
+        label="Total",
+    )
+    ax.scatter(
+        [_int(best, "subscription_count")],
+        [_float(best, "total_cost_usd_per_run")],
+        s=50,
+        facecolor="white",
+        edgecolor=POLICY_COLORS["ablation_lp_only_p0"],
+        linewidth=1.3,
+        zorder=5,
+    )
+    ax.annotate(
+        f"q*={_int(best, 'subscription_count')}",
+        xy=(_int(best, "subscription_count"), _float(best, "total_cost_usd_per_run")),
+        xytext=(3.0, 28.0),
+        textcoords="offset points",
+        fontsize=7,
+    )
+    all_counts = sorted({_int(row, "subscription_count") for row in rows})
+    ax.set_xlabel("Subscriptions (q)")
+    ax.set_ylabel("Cost ($)")
+    ax.set_title("RW p=0 balances API spillover and fixed fee")
+    _set_q_ticks(ax, all_counts)
+    ax.grid(True, alpha=0.22)
+    ax.legend(frameon=False, loc="upper center", ncols=3, bbox_to_anchor=(0.5, 1.20))
+    save_figure(
+        fig,
+        output_dir,
+        f"cost_layer_quota_{plan}_p0_cost_decomposition",
+        formats=["png", "pdf"],
     )
     plt.close(fig)
 
@@ -643,6 +710,7 @@ def make_quota_plots(
     plot_total_cost_all_policies(q_rows, output_dir, plan=plan)
     plot_quota_fraction(q_rows, output_dir, plan=plan)
     plot_marginal_saving(q_rows, output_dir, plan=plan)
+    plot_p0_cost_decomposition(q_rows, output_dir, plan=plan)
     write_optimal_count_table(q_rows, output_dir, plan=plan)
     write_q_sweep_table(q_rows, output_dir, plan=plan)
 
