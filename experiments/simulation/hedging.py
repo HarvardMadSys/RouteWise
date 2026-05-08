@@ -56,6 +56,7 @@ TARGET_SUCCESS_PROBABILITY: float = 0.99
 HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
 REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
 REAL_WORLD_RW8_SCENARIO_NAME: str = "hedging_real_world_rw8"
+REAL_WORLD_RW8_SLO4000_SCENARIO_NAME: str = "hedging_real_world_rw8_slo4000"
 REAL_WORLD_SCENARIO_NAME: str = REAL_WORLD_RW3_SCENARIO_NAME
 REAL_WORLD_RW8_POOL_NAME: str = "rw8"
 
@@ -63,6 +64,12 @@ _SOURCE_LATENCY_SCENARIOS: dict[str, str | None] = {
     HEAVY_TAIL_SCENARIO_NAME: "latency_layer_heavy_tail_half_overlap",
     REAL_WORLD_RW3_SCENARIO_NAME: latency_layer.REAL_WORLD_SCENARIO_NAME,
     REAL_WORLD_RW8_SCENARIO_NAME: None,
+    REAL_WORLD_RW8_SLO4000_SCENARIO_NAME: None,
+}
+
+_REAL_WORLD_POOL_SCENARIOS: dict[str, tuple[str, float]] = {
+    REAL_WORLD_RW8_SCENARIO_NAME: (REAL_WORLD_RW8_POOL_NAME, 2000.0),
+    REAL_WORLD_RW8_SLO4000_SCENARIO_NAME: (REAL_WORLD_RW8_POOL_NAME, 4000.0),
 }
 
 # Heavy-tail synthetic uses a tighter SLO to make hedge decisions observable.
@@ -71,6 +78,7 @@ _SCENARIO_SLO_MS: dict[str, float] = {
     HEAVY_TAIL_SCENARIO_NAME: 500.0,
     REAL_WORLD_RW3_SCENARIO_NAME: 2000.0,
     REAL_WORLD_RW8_SCENARIO_NAME: 2000.0,
+    REAL_WORLD_RW8_SLO4000_SCENARIO_NAME: 4000.0,
 }
 
 
@@ -80,6 +88,7 @@ def list_scenarios() -> tuple[str, ...]:
         HEAVY_TAIL_SCENARIO_NAME,
         REAL_WORLD_RW3_SCENARIO_NAME,
         REAL_WORLD_RW8_SCENARIO_NAME,
+        REAL_WORLD_RW8_SLO4000_SCENARIO_NAME,
     )
 
 
@@ -96,11 +105,12 @@ def make_scenario(name: str) -> ScenarioConfig:
         known = ", ".join(list_scenarios())
         raise ValueError(f"unknown hedging scenario {name!r}; known: {known}") from exc
 
-    if name == REAL_WORLD_RW8_SCENARIO_NAME:
+    if name in _REAL_WORLD_POOL_SCENARIOS:
+        pool_name, slo_ms = _REAL_WORLD_POOL_SCENARIOS[name]
         base = _make_real_world_pool_scenario(
-            pool_name=REAL_WORLD_RW8_POOL_NAME,
+            pool_name=pool_name,
             scenario_name=name,
-            slo_ms=_SCENARIO_SLO_MS[name],
+            slo_ms=slo_ms,
         )
     else:
         if source_name is None:
@@ -123,9 +133,14 @@ def make_scenario(name: str) -> ScenarioConfig:
         "explorer_profile_learning": "disabled",
         "same_cost_providers": True,
     }
+    source_label = (
+        f"real_world_pool={base_meta.get('real_world_pool')}"
+        if source_name is None
+        else f"source={source_name}"
+    )
     description = (
-        f"§2.2 hedging: source={source_name}, SLO={slo_ms:.0f} ms, "
-        "same provider costs, compare LP-only against probability-target hedging."
+        f"§2.2 hedging: {source_label}, SLO={slo_ms:.0f} ms, same provider "
+        "costs, compare LP-only against probability-target hedging."
     )
     return replace(
         base,

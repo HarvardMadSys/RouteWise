@@ -16,6 +16,7 @@ def test_hedging_scenarios_match_section_contract():
         "hedging_heavy_tail",
         "hedging_real_world_rw3",
         "hedging_real_world_rw8",
+        "hedging_real_world_rw8_slo4000",
     )
 
 
@@ -38,6 +39,7 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     heavy = hedging.make_scenario("hedging_heavy_tail")
     rw3 = hedging.make_scenario("hedging_real_world_rw3")
     rw8 = hedging.make_scenario("hedging_real_world_rw8")
+    rw8_slo4000 = hedging.make_scenario("hedging_real_world_rw8_slo4000")
 
     assert heavy.metadata["source_latency_scenario"] == "latency_layer_heavy_tail_half_overlap"
     assert heavy.metadata["latency_family"] == "heavy_tail"
@@ -58,6 +60,12 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     assert len({provider.effective_input_cost_per_token for provider in rw8.providers}) == 1
     assert len({provider.effective_output_cost_per_token for provider in rw8.providers}) == 1
     assert rw8.primary_slo_ms == pytest.approx(2000.0)
+
+    assert rw8_slo4000.metadata["source_latency_scenario"] is None
+    assert rw8_slo4000.metadata["real_world_pool"] == "rw8"
+    assert len(rw8_slo4000.providers) == 8
+    assert rw8_slo4000.primary_slo_ms == pytest.approx(4000.0)
+    assert rw8_slo4000.metadata["slo_ms"] == pytest.approx(4000.0)
 
 
 def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
