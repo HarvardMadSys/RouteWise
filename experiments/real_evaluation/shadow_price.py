@@ -6,7 +6,7 @@ instead of ``rwsim.world.providers.TieredProvider``. The two implementations
 must stay in lock-step:
 
 - ``quota_shadow_price``        : ``L * (U/L)^z`` with ``z`` = quota fraction used
-- ``concurrency_shadow_price``  : ``U * u^alpha`` with ``u`` = active fraction
+- ``concurrency_shadow_price``  : ``L`` for reusable concurrency capacity
 - ``effective_cost``            : paper-formula piecewise cost by provider tier
 - ``calibrate_envelopes``       : ``U = max api cost``, ``L = max(U*floor_ratio, 1e-9)``
 
@@ -52,14 +52,16 @@ def concurrency_shadow_price(
     now: float,
     *,
     U: float,
+    L: float,
     alpha: float = 1.0,
 ) -> float:
-    """Congestion price ``U * u^alpha`` for a concurrency-limited provider."""
+    """Constant price ``L`` for a concurrency-limited reusable-capacity provider."""
+    del now, U, alpha
     if state.concurrency is None:
         return 0.0
-
-    u = state.concurrency.utilization(now)
-    return U * math.pow(u, alpha)
+    if L <= 0:
+        raise ValueError(f"Require L > 0 for concurrency shadow price; got L={L}")
+    return L
 
 
 def request_marginal_cost(
@@ -110,7 +112,7 @@ def effective_cost(
     if state.spec.tier == "quota":
         return quota_shadow_price(state, now, U=U, L=L)
     if state.spec.tier == "concurrency":
-        return concurrency_shadow_price(state, now, U=U, alpha=concurrency_alpha)
+        return concurrency_shadow_price(state, now, U=U, L=L, alpha=concurrency_alpha)
     raise ValueError(f"Unsupported provider tier for real-eval effective cost: {state.spec.tier!r}")
 
 

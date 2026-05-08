@@ -114,10 +114,10 @@ Curves:
 
 | Curve | Formula | Interpretation |
 |---|---|---|
-| `legacy_linear_u` | `U * u` | Current RouteWise concurrency behavior |
+| `legacy_linear_u` | `U * u` | 旧版 RouteWise concurrency behavior |
 | `exp_lu` | `L * (U/L)^u` | Unified exponential candidate |
 | `linear_lu` | `L + u(U-L)` | Unified linear alternative |
-| `constant_l` | `L` | Aggressive sanity baseline |
+| `constant_l` | `L` | Selected RouteWise concurrency default |
 | `constant_u` | `U` | Conservative sanity baseline |
 
 Here `u` is weighted concurrency utilization:

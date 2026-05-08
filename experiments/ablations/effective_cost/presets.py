@@ -22,7 +22,7 @@ DEFAULT_CONCURRENCY_CURVES: tuple[ScarcityCurve, ...] = (
     "constant_u",
 )
 CONCURRENCY_ONLY_QUOTA_CURVE: ScarcityCurve = "exp_lu"
-DEFAULT_CONCURRENCY_CURVE: ScarcityCurve = "legacy_linear_u"
+DEFAULT_CONCURRENCY_CURVE: ScarcityCurve = "constant_l"
 
 
 def ablation_policy_name(

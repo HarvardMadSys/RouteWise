@@ -224,7 +224,7 @@ def test_policies_for_phase_b_default_concurrency_curve_grid() -> None:
 
 def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None:
     presets = make_ablation_presets(curves=("exp_lu",), p_values=(0.5,))
-    preset = presets["effective_cost__q=exp_lu__c=legacy_linear_u__p50"]
+    preset = presets["effective_cost__q=exp_lu__c=constant_l__p50"]
 
     assert preset["policy"] == "LPOnlyAblationPolicy"
     assert preset["params"]["cost_envelope"] == common.WORKLOAD_COST_ENVELOPE
@@ -251,7 +251,7 @@ def test_policy_name_roundtrip() -> None:
 
     assert parse_ablation_policy_name(policy) == (
         "linear_lu",
-        "legacy_linear_u",
+        "constant_l",
         0.25,
     )
 

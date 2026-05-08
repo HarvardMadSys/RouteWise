@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from experiments.real_evaluation.inventory import (
     ProviderSpec,
     ProviderState,
@@ -99,7 +101,7 @@ def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
     state.concurrency.admit(2, now, 60.0)
 
     q_sp = quota_shadow_price(state, now, U=1.0, L=0.001)
-    c_sp = concurrency_shadow_price(state, now, U=1.0)
+    c_sp = concurrency_shadow_price(state, now, U=1.0, L=0.001)
     assert q_sp > 0.0
     assert c_sp > 0.0
     eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
@@ -121,9 +123,9 @@ def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
     state.concurrency.admit(1, now, 60.0)
     state.concurrency.admit(2, now, 60.0)
 
-    c_sp = concurrency_shadow_price(state, now, U=1.0)
+    c_sp = concurrency_shadow_price(state, now, U=1.0, L=0.001)
     eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
-    assert c_sp > 0.0
+    assert c_sp == pytest.approx(0.001)
     assert eff == c_sp
 
 

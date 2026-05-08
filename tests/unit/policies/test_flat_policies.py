@@ -14,9 +14,10 @@ from rwsim.policies.routewise import (
     _normalize_weights,
     _same_cost_shortcut_weights,
     _solve_lp,
+    concurrency_shadow_price,
 )
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
-from rwsim.world.capacity import ProviderTier, QuotaState
+from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
 from rwsim.world.distributions import Uniform
 from rwsim.world.providers import TieredProvider
 
@@ -302,6 +303,24 @@ def test_routewise_fixed_cost_envelope_keeps_quota_price_request_independent():
     assert short_decision.metadata["U"] == long_decision.metadata["U"] == 1e-2
     assert short_decision.metadata["c_eff"]["quota"] == long_decision.metadata["c_eff"]["quota"]
     assert short_decision.metadata["c_eff"]["api"] < long_decision.metadata["c_eff"]["api"]
+
+
+def test_routewise_concurrency_shadow_price_is_constant_l():
+    provider = TieredProvider(
+        name="concurrency",
+        cost_per_token=0.0,
+        ttft_dist=Uniform(150.0, 450.0),
+        tps_dist=Uniform(100.0, 200.0),
+        tier=ProviderTier.S_C,
+        concurrency=ConcurrencyState(limit=4),
+    )
+
+    empty_price = concurrency_shadow_price(provider, 0.0, U=1e-2, L=1e-4)
+    provider.concurrency.admit(1, 0.0, 60.0)
+    provider.concurrency.admit(2, 0.0, 60.0)
+    loaded_price = concurrency_shadow_price(provider, 1.0, U=1e-2, L=1e-4)
+
+    assert empty_price == loaded_price == pytest.approx(1e-4)
 
 
 def test_routewise_prefers_quota_for_high_value_request_with_fixed_envelope():

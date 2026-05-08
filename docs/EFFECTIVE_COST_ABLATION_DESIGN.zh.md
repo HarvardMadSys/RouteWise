@@ -263,7 +263,7 @@ quota 烧在 low-value requests 上、导致后期 high-value requests 被推到
 
 | Curve id | Formula | Purpose |
 |---|---|---|
-| `conc_legacy_linear_u` | `U * u` | Current implementation |
+| `conc_legacy_linear_u` | `U * u` | 旧版 RouteWise concurrency baseline |
 | `conc_linear_lu` | `L + u * (U - L)` | 和 quota 相同的 linear shape |
 | `conc_exp_lu` | `L * (U / L)^u` | Exponential unified candidate |
 | `conc_constant_l` | `L` | Sanity baseline：过度使用 concurrency |

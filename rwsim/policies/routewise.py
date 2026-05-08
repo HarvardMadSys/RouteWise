@@ -405,14 +405,18 @@ def concurrency_shadow_price(
     now: float,
     *,
     U: float,
+    L: float,
     alpha: float = 1.0,
 ) -> float:
-    """Concurrency shadow price used by RouteWise effective cost."""
+    """Constant reusable-capacity price used by RouteWise effective cost."""
+    del now, U, alpha
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.concurrency is None:
         return 0.0
-    return U * math.pow(provider.concurrency.utilization(now), alpha)
+    if L <= 0:
+        raise ValueError(f"Require L > 0 for concurrency shadow price; got L={L}")
+    return L
 
 
 def effective_cost(
@@ -442,7 +446,7 @@ def effective_cost(
     if tier == ProviderTier.S_Q:
         return quota_shadow_price(provider, now, U=U, L=L)
     if tier == ProviderTier.S_C:
-        return concurrency_shadow_price(provider, now, U=U, alpha=concurrency_alpha)
+        return concurrency_shadow_price(provider, now, U=U, L=L, alpha=concurrency_alpha)
     raise ValueError(f"Unsupported provider tier for RouteWise effective cost: {tier!r}")
 
 

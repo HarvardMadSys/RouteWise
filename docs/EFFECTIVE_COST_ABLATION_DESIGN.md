@@ -280,7 +280,7 @@ Curves:
 
 | Curve id | Formula | Purpose |
 |---|---|---|
-| `conc_legacy_linear_u` | `U * u` | Current implementation |
+| `conc_legacy_linear_u` | `U * u` | Former RouteWise concurrency baseline |
 | `conc_linear_lu` | `L + u * (U - L)` | Same linear shape as quota |
 | `conc_exp_lu` | `L * (U / L)^u` | Exponential unified candidate |
 | `conc_constant_l` | `L` | Sanity baseline: overuses concurrency |
@@ -381,11 +381,11 @@ formula.
 ### 5.2 Method A policy boundary
 
 Do not add every candidate curve to `rwsim.policies` as a core policy surface.
-The stable `rwsim` implementation should keep the paper-current formula:
+The stable `rwsim` implementation should keep only the selected paper formula:
 
 ```text
 S_Q: exp_lu
-S_C: legacy_linear_u
+S_C: constant_l
 ```
 
 Do not add an `effective_cost_fn` field, subclass hook, or ablation-specific
