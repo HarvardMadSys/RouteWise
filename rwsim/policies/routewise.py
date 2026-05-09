@@ -34,7 +34,9 @@ if TYPE_CHECKING:
 
 _LP_EPS = 1e-9
 _COST_TIEBREAK_MS = 1e-3
-_DEFAULT_HEDGE_CHECKPOINTS = (0.25, 0.50, 0.75, 0.90)
+_HEDGE_CHECKPOINT_START_FRACTION = 0.25
+_HEDGE_CHECKPOINT_END_FRACTION = 0.90
+_HEDGE_CHECKPOINT_INTERVAL_MS = 100.0
 
 
 @dataclass
@@ -129,10 +131,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         primary_name = _sample_weighted(weights, self.rng)
         hedge_checkpoints = ()
         if self.hedging:
-            hedge_checkpoints = tuple(
-                (self.slo_ms / 1000.0) * frac
-                for frac in _DEFAULT_HEDGE_CHECKPOINTS
-            )
+            hedge_checkpoints = _hedge_checkpoints_for_slo(self.slo_ms)
 
         return RoutingDecision(
             primary_provider=primary_name,
@@ -502,6 +501,28 @@ def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str
     probs = np.asarray([weights[name] for name in names], dtype=float)
     probs = probs / probs.sum()
     return str(rng.choice(names, p=probs))
+
+
+def _hedge_checkpoints_for_slo(slo_ms: float) -> tuple[float, ...]:
+    """Return dense latest-safe hedge checkpoints in seconds."""
+    start_ms = _ceil_to_interval_ms(
+        float(slo_ms) * _HEDGE_CHECKPOINT_START_FRACTION,
+        _HEDGE_CHECKPOINT_INTERVAL_MS,
+    )
+    end_ms = float(slo_ms) * _HEDGE_CHECKPOINT_END_FRACTION
+    if start_ms > end_ms + _LP_EPS:
+        return ()
+
+    checkpoints_ms: list[float] = []
+    current_ms = start_ms
+    while current_ms <= end_ms + _LP_EPS:
+        checkpoints_ms.append(current_ms)
+        current_ms += _HEDGE_CHECKPOINT_INTERVAL_MS
+    return tuple(ms / 1000.0 for ms in checkpoints_ms)
+
+
+def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
+    return math.ceil((value_ms - _LP_EPS) / interval_ms) * interval_ms
 
 
 __all__ = [

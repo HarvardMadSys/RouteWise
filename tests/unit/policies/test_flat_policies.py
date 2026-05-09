@@ -10,6 +10,7 @@ from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
     _cost_tiebroken_objective,
+    _hedge_checkpoints_for_slo,
     _normalize_weights,
     _same_cost_shortcut_weights,
     _solve_lp,
@@ -94,6 +95,18 @@ def test_routewise_declares_in_flight_hedge_checkpoints():
     assert decision.primary_provider in {provider.name for provider in providers}
     assert decision.hedge_checkpoints
     assert decision.hedge_checkpoints == tuple(sorted(decision.hedge_checkpoints))
+
+
+def test_routewise_uses_dense_100ms_hedge_checkpoints_for_2s_slo() -> None:
+    checkpoints = _hedge_checkpoints_for_slo(2000.0)
+
+    assert checkpoints[0] == pytest.approx(0.5)
+    assert checkpoints[-1] == pytest.approx(1.8)
+    assert len(checkpoints) == 14
+    assert all(
+        right - left == pytest.approx(0.1)
+        for left, right in zip(checkpoints, checkpoints[1:])
+    )
 
 
 def test_routewise_hedging_selects_backup_by_success_probability():
