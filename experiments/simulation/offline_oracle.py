@@ -1,4 +1,61 @@
-"""Offline cost oracle adapter for cost-layer simulator sections."""
+"""Offline fixed-start routing oracle for cost-layer simulator sections.
+
+This module defines the offline baseline used by the simulator as a routing
+oracle, not as a queueing or scheduling oracle. The oracle receives the full
+request trace up front, including arrivals, token counts, API fallback costs,
+and provider-model service-duration estimates. With that future knowledge it
+chooses the provider assignment that minimizes marginal API cost under the
+selected provider-capacity constraints.
+
+The main semantics are fixed-start and no-queueing:
+
+* Each request must be assigned to exactly one provider at its arrival time.
+* If a request uses a concurrency-limited subscription provider, its occupied
+  interval is fixed to [arrival_time, arrival_time + service_duration].
+* The oracle may choose which fixed intervals receive subscription capacity,
+  but it may not delay, reorder, or preempt requests to create future capacity.
+
+Service-duration assumption:
+
+* The main simulator uses provider-model duration rather than BurstGPT's
+  recorded elapsed-time field. Arrival times and token lengths come from the
+  workload trace; service duration for concurrency occupancy is derived from
+  provider TTFT and throughput profiles.
+* Current online simulation samples service time at dispatch as
+  sampled_TTFT + response_tokens / sampled_TPS, unless an explicit provider
+  service-time distribution is configured.
+* Current offline routing baselines use a deterministic counterpart,
+  p50_TTFT + response_tokens / p50_TPS. This keeps the oracle fixed-start and
+  provider-model based, but it is not yet a per-request realized-duration
+  oracle. A stricter future implementation should materialize provider-model
+  durations before the run and feed the same realized durations to both the
+  simulator's capacity accounting and the offline oracle.
+* BurstGPT `elapsed_time_sec` is preserved as metadata and can be used for a
+  separate robustness check, but it is not mixed into the main capacity model.
+
+Under those semantics, an exact offline oracle is allowed to exploit future
+knowledge to reserve quota or concurrency capacity for requests with higher
+API fallback value. It is not allowed to introduce start-time variables or
+time-discretized scheduling decisions. A time-discretized model with chosen
+start slots would be a stronger offline scheduler and should be reported
+separately as a queueing/scheduling upper bound.
+
+The intended scalable formulation for joint quota/concurrency routing is a
+sparse event-driven MILP. Quota constraints are applied per provider window.
+Concurrency constraints should be expressed as cumulative load over sorted
+start/end events, so each request contributes only at its start and end events
+instead of scanning every interval at every event point.
+
+Current implementation notes:
+
+* API-only, single-window quota, and fixed-start concurrency baselines have
+  exact implementations for their supported settings.
+* Multi-window quota currently uses a value-greedy baseline and is not a
+  globally exact oracle.
+* Joint quota/concurrency exact solving is intentionally bounded by request
+  count until the sparse event-driven MILP path is implemented for full traces
+  and multiple quota/concurrency providers.
+"""
 
 from __future__ import annotations
 
@@ -694,6 +751,7 @@ def _api_cost(provider: TieredProvider, request: Request) -> float:
 
 
 def _offline_service_time_sec(provider: TieredProvider, request: Request) -> float:
+    """Return deterministic provider-model service time for the offline oracle."""
     ttft_ms = provider.true_p50_ms(float(request.timestamp))
     tps = max(provider.tps_dist.p50(), 1.0)
     response_tokens = request.response_tokens or 1

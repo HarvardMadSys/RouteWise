@@ -1,4 +1,11 @@
-"""Canonical request loop for RouteWise policies."""
+"""Canonical request loop for RouteWise policies.
+
+For concurrency capacity accounting, the simulator derives service time from
+the selected provider model: sampled TTFT plus sampled decode time
+(``response_tokens / TPS``), unless the provider defines an explicit service
+time distribution. BurstGPT elapsed-time fields are preserved as trace metadata
+but are not used by the simulator's main capacity model.
+"""
 
 from __future__ import annotations
 
