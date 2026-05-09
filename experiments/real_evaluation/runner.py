@@ -64,6 +64,11 @@ from experiments.real_evaluation.transports import (
 )
 
 DEFAULT_TIMEOUT_SEC: int = 60
+DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 5
+DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 180.0
+DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
+DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
+DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
 WARMUP_PROBE_PROMPT: str = "Write a one-sentence greeting."
 
 logger = logging.getLogger(__name__)
@@ -227,6 +232,14 @@ class _PreparedDispatch:
     hedge_delay_sec: float
 
 
+@dataclass
+class _PeriodicProbeHandle:
+    """Background profile-maintenance probe loop."""
+
+    thread: threading.Thread
+    stop_event: threading.Event
+
+
 # ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
@@ -277,6 +290,8 @@ class RealExperimentRunner:
         self._cost_lock = threading.Lock()
         self._cost_per_policy: dict[str, float] = dict.fromkeys(policy_names, 0.0)
         self._total_cost_usd: float = 0.0
+        self._profile_probe_cost_usd: float = 0.0
+        self._profile_probe_counts: dict[str, int] = {"warmup": 0, "periodic": 0}
         self._stop_event = threading.Event()
         # ``threading.local`` must live on the runner instance so each
         # worker thread sees a stable storage; a fresh ``threading.local()``
@@ -372,6 +387,12 @@ class RealExperimentRunner:
             name=sentinel,
             provider_hint=None,
             sort_mode=sort_mode,
+            provider_only=(
+                self.inventory.openrouter_provider_only or base.provider_only
+            ),
+            provider_ignore=(
+                self.inventory.openrouter_provider_ignore or base.provider_ignore
+            ),
             extra_headers=dict(base.extra_headers),
         )
         from experiments.real_evaluation.transports import OpenAICompatStreamingTransport
@@ -389,11 +410,26 @@ class RealExperimentRunner:
     # Warmup + replay.
     # ------------------------------------------------------------------
 
-    def warmup(self, probes_per_provider: int = 3, sleep_sec: float = 0.5) -> None:
-        """Send a few probes to each provider; broadcast samples to all policies."""
-        for spec in self.inventory.providers:
-            for i in range(probes_per_provider):
+    def probe_profiles(
+        self,
+        *,
+        probes_per_provider: int = 1,
+        sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+        round_interval_sec: float = 0.0,
+        phase: str = "periodic",
+    ) -> None:
+        """Probe every provider and broadcast observations to all policies.
+
+        This is profile-maintenance infrastructure. It is intentionally shared
+        across policies so probe traffic does not multiply by policy count.
+        """
+        if probes_per_provider <= 0:
+            return
+        for round_idx in range(probes_per_provider):
+            for spec in self.inventory.providers:
                 if self._stop_event.is_set():
+                    return
+                if self._cost_exhausted("profile_maintenance"):
                     return
                 ts = time.time()
                 result = self._send_via_transport(
@@ -407,16 +443,85 @@ class RealExperimentRunner:
                 self._broadcast_sample(spec.name, ts, result)
                 with self._cost_lock:
                     self._total_cost_usd += result.billed_cost_usd
+                    self._profile_probe_cost_usd += result.billed_cost_usd
+                    self._profile_probe_counts[phase] = (
+                        self._profile_probe_counts.get(phase, 0) + 1
+                    )
                 logger.info(
-                    "warmup %s/%d %s: %s ttft=%.1fms cost=$%.5f",
-                    spec.name,
-                    i + 1,
+                    "%s probe round %d/%d %s: %s ttft=%.1fms cost=$%.5f",
+                    phase,
+                    round_idx + 1,
                     probes_per_provider,
+                    spec.name,
                     result.status,
                     result.ttft_ms,
                     result.billed_cost_usd,
                 )
-                time.sleep(sleep_sec)
+                if sleep_sec > 0:
+                    time.sleep(sleep_sec)
+            if round_idx + 1 < probes_per_provider and round_interval_sec > 0:
+                logger.info(
+                    "%s probe round %d/%d complete; sleeping %.1fs",
+                    phase,
+                    round_idx + 1,
+                    probes_per_provider,
+                    round_interval_sec,
+                )
+                if self._stop_event.wait(round_interval_sec):
+                    return
+
+    def warmup(
+        self,
+        probes_per_provider: int = DEFAULT_WARMUP_PROBES_PER_PROVIDER,
+        sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+        round_interval_sec: float = DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
+    ) -> None:
+        """Seed all policy-local latency profiles before replay."""
+        self.probe_profiles(
+            probes_per_provider=probes_per_provider,
+            sleep_sec=sleep_sec,
+            round_interval_sec=round_interval_sec,
+            phase="warmup",
+        )
+
+    def validate_profile_bootstrap(
+        self,
+        *,
+        min_success_samples: int = DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES,
+    ) -> None:
+        """Fail before replay if profile-dependent policies lack samples.
+
+        Call this only before replay starts. It intentionally reads profile
+        counts without taking every policy lock because no replay/probe worker
+        should be mutating profiles yet.
+        """
+        if min_success_samples <= 0:
+            return
+        policies = [
+            policy
+            for policy in self.policies.values()
+            if policy.requires_latency_profile_bootstrap
+        ]
+        if not policies:
+            return
+
+        now = time.time()
+        missing: list[str] = []
+        for policy in policies:
+            for spec in self.inventory.providers:
+                state = policy.states.get(spec.name)
+                count = state.profile.sample_count(now) if state is not None else 0
+                if count < min_success_samples:
+                    missing.append(f"{policy.name}:{spec.name}={count}")
+
+        if missing:
+            preview = ", ".join(missing[:12])
+            suffix = "" if len(missing) <= 12 else f", ... (+{len(missing) - 12})"
+            raise RuntimeError(
+                "profile bootstrap failed: expected at least "
+                f"{min_success_samples} successful samples per provider for "
+                f"profile-dependent policies; got {preview}{suffix}"
+            )
 
     def replay(
         self,
@@ -425,6 +530,8 @@ class RealExperimentRunner:
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
         coalesce_identical_actions: bool = False,
+        periodic_probe_interval_sec: float = 0.0,
+        periodic_probe_sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
     ) -> None:
         """Replay a trace against the configured policies.
 
@@ -437,15 +544,64 @@ class RealExperimentRunner:
         if not trace:
             logger.warning("replay called with empty trace")
             return
-        if coalesce_identical_actions:
-            self._replay_coalesced_full_trace(
+        probe_handle = self._start_periodic_profile_probe_thread(
+            interval_sec=periodic_probe_interval_sec,
+            sleep_sec=periodic_probe_sleep_sec,
+        )
+        try:
+            if coalesce_identical_actions:
+                self._replay_coalesced_full_trace(
+                    trace, speedup=speedup, duration_sec=duration_sec
+                )
+                return
+
+            self._replay_parallel_full_trace(
                 trace, speedup=speedup, duration_sec=duration_sec
             )
-            return
+        finally:
+            self._stop_periodic_profile_probe_thread(probe_handle)
 
-        self._replay_parallel_full_trace(
-            trace, speedup=speedup, duration_sec=duration_sec
+    def _start_periodic_profile_probe_thread(
+        self,
+        *,
+        interval_sec: float,
+        sleep_sec: float,
+    ) -> _PeriodicProbeHandle | None:
+        if interval_sec <= 0:
+            return None
+
+        stop_event = threading.Event()
+
+        def _loop() -> None:
+            logger.info(
+                "periodic profile probing enabled: interval=%.1fs", interval_sec
+            )
+            while not stop_event.wait(interval_sec):
+                if self._stop_event.is_set():
+                    return
+                logger.info("periodic profile probe round starting")
+                self.probe_profiles(
+                    probes_per_provider=1,
+                    sleep_sec=sleep_sec,
+                    phase="periodic",
+                )
+
+        thread = threading.Thread(
+            target=_loop,
+            name="real-eval-profile-prober",
+            daemon=True,
         )
+        thread.start()
+        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
+
+    @staticmethod
+    def _stop_periodic_profile_probe_thread(
+        handle: _PeriodicProbeHandle | None,
+    ) -> None:
+        if handle is None:
+            return
+        handle.stop_event.set()
+        handle.thread.join(timeout=5.0)
 
     def _wait_for_request_arrival(
         self,
@@ -966,8 +1122,40 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--warmup-probes",
         type=int,
-        default=3,
-        help="Number of warmup probes per provider before replay.",
+        default=DEFAULT_WARMUP_PROBES_PER_PROVIDER,
+        help="Number of warmup probe rounds per provider before replay.",
+    )
+    parser.add_argument(
+        "--warmup-probe-interval-sec",
+        type=float,
+        default=DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
+        help=(
+            "Seconds between warmup probe rounds. Use 0 for a fast smoke run."
+        ),
+    )
+    parser.add_argument(
+        "--periodic-probe-interval-sec",
+        type=float,
+        default=DEFAULT_PERIODIC_PROBE_INTERVAL_SEC,
+        help=(
+            "Seconds between shared profile-maintenance probe rounds during "
+            "replay. Use 0 to disable."
+        ),
+    )
+    parser.add_argument(
+        "--profile-probe-sleep-sec",
+        type=float,
+        default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+        help="Sleep between provider probes inside a warmup/periodic round.",
+    )
+    parser.add_argument(
+        "--min-profile-success-samples",
+        type=int,
+        default=DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES,
+        help=(
+            "Fail before replay when profile-dependent policies have fewer "
+            "successful warmup samples per provider. Use 0 to disable."
+        ),
     )
     parser.add_argument(
         "--slo-ms",
@@ -1059,10 +1247,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     logger.info("policies: %s", ", ".join(args.policies))
     logger.info(
-        "inventory: %d providers from %s; warmup_probes=%d; max_cost_usd=$%.2f",
+        "inventory: %d providers from %s; warmup_probes=%d; "
+        "warmup_probe_interval_sec=%.1f; periodic_probe_interval_sec=%.1f; "
+        "min_profile_success_samples=%d; max_cost_usd=$%.2f",
         len(inventory.providers),
         args.inventory,
         args.warmup_probes,
+        args.warmup_probe_interval_sec,
+        args.periodic_probe_interval_sec,
+        args.min_profile_success_samples,
         args.max_cost_usd,
     )
     logger.info("output: %s", args.output)
@@ -1085,13 +1278,22 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.warmup_probes > 0:
-        runner.warmup(probes_per_provider=args.warmup_probes)
+        runner.warmup(
+            probes_per_provider=args.warmup_probes,
+            sleep_sec=args.profile_probe_sleep_sec,
+            round_interval_sec=args.warmup_probe_interval_sec,
+        )
+    runner.validate_profile_bootstrap(
+        min_success_samples=args.min_profile_success_samples
+    )
 
     runner.replay(
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
         coalesce_identical_actions=args.coalesce_identical_actions,
+        periodic_probe_interval_sec=args.periodic_probe_interval_sec,
+        periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
     )
 
     summary_path = runner.finalize()

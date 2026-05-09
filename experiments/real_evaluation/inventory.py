@@ -68,13 +68,23 @@ class InventoryConfig:
     primary_slo_ms: float
     slo_thresholds_ms: list[float]
     providers: list[ProviderSpec]
+    openrouter_provider_only: tuple[str, ...] = ()
+    openrouter_provider_ignore: tuple[str, ...] = ()
 
 
 def load_inventory(path: Path | str) -> InventoryConfig:
     """Read an inventory JSON and return the parsed ``InventoryConfig``."""
     raw = json.loads(Path(path).read_text())
+    openrouter_provider_only = _provider_filter(raw.get("openrouter_provider_only"))
+    openrouter_provider_ignore = _provider_filter(raw.get("openrouter_provider_ignore"))
     provider_specs: list[ProviderSpec] = []
     for entry in raw["providers"]:
+        if _skip_openrouter_provider_entry(
+            entry,
+            provider_only=openrouter_provider_only,
+            provider_ignore=openrouter_provider_ignore,
+        ):
+            continue
         transport_cfg = resolve_transport_config(entry)
         plan_id = entry.get("subscription_plan")
         subscription_count = int(entry.get("subscription_count", 1))
@@ -118,7 +128,46 @@ def load_inventory(path: Path | str) -> InventoryConfig:
         primary_slo_ms=float(raw["primary_slo_ms"]),
         slo_thresholds_ms=[float(t) for t in raw["slo_thresholds_ms"]],
         providers=provider_specs,
+        openrouter_provider_only=openrouter_provider_only,
+        openrouter_provider_ignore=openrouter_provider_ignore,
     )
+
+
+def _provider_filter(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        values = (value,)
+    elif isinstance(value, (list, tuple)):
+        values = value
+    else:
+        raise ValueError(
+            f"OpenRouter provider filter must be a string or list: {value!r}"
+        )
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in seen:
+            out.append(cleaned)
+            seen.add(cleaned)
+    return tuple(out)
+
+
+def _skip_openrouter_provider_entry(
+    entry: dict,
+    *,
+    provider_only: tuple[str, ...],
+    provider_ignore: tuple[str, ...],
+) -> bool:
+    if entry.get("transport") != "openrouter":
+        return False
+    provider_name = str(entry.get("provider_hint") or "").strip()
+    if not provider_name:
+        return False
+    if provider_only and provider_name not in provider_only:
+        return True
+    return provider_name in provider_ignore
 
 
 def _quota_windows_from_entry(

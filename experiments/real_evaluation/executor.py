@@ -28,9 +28,12 @@ import math
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from experiments.real_evaluation.transports import SingleRequestResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,9 @@ from experiments.real_evaluation.policies import (
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.runner import (
+    WARMUP_PROBE_PROMPT,
     RealExperimentRunner,
+    TraceRequest,
     load_trace_jsonl,
 )
 from experiments.real_evaluation.transports import SingleRequestResult
@@ -77,6 +79,56 @@ def test_inventory_loads_subscription_plan_facts_from_canonical_yaml() -> None:
     state = ProviderState.from_spec(minimax)
     assert state.quota is not None
     assert hasattr(state.quota, "windows")
+
+
+def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) -> None:
+    inventory_path = tmp_path / "inventory.json"
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "model_family": "test",
+                "openrouter_model_id": "test/model",
+                "primary_slo_ms": 2000,
+                "slo_thresholds_ms": [1000, 2000],
+                "openrouter_provider_only": ["Chutes"],
+                "providers": [
+                    {
+                        "name": "Chutes_SQ",
+                        "tier": "quota",
+                        "transport": "chutes",
+                        "model": "provider/model",
+                        "input_price_per_m": 0.0,
+                        "output_price_per_m": 0.0,
+                        "quota_window_sec": 3600,
+                        "quota_requests": 100,
+                    },
+                    {
+                        "name": "OR_Chutes",
+                        "tier": "api",
+                        "transport": "openrouter",
+                        "model": "test/model",
+                        "provider_hint": "Chutes",
+                        "input_price_per_m": 0.1,
+                        "output_price_per_m": 1.0,
+                    },
+                    {
+                        "name": "OR_DeepInfra",
+                        "tier": "api",
+                        "transport": "openrouter",
+                        "model": "test/model",
+                        "provider_hint": "DeepInfra",
+                        "input_price_per_m": 0.2,
+                        "output_price_per_m": 1.2,
+                    },
+                ],
+            }
+        )
+    )
+
+    inventory = load_inventory(inventory_path)
+
+    assert [spec.name for spec in inventory.providers] == ["Chutes_SQ", "OR_Chutes"]
+    assert inventory.openrouter_provider_only == ("Chutes",)
 
 
 def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> None:
@@ -239,6 +291,138 @@ def test_session_is_distinct_across_threads() -> None:
             t.join(timeout=5.0)
 
 
+def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+    ) -> SingleRequestResult:
+        assert prompt == WARMUP_PROBE_PROMPT
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner.warmup(probes_per_provider=5, sleep_sec=0.0, round_interval_sec=0.0)
+    runner.validate_profile_bootstrap(min_success_samples=5)
+    with pytest.raises(RuntimeError, match="profile bootstrap failed"):
+        runner.validate_profile_bootstrap(min_success_samples=6)
+
+    assert runner._profile_probe_counts["warmup"] == len(runner.inventory.providers) * 5
+    assert runner._profile_probe_cost_usd == pytest.approx(
+        len(runner.inventory.providers) * 5 * 0.001
+    )
+    rec.close()
+
+
+def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    seen: list[str] = []
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+    ) -> SingleRequestResult:
+        seen.append(provider)
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner.warmup(probes_per_provider=2, sleep_sec=0.0, round_interval_sec=0.0)
+
+    providers = [spec.name for spec in runner.inventory.providers]
+    assert seen == providers + providers
+    rec.close()
+
+
+def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
+    runner, rec = _build_runner(policy_names=["openrouter_auto", "sort_price"])
+
+    runner.validate_profile_bootstrap(min_success_samples=5)
+
+    rec.close()
+
+
+def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["openrouter_auto"])
+    probe_calls: list[str] = []
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+    ) -> SingleRequestResult:
+        assert prompt == WARMUP_PROBE_PROMPT
+        probe_calls.append(provider)
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    monkeypatch.setattr(
+        runner,
+        "_dispatch_one",
+        lambda policy, req, idx: None,
+    )
+
+    runner.replay(
+        [
+            TraceRequest(
+                arrival_time_sec=0.0,
+                prompt="x",
+                prompt_tokens=10,
+                max_tokens=8,
+            ),
+            TraceRequest(
+                arrival_time_sec=0.2,
+                prompt="x",
+                prompt_tokens=10,
+                max_tokens=8,
+            ),
+        ],
+        speedup=1.0,
+        duration_sec=1.0,
+        periodic_probe_interval_sec=0.05,
+        periodic_probe_sleep_sec=0.0,
+    )
+
+    assert probe_calls
+    assert runner._profile_probe_counts["periodic"] == len(probe_calls)
+    rec.close()
+
+
 def test_or_sentinels_round_trip_to_correct_sort_mode() -> None:
     """Each sentinel ``__openrouter_sort_<mode>__`` must dispatch with the
     matching ``provider.sort`` mode set on the transport config."""
@@ -285,6 +469,56 @@ def test_or_sentinels_round_trip_to_correct_sort_mode() -> None:
             ttft_info=None,
         )
         assert captured["sort_mode"] is None
+
+
+def test_or_sentinels_inherit_inventory_provider_filters() -> None:
+    """OpenRouter auto/sort sentinels should apply the inventory-level
+    provider filter instead of routing over the full OpenRouter pool."""
+    runner, _ = _build_runner()
+    runner.inventory.openrouter_provider_only = ("Chutes", "DeepInfra")
+    runner.inventory.openrouter_provider_ignore = ("BadProvider",)
+    captured: dict[str, tuple[str, ...] | str | None] = {}
+
+    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info):
+        captured["sort_mode"] = self.cfg.sort_mode
+        captured["provider_only"] = self.cfg.provider_only
+        captured["provider_ignore"] = self.cfg.provider_ignore
+        return SingleRequestResult(
+            ttft_ms=10.0,
+            e2e_ms=20.0,
+            status="success",
+            provider=self.cfg.name,
+            first_token_ts=time.time(),
+        )
+
+    from experiments.real_evaluation.transports import (
+        OpenAICompatStreamingTransport,
+    )
+
+    with patch.object(OpenAICompatStreamingTransport, "send", fake_send):
+        runner._send_via_transport(
+            provider=OR_AUTO_SENTINEL,
+            prompt="x",
+            max_tokens=8,
+            timeout=5,
+            ttft_event=None,
+            ttft_info=None,
+        )
+        assert captured["sort_mode"] is None
+        assert captured["provider_only"] == ("Chutes", "DeepInfra")
+        assert captured["provider_ignore"] == ("BadProvider",)
+
+        runner._send_via_transport(
+            provider="__openrouter_sort_latency__",
+            prompt="x",
+            max_tokens=8,
+            timeout=5,
+            ttft_event=None,
+            ttft_info=None,
+        )
+        assert captured["sort_mode"] == "latency"
+        assert captured["provider_only"] == ("Chutes", "DeepInfra")
+        assert captured["provider_ignore"] == ("BadProvider",)
 
 
 def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:

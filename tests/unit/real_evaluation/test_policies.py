@@ -76,6 +76,34 @@ def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     assert hedged.use_hedge is True
 
 
+def test_profile_bootstrap_requirement_is_policy_owned() -> None:
+    specs = [_api_spec("OR_x", 0.3, 1.2)]
+
+    needs_profile = [
+        "budget_range_p75",
+        "budget_range_p75_hedge",
+        "fastest_fixed",
+        "or_fastest_fixed",
+        "quota_first",
+        "concurrency_first",
+    ]
+    profile_free = [
+        "openrouter_auto",
+        "sort_price",
+        "cheapest_fixed",
+        "or_cheapest_fixed",
+    ]
+
+    for name in needs_profile:
+        assert build_policy(
+            name, specs=specs, slo_ms=2000.0
+        ).requires_latency_profile_bootstrap
+    for name in profile_free:
+        assert not build_policy(
+            name, specs=specs, slo_ms=2000.0
+        ).requires_latency_profile_bootstrap
+
+
 def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
     """A quota provider with an extra admission constraint still uses only
     the quota shadow price for routing effective cost.

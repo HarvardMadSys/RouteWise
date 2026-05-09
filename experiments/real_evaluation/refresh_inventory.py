@@ -50,9 +50,11 @@ def fetch_endpoints(model_id: str, *, timeout: float = 30.0) -> list[dict]:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             payload = json.load(resp)
     except urllib.error.HTTPError as exc:
-        raise SystemExit(f"OR API returned HTTP {exc.code} for {url}: {exc.reason}")
+        raise SystemExit(
+            f"OR API returned HTTP {exc.code} for {url}: {exc.reason}"
+        ) from exc
     except urllib.error.URLError as exc:
-        raise SystemExit(f"OR API request failed: {exc.reason}")
+        raise SystemExit(f"OR API request failed: {exc.reason}") from exc
     return payload["data"]["endpoints"]
 
 
@@ -217,13 +219,18 @@ def build_inventory(
         if existing
         else [1000, 2000, 3000, 5000]
     )
-    return {
+    inventory = {
         "model_family": model_family,
         "openrouter_model_id": model_id,
         "primary_slo_ms": primary_slo_ms,
         "slo_thresholds_ms": slo_thresholds,
         "providers": non_or + new_or_providers,
     }
+    if existing:
+        for key in ("openrouter_provider_only", "openrouter_provider_ignore"):
+            if key in existing:
+                inventory[key] = existing[key]
+    return inventory
 
 
 def verify_loadable(path: Path) -> bool:

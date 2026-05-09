@@ -183,6 +183,68 @@ def test_streaming_request_honors_total_wall_clock_timeout(monkeypatch) -> None:
     assert result.e2e_ms >= result.ttft_ms
 
 
+def test_openrouter_provider_filter_payload_preserves_auto_routing() -> None:
+    """``provider.only`` filters OpenRouter auto without pinning an order."""
+    cfg = TransportConfig(
+        name="OR_auto_filtered",
+        transport="openrouter",
+        model="test/model",
+        provider_only=("Chutes", "DeepInfra"),
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        input_price_per_m=0.1,
+        output_price_per_m=1.0,
+    )
+    transport = OpenAICompatStreamingTransport(cfg, _FakeSession([]))  # type: ignore[arg-type]
+
+    payload = transport._build_payload("x", 8)
+
+    assert payload["provider"] == {"only": ["Chutes", "DeepInfra"]}
+
+
+def test_openrouter_provider_filter_payload_combines_with_sort_mode() -> None:
+    """Filtered sort baselines should sort inside the filtered provider set."""
+    cfg = TransportConfig(
+        name="OR_latency_filtered",
+        transport="openrouter",
+        model="test/model",
+        sort_mode="latency",
+        provider_only=("Chutes", "DeepInfra"),
+        provider_ignore=("BadProvider",),
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        input_price_per_m=0.1,
+        output_price_per_m=1.0,
+    )
+    transport = OpenAICompatStreamingTransport(cfg, _FakeSession([]))  # type: ignore[arg-type]
+
+    payload = transport._build_payload("x", 8)
+
+    assert payload["provider"] == {
+        "only": ["Chutes", "DeepInfra"],
+        "ignore": ["BadProvider"],
+        "sort": "latency",
+    }
+
+
+def test_resolve_transport_config_parses_openrouter_provider_filters() -> None:
+    cfg = resolve_transport_config(
+        {
+            "name": "OR_filtered",
+            "tier": "api",
+            "transport": "openrouter",
+            "model": "test/model",
+            "provider_only": ["Chutes", "Chutes", "DeepInfra"],
+            "provider_ignore": "BadProvider",
+            "input_price_per_m": 0.1,
+            "output_price_per_m": 1.0,
+        }
+    )
+
+    assert cfg.provider_only == ("Chutes", "DeepInfra")
+    assert cfg.provider_ignore == ("BadProvider",)
+
+
 def test_openrouter_api_provider_requires_positive_prices() -> None:
     """OpenRouter/API providers must not silently fall back to zero cost."""
     with pytest.raises(ValueError, match="require positive input/output prices"):

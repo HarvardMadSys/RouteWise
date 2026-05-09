@@ -1,0 +1,99 @@
+{
+  "model_family": "minimax-m2.5",
+  "openrouter_model_id": "minimax/minimax-m2.5",
+  "primary_slo_ms": 2000,
+  "slo_thresholds_ms": [
+    1000,
+    2000,
+    3000,
+    5000
+  ],
+  "providers": [
+    {
+      "name": "Chutes_SQ",
+      "tier": "quota",
+      "transport": "chutes",
+      "model": "MiniMaxAI/MiniMax-M2.5-TEE",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "subscription_plan": "chutes",
+      "concurrency_limit": null,
+      "billing_mode": "subscription",
+      "notes": "Chutes direct subscription; fee and quota facts load from experiments/subscription_plans.yaml."
+    },
+    {
+      "name": "Featherless_SC",
+      "tier": "concurrency",
+      "transport": "featherless",
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "concurrency_limit": 1,
+      "billing_mode": "subscription",
+      "notes": "Featherless with hard C=1 on MiniMax-M2.5. P99 jumps to 3131ms at c>=2 per paper tab:provider_calibration."
+    },
+    {
+      "name": "OR_Chutes",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.118,
+      "output_price_per_m": 0.99,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Inceptron",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Inceptron",
+      "input_price_per_m": 0.24,
+      "output_price_per_m": 0.9,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_DeepInfra",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "DeepInfra",
+      "input_price_per_m": 0.27,
+      "output_price_per_m": 0.95,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_AtlasCloud",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "AtlasCloud",
+      "input_price_per_m": 0.295,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Friendli",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Friendli",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_SambaNova",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "SambaNova",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    }
+  ],
+  "openrouter_provider_only": [
+    "AtlasCloud",
+    "Chutes",
+    "DeepInfra",
+    "Friendli",
+    "Inceptron",
+    "SambaNova"
+  ],
+  "notes": "Pilot inventory for 1h real run. Drops MiniMax_SQ/Ollama_SQ to avoid heavy-tail contamination. Restricts OR providers to a 6-provider filtered pool spanning fast-mid-slow + cheap-mid latency. RouteWise and openrouter_auto/sort_* baselines all share this same OR pool."
+}

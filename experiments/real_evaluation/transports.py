@@ -24,13 +24,17 @@ import json
 import logging
 import math
 import os
-import threading
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
+
+if TYPE_CHECKING:
+    import threading
+    from collections.abc import Iterable
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MINIMAX_NATIVE_BASE_URL = os.environ.get(
@@ -53,6 +57,20 @@ def _ensure_v1_suffix(url: str) -> str:
     if cleaned.endswith("/v1"):
         return cleaned
     return cleaned + "/v1"
+
+
+def _normalize_provider_filter(value: str | Iterable[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    values = (value,) if isinstance(value, str) else value
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in seen:
+            out.append(cleaned)
+            seen.add(cleaned)
+    return tuple(out)
 
 
 @dataclass
@@ -79,9 +97,12 @@ class SingleRequestResult:
 class TransportConfig:
     """Per-provider transport-level configuration.
 
-    ``provider_hint`` and ``sort_mode`` are mutually exclusive — provider_hint
-    pins routing to one OpenRouter sub-provider, while sort_mode lets
-    OpenRouter pick by ``price`` / ``throughput`` / ``latency``.
+    OpenRouter fields:
+
+    * ``provider_hint`` pins routing to one sub-provider.
+    * ``sort_mode`` lets OpenRouter pick by price / throughput / latency.
+    * ``provider_only`` / ``provider_ignore`` restrict the OpenRouter candidate
+      set while preserving auto or sorted fallback within that set.
     """
 
     name: str
@@ -89,6 +110,8 @@ class TransportConfig:
     model: str | None = None
     provider_hint: str | None = None
     sort_mode: str | None = None
+    provider_only: tuple[str, ...] = ()
+    provider_ignore: tuple[str, ...] = ()
     base_url: str | None = None
     api_key_env: str | None = None
     input_price_per_m: float = 0.0
@@ -96,6 +119,8 @@ class TransportConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        self.provider_only = _normalize_provider_filter(self.provider_only)
+        self.provider_ignore = _normalize_provider_filter(self.provider_ignore)
         if self.sort_mode is not None and self.sort_mode not in OPENROUTER_SORT_MODES:
             raise ValueError(
                 f"sort_mode={self.sort_mode!r} not in {sorted(OPENROUTER_SORT_MODES)}"
@@ -107,6 +132,13 @@ class TransportConfig:
         if self.sort_mode is not None and self.transport != "openrouter":
             raise ValueError(
                 f"{self.name!r}: sort_mode only applies to openrouter transport"
+            )
+        if (
+            self.provider_only or self.provider_ignore
+        ) and self.transport != "openrouter":
+            raise ValueError(
+                f"{self.name!r}: provider_only/provider_ignore only apply to "
+                "openrouter transport"
             )
 
 
@@ -221,13 +253,18 @@ class OpenAICompatStreamingTransport(BaseTransport):
 
         if self.cfg.transport == "openrouter":
             payload["stream_options"] = {"include_usage": True}
+            provider_prefs: dict[str, Any] = {}
+            if self.cfg.provider_only:
+                provider_prefs["only"] = list(self.cfg.provider_only)
+            if self.cfg.provider_ignore:
+                provider_prefs["ignore"] = list(self.cfg.provider_ignore)
             if self.cfg.sort_mode is not None:
-                payload["provider"] = {"sort": self.cfg.sort_mode}
+                provider_prefs["sort"] = self.cfg.sort_mode
             elif self.cfg.provider_hint is not None:
-                payload["provider"] = {
-                    "order": [self.cfg.provider_hint],
-                    "allow_fallbacks": False,
-                }
+                provider_prefs["order"] = [self.cfg.provider_hint]
+                provider_prefs["allow_fallbacks"] = False
+            if provider_prefs:
+                payload["provider"] = provider_prefs
         return payload
 
     def send(
@@ -355,10 +392,8 @@ class OpenAICompatStreamingTransport(BaseTransport):
                             usage.get("completion_tokens") or completion_tokens
                         )
                         if usage.get("cost") is not None:
-                            try:
+                            with suppress(TypeError, ValueError):
                                 reported_cost_usd = float(usage["cost"])
-                            except (TypeError, ValueError):
-                                pass
 
                     provider_field = chunk.get("provider")
                     if isinstance(provider_field, str):
@@ -474,6 +509,8 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         model             : provider-specific model id (or openrouter_model_id for OR)
         provider_hint     : optional OpenRouter sub-provider pin
         sort_mode         : optional OpenRouter ``sort`` (price/throughput/latency)
+        provider_only     : optional OpenRouter allowlist for auto/sort routing
+        provider_ignore   : optional OpenRouter denylist for auto/sort routing
         input_price_per_m : optional, USD per 1M input tokens
         output_price_per_m: optional, USD per 1M output tokens
     """
@@ -481,6 +518,8 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
     model = provider_entry.get("model")
     provider_hint = provider_entry.get("provider_hint")
     sort_mode = provider_entry.get("sort_mode")
+    provider_only = _normalize_provider_filter(provider_entry.get("provider_only"))
+    provider_ignore = _normalize_provider_filter(provider_entry.get("provider_ignore"))
 
     if transport == "openrouter":
         base_url = OPENROUTER_BASE_URL
@@ -525,6 +564,8 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         model=model,
         provider_hint=provider_hint,
         sort_mode=sort_mode,
+        provider_only=provider_only,
+        provider_ignore=provider_ignore,
         base_url=base_url,
         api_key_env=api_key_env,
         input_price_per_m=input_price_per_m,
@@ -581,8 +622,8 @@ def _price_field(
 
 
 __all__ = [
-    "BaseTransport",
     "OPENROUTER_SORT_MODES",
+    "BaseTransport",
     "OpenAICompatStreamingTransport",
     "SingleRequestResult",
     "TransportConfig",

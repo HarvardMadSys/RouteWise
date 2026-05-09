@@ -14,7 +14,6 @@ Two behaviours pinned here:
 
 from __future__ import annotations
 
-import threading
 import time
 
 from experiments.real_evaluation.executor import send_hedged_request

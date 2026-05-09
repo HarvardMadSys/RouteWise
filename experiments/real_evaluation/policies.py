@@ -36,7 +36,7 @@ import math
 import random
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from scipy.optimize import linprog
@@ -312,6 +312,7 @@ class BasePolicy:
 
     name: str = "base"
     use_hedge: bool = False
+    requires_latency_profile_bootstrap: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -472,6 +473,7 @@ class FastestFixedPolicy(_FixedBaseBase):
 
     name = "fastest_fixed"
     or_only = False
+    requires_latency_profile_bootstrap = True
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         candidates = self._candidates(now)
@@ -495,6 +497,7 @@ class TierFirstPolicy(BasePolicy):
     """Fill preferred tier first, spill on exhaustion."""
 
     tier_priority: tuple[str, ...] = ("quota", "concurrency", "api")
+    requires_latency_profile_bootstrap = True
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         for tier in self.tier_priority:
@@ -543,6 +546,7 @@ class BudgetRangePolicy(BasePolicy):
 
     use_hedge = False
     name_suffix = ""
+    requires_latency_profile_bootstrap = True
 
     def __init__(
         self,
