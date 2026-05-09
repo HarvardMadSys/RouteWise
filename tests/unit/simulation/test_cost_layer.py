@@ -376,7 +376,7 @@ def test_offline_concurrency_exact_beats_value_greedy_interval():
     requests = [
         Request(id=0, timestamp=0.0, request_tokens=0, response_tokens=1500, total_tokens=1500),
         Request(id=1, timestamp=0.0, request_tokens=0, response_tokens=900, total_tokens=900),
-        Request(id=2, timestamp=6.4, request_tokens=0, response_tokens=900, total_tokens=900),
+        Request(id=2, timestamp=45.4, request_tokens=0, response_tokens=900, total_tokens=900),
     ]
 
     greedy = assign_offline(
@@ -430,7 +430,7 @@ def test_offline_joint_exact_assigns_quota_and_concurrency_globally():
     requests = [
         Request(id=0, timestamp=0.0, request_tokens=0, response_tokens=1500, total_tokens=1500),
         Request(id=1, timestamp=0.0, request_tokens=0, response_tokens=900, total_tokens=900),
-        Request(id=2, timestamp=6.4, request_tokens=0, response_tokens=900, total_tokens=900),
+        Request(id=2, timestamp=45.4, request_tokens=0, response_tokens=900, total_tokens=900),
     ]
 
     assignments = assign_offline(
@@ -824,6 +824,19 @@ def test_concurrency_trace_metrics_use_weighted_capacity_unit_seconds():
         model="sharegpt",
         requests=[],
     )
+
+
+def test_default_synthetic_tps_matches_duration_model():
+    request = Request(
+        id=0,
+        timestamp=0.0,
+        request_tokens=1,
+        response_tokens=40,
+        total_tokens=41,
+    )
+
+    assert common.make_tps_distribution().p50() == pytest.approx(20.0)
+    assert common._estimated_concurrency_service_time_sec(request) == pytest.approx(2.3)
 
 
 def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
