@@ -71,6 +71,97 @@ def test_baseline_policy_has_noop_tick_and_observe():
     )
 
 
+def test_greedy_cost_ties_break_concurrency_before_quota():
+    """When S_C and S_Q both have 0 marginal cost, prefer S_C (perishable).
+
+    The slow concurrency provider must beat the fast quota provider — this is
+    the joint-tier behaviour that distinguishes tier-aware greedy_cost from
+    the older latency-tiebreak implementation.
+    """
+    providers = [
+        TieredProvider(
+            name="slow_concurrency",
+            cost_per_token=0.0,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            ttft_dist=Uniform(900.0, 1100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_C,
+            concurrency=ConcurrencyState(limit=4),
+        ),
+        TieredProvider(
+            name="fast_quota",
+            cost_per_token=0.0,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_Q,
+            quota=QuotaState(size=10),
+        ),
+        TieredProvider(
+            name="paid_api",
+            cost_per_token=1e-6,
+            input_cost_per_token=1e-6,
+            output_cost_per_token=5e-6,
+            ttft_dist=Uniform(50.0, 100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = build_policy("greedy_cost", seed=1)
+
+    decision = policy.route(request, state)
+
+    assert decision.primary_provider == "slow_concurrency"
+
+
+def test_greedy_cost_falls_back_to_quota_when_concurrency_saturated():
+    """If S_C has no available slot, greedy_cost picks S_Q over the paid API."""
+    concurrency = ConcurrencyState(limit=1)
+    concurrency.admit(1, 0.0, 60.0)
+    providers = [
+        TieredProvider(
+            name="full_concurrency",
+            cost_per_token=0.0,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_C,
+            concurrency=concurrency,
+        ),
+        TieredProvider(
+            name="quota",
+            cost_per_token=0.0,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            ttft_dist=Uniform(900.0, 1100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_Q,
+            quota=QuotaState(size=10),
+        ),
+        TieredProvider(
+            name="paid_api",
+            cost_per_token=1e-6,
+            input_cost_per_token=1e-6,
+            output_cost_per_token=5e-6,
+            ttft_dist=Uniform(50.0, 100.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = build_policy("greedy_cost", seed=1)
+
+    decision = policy.route(request, state)
+
+    assert decision.primary_provider == "quota"
+
+
 def test_routewise_declares_in_flight_hedge_checkpoints():
     providers = _cost_latency_tradeoff_providers()
     state = SimulationState.from_providers({provider.name: provider for provider in providers})

@@ -28,7 +28,7 @@ Real-world pools are locked. See [`latency_profiles/pools.yaml`](latency_profile
 
 **Baselines** — every layer compares against:
 
-- `greedy_cost`      — always cheapest feasible
+- `greedy_cost`      — cheapest feasible; zero-cost ties break `S_C` → `S_Q` → `S_A`
 - `greedy_latency`   — always lowest expected TTFT
 - `random`           — uniform over feasible providers
 - `offline`          — cost-only oracle (greedy / ILP, see `experiments/offline_stage/`)

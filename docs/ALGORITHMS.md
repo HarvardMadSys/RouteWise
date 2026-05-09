@@ -10,6 +10,11 @@ strategies.
 Routes each request to the currently available provider with the lowest real
 marginal request cost. Subscription quota and concurrency providers have zero
 real marginal cost, but they are still constrained by their capacity state.
+When multiple feasible providers share the same marginal cost (typically an
+`S_C` and an `S_Q` provider both at 0), ties are broken deterministically by
+tier priority — `S_C` first, then `S_Q`, then `S_A` — reflecting that
+concurrency slots are perishable while quota is bankable. Lower expected TTFT
+(then provider name) breaks any remaining ties.
 
 `greedy_latency`
 

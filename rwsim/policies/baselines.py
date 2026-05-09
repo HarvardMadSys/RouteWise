@@ -9,10 +9,23 @@ import numpy as np
 
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.schemas import Request, RoutingDecision
+from rwsim.world.capacity import ProviderTier
 
 if TYPE_CHECKING:
     from rwsim.engine.state import SimulationState
     from rwsim.world.providers import Provider
+
+
+# Tie-break order for greedy_cost when multiple providers share the same real
+# marginal cost (typically S_C and S_Q both at 0). Concurrency slots are
+# perishable — unused slots cannot be banked — so burn them first; quota is
+# bankable, so save it for when concurrency saturates; paid API last.
+_GREEDY_COST_TIER_RANK: dict[ProviderTier, int] = {
+    ProviderTier.S_C: 0,
+    ProviderTier.S_Q: 1,
+    ProviderTier.S_A: 2,
+}
+_UNKNOWN_TIER_RANK = 99
 
 
 @dataclass
@@ -41,6 +54,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
                 providers,
                 key=lambda provider: (
                     provider.marginal_cost_for_request(request, state.now),
+                    _GREEDY_COST_TIER_RANK.get(provider.tier, _UNKNOWN_TIER_RANK),
                     provider.true_mean_ms(state.now),
                     provider.name,
                 ),
