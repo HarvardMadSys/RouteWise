@@ -188,6 +188,13 @@ class Simulator:
                     final_provider = backup.name
                 hedge_triggered = True
 
+                # TODO(routewise-hedging): model cancellation after the first
+                # visible token wins the hedge race. Today both primary and
+                # backup consume their full modeled service time and billed
+                # cost. A cancel-aware simulator should truncate loser
+                # concurrency occupancy at winner first-token time and record
+                # both no-cancel and cancel-adjusted costs.
+
         state.now = now
         return RoutingOutcome(
             request_id=request.id,

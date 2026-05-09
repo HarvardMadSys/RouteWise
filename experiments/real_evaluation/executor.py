@@ -215,6 +215,11 @@ def send_hedged_request(
                 logger_log_dispatch_callback_error()
         backup_thread = threading.Thread(target=run_backup, daemon=True)
         backup_thread.start()
+        # TODO(routewise-hedging): cancel the loser stream after the first
+        # visible token wins the hedge race. Current real-eval semantics wait
+        # for both requests to finish, so cost and provider load are
+        # no-cancel measurements. A cancel-aware version should pass a shared
+        # cancellation signal into transports and close the loser response.
         primary_thread.join(timeout=timeout + 5)
         backup_thread.join(timeout=timeout + 5)
     else:
