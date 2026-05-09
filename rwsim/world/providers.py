@@ -151,6 +151,12 @@ class Provider:
         total_tokens = getattr(request, "total_tokens", None)
         if response_tokens is None:
             response_tokens = max(int(total_tokens or 0) - request_tokens, 0)
+        # TODO(routewise-cache): incorporate prefix-cache hit pricing in the
+        # cost layer only. Meeting notes settled on leaving latency unchanged
+        # for now, but S_A request cost should become:
+        # non_cached_input * input_price + cached_input * cache_hit_input_price
+        # + output_tokens * output_price when the router predicts a same-user
+        # same-provider prefix hit.
         return self.token_cost(
             request_tokens=request_tokens,
             response_tokens=float(response_tokens),

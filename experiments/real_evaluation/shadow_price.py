@@ -55,6 +55,12 @@ def request_marginal_cost(
     """
     if spec.tier != "api":
         return 0.0
+    # TODO(routewise-cache): route-time API cost should account for predicted
+    # prefix-cache hits. Per Juncheng's May notes, keep latency profiles
+    # unchanged for now and discount only the cached input-token component:
+    # (prompt_tokens - cached_tokens) * input_price
+    # + cached_tokens * cache_hit_input_price
+    # + completion_tokens * output_price.
     return compute_request_cost_usd(
         ctx_prompt_tokens,
         ctx_completion_tokens,
@@ -114,6 +120,9 @@ def calibrate_envelopes(
         if spec.tier == "api" and (
             spec.input_price_per_m > 0 or spec.output_price_per_m > 0
         ):
+            # TODO(routewise-cache): once request_marginal_cost supports
+            # cache-hit pricing, calibrate envelopes with the same effective
+            # route-time cost so p-budget routing sees cache discounts.
             api_costs.append(
                 compute_request_cost_usd(
                     ctx_prompt_tokens,

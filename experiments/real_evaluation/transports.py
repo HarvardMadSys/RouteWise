@@ -198,6 +198,10 @@ class BaseTransport:
         return (self.cfg.base_url or "").rstrip("/")
 
     def _estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
+        # TODO(routewise-cache): estimate provider billing with cached input
+        # tokens when usage.cost is unavailable. OpenRouter-reported usage.cost
+        # should already reflect any provider-side cache discount; this fallback
+        # currently charges all prompt tokens at the uncached input price.
         return compute_request_cost_usd(
             prompt_tokens,
             completion_tokens,
