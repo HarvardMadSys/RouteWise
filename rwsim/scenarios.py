@@ -69,6 +69,11 @@ def _provider(value: ProviderConfig | Mapping[str, Any]) -> ProviderConfig:
             if value.get("output_cost_per_token") is None
             else float(value["output_cost_per_token"])
         ),
+        cached_input_cost_per_token=(
+            None
+            if value.get("cached_input_cost_per_token") is None
+            else float(value["cached_input_cost_per_token"])
+        ),
         quota_size=value.get("quota_size"),
         quota_window_sec=value.get("quota_window_sec"),
         concurrency_limit=value.get("concurrency_limit"),

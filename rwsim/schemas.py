@@ -46,6 +46,7 @@ class ProviderConfig:
     tps_distribution: DistributionConfig | None = None
     input_cost_per_token: float | None = None
     output_cost_per_token: float | None = None
+    cached_input_cost_per_token: float | None = None
     quota_size: int | None = None
     quota_window_sec: float | None = None
     concurrency_limit: int | None = None

@@ -28,12 +28,38 @@ def test_provider_uses_split_input_output_prices_for_requests():
     assert provider.marginal_cost_for_request(request, 0.0) == pytest.approx(200e-6)
 
 
+def test_provider_applies_cached_input_price_to_cached_tokens_only():
+    provider = _provider(
+        input_cost_per_token=1e-6,
+        output_cost_per_token=5e-6,
+        cached_input_cost_per_token=0.2e-6,
+    )
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=20, total_tokens=120)
+
+    assert provider.marginal_cost_for_request(
+        request,
+        0.0,
+        cached_input_tokens=60,
+    ) == pytest.approx(152e-6)
+
+
 def test_provider_preserves_legacy_blended_price_without_split_prices():
     provider = _provider(cost_per_token=2e-6)
     request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=20, total_tokens=120)
 
     assert provider.marginal_cost_for_request(request, 0.0) == pytest.approx(240e-6)
     assert provider.marginal_cost(120, 0.0) == pytest.approx(240e-6)
+
+
+def test_provider_ignores_cached_tokens_for_legacy_blended_price():
+    provider = _provider(cost_per_token=2e-6, cached_input_cost_per_token=0.2e-6)
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=20, total_tokens=120)
+
+    assert provider.marginal_cost_for_request(
+        request,
+        0.0,
+        cached_input_tokens=60,
+    ) == pytest.approx(240e-6)
 
 
 def test_subscription_providers_have_zero_marginal_request_cost():

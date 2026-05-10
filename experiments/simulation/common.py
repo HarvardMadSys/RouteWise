@@ -57,6 +57,7 @@ OUTPUT_DIR = ROOT_DIR / "outputs" / "simulation"
 P_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
 COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
 OUTPUT_COST_MULTIPLIER = 5.0
+DEFAULT_CACHED_INPUT_PRICE_FRACTION = 0.2
 COST_LAYER_LATENCY_ANCHOR_MS = 300.0
 DEFAULT_SEEDS = (42,)
 DEFAULT_WORKLOAD = "burstgpt"
@@ -180,6 +181,7 @@ def make_api_provider(
     *,
     cost_per_million_tokens: float,
     output_cost_per_million_tokens: float | None = None,
+    cached_input_price_fraction: float | None = None,
     latency_family: str,
     latency_anchor_ms: float = COST_LAYER_LATENCY_ANCHOR_MS,
     latency_anchor_kind: LatencyAnchorKind = DEFAULT_LATENCY_ANCHOR_KIND,
@@ -195,6 +197,11 @@ def make_api_provider(
         cost_per_token=cost_per_million_tokens / 1_000_000.0,
         input_cost_per_token=cost_per_million_tokens / 1_000_000.0,
         output_cost_per_token=output_price / 1_000_000.0,
+        cached_input_cost_per_token=(
+            None
+            if cached_input_price_fraction is None
+            else cost_per_million_tokens * cached_input_price_fraction / 1_000_000.0
+        ),
         ttft_dist=make_ttft_distribution(
             latency_family,
             latency_anchor_ms,
@@ -1604,6 +1611,7 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
 __all__ = [
     "COST_LAYER_LATENCY_ANCHOR_MS",
     "COST_RATIO_PER_MILLION",
+    "DEFAULT_CACHED_INPUT_PRICE_FRACTION",
     "DEFAULT_SEEDS",
     "DEFAULT_WORKLOAD",
     "OUTPUT_COST_MULTIPLIER",

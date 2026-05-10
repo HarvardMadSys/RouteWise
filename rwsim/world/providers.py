@@ -38,6 +38,7 @@ class Provider:
     tier: ProviderTier = ProviderTier.S_A
     input_cost_per_token: float | None = None
     output_cost_per_token: float | None = None
+    cached_input_cost_per_token: float | None = None
     quota: QuotaState | MultiWindowQuotaState | None = None
     concurrency: ConcurrencyState | WeightedConcurrencyState | None = None
     service_time_dist: LatencyDistribution | None = None
@@ -102,8 +103,25 @@ class Provider:
         request_tokens: int | float,
         response_tokens: int | float,
         total_tokens: int | float | None = None,
+        cached_input_tokens: int | float = 0,
     ) -> float:
         """Cost in USD for token counts, preserving legacy blended pricing when needed."""
+        cached_input_tokens = max(float(cached_input_tokens), 0.0)
+        if (
+            cached_input_tokens > 0.0
+            and self.input_cost_per_token is not None
+            and self.output_cost_per_token is not None
+            and self.cached_input_cost_per_token is not None
+        ):
+            request_tokens = float(request_tokens)
+            response_tokens = float(response_tokens)
+            cached_input_tokens = min(cached_input_tokens, request_tokens)
+            uncached_input_tokens = max(request_tokens - cached_input_tokens, 0.0)
+            return (
+                self.input_cost_per_token * uncached_input_tokens
+                + self.cached_input_cost_per_token * cached_input_tokens
+                + self.output_cost_per_token * response_tokens
+            )
         if self.input_cost_per_token is None and self.output_cost_per_token is None:
             if total_tokens is None:
                 total_tokens = float(request_tokens) + float(response_tokens)
@@ -138,7 +156,13 @@ class Provider:
             return self.cost_per_token * total_tokens
         return 0.0
 
-    def marginal_cost_for_request(self, request, now: float) -> float:
+    def marginal_cost_for_request(
+        self,
+        request,
+        now: float,
+        *,
+        cached_input_tokens: int | float = 0,
+    ) -> float:
         """Real USD cost for routing a concrete request to this provider."""
         del now
         if self.tier != ProviderTier.S_A:
@@ -151,16 +175,11 @@ class Provider:
         total_tokens = getattr(request, "total_tokens", None)
         if response_tokens is None:
             response_tokens = max(int(total_tokens or 0) - request_tokens, 0)
-        # TODO(routewise-cache): incorporate prefix-cache hit pricing in the
-        # cost layer only. Meeting notes settled on leaving latency unchanged
-        # for now, but S_A request cost should become:
-        # non_cached_input * input_price + cached_input * cache_hit_input_price
-        # + output_tokens * output_price when the router predicts a same-user
-        # same-provider prefix hit.
         return self.token_cost(
             request_tokens=request_tokens,
             response_tokens=float(response_tokens),
             total_tokens=total_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
 
     def account_request(
