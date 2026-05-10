@@ -25,6 +25,7 @@ from rwsim.policies.latency_profiles import (
     RollingLatencyProfile,
     make_latency_profile_strategy,
 )
+from rwsim.policies.prefix_cache import cache_aware_marginal_cost
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -94,6 +95,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 state.now,
                 U=U,
                 L=L,
+                state=state,
             )
             for provider in providers
         }
@@ -249,6 +251,12 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             ),
             success_target=HEDGE_SUCCESS_TARGET,
             dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+            marginal_cost=lambda provider: cache_aware_marginal_cost(
+                provider,
+                request,
+                state,
+                now=state.now,
+            ),
         )
 
     def _select_backup_candidate(
@@ -353,6 +361,7 @@ def effective_cost(
     *,
     U: float,
     L: float,
+    state: SimulationState | None = None,
     concurrency_alpha: float = 1.0,
 ) -> float:
     """RouteWise piecewise effective request cost.
@@ -369,6 +378,8 @@ def effective_cost(
     """
     tier = provider.tier
     if tier == ProviderTier.S_A:
+        if state is not None:
+            return cache_aware_marginal_cost(provider, request, state, now=now)
         return provider.marginal_cost_for_request(request, now)
     if tier == ProviderTier.S_Q:
         return quota_shadow_price(provider, now, U=U, L=L)

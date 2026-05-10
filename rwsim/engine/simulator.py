@@ -17,6 +17,11 @@ import numpy as np
 
 from rwsim.engine.state import SimulationState
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
+from rwsim.policies.prefix_cache import (
+    cached_input_tokens,
+    record_prefix_cache_dispatch,
+    response_tokens_for_request,
+)
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -56,6 +61,10 @@ class Simulator:
         providers = {provider.name: provider for provider in self.scenario.providers}
         provider_rngs = _provider_rngs(self.seed, self.scenario.providers)
         state = SimulationState.from_providers(providers)
+        state.metadata["prefix_cache_enabled"] = self.scenario.metadata.get(
+            "prefix_cache_enabled",
+            False,
+        )
         aggregator = RunAggregator(
             policy=policy_name,
             scenario_name=self.scenario.name,
@@ -136,8 +145,20 @@ class Simulator:
                 primary_ttft_ms,
             )
 
+        response_tokens = response_tokens_for_request(request)
+        primary_cached_input_tokens = cached_input_tokens(primary, request, state)
         primary.account_request(request.id, now, primary_service_time)
-        primary_cost_usd = primary.marginal_cost_for_request(request, now)
+        primary_cost_usd = primary.marginal_cost_for_request(
+            request,
+            now,
+            cached_input_tokens=primary_cached_input_tokens,
+        )
+        record_prefix_cache_dispatch(
+            primary,
+            request,
+            state,
+            response_tokens,
+        )
         billed_cost = primary_cost_usd
 
         final_provider = primary.name
@@ -147,6 +168,7 @@ class Simulator:
         backup_ttft_ms: float | None = None
         backup_observed_at: float | None = None
         backup_cost_usd = 0.0
+        backup_cached_input_tokens = 0
         hedge_delay_ms: float | None = None
 
         for elapsed in sorted(decision.hedge_checkpoints):
@@ -171,12 +193,23 @@ class Simulator:
                 backup_ttft_ms,
             )
             if _can_admit(backup, dispatch_time, backup_service_time):
+                backup_cached_input_tokens = cached_input_tokens(backup, request, state)
                 backup.account_request(
                     request.id + _HEDGE_REQUEST_ID_OFFSET,
                     dispatch_time,
                     backup_service_time,
                 )
-                backup_cost_usd = backup.marginal_cost_for_request(request, dispatch_time)
+                backup_cost_usd = backup.marginal_cost_for_request(
+                    request,
+                    dispatch_time,
+                    cached_input_tokens=backup_cached_input_tokens,
+                )
+                record_prefix_cache_dispatch(
+                    backup,
+                    request,
+                    state,
+                    response_tokens,
+                )
                 billed_cost += backup_cost_usd
                 hedge_delay_ms = (dispatch_time - now) * 1000.0
                 backup_observed_at = dispatch_time + backup_ttft_ms / 1000.0
@@ -212,6 +245,8 @@ class Simulator:
                 "backup_observed_at": backup_observed_at,
                 "primary_cost_usd": primary_cost_usd,
                 "backup_cost_usd": backup_cost_usd,
+                "primary_cached_input_tokens": primary_cached_input_tokens,
+                "backup_cached_input_tokens": backup_cached_input_tokens,
                 "sim_dispatch_overhead_ms": self.dispatch_overhead_ms,
             },
         )
@@ -251,6 +286,12 @@ class Simulator:
             metadata["sim_lp_budget"] = decision.metadata["budget"]
         if "c_eff" in decision.metadata:
             metadata["sim_c_eff"] = decision.metadata["c_eff"]
+        for key in (
+            "primary_cached_input_tokens",
+            "backup_cached_input_tokens",
+        ):
+            if key in outcome.metadata:
+                metadata[key] = outcome.metadata[key]
         if final_provider is not None:
             metadata["sim_true_p99_ms"] = final_provider.true_p99_ms(float(request.timestamp))
         for key in (

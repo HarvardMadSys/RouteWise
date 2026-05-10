@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
+from rwsim.policies.prefix_cache import cache_aware_marginal_cost
 from rwsim.schemas import Request, RoutingDecision
 from rwsim.world.capacity import ProviderTier
 
@@ -53,7 +54,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
             primary = min(
                 providers,
                 key=lambda provider: (
-                    provider.marginal_cost_for_request(request, state.now),
+                    cache_aware_marginal_cost(provider, request, state, now=state.now),
                     _GREEDY_COST_TIER_RANK.get(provider.tier, _UNKNOWN_TIER_RANK),
                     provider.true_mean_ms(state.now),
                     provider.name,
@@ -64,7 +65,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
                 providers,
                 key=lambda provider: (
                     provider.true_mean_ms(state.now),
-                    provider.marginal_cost_for_request(request, state.now),
+                    cache_aware_marginal_cost(provider, request, state, now=state.now),
                     provider.name,
                 ),
             )

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from rwsim.world.providers import Provider
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from rwsim.world.providers import Provider
 
 
 @dataclass
@@ -38,6 +40,7 @@ class SimulationState:
     providers: Mapping[str, Provider] = field(default_factory=dict)
     capacity: CapacityState = field(default_factory=CapacityState)
     user_last_provider: dict[str, str] = field(default_factory=dict)
+    provider_prefix_cache: dict[str, dict[str, int]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -46,7 +49,7 @@ class SimulationState:
         providers: Mapping[str, Provider],
         *,
         now: float = 0.0,
-    ) -> "SimulationState":
+    ) -> SimulationState:
         """Build state with a matching capacity view."""
         return cls(now=now, providers=providers, capacity=CapacityState(providers))
 

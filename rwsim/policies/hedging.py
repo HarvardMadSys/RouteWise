@@ -7,11 +7,12 @@ ablation should live in experiment policies, not here.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Sequence
+
     from rwsim.schemas import Request
     from rwsim.world.providers import Provider
 
@@ -78,12 +79,18 @@ def collect_backup_candidates(
     cdf_ms: Callable[[Provider, float], float],
     success_target: float = HEDGE_SUCCESS_TARGET,
     dispatch_overhead_ms: float = DISPATCH_OVERHEAD_MS,
+    marginal_cost: Callable[[Provider], float] | None = None,
 ) -> list[BackupCandidate]:
     """Score available non-primary providers as backup candidates."""
     candidates: list[BackupCandidate] = []
     for provider in providers:
         if provider.name == primary.name or not provider.is_available(now):
             continue
+        cost = (
+            marginal_cost(provider)
+            if marginal_cost is not None
+            else provider.marginal_cost_for_request(request, now)
+        )
         candidates.append(
             BackupCandidate(
                 provider=provider,
@@ -95,7 +102,7 @@ def collect_backup_candidates(
                     slo_ms=slo_ms,
                     dispatch_overhead_ms=dispatch_overhead_ms,
                 ),
-                marginal_cost=provider.marginal_cost_for_request(request, now),
+                marginal_cost=cost,
                 true_mean_ms=provider.true_mean_ms(now),
                 success_target=success_target,
             )
