@@ -70,7 +70,7 @@ def test_default_replay_runs_full_trace_for_each_policy() -> None:
         rec = Recorder(tmp)
         runner = RealExperimentRunner(
             inventory=inventory,
-            policy_names=["cheapest_fixed", "fastest_fixed"],
+            policy_names=["greedy_cost", "greedy_latency"],
             recorder=rec,
             slo_ms=inventory.primary_slo_ms,
         )
@@ -81,10 +81,10 @@ def test_default_replay_runs_full_trace_for_each_policy() -> None:
         rec.close()
 
     assert sorted(seen) == sorted([
-        ("cheapest_fixed", 0),
-        ("cheapest_fixed", 1),
-        ("fastest_fixed", 0),
-        ("fastest_fixed", 1),
+        ("greedy_cost", 0),
+        ("greedy_cost", 1),
+        ("greedy_latency", 0),
+        ("greedy_latency", 1),
     ])
 
 
@@ -106,7 +106,7 @@ def test_default_replay_starts_all_policies_for_same_arrival_concurrently() -> N
         rec = Recorder(tmp)
         runner = RealExperimentRunner(
             inventory=inventory,
-            policy_names=["cheapest_fixed", "fastest_fixed"],
+            policy_names=["greedy_cost", "greedy_latency"],
             recorder=rec,
             slo_ms=inventory.primary_slo_ms,
         )
@@ -128,8 +128,8 @@ def test_default_replay_starts_all_policies_for_same_arrival_concurrently() -> N
             assert ready.acquire(timeout=5.0)
             assert ready.acquire(timeout=5.0)
             assert sorted(entered) == [
-                ("cheapest_fixed", 0),
-                ("fastest_fixed", 0),
+                ("greedy_cost", 0),
+                ("greedy_latency", 0),
             ]
         finally:
             release.set()

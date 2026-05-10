@@ -14,10 +14,12 @@ on it.
 Policy taxonomy:
 
 * **Baselines** (used in paper plots as comparison points):
-  - ``OpenRouterAutoPolicy``  : OpenRouter's native auto-routing
-  - ``SortLatencyPolicy``     : OpenRouter ``sort=latency``
-  - ``CheapestFixedPolicy``   : always cheapest available
-  - ``FastestFixedPolicy``    : always lowest empirical-P50 available
+  - ``OrAutoPolicy``          : OpenRouter's native auto-routing
+  - ``OrSortLatencyPolicy``   : OpenRouter ``sort=latency``
+  - ``OrSortCostPolicy``      : OpenRouter ``sort=price``
+  - ``GreedyCostPolicy``      : cheapest feasible; zero-cost ties prefer
+                                ``S_C`` -> ``S_Q`` -> ``S_A``
+  - ``GreedyLatencyPolicy``   : always lowest empirical-latency available
   - ``QuotaFirstPolicy`` / ``ConcurrencyFirstPolicy`` : tier-priority heuristics
 
 * **Current paper line** (``LP-TTFT-budget`` + ``Hedge-ProbTarget``):
@@ -74,17 +76,17 @@ UNPROFILED_LATENCY_PENALTY_MS: float = 1e9
 
 # Sentinel provider names used for OpenRouter's native routing modes. The
 # runner translates these into transport-level config when dispatching.
-OR_AUTO_SENTINEL: str = "__openrouter_auto__"
-OR_SORT_LATENCY_SENTINEL: str = "__openrouter_sort_latency__"
-OR_SORT_PRICE_SENTINEL: str = "__openrouter_sort_price__"
-OR_SORT_THROUGHPUT_SENTINEL: str = "__openrouter_sort_throughput__"
+OR_AUTO_SENTINEL: str = "__or_auto__"
+OR_SORT_LATENCY_SENTINEL: str = "__or_sort_latency__"
+OR_SORT_COST_SENTINEL: str = "__or_sort_cost__"
+OR_SORT_THROUGHPUT_SENTINEL: str = "__or_sort_throughput__"
 
 # Map sentinel name -> OpenRouter ``sort`` mode. The runner uses this to
 # build a transport config for sentinel dispatches without relying on
 # string-substring tricks.
 OR_SORT_SENTINEL_TO_MODE: dict[str, str] = {
     OR_SORT_LATENCY_SENTINEL: "latency",
-    OR_SORT_PRICE_SENTINEL: "price",
+    OR_SORT_COST_SENTINEL: "price",
     OR_SORT_THROUGHPUT_SENTINEL: "throughput",
 }
 
@@ -448,10 +450,10 @@ class BasePolicy:
 # ---------------------------------------------------------------------------
 
 
-class OpenRouterAutoPolicy(BasePolicy):
+class OrAutoPolicy(BasePolicy):
     """OpenRouter's default routing — one sentinel decision."""
 
-    name = "openrouter_auto"
+    name = "or_auto"
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         has_or = any(s.transport_cfg.transport == "openrouter" for s in self.specs)
@@ -479,32 +481,40 @@ class _OpenRouterSortPolicy(BasePolicy):
         )
 
 
-class SortLatencyPolicy(_OpenRouterSortPolicy):
+class OrSortLatencyPolicy(_OpenRouterSortPolicy):
     """OpenRouter ``sort=latency``."""
 
-    name = "sort_latency"
+    name = "or_sort_latency"
     sort_mode = "latency"
     sentinel = OR_SORT_LATENCY_SENTINEL
 
 
-class SortPricePolicy(_OpenRouterSortPolicy):
-    """OpenRouter ``sort=price``."""
+class OrSortCostPolicy(_OpenRouterSortPolicy):
+    """OpenRouter ``sort=price``. Named cost to match paper terminology."""
 
-    name = "sort_price"
+    name = "or_sort_cost"
     sort_mode = "price"
-    sentinel = OR_SORT_PRICE_SENTINEL
+    sentinel = OR_SORT_COST_SENTINEL
 
 
-class SortThroughputPolicy(_OpenRouterSortPolicy):
+class OrSortThroughputPolicy(_OpenRouterSortPolicy):
     """OpenRouter ``sort=throughput``."""
 
-    name = "sort_throughput"
+    name = "or_sort_throughput"
     sort_mode = "throughput"
     sentinel = OR_SORT_THROUGHPUT_SENTINEL
 
 
-class _FixedBaseBase(BasePolicy):
-    """Shared logic for cheapest/fastest fixed-pick baselines.
+_GREEDY_COST_TIER_RANK: dict[str, int] = {
+    "concurrency": 0,
+    "quota": 1,
+    "api": 2,
+}
+_UNKNOWN_TIER_RANK = 99
+
+
+class _GreedyBase(BasePolicy):
+    """Shared logic for dynamic greedy baselines.
 
     Subclasses set the candidate filter (joint pool vs. OpenRouter-only)
     and the sort key. Splitting joint vs. OR-only is paper-relevant: the
@@ -525,32 +535,54 @@ class _FixedBaseBase(BasePolicy):
         return [s for s in states if s.is_available(now)]
 
 
-class CheapestFixedPolicy(_FixedBaseBase):
-    """Joint-pool: cheapest currently-available provider across ALL tiers."""
+class GreedyCostPolicy(_GreedyBase):
+    """Joint-pool: cheapest currently-available provider across ALL tiers.
 
-    name = "cheapest_fixed"
+    Subscription tiers have zero marginal cost, so ties intentionally prefer
+    perishable concurrency capacity before bankable quota before metered API:
+    ``S_C`` -> ``S_Q`` -> ``S_A``. This mirrors the simulator's
+    paper-facing ``greedy_cost`` baseline.
+    """
+
+    name = "greedy_cost"
     or_only = False
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         candidates = self._candidates(now)
         if not candidates:
             return RoutingDecision(primary=None, notes="none_available")
-        scored = [(s, request_cost_for_spec(s.spec, ctx)) for s in candidates]
-        scored.sort(key=lambda pair: (pair[1], pair[0].spec.name))
-        return RoutingDecision(primary=scored[0][0].spec.name, notes="cheapest")
+        scored = []
+        for state in candidates:
+            cost = self.request_cost_for_state(state, ctx)
+            latency = state.profile.mean_ms(now)
+            if latency is None:
+                latency = state.profile.median_ms(now)
+            scored.append(
+                (
+                    cost,
+                    _GREEDY_COST_TIER_RANK.get(
+                        state.spec.tier, _UNKNOWN_TIER_RANK
+                    ),
+                    latency if latency is not None else float("inf"),
+                    state.spec.name,
+                    state,
+                )
+            )
+        scored.sort(key=lambda item: item[:-1])
+        return RoutingDecision(primary=scored[0][-1].spec.name, notes="greedy_cost")
 
 
-class OpenRouterCheapestFixedPolicy(CheapestFixedPolicy):
-    """OR-only cheapest fixed (filters to ``transport == 'openrouter'``)."""
+class OrGreedyCostPolicy(GreedyCostPolicy):
+    """OR-only greedy cost (filters to ``transport == 'openrouter'``)."""
 
-    name = "or_cheapest_fixed"
+    name = "or_greedy_cost"
     or_only = True
 
 
-class FastestFixedPolicy(_FixedBaseBase):
-    """Joint-pool: lowest-empirical-median provider across ALL tiers."""
+class GreedyLatencyPolicy(_GreedyBase):
+    """Joint-pool: lowest empirical-latency provider across ALL tiers."""
 
-    name = "fastest_fixed"
+    name = "greedy_latency"
     or_only = False
     requires_latency_profile_bootstrap = True
 
@@ -558,17 +590,28 @@ class FastestFixedPolicy(_FixedBaseBase):
         candidates = self._candidates(now)
         if not candidates:
             return RoutingDecision(primary=None, notes="none_available")
-        scored = [
-            (s.profile.median_ms(now) or float("inf"), s) for s in candidates
-        ]
-        scored.sort(key=lambda pair: (pair[0], pair[1].spec.name))
-        return RoutingDecision(primary=scored[0][1].spec.name, notes="fastest")
+        scored = []
+        for state in candidates:
+            latency = state.profile.mean_ms(now)
+            if latency is None:
+                latency = state.profile.median_ms(now)
+            cost = self.request_cost_for_state(state, ctx)
+            scored.append(
+                (
+                    latency if latency is not None else float("inf"),
+                    cost,
+                    state.spec.name,
+                    state,
+                )
+            )
+        scored.sort(key=lambda item: item[:-1])
+        return RoutingDecision(primary=scored[0][-1].spec.name, notes="greedy_latency")
 
 
-class OpenRouterFastestFixedPolicy(FastestFixedPolicy):
-    """OR-only fastest fixed (filters to ``transport == 'openrouter'``)."""
+class OrGreedyLatencyPolicy(GreedyLatencyPolicy):
+    """OR-only greedy latency (filters to ``transport == 'openrouter'``)."""
 
-    name = "or_fastest_fixed"
+    name = "or_greedy_latency"
     or_only = True
 
 
@@ -766,8 +809,9 @@ def build_policy(
     """Construct one policy by name.
 
     Recognized names:
-      * Baselines: ``openrouter_auto``, ``sort_latency``, ``cheapest_fixed``,
-        ``fastest_fixed``, ``quota_first``, ``concurrency_first``
+      * Baselines: ``or_auto``, ``or_sort_latency``, ``or_sort_cost``,
+        ``greedy_cost``, ``greedy_latency``, ``quota_first``,
+        ``concurrency_first``
       * Paper line: ``budget_range_p<PP>`` and
         ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
     """
@@ -777,22 +821,22 @@ def build_policy(
         "profile_window_sec": profile_window_sec,
         "prefix_cache_routing": prefix_cache_routing,
     }
-    if name == "openrouter_auto":
-        return OpenRouterAutoPolicy(**common)
-    if name == "sort_latency":
-        return SortLatencyPolicy(**common)
-    if name == "sort_price":
-        return SortPricePolicy(**common)
-    if name == "sort_throughput":
-        return SortThroughputPolicy(**common)
-    if name == "cheapest_fixed":
-        return CheapestFixedPolicy(**common)
-    if name == "fastest_fixed":
-        return FastestFixedPolicy(**common)
-    if name == "or_cheapest_fixed":
-        return OpenRouterCheapestFixedPolicy(**common)
-    if name == "or_fastest_fixed":
-        return OpenRouterFastestFixedPolicy(**common)
+    if name == "or_auto":
+        return OrAutoPolicy(**common)
+    if name == "or_sort_latency":
+        return OrSortLatencyPolicy(**common)
+    if name == "or_sort_cost":
+        return OrSortCostPolicy(**common)
+    if name == "or_sort_throughput":
+        return OrSortThroughputPolicy(**common)
+    if name == "greedy_cost":
+        return GreedyCostPolicy(**common)
+    if name == "greedy_latency":
+        return GreedyLatencyPolicy(**common)
+    if name == "or_greedy_cost":
+        return OrGreedyCostPolicy(**common)
+    if name == "or_greedy_latency":
+        return OrGreedyLatencyPolicy(**common)
     if name == "quota_first":
         return QuotaFirstPolicy(**common)
     if name == "concurrency_first":
@@ -818,26 +862,26 @@ __all__ = [
     "HEDGE_DISPATCH_OVERHEAD_SEC",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
+    "OR_SORT_COST_SENTINEL",
     "OR_SORT_LATENCY_SENTINEL",
-    "OR_SORT_PRICE_SENTINEL",
     "OR_SORT_SENTINEL_TO_MODE",
     "OR_SORT_THROUGHPUT_SENTINEL",
     "UNPROFILED_LATENCY_PENALTY_MS",
     "BasePolicy",
     "BudgetRangeHedgePolicy",
     "BudgetRangePolicy",
-    "CheapestFixedPolicy",
     "ConcurrencyFirstPolicy",
-    "FastestFixedPolicy",
-    "OpenRouterAutoPolicy",
-    "OpenRouterCheapestFixedPolicy",
-    "OpenRouterFastestFixedPolicy",
+    "GreedyCostPolicy",
+    "GreedyLatencyPolicy",
+    "OrAutoPolicy",
+    "OrGreedyCostPolicy",
+    "OrGreedyLatencyPolicy",
     "QuotaFirstPolicy",
     "RequestContext",
     "RoutingDecision",
-    "SortLatencyPolicy",
-    "SortPricePolicy",
-    "SortThroughputPolicy",
+    "OrSortCostPolicy",
+    "OrSortLatencyPolicy",
+    "OrSortThroughputPolicy",
     "TierFirstPolicy",
     "build_policy",
     "compute_hedge_time_sec",

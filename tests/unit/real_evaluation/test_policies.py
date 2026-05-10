@@ -89,16 +89,16 @@ def test_profile_bootstrap_requirement_is_policy_owned() -> None:
     needs_profile = [
         "budget_range_p75",
         "budget_range_p75_hedge",
-        "fastest_fixed",
-        "or_fastest_fixed",
+        "greedy_latency",
+        "or_greedy_latency",
         "quota_first",
         "concurrency_first",
     ]
     profile_free = [
-        "openrouter_auto",
-        "sort_price",
-        "cheapest_fixed",
-        "or_cheapest_fixed",
+        "or_auto",
+        "or_sort_cost",
+        "greedy_cost",
+        "or_greedy_cost",
     ]
 
     for name in needs_profile:
@@ -168,17 +168,17 @@ def test_or_baselines_use_distinct_sentinels() -> None:
     """All four OR baselines (auto + 3 sort modes) round-trip to a unique
     sentinel string and a sensible ``provider.sort`` value."""
     specs = [_api_spec("OR_x", 0.3, 1.2)]
-    auto = build_policy("openrouter_auto", specs=specs, slo_ms=2000.0).route(
+    auto = build_policy("or_auto", specs=specs, slo_ms=2000.0).route(
         0.0, RequestContext(10, 8)
     )
-    latency = build_policy("sort_latency", specs=specs, slo_ms=2000.0).route(
+    latency = build_policy("or_sort_latency", specs=specs, slo_ms=2000.0).route(
         0.0, RequestContext(10, 8)
     )
-    price = build_policy("sort_price", specs=specs, slo_ms=2000.0).route(
+    price = build_policy("or_sort_cost", specs=specs, slo_ms=2000.0).route(
         0.0, RequestContext(10, 8)
     )
     throughput = build_policy(
-        "sort_throughput", specs=specs, slo_ms=2000.0
+        "or_sort_throughput", specs=specs, slo_ms=2000.0
     ).route(0.0, RequestContext(10, 8))
 
     sentinels = {auto.primary, latency.primary, price.primary, throughput.primary}
@@ -189,8 +189,8 @@ def test_or_baselines_use_distinct_sentinels() -> None:
     assert OR_SORT_SENTINEL_TO_MODE[throughput.primary] == "throughput"
 
 
-def test_or_only_fixed_baselines_filter_to_openrouter() -> None:
-    """``or_cheapest_fixed`` and ``or_fastest_fixed`` must ignore subscription
+def test_or_only_greedy_baselines_filter_to_openrouter() -> None:
+    """OR-only greedy aliases must ignore subscription
     providers, keeping the apples-to-apples baseline against OpenRouter
     sort modes."""
     cheap_or = _api_spec("OR_cheap", 0.05, 0.2)
@@ -207,16 +207,43 @@ def test_or_only_fixed_baselines_filter_to_openrouter() -> None:
     specs = [cheap_or, expensive_or, sub]
 
     or_cheapest = build_policy(
-        "or_cheapest_fixed", specs=specs, slo_ms=2000.0
+        "or_greedy_cost", specs=specs, slo_ms=2000.0
     ).route(0.0, RequestContext(10, 8))
     joint_cheapest = build_policy(
-        "cheapest_fixed", specs=specs, slo_ms=2000.0
+        "greedy_cost", specs=specs, slo_ms=2000.0
     ).route(0.0, RequestContext(10, 8))
 
     # OR-only must pick the cheap OR provider; joint pool can pick the
     # zero-priced subscription provider.
     assert or_cheapest.primary == "OR_cheap"
     assert joint_cheapest.primary == "Chutes_SQ"
+
+
+def test_greedy_cost_prefers_concurrency_before_quota_on_zero_cost_tie() -> None:
+    """Paper greedy-cost tie-break should spend perishable S_C capacity first."""
+    quota = ProviderSpec(
+        name="Chutes_SQ",
+        tier="quota",
+        transport_cfg=TransportConfig(
+            name="Chutes_SQ", transport="chutes", model="x"
+        ),
+        quota_window_sec=3600,
+        quota_requests=100,
+    )
+    concurrency = ProviderSpec(
+        name="Featherless_SC",
+        tier="concurrency",
+        transport_cfg=TransportConfig(
+            name="Featherless_SC", transport="featherless", model="x"
+        ),
+        concurrency_limit=1,
+    )
+    api = _api_spec("OR_cheap", 0.05, 0.2)
+    policy = build_policy(
+        "greedy_cost", specs=[quota, concurrency, api], slo_ms=2000.0
+    )
+
+    assert policy.route(0.0, RequestContext(10, 8)).primary == "Featherless_SC"
 
 
 def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> None:

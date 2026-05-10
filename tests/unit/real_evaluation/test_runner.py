@@ -41,7 +41,7 @@ def _build_runner(
     rec = Recorder(tempfile.mkdtemp())
     runner = RealExperimentRunner(
         inventory=inventory,
-        policy_names=policy_names or ["cheapest_fixed"],
+        policy_names=policy_names or ["greedy_cost"],
         recorder=rec,
         slo_ms=inventory.primary_slo_ms,
         prefix_cache_routing=prefix_cache_routing,
@@ -406,7 +406,7 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
 
 
 def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
-    runner, rec = _build_runner(policy_names=["openrouter_auto", "sort_price"])
+    runner, rec = _build_runner(policy_names=["or_auto", "or_sort_cost"])
 
     runner.validate_profile_bootstrap(min_success_samples=5)
 
@@ -414,7 +414,7 @@ def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
 
 
 def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["openrouter_auto"])
+    runner, rec = _build_runner(policy_names=["or_auto"])
     probe_calls: list[str] = []
 
     def fake_send_via_transport(
@@ -472,7 +472,7 @@ def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
 
 
 def test_or_sentinels_round_trip_to_correct_sort_mode() -> None:
-    """Each sentinel ``__openrouter_sort_<mode>__`` must dispatch with the
+    """Each sentinel ``__or_sort_<mode>__`` must dispatch with the
     matching ``provider.sort`` mode set on the transport config."""
     runner, _ = _build_runner()
     captured: dict[str, str | None] = {}
@@ -557,7 +557,7 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
         assert captured["provider_ignore"] == ("BadProvider",)
 
         runner._send_via_transport(
-            provider="__openrouter_sort_latency__",
+            provider="__or_sort_latency__",
             prompt="x",
             max_tokens=8,
             timeout=5,
@@ -684,7 +684,7 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     """Coalescing is a physical-execution optimization only: two policies
     that pick the same provider share one API call, while each policy still
     receives its own virtual cost/profile/accounting row."""
-    runner, rec = _build_runner(policy_names=["cheapest_fixed", "fastest_fixed"])
+    runner, rec = _build_runner(policy_names=["greedy_cost", "greedy_latency"])
     provider = runner.inventory.providers[0].name
 
     for policy in runner.policies.values():
@@ -747,8 +747,8 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     rec.close()
 
     assert send_count == 1
-    assert runner._cost_per_policy["cheapest_fixed"] == 0.01
-    assert runner._cost_per_policy["fastest_fixed"] == 0.01
+    assert runner._cost_per_policy["greedy_cost"] == 0.01
+    assert runner._cost_per_policy["greedy_latency"] == 0.01
     assert runner._total_cost_usd == 0.01
 
 

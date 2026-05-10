@@ -505,7 +505,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
             error_message = "no_tokens_received"
 
         # Prefer OpenRouter-reported actual cost when present (handles the
-        # case where openrouter_auto / sort=latency picks a sub-provider whose
+        # case where or_auto / or_sort_latency picks a sub-provider whose
         # price differs from this transport's default pricing).
         cost_source = "missing"
         if reported_cost_usd is not None and reported_cost_usd >= 0.0:
