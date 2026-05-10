@@ -205,6 +205,14 @@ cached_input_cost_per_token =
   input_cost_per_token * cached_input_price_fraction
 ```
 
+Phase A synthetic price 实验固定：
+
+```text
+cached_input_price_fraction = 0.2
+```
+
+也就是对现有 synthetic API price `{1, 2, 4}`，cache-read input price 直接设成 `{0.2, 0.4, 0.8}`，保持 provider 之间的相对价格结构不变，只表达“cache read 比普通 input token 便宜”。
+
 不同 tier 的处理：
 
 ```text
@@ -503,16 +511,24 @@ cache_read_tokens calibration
 
 ### 11.3 Knobs
 
-第一轮 sweep：
+Phase A 不做 cached-price sweep。默认：
 
 ```text
-cached_input_price_fraction in {0.0, 0.1, 0.25, 0.5}
 cache_enabled in {false, true}
+cached_input_price_fraction = 0.2
 ```
 
-`0.0` 表示 cached input 免费，是 sensitivity 极端；`0.5` 更接近 OpenAI / Anthropic 这类 cached-input price roughly half-price 的配置。真实 provider price 可用时，优先使用 per-provider `cached_input_cost_per_token`。
+对 synthetic price `{1, 2, 4}`，cached input price 就是普通 input price 的 20%。这个值是固定 design choice，不是主实验 knob。真实 provider price 可用时，优先使用 per-provider `cached_input_cost_per_token`。
 
 `cache_enabled` 应在 helper 层实现，不通过 mutate provider config 实现。这样 control run 和 treatment run 可以复用同一份 provider config；`cache_enabled=False` 时 `cached_input_tokens(...)` 直接返回 0。
+
+后续 sensitivity 可以再 sweep：
+
+```text
+cached_input_price_fraction in {0.0, 0.1, 0.2, 0.5}
+```
+
+但这不进 Phase A 主结果。
 
 ### 11.4 Metrics
 
@@ -586,6 +602,7 @@ Latency metrics 仍然保留，但预期变化只来自 provider mix 改变，�
 - provider-specific hit probability.
 - TTL/LRU eviction.
 - min overlap threshold.
+- cached-input price fraction sweep.
 - `cache_read_tokens` calibration for logs that report it.
 - cache-aware greedy oracle.
 
