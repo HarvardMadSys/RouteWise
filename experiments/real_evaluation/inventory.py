@@ -55,6 +55,10 @@ class ProviderSpec:
         return self.transport_cfg.input_price_per_m
 
     @property
+    def cached_input_price_per_m(self) -> float | None:
+        return self.transport_cfg.cached_input_price_per_m
+
+    @property
     def output_price_per_m(self) -> float:
         return self.transport_cfg.output_price_per_m
 

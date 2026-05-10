@@ -82,6 +82,7 @@ class TraceRequest:
     prompt: str
     prompt_tokens: int
     max_tokens: int
+    prefix_id: str | None = None
 
 
 def load_trace_jsonl(
@@ -99,6 +100,8 @@ def load_trace_jsonl(
         prompt           : ``prompt_text`` | ``prompt``
         prompt_tokens    : ``num_prefill_tokens`` | ``prompt_tokens``
         max_tokens       : ``num_decode_tokens`` | ``max_tokens``
+        prefix_id        : ``prefix_id`` | ``sharegpt_conversation_id`` |
+                           ``session_id`` (optional)
 
     ``time_compression`` divides arrival times so a long trace can be
     replayed in less wall-clock time.
@@ -170,6 +173,7 @@ def load_trace_jsonl(
                     prompt=prompt,
                     prompt_tokens=prompt_tokens,
                     max_tokens=max_tokens,
+                    prefix_id=_prefix_id_from_record(rec),
                 )
             )
             if max_requests is not None and len(out) >= max_requests:
@@ -193,6 +197,14 @@ def _first_present(rec: dict[str, Any], keys: tuple[str, ...]) -> Any:
         if key in rec and rec[key] is not None:
             return rec[key]
     return None
+
+
+def _prefix_id_from_record(rec: dict[str, Any]) -> str | None:
+    value = _first_present(rec, ("prefix_id", "sharegpt_conversation_id", "session_id"))
+    if value is None:
+        return None
+    prefix_id = str(value).strip()
+    return prefix_id or None
 
 
 def _coerce_float(path: Path, line_num: int, field: str, value: Any) -> float:
@@ -226,10 +238,15 @@ class _PreparedDispatch:
     req: TraceRequest
     req_index: int
     decision: RoutingDecision
+    ctx: RequestContext
     prompt: str
     expected_service_sec: float
     backup: str | None
     hedge_delay_sec: float
+    primary_cached_input_tokens: int = 0
+    backup_cached_input_tokens: int = 0
+    primary_routing_estimated_cost_usd: float | None = None
+    backup_routing_estimated_cost_usd: float | None = None
 
 
 @dataclass
@@ -263,6 +280,7 @@ class RealExperimentRunner:
         max_cost_usd: float = 5.0,
         timeout_sec: int = DEFAULT_TIMEOUT_SEC,
         profile_window_sec: float = 15 * 60.0,
+        prefix_cache_routing: bool = False,
     ) -> None:
         self.inventory = inventory
         self.slo_ms = slo_ms if slo_ms is not None else inventory.primary_slo_ms
@@ -277,9 +295,11 @@ class RealExperimentRunner:
                 specs=inventory.providers,
                 slo_ms=self.slo_ms,
                 profile_window_sec=profile_window_sec,
+                prefix_cache_routing=prefix_cache_routing,
             )
             for name in policy_names
         }
+        self.prefix_cache_routing = bool(prefix_cache_routing)
 
         self._spec_by_name: dict[str, ProviderSpec] = {
             spec.name: spec for spec in inventory.providers
@@ -718,6 +738,7 @@ class RealExperimentRunner:
         ctx = RequestContext(
             prompt_tokens=max(1, req.prompt_tokens or 1),
             completion_tokens_budget=max(1, req.max_tokens),
+            prefix_id=req.prefix_id,
         )
         now = time.time()
         decision = policy.route(now, ctx)
@@ -739,6 +760,7 @@ class RealExperimentRunner:
                 ctx=ctx,
                 slo_sec=self.slo_sec,
                 now=now,
+                cost_fn=lambda state: policy.request_cost_for_state(state, ctx),
             )
             hedge_delay_sec = float("inf")
             if (
@@ -757,15 +779,29 @@ class RealExperimentRunner:
             decision.hedge_delay_sec = hedge_delay_sec
 
         policy.charge_capacity(decision.primary, now, expected_service_sec)
+        primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
+            decision.primary, ctx
+        )
+        backup_cached = 0
+        backup_estimated_cost: float | None = None
+        if backup is not None:
+            backup_cached, backup_estimated_cost = policy.routing_cache_diagnostics(
+                backup, ctx
+            )
         return _PreparedDispatch(
             policy=policy,
             req=req,
             req_index=req_index,
             decision=decision,
+            ctx=ctx,
             prompt=prompt,
             expected_service_sec=expected_service_sec,
             backup=backup,
             hedge_delay_sec=hedge_delay_sec,
+            primary_cached_input_tokens=primary_cached,
+            backup_cached_input_tokens=backup_cached,
+            primary_routing_estimated_cost_usd=primary_estimated_cost,
+            backup_routing_estimated_cost_usd=backup_estimated_cost,
         )
 
     @staticmethod
@@ -822,6 +858,7 @@ class RealExperimentRunner:
             )
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
+            self._record_prefix_cache_dispatches(prepared, hedged)
             self._record_hedged(
                 policy,
                 req,
@@ -829,6 +866,14 @@ class RealExperimentRunner:
                 decision,
                 hedged,
                 prepared.hedge_delay_sec,
+                primary_cached_input_tokens=prepared.primary_cached_input_tokens,
+                backup_cached_input_tokens=prepared.backup_cached_input_tokens,
+                primary_routing_estimated_cost_usd=(
+                    prepared.primary_routing_estimated_cost_usd
+                ),
+                backup_routing_estimated_cost_usd=(
+                    prepared.backup_routing_estimated_cost_usd
+                ),
             )
             return
 
@@ -841,7 +886,23 @@ class RealExperimentRunner:
         )
         self._feed_back_single(policy, decision.primary or "", result)
         self._account_single(policy, result)
-        self._record_single(policy, req, prepared.req_index, decision, result)
+        self._record_prefix_cache_dispatch(
+            policy,
+            decision.primary,
+            prepared.ctx,
+            result,
+        )
+        self._record_single(
+            policy,
+            req,
+            prepared.req_index,
+            decision,
+            result,
+            primary_cached_input_tokens=prepared.primary_cached_input_tokens,
+            primary_routing_estimated_cost_usd=(
+                prepared.primary_routing_estimated_cost_usd
+            ),
+        )
 
     def _execute_coalesced_group(self, prepareds: list[_PreparedDispatch]) -> None:
         """Execute one physical action and fan out result to virtual policies."""
@@ -879,6 +940,7 @@ class RealExperimentRunner:
             for prepared in prepareds:
                 self._feed_back_hedged(prepared.policy, hedged)
                 self._account_cost(prepared.policy, hedged, physical=False)
+                self._record_prefix_cache_dispatches(prepared, hedged)
                 self._record_hedged(
                     prepared.policy,
                     prepared.req,
@@ -886,6 +948,14 @@ class RealExperimentRunner:
                     prepared.decision,
                     hedged,
                     prepared.hedge_delay_sec,
+                    primary_cached_input_tokens=prepared.primary_cached_input_tokens,
+                    backup_cached_input_tokens=prepared.backup_cached_input_tokens,
+                    primary_routing_estimated_cost_usd=(
+                        prepared.primary_routing_estimated_cost_usd
+                    ),
+                    backup_routing_estimated_cost_usd=(
+                        prepared.backup_routing_estimated_cost_usd
+                    ),
                 )
             self._account_physical_cost(physical_cost)
             return
@@ -903,14 +973,57 @@ class RealExperimentRunner:
                 prepared.policy, prepared.decision.primary or "", result
             )
             self._account_single(prepared.policy, result, physical=False)
+            self._record_prefix_cache_dispatch(
+                prepared.policy,
+                prepared.decision.primary,
+                prepared.ctx,
+                result,
+            )
             self._record_single(
                 prepared.policy,
                 prepared.req,
                 prepared.req_index,
                 prepared.decision,
                 result,
+                primary_cached_input_tokens=prepared.primary_cached_input_tokens,
+                primary_routing_estimated_cost_usd=(
+                    prepared.primary_routing_estimated_cost_usd
+                ),
             )
         self._account_physical_cost(physical_cost)
+
+    @staticmethod
+    def _record_prefix_cache_dispatch(
+        policy: BasePolicy,
+        provider: str | None,
+        ctx: RequestContext,
+        result: SingleRequestResult,
+    ) -> None:
+        policy.record_prefix_cache_dispatch(
+            provider,
+            ctx,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
+
+    def _record_prefix_cache_dispatches(
+        self,
+        prepared: _PreparedDispatch,
+        hedged: HedgedResult,
+    ) -> None:
+        self._record_prefix_cache_dispatch(
+            prepared.policy,
+            prepared.decision.primary,
+            prepared.ctx,
+            hedged.primary_result,
+        )
+        if hedged.backup_result is not None:
+            self._record_prefix_cache_dispatch(
+                prepared.policy,
+                prepared.backup,
+                prepared.ctx,
+                hedged.backup_result,
+            )
 
     # ------------------------------------------------------------------
     # Profile + capacity feedback.
@@ -1021,6 +1134,9 @@ class RealExperimentRunner:
         req_index: int,
         decision: RoutingDecision,
         result: SingleRequestResult,
+        *,
+        primary_cached_input_tokens: int = 0,
+        primary_routing_estimated_cost_usd: float | None = None,
     ) -> None:
         spec = self._spec_by_name.get(decision.primary or "")
         self.recorder.write_request(
@@ -1034,6 +1150,8 @@ class RealExperimentRunner:
             final_tier=spec.tier if spec else None,
             slo_ms=self.slo_sec * 1000.0,
             transport=spec.transport_cfg.transport if spec else None,
+            primary_cached_input_tokens=primary_cached_input_tokens,
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
         )
 
     def _record_hedged(
@@ -1044,6 +1162,11 @@ class RealExperimentRunner:
         decision: RoutingDecision,
         hedged: HedgedResult,
         hedge_delay_sec: float,
+        *,
+        primary_cached_input_tokens: int = 0,
+        backup_cached_input_tokens: int = 0,
+        primary_routing_estimated_cost_usd: float | None = None,
+        backup_routing_estimated_cost_usd: float | None = None,
     ) -> None:
         primary_spec = self._spec_by_name.get(decision.primary or "")
         backup_spec = self._spec_by_name.get(decision.hedge or "")
@@ -1061,6 +1184,10 @@ class RealExperimentRunner:
             final_tier=final_spec.tier if final_spec else None,
             slo_ms=self.slo_sec * 1000.0,
             transport=primary_spec.transport_cfg.transport if primary_spec else None,
+            primary_cached_input_tokens=primary_cached_input_tokens,
+            backup_cached_input_tokens=backup_cached_input_tokens,
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
         )
 
     # ------------------------------------------------------------------
@@ -1198,6 +1325,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Rolling latency profile window length.",
     )
     parser.add_argument(
+        "--prefix-cache-routing",
+        action="store_true",
+        help=(
+            "Use provider-local prefix-cache state only for RouteWise "
+            "route-time API cost estimates. Final billed cost still uses "
+            "provider-reported usage.cost."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -1269,6 +1405,7 @@ def main(argv: list[str] | None = None) -> int:
         args.max_cost_usd,
     )
     logger.info("output: %s", args.output)
+    logger.info("prefix_cache_routing=%s", args.prefix_cache_routing)
 
     output_dir = args.output
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1285,6 +1422,7 @@ def main(argv: list[str] | None = None) -> int:
         max_cost_usd=args.max_cost_usd,
         timeout_sec=args.timeout_sec,
         profile_window_sec=args.profile_window_sec,
+        prefix_cache_routing=args.prefix_cache_routing,
     )
 
     if args.warmup_probes > 0:

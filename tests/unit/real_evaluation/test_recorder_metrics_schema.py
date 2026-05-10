@@ -50,6 +50,10 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
         backup_tier="quota",
         final_tier="quota",
         slo_ms=500.0,
+        primary_cached_input_tokens=30,
+        backup_cached_input_tokens=20,
+        primary_routing_estimated_cost_usd=0.015,
+        backup_routing_estimated_cost_usd=0.005,
         ts=101.0,
     )
     run = recorder.to_run()
@@ -65,6 +69,9 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
     assert record.slo_ms == 500.0
     assert record.slo_violated is False
     assert run.cost_by_tier() == {"api": 0.02, "quota": 0.01}
+    assert record.total_cost_usd == 0.03
+    assert record.metadata["real_primary_cached_input_tokens"] == 30
+    assert record.metadata["real_backup_cached_input_tokens"] == 20
 
     summary_path = recorder.write_summary(slo_ms=500.0)
     summary = json.loads(summary_path.read_text())

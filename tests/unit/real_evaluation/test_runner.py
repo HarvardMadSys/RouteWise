@@ -34,6 +34,8 @@ _INVENTORY_PATH = (
 
 def _build_runner(
     policy_names: list[str] | None = None,
+    *,
+    prefix_cache_routing: bool = False,
 ) -> tuple[RealExperimentRunner, Recorder]:
     inventory = load_inventory(_INVENTORY_PATH)
     rec = Recorder(tempfile.mkdtemp())
@@ -42,6 +44,7 @@ def _build_runner(
         policy_names=policy_names or ["cheapest_fixed"],
         recorder=rec,
         slo_ms=inventory.primary_slo_ms,
+        prefix_cache_routing=prefix_cache_routing,
     )
     return runner, rec
 
@@ -140,6 +143,7 @@ def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> Non
                 "prompt_text": "Explain TCP briefly.",
                 "num_prefill_tokens": 5,
                 "num_decode_tokens": 32,
+                "sharegpt_conversation_id": "conv-1",
             }
         ],
     )
@@ -151,6 +155,47 @@ def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> Non
     assert trace[0].prompt == "Explain TCP briefly."
     assert trace[0].prompt_tokens == 5
     assert trace[0].max_tokens == 32
+    assert trace[0].prefix_id == "conv-1"
+
+
+def test_load_trace_jsonl_prefix_id_prefers_explicit_then_conversation(tmp_path) -> None:
+    trace_path = _write_trace(
+        tmp_path,
+        [
+            {
+                "arrived_at": 10.0,
+                "prompt_text": "explicit",
+                "num_prefill_tokens": 5,
+                "num_decode_tokens": 32,
+                "prefix_id": "explicit-prefix",
+                "sharegpt_conversation_id": "conv-1",
+                "session_id": "session-1",
+            },
+            {
+                "arrived_at": 11.0,
+                "prompt_text": "conversation",
+                "num_prefill_tokens": 6,
+                "num_decode_tokens": 16,
+                "sharegpt_conversation_id": "conv-2",
+                "session_id": "session-2",
+            },
+            {
+                "arrived_at": 12.0,
+                "prompt_text": "session",
+                "num_prefill_tokens": 7,
+                "num_decode_tokens": 8,
+                "session_id": "session-3",
+            },
+        ],
+    )
+
+    trace = load_trace_jsonl(trace_path)
+
+    assert [row.prefix_id for row in trace] == [
+        "explicit-prefix",
+        "conv-2",
+        "session-3",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -705,3 +750,67 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     assert runner._cost_per_policy["cheapest_fixed"] == 0.01
     assert runner._cost_per_policy["fastest_fixed"] == 0.01
     assert runner._total_cost_usd == 0.01
+
+
+def test_dispatch_updates_policy_local_prefix_cache_and_records_diagnostics(
+    monkeypatch,
+) -> None:
+    runner, rec = _build_runner(
+        policy_names=["budget_range_p100"],
+        prefix_cache_routing=True,
+    )
+    policy = runner.policies["budget_range_p100"]
+    provider = next(
+        spec.name for spec in runner.inventory.providers if spec.tier == "api"
+    )
+
+    monkeypatch.setattr(
+        policy,
+        "route",
+        lambda now, ctx: RoutingDecision(primary=provider, notes="cache_test"),
+    )
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=20,
+            completion_tokens=5,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+            cache_read_tokens_observed=7,
+            cost_source="reported",
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(
+            arrival_time_sec=0.0,
+            prompt="x",
+            prompt_tokens=20,
+            max_tokens=5,
+            prefix_id="conv-1",
+        ),
+        req_index=0,
+    )
+
+    assert policy.provider_prefix_cache[provider]["conv-1"] == 25
+    row = rec._rows[0]
+    assert row.primary_cached_input_tokens == 0
+    assert row.primary_observed_cached_input_tokens == 7
+    assert row.cost_source == "reported"
+    assert row.billed_cost_usd == 0.01
+    rec.close()

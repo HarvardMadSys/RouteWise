@@ -48,6 +48,13 @@ CSV_FIELDS: tuple[str, ...] = (
     "retry_count",
     "retry_sleep_ms",
     "rate_limited",
+    "cost_source",
+    "primary_cached_input_tokens",
+    "backup_cached_input_tokens",
+    "primary_observed_cached_input_tokens",
+    "backup_observed_cached_input_tokens",
+    "primary_routing_estimated_cost_usd",
+    "backup_routing_estimated_cost_usd",
     "billed_cost_usd",
     "primary_cost_usd",
     "backup_cost_usd",
@@ -85,6 +92,13 @@ class RequestLogRow:
     retry_count: int
     retry_sleep_ms: float
     rate_limited: bool
+    cost_source: str
+    primary_cached_input_tokens: int
+    backup_cached_input_tokens: int
+    primary_observed_cached_input_tokens: int | None
+    backup_observed_cached_input_tokens: int | None
+    primary_routing_estimated_cost_usd: float | None
+    backup_routing_estimated_cost_usd: float | None
     billed_cost_usd: float
     primary_cost_usd: float
     backup_cost_usd: float
@@ -127,6 +141,29 @@ class RequestLogRow:
             "retry_count": str(self.retry_count),
             "retry_sleep_ms": f"{self.retry_sleep_ms:.3f}",
             "rate_limited": "1" if self.rate_limited else "0",
+            "cost_source": self.cost_source,
+            "primary_cached_input_tokens": str(self.primary_cached_input_tokens),
+            "backup_cached_input_tokens": str(self.backup_cached_input_tokens),
+            "primary_observed_cached_input_tokens": (
+                ""
+                if self.primary_observed_cached_input_tokens is None
+                else str(self.primary_observed_cached_input_tokens)
+            ),
+            "backup_observed_cached_input_tokens": (
+                ""
+                if self.backup_observed_cached_input_tokens is None
+                else str(self.backup_observed_cached_input_tokens)
+            ),
+            "primary_routing_estimated_cost_usd": (
+                f"{self.primary_routing_estimated_cost_usd:.8f}"
+                if self.primary_routing_estimated_cost_usd is not None
+                else ""
+            ),
+            "backup_routing_estimated_cost_usd": (
+                f"{self.backup_routing_estimated_cost_usd:.8f}"
+                if self.backup_routing_estimated_cost_usd is not None
+                else ""
+            ),
             "billed_cost_usd": f"{self.billed_cost_usd:.8f}",
             "primary_cost_usd": f"{self.primary_cost_usd:.8f}",
             "backup_cost_usd": f"{self.backup_cost_usd:.8f}",
@@ -189,6 +226,10 @@ class Recorder:
         final_tier: str | None = None,
         slo_ms: float | None = None,
         transport: str | None = None,
+        primary_cached_input_tokens: int = 0,
+        backup_cached_input_tokens: int = 0,
+        primary_routing_estimated_cost_usd: float | None = None,
+        backup_routing_estimated_cost_usd: float | None = None,
         ts: float | None = None,
     ) -> None:
         """Convenience wrapper that builds a ``RequestLogRow`` from common parts."""
@@ -197,6 +238,9 @@ class Recorder:
         primary_cost = primary_result.billed_cost_usd
         backup_cost = backup_result.billed_cost_usd if backup_result else 0.0
         billed_cost = primary_cost + backup_cost
+        cost_source = primary_result.cost_source
+        if backup_result is not None:
+            cost_source = f"{primary_result.cost_source}+{backup_result.cost_source}"
         hedge_delay_ms = (
             hedge_delay_sec * 1000.0
             if hedge_delay_sec is not None and hedge_delay_sec != float("inf")
@@ -243,6 +287,17 @@ class Recorder:
             retry_count=chosen.retry_count,
             retry_sleep_ms=chosen.retry_sleep_ms,
             rate_limited=chosen.rate_limited,
+            cost_source=cost_source,
+            primary_cached_input_tokens=primary_cached_input_tokens,
+            backup_cached_input_tokens=backup_cached_input_tokens,
+            primary_observed_cached_input_tokens=(
+                primary_result.cache_read_tokens_observed
+            ),
+            backup_observed_cached_input_tokens=(
+                backup_result.cache_read_tokens_observed if backup_result else None
+            ),
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
             billed_cost_usd=billed_cost,
             primary_cost_usd=primary_cost,
             backup_cost_usd=backup_cost,
@@ -295,6 +350,21 @@ class Recorder:
                 "real_tier_mix": decision.tier_mix,
                 "real_retry_sleep_ms": chosen.retry_sleep_ms,
                 "real_status": chosen.status,
+                "real_cost_source": cost_source,
+                "real_primary_cached_input_tokens": primary_cached_input_tokens,
+                "real_backup_cached_input_tokens": backup_cached_input_tokens,
+                "real_primary_observed_cached_input_tokens": (
+                    primary_result.cache_read_tokens_observed
+                ),
+                "real_backup_observed_cached_input_tokens": (
+                    backup_result.cache_read_tokens_observed if backup_result else None
+                ),
+                "real_primary_routing_estimated_cost_usd": (
+                    primary_routing_estimated_cost_usd
+                ),
+                "real_backup_routing_estimated_cost_usd": (
+                    backup_routing_estimated_cost_usd
+                ),
             },
         )
         self.write_row(row, record=record)
@@ -315,6 +385,10 @@ class Recorder:
         final_tier: str | None = None,
         slo_ms: float | None = None,
         transport: str | None = None,
+        primary_cached_input_tokens: int = 0,
+        backup_cached_input_tokens: int = 0,
+        primary_routing_estimated_cost_usd: float | None = None,
+        backup_routing_estimated_cost_usd: float | None = None,
         ts: float | None = None,
     ) -> None:
         """Convenience wrapper that unpacks a ``HedgedResult``."""
@@ -336,6 +410,10 @@ class Recorder:
             final_tier=final_tier,
             slo_ms=slo_ms,
             transport=transport,
+            primary_cached_input_tokens=primary_cached_input_tokens,
+            backup_cached_input_tokens=backup_cached_input_tokens,
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
             ts=ts,
         )
 
@@ -400,6 +478,21 @@ class Recorder:
                 "real_tier_mix": row.tier_mix,
                 "real_retry_sleep_ms": row.retry_sleep_ms,
                 "real_status": row.status,
+                "real_cost_source": row.cost_source,
+                "real_primary_cached_input_tokens": row.primary_cached_input_tokens,
+                "real_backup_cached_input_tokens": row.backup_cached_input_tokens,
+                "real_primary_observed_cached_input_tokens": (
+                    row.primary_observed_cached_input_tokens
+                ),
+                "real_backup_observed_cached_input_tokens": (
+                    row.backup_observed_cached_input_tokens
+                ),
+                "real_primary_routing_estimated_cost_usd": (
+                    row.primary_routing_estimated_cost_usd
+                ),
+                "real_backup_routing_estimated_cost_usd": (
+                    row.backup_routing_estimated_cost_usd
+                ),
             },
         )
 

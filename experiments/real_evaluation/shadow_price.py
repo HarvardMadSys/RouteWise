@@ -8,7 +8,7 @@ from experiments.real_evaluation.transports import compute_request_cost_usd
 from rwsim.policies.effective_cost_kernel import scarcity_price
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from experiments.real_evaluation.inventory import ProviderSpec, ProviderState
 
@@ -106,6 +106,7 @@ def calibrate_envelopes(
     ctx_completion_tokens: int,
     *,
     floor_ratio: float = 1e-3,
+    cost_fn: Callable[[ProviderSpec], float] | None = None,
 ) -> tuple[float, float]:
     """Compute ``(L, U)`` envelopes from API providers in the inventory.
 
@@ -120,17 +121,17 @@ def calibrate_envelopes(
         if spec.tier == "api" and (
             spec.input_price_per_m > 0 or spec.output_price_per_m > 0
         ):
-            # TODO(routewise-cache): once request_marginal_cost supports
-            # cache-hit pricing, calibrate envelopes with the same effective
-            # route-time cost so p-budget routing sees cache discounts.
-            api_costs.append(
-                compute_request_cost_usd(
-                    ctx_prompt_tokens,
-                    ctx_completion_tokens,
-                    spec.input_price_per_m,
-                    spec.output_price_per_m,
+            if cost_fn is not None:
+                api_costs.append(cost_fn(spec))
+            else:
+                api_costs.append(
+                    compute_request_cost_usd(
+                        ctx_prompt_tokens,
+                        ctx_completion_tokens,
+                        spec.input_price_per_m,
+                        spec.output_price_per_m,
+                    )
                 )
-            )
     if not api_costs:
         return (1e-6, 1e-3)
     U = float(max(api_costs))

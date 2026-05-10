@@ -69,10 +69,19 @@ def dedup_by_cheapest(endpoints: list[dict]) -> dict[str, dict]:
         name = ep["provider_name"]
         in_p = float(ep["pricing"]["prompt"]) * 1_000_000
         out_p = float(ep["pricing"]["completion"]) * 1_000_000
+        cache_read_raw = ep["pricing"].get("input_cache_read")
+        cache_read_p = (
+            float(cache_read_raw) * 1_000_000
+            if cache_read_raw is not None
+            else None
+        )
         rank = in_p + out_p
         if name not in by_name or rank < by_name[name]["_rank"]:
             by_name[name] = {
                 "_input": in_p,
+                "_cached_input": (
+                    cache_read_p if cache_read_p is not None and cache_read_p > 0 else None
+                ),
                 "_output": out_p,
                 "_rank": rank,
                 "_uptime": ep.get("uptime_last_1d"),
@@ -89,19 +98,20 @@ def to_provider_entries(by_name: dict[str, dict], model_id: str) -> list[dict]:
         uptime_str = (
             f"uptime_1d={uptime:.2f}%" if uptime is not None else "uptime_1d=unknown"
         )
-        out.append(
-            {
-                "name": f"OR_{name.replace(' ', '_')}",
-                "tier": "api",
-                "transport": "openrouter",
-                "model": model_id,
-                "provider_hint": name,
-                "input_price_per_m": round(info["_input"], 4),
-                "output_price_per_m": round(info["_output"], 4),
-                "billing_mode": "metered",
-                "notes": f"OR endpoint tag={info['_tag']!r}, {uptime_str}",
-            }
-        )
+        entry = {
+            "name": f"OR_{name.replace(' ', '_')}",
+            "tier": "api",
+            "transport": "openrouter",
+            "model": model_id,
+            "provider_hint": name,
+            "input_price_per_m": round(info["_input"], 4),
+            "output_price_per_m": round(info["_output"], 4),
+            "billing_mode": "metered",
+            "notes": f"OR endpoint tag={info['_tag']!r}, {uptime_str}",
+        }
+        if info.get("_cached_input") is not None:
+            entry["cached_input_price_per_m"] = round(info["_cached_input"], 4)
+        out.append(entry)
     return out
 
 
@@ -132,6 +142,7 @@ def diff_or_providers(old: list[dict] | None, new: list[dict]) -> str:
         lines.append(
             f"  + {name:<22} "
             f"input=${n['input_price_per_m']:.3f}/M "
+            f"cached_input={_fmt_cached_price(n)} "
             f"output=${n['output_price_per_m']:.3f}/M"
         )
     for name in removed:
@@ -139,22 +150,31 @@ def diff_or_providers(old: list[dict] | None, new: list[dict]) -> str:
         lines.append(
             f"  - {name:<22} "
             f"(was input=${o['input_price_per_m']:.3f}/M "
+            f"cached_input={_fmt_cached_price(o)} "
             f"output=${o['output_price_per_m']:.3f}/M)"
         )
     for name in common:
         o, n = old_or[name], new_or[name]
         if (
             o.get("input_price_per_m") != n["input_price_per_m"]
+            or o.get("cached_input_price_per_m") != n.get("cached_input_price_per_m")
             or o.get("output_price_per_m") != n["output_price_per_m"]
         ):
             lines.append(
                 f"  ~ {name:<22} "
                 f"input ${o.get('input_price_per_m')}→${n['input_price_per_m']}, "
+                "cached_input "
+                f"${o.get('cached_input_price_per_m')}→${n.get('cached_input_price_per_m')}, "
                 f"output ${o.get('output_price_per_m')}→${n['output_price_per_m']}"
             )
     if not lines:
         return "  (no changes; OR_* providers and prices match)"
     return "\n".join(lines)
+
+
+def _fmt_cached_price(provider: dict) -> str:
+    value = provider.get("cached_input_price_per_m")
+    return "n/a" if value is None else f"${float(value):.3f}/M"
 
 
 def split_existing_providers(existing: dict | None) -> tuple[list[dict], list[dict]]:

@@ -11,6 +11,7 @@ import pytest
 from experiments.real_evaluation.transports import (
     OpenAICompatStreamingTransport,
     TransportConfig,
+    observed_cache_read_tokens,
     resolve_transport_config,
 )
 
@@ -132,9 +133,40 @@ def test_http_429_is_retried_and_retry_delay_counts_toward_ttft(monkeypatch) -> 
     assert result.ttft_ms >= result.retry_sleep_ms
     assert result.e2e_ms >= result.ttft_ms
     assert result.billed_cost_usd == 0.000123
+    assert result.cost_source == "reported"
     assert result.provider == "OR_Test@actual-provider"
     assert event.is_set()
     assert ttft_info["status"] == "success"
+
+
+def test_transport_parses_observed_cached_input_tokens(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                stream_chunks=[
+                    {
+                        "choices": [{"delta": {"content": "hello"}}],
+                        "usage": {
+                            "prompt_tokens": 20,
+                            "completion_tokens": 5,
+                            "cost": 0.000123,
+                            "prompt_tokens_details": {"cached_tokens": 11},
+                        },
+                    }
+                ],
+            )
+        ]
+    )
+
+    result = _transport(session).send(prompt="x", max_tokens=8, timeout=5)
+
+    assert result.cache_read_tokens_observed == 11
+
+
+def test_observed_cache_read_tokens_accepts_anthropic_usage_shape() -> None:
+    assert observed_cache_read_tokens({"cache_read_input_tokens": 13}) == 13
 
 
 def test_http_429_final_failure_only_after_retry_budget_exhausted(monkeypatch) -> None:
@@ -243,6 +275,22 @@ def test_resolve_transport_config_parses_openrouter_provider_filters() -> None:
 
     assert cfg.provider_only == ("Chutes", "DeepInfra")
     assert cfg.provider_ignore == ("BadProvider",)
+
+
+def test_resolve_transport_config_parses_cached_input_price() -> None:
+    cfg = resolve_transport_config(
+        {
+            "name": "OR_cached",
+            "tier": "api",
+            "transport": "openrouter",
+            "model": "test/model",
+            "input_price_per_m": 0.1,
+            "cached_input_price_per_m": 0.02,
+            "output_price_per_m": 1.0,
+        }
+    )
+
+    assert cfg.cached_input_price_per_m == 0.02
 
 
 def test_openrouter_api_provider_requires_positive_prices() -> None:

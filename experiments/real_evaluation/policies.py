@@ -46,6 +46,11 @@ from experiments.real_evaluation.inventory import (
     ProviderSpec,
     ProviderState,
 )
+from experiments.real_evaluation.prefix_cache import (
+    cache_aware_request_cost_usd,
+    cached_input_tokens,
+    record_prefix_cache_dispatch,
+)
 from experiments.real_evaluation.shadow_price import (
     calibrate_envelopes,
     effective_cost,
@@ -53,7 +58,7 @@ from experiments.real_evaluation.shadow_price import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 LP_EPS: float = 1e-9
 HEDGE_SUCCESS_TARGET: float = 0.99
@@ -90,6 +95,7 @@ class RequestContext:
 
     prompt_tokens: int
     completion_tokens_budget: int
+    prefix_id: str | None = None
 
 
 @dataclass
@@ -265,6 +271,7 @@ def select_safe_cheapest_backup(
     *,
     success_target: float = HEDGE_SUCCESS_TARGET,
     dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
+    cost_fn: Callable[[ProviderState], float] | None = None,
 ) -> str | None:
     """Pick the cheapest non-primary provider whose CDF passes the SLO threshold.
 
@@ -277,7 +284,8 @@ def select_safe_cheapest_backup(
         if name == primary or not state.is_available(now):
             continue
         if state.profile.cdf_at(remaining_ms, now) >= success_target:
-            safe.append((request_cost_for_spec(state.spec, ctx), state))
+            cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
+            safe.append((cost, state))
     if safe:
         safe.sort(key=lambda pair: (pair[0], pair[1].spec.name))
         return safe[0][1].spec.name
@@ -319,6 +327,7 @@ class BasePolicy:
         specs: list[ProviderSpec],
         slo_ms: float,
         profile_window_sec: float = PROFILE_WINDOW_SEC,
+        prefix_cache_routing: bool = False,
     ) -> None:
         self.specs = specs
         self.slo_sec = slo_ms / 1000.0
@@ -326,7 +335,77 @@ class BasePolicy:
             spec.name: ProviderState.from_spec(spec, profile_window_sec)
             for spec in specs
         }
+        self.prefix_cache_routing = bool(prefix_cache_routing)
+        self.provider_prefix_cache: dict[str, dict[str, int]] = {}
         self._lock = threading.Lock()
+
+    def request_cost_for_state(self, state: ProviderState, ctx: RequestContext) -> float:
+        """Return this policy's route-time marginal cost for one provider."""
+        return self.request_cost_for_spec(state.spec, ctx)
+
+    def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
+        """Return route-time API cost, optionally using policy-local cache state."""
+        with self._lock:
+            return cache_aware_request_cost_usd(
+                spec,
+                prompt_tokens=ctx.prompt_tokens,
+                completion_tokens=ctx.completion_tokens_budget,
+                prefix_id=ctx.prefix_id,
+                provider_prefix_cache=self.provider_prefix_cache,
+                enabled=self.prefix_cache_routing,
+            )
+
+    def routing_cache_diagnostics(
+        self,
+        provider: str | None,
+        ctx: RequestContext,
+    ) -> tuple[int, float | None]:
+        """Return route-time cached tokens and estimated cost for diagnostics."""
+        if provider is None:
+            return (0, None)
+        state = self.states.get(provider)
+        if state is None:
+            return (0, None)
+        with self._lock:
+            cached_tokens = (
+                cached_input_tokens(
+                    provider_name=provider,
+                    prefix_id=ctx.prefix_id,
+                    prompt_tokens=ctx.prompt_tokens,
+                    provider_prefix_cache=self.provider_prefix_cache,
+                )
+                if self.prefix_cache_routing
+                else 0
+            )
+            estimated_cost = cache_aware_request_cost_usd(
+                state.spec,
+                prompt_tokens=ctx.prompt_tokens,
+                completion_tokens=ctx.completion_tokens_budget,
+                prefix_id=ctx.prefix_id,
+                provider_prefix_cache=self.provider_prefix_cache,
+                enabled=self.prefix_cache_routing,
+            )
+        return (cached_tokens, estimated_cost)
+
+    def record_prefix_cache_dispatch(
+        self,
+        provider: str | None,
+        ctx: RequestContext,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """Update this policy's provider-local cache state after dispatch."""
+        if not self.prefix_cache_routing or provider is None or provider not in self.states:
+            return
+        with self._lock:
+            record_prefix_cache_dispatch(
+                provider_name=provider,
+                prefix_id=ctx.prefix_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                provider_prefix_cache=self.provider_prefix_cache,
+            )
 
     def add_sample(
         self,
@@ -554,8 +633,14 @@ class BudgetRangePolicy(BasePolicy):
         slo_ms: float,
         profile_window_sec: float = PROFILE_WINDOW_SEC,
         budget_percentile: int = 100,
+        prefix_cache_routing: bool = False,
     ) -> None:
-        super().__init__(specs, slo_ms, profile_window_sec)
+        super().__init__(
+            specs,
+            slo_ms,
+            profile_window_sec,
+            prefix_cache_routing=prefix_cache_routing,
+        )
         if not 0 <= budget_percentile <= 100:
             raise ValueError(
                 f"budget_percentile must be in [0, 100]; got {budget_percentile}"
@@ -569,10 +654,13 @@ class BudgetRangePolicy(BasePolicy):
             return RoutingDecision(primary=None, notes="none_available")
 
         L, U = calibrate_envelopes(
-            self.specs, ctx.prompt_tokens, ctx.completion_tokens_budget
+            self.specs,
+            ctx.prompt_tokens,
+            ctx.completion_tokens_budget,
+            cost_fn=lambda spec: self.request_cost_for_spec(spec, ctx),
         )
         request_costs = {
-            s.spec.name: request_cost_for_spec(s.spec, ctx) for s in feasible
+            s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible
         }
         c_eff = {
             s.spec.name: effective_cost(
@@ -673,6 +761,7 @@ def build_policy(
     specs: list[ProviderSpec],
     slo_ms: float,
     profile_window_sec: float = PROFILE_WINDOW_SEC,
+    prefix_cache_routing: bool = False,
 ) -> BasePolicy:
     """Construct one policy by name.
 
@@ -682,7 +771,12 @@ def build_policy(
       * Paper line: ``budget_range_p<PP>`` and
         ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
     """
-    common = {"specs": specs, "slo_ms": slo_ms, "profile_window_sec": profile_window_sec}
+    common = {
+        "specs": specs,
+        "slo_ms": slo_ms,
+        "profile_window_sec": profile_window_sec,
+        "prefix_cache_routing": prefix_cache_routing,
+    }
     if name == "openrouter_auto":
         return OpenRouterAutoPolicy(**common)
     if name == "sort_latency":

@@ -91,6 +91,8 @@ class SingleRequestResult:
     retry_count: int = 0
     retry_sleep_ms: float = 0.0
     rate_limited: bool = False
+    cache_read_tokens_observed: int | None = None
+    cost_source: str = "missing"
 
 
 @dataclass
@@ -115,6 +117,7 @@ class TransportConfig:
     base_url: str | None = None
     api_key_env: str | None = None
     input_price_per_m: float = 0.0
+    cached_input_price_per_m: float | None = None
     output_price_per_m: float = 0.0
     extra_headers: dict[str, str] = field(default_factory=dict)
 
@@ -152,6 +155,30 @@ def compute_request_cost_usd(
     return (
         input_price_per_m * prompt_tokens + output_price_per_m * completion_tokens
     ) / 1_000_000.0
+
+
+def observed_cache_read_tokens(usage: dict[str, Any]) -> int | None:
+    """Parse provider-reported cached input tokens from known usage shapes."""
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        parsed = _nonnegative_int(details.get("cached_tokens"))
+        if parsed is not None:
+            return parsed
+
+    parsed = _nonnegative_int(usage.get("cache_read_input_tokens"))
+    if parsed is not None:
+        return parsed
+    return None
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _parse_retry_after_sec(value: str | None) -> float | None:
@@ -307,6 +334,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
         completion_tokens = 0
         http_status: int | None = None
         reported_cost_usd: float | None = None
+        observed_cached_tokens: int | None = None
         reported_provider: str | None = None
         retry_count = 0
         retry_sleep_sec = 0.0
@@ -414,6 +442,9 @@ class OpenAICompatStreamingTransport(BaseTransport):
                         if usage.get("cost") is not None:
                             with suppress(TypeError, ValueError):
                                 reported_cost_usd = float(usage["cost"])
+                        cache_read_tokens = observed_cache_read_tokens(usage)
+                        if cache_read_tokens is not None:
+                            observed_cached_tokens = cache_read_tokens
 
                     provider_field = chunk.get("provider")
                     if isinstance(provider_field, str):
@@ -476,14 +507,16 @@ class OpenAICompatStreamingTransport(BaseTransport):
         # Prefer OpenRouter-reported actual cost when present (handles the
         # case where openrouter_auto / sort=latency picks a sub-provider whose
         # price differs from this transport's default pricing).
-        if reported_cost_usd is not None and reported_cost_usd > 0:
+        cost_source = "missing"
+        if reported_cost_usd is not None and reported_cost_usd >= 0.0:
             billed = reported_cost_usd
+            cost_source = "reported"
         else:
-            billed = (
-                self._estimate_cost(prompt_tokens, completion_tokens)
-                if self.cfg.input_price_per_m > 0 or self.cfg.output_price_per_m > 0
-                else 0.0
-            )
+            if self.cfg.input_price_per_m > 0 or self.cfg.output_price_per_m > 0:
+                billed = self._estimate_cost(prompt_tokens, completion_tokens)
+                cost_source = "estimated"
+            else:
+                billed = 0.0
 
         logical_provider = self.cfg.name
         if reported_provider:
@@ -504,6 +537,8 @@ class OpenAICompatStreamingTransport(BaseTransport):
             retry_count=retry_count,
             retry_sleep_ms=retry_sleep_sec * 1000.0,
             rate_limited=saw_rate_limit,
+            cache_read_tokens_observed=observed_cached_tokens,
+            cost_source=cost_source,
         )
 
 
@@ -532,6 +567,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         provider_only     : optional OpenRouter allowlist for auto/sort routing
         provider_ignore   : optional OpenRouter denylist for auto/sort routing
         input_price_per_m : optional, USD per 1M input tokens
+        cached_input_price_per_m: optional, USD per 1M cached input tokens
         output_price_per_m: optional, USD per 1M output tokens
     """
     transport = provider_entry["transport"]
@@ -577,6 +613,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         raise ValueError(f"Unknown transport: {transport}")
 
     input_price_per_m, output_price_per_m = _resolve_provider_prices(provider_entry)
+    cached_input_price_per_m = _cached_input_price_field(provider_entry)
 
     return TransportConfig(
         name=provider_entry["name"],
@@ -589,6 +626,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         base_url=base_url,
         api_key_env=api_key_env,
         input_price_per_m=input_price_per_m,
+        cached_input_price_per_m=cached_input_price_per_m,
         output_price_per_m=output_price_per_m,
         extra_headers=extra_headers,
     )
@@ -641,6 +679,14 @@ def _price_field(
     return parsed
 
 
+def _cached_input_price_field(provider_entry: dict[str, Any]) -> float | None:
+    value = provider_entry.get("cached_input_price_per_m")
+    if value is None:
+        return None
+    parsed = _price_field(provider_entry, "cached_input_price_per_m", required=False)
+    return parsed if parsed > 0.0 else None
+
+
 __all__ = [
     "OPENROUTER_SORT_MODES",
     "BaseTransport",
@@ -649,5 +695,6 @@ __all__ = [
     "TransportConfig",
     "build_transport",
     "compute_request_cost_usd",
+    "observed_cache_read_tokens",
     "resolve_transport_config",
 ]

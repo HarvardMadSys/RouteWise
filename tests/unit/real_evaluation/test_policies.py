@@ -25,7 +25,13 @@ from experiments.real_evaluation.shadow_price import (
 from experiments.real_evaluation.transports import TransportConfig
 
 
-def _api_spec(name: str, in_p: float, out_p: float) -> ProviderSpec:
+def _api_spec(
+    name: str,
+    in_p: float,
+    out_p: float,
+    *,
+    cached_in_p: float | None = None,
+) -> ProviderSpec:
     return ProviderSpec(
         name=name,
         tier="api",
@@ -34,6 +40,7 @@ def _api_spec(name: str, in_p: float, out_p: float) -> ProviderSpec:
             transport="openrouter",
             model="x",
             input_price_per_m=in_p,
+            cached_input_price_per_m=cached_in_p,
             output_price_per_m=out_p,
         ),
     )
@@ -210,3 +217,54 @@ def test_or_only_fixed_baselines_filter_to_openrouter() -> None:
     # zero-priced subscription provider.
     assert or_cheapest.primary == "OR_cheap"
     assert joint_cheapest.primary == "Chutes_SQ"
+
+
+def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> None:
+    slow_cheap = _api_spec("OR_slow_cheap", 1.0, 0.1)
+    fast_expensive = _api_spec("OR_fast_expensive", 10.0, 0.1, cached_in_p=0.0)
+    now = 100.0
+
+    no_cache = BudgetRangePolicy(
+        [slow_cheap, fast_expensive],
+        slo_ms=2000.0,
+        budget_percentile=0,
+        prefix_cache_routing=False,
+    )
+    cache_aware = BudgetRangePolicy(
+        [slow_cheap, fast_expensive],
+        slo_ms=2000.0,
+        budget_percentile=0,
+        prefix_cache_routing=True,
+    )
+    for policy in (no_cache, cache_aware):
+        for _ in range(10):
+            policy.add_sample("OR_slow_cheap", now, 1000.0)
+            policy.add_sample("OR_fast_expensive", now, 100.0)
+
+    ctx = RequestContext(100, 1, prefix_id="conv-1")
+    cache_aware.provider_prefix_cache["OR_fast_expensive"] = {"conv-1": 100}
+
+    assert no_cache.route(now, ctx).primary == "OR_slow_cheap"
+    assert cache_aware.route(now, ctx).primary == "OR_fast_expensive"
+    cached_tokens, estimated_cost = cache_aware.routing_cache_diagnostics(
+        "OR_fast_expensive", ctx
+    )
+    assert cached_tokens == 100
+    assert estimated_cost == pytest.approx(0.1 / 1_000_000.0)
+
+
+def test_prefix_cache_state_is_isolated_per_policy() -> None:
+    spec = _api_spec("OR_cached", 1.0, 0.1, cached_in_p=0.0)
+    policy_a = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
+    policy_b = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
+    ctx = RequestContext(50, 5, prefix_id="conv-1")
+
+    policy_a.record_prefix_cache_dispatch(
+        "OR_cached",
+        ctx,
+        prompt_tokens=50,
+        completion_tokens=10,
+    )
+
+    assert policy_a.routing_cache_diagnostics("OR_cached", ctx)[0] == 50
+    assert policy_b.routing_cache_diagnostics("OR_cached", ctx)[0] == 0
