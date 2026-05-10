@@ -67,6 +67,7 @@ _WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
+    "burstgpt_rednote": DATA_DIR / "burstgpt_rednote_30d.jsonl",
 }
 _TRACE_CACHE_WORKLOADS = ("freeinference", "rednote")
 WORKLOAD_CHOICES = (*_WORKLOAD_PATHS, *_TRACE_CACHE_WORKLOADS)

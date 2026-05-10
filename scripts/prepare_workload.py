@@ -1,14 +1,21 @@
-"""Compose BurstGPT arrivals with reused ShareGPT conversation text.
+"""Compose BurstGPT arrivals with reused external prompt/token traces.
 
-The output is a simulator-ready JSONL workload. BurstGPT is authoritative for
-arrival time, token counts, model label, elapsed time, and session structure.
-Each BurstGPT session is deterministically bound to one ShareGPT conversation,
-and requests within that session advance through that conversation's turns.
+The default output is a simulator-ready JSONL workload where BurstGPT is
+authoritative for arrival time, token counts, model label, elapsed time, and
+session structure. Each BurstGPT session is deterministically bound to one
+ShareGPT conversation, and requests within that session advance through that
+conversation's turns.
+
+The RedNote mode keeps BurstGPT's arrival/session skeleton but replaces each
+request's prompt text and prompt/completion token pair with a RedNote request.
+That workload is directly usable by the real-eval runner because it includes
+``prompt_text`` as well as ``num_prefill_tokens`` and ``num_decode_tokens``.
 
 Usage:
     python3 scripts/prepare_workload.py --days 30
     python3 scripts/prepare_workload.py --days 30 --dry-run
     python3 scripts/prepare_workload.py --start-day 10 --days 30
+    python3 scripts/prepare_workload.py --token-source rednote --days 1 --max-requests 500
 
 Raw BurstGPT/ShareGPT traces are downloaded into data/.cache/ when missing.
 
@@ -36,17 +43,20 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
+csv.field_size_limit(sys.maxsize)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BURSTGPT = _REPO_ROOT / "data" / ".cache" / "BurstGPT_3.csv"
 _DEFAULT_SHAREGPT = (
     _REPO_ROOT / "data" / ".cache" / "ShareGPT_V3_unfiltered_cleaned_split.json"
 )
+_DEFAULT_REDNOTE = _REPO_ROOT / "data" / "enterprise.csv"
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "data"
 _SECONDS_PER_DAY = 86_400
 _BURSTGPT_URL = "https://github.com/HPMLL/BurstGPT/releases/download/v2.0/BurstGPT_3.csv"
@@ -64,6 +74,110 @@ def _text_value(message: dict[str, Any]) -> str:
 def _append_transcript_part(parts: list[str], role: str, text: str) -> None:
     if text:
         parts.append(f"{role}: {text}")
+
+
+def _message_content_text(content: Any) -> str:
+    """Return readable text from OpenAI-style message content."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if text is None:
+                    text = item.get("content")
+                if text is not None:
+                    parts.append(str(text))
+            elif item is not None:
+                parts.append(str(item))
+        return "\n".join(part for part in parts if part)
+    return str(content)
+
+
+def _role_label(role: Any) -> str:
+    value = str(role or "user").strip().lower()
+    if value == "system":
+        return "System"
+    if value == "assistant":
+        return "Assistant"
+    if value == "tool":
+        return "Tool"
+    return "User"
+
+
+def _messages_to_transcript(messages: Any) -> str:
+    """Convert a chat message list into the single-prompt string real-eval expects."""
+    if not isinstance(messages, list):
+        return str(messages or "")
+    parts: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        text = _message_content_text(message.get("content"))
+        _append_transcript_part(parts, _role_label(message.get("role")), text)
+    return "\n\n".join(parts)
+
+
+def _json_loads_lenient(raw: str) -> Any:
+    """Parse RedNote JSON fields, tolerating common double-escaped quotes."""
+    candidates = [raw, raw.replace('\\\\"', '\\"')]
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(parsed, str):
+            try:
+                return json.loads(parsed)
+            except json.JSONDecodeError:
+                return parsed
+        return parsed
+    assert last_error is not None
+    raise last_error
+
+
+def _rednote_prompt_text(raw_prompt: str) -> str:
+    """Return RedNote prompt text as a plain transcript string."""
+    if not raw_prompt:
+        return ""
+    try:
+        parsed = _json_loads_lenient(raw_prompt)
+    except json.JSONDecodeError:
+        return raw_prompt
+    return _messages_to_transcript(parsed)
+
+
+def _rednote_response_text(raw_response: str) -> str:
+    """Best-effort extraction of assistant text from a RedNote response field."""
+    if not raw_response:
+        return ""
+    try:
+        parsed = _json_loads_lenient(raw_response)
+    except json.JSONDecodeError:
+        return raw_response if raw_response.strip() and raw_response[:1] != "{" else ""
+    if isinstance(parsed, dict):
+        choices = parsed.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                message = first.get("message")
+                if isinstance(message, dict):
+                    return _message_content_text(message.get("content"))
+                delta = first.get("delta")
+                if isinstance(delta, dict):
+                    return _message_content_text(delta.get("content"))
+                text = first.get("text")
+                if text is not None:
+                    return str(text)
+        output = parsed.get("output")
+        if output is not None:
+            return _message_content_text(output)
+    return ""
 
 
 def sha256_file(path: Path) -> str:
@@ -139,6 +253,16 @@ def ensure_raw_workloads(
         os.environ.get("SHAREGPT_URL", _SHAREGPT_URL),
         sharegpt_path,
         _SHAREGPT_SHA256,
+    )
+
+
+def ensure_burstgpt_workload(*, burstgpt_path: Path) -> None:
+    """Ensure the raw BurstGPT trace exists under data/.cache/."""
+    download_file(
+        "BurstGPT_3",
+        os.environ.get("BURSTGPT_URL", _BURSTGPT_URL),
+        burstgpt_path,
+        _BURSTGPT_SHA256,
     )
 
 
@@ -225,6 +349,7 @@ def compose_workload(
     *,
     days: int = 30,
     start_day: int = 0,
+    max_requests: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Compose a rebased BurstGPT slice with reused ShareGPT text."""
@@ -232,6 +357,8 @@ def compose_workload(
         raise ValueError(f"days must be positive, got {days}")
     if start_day < 0:
         raise ValueError(f"start_day must be non-negative, got {start_day}")
+    if max_requests is not None and max_requests <= 0:
+        raise ValueError(f"max_requests must be positive when set, got {max_requests}")
     if not burstgpt_path.exists():
         raise FileNotFoundError(
             f"BurstGPT trace not found: {burstgpt_path}\n"
@@ -280,6 +407,8 @@ def compose_workload(
                 if ts < window_start:
                     continue
                 if ts >= window_end:
+                    break
+                if max_requests is not None and total_requests >= max_requests:
                     break
 
                 try:
@@ -349,6 +478,7 @@ def compose_workload(
         "output_file": str(output_path),
         "days_requested": days,
         "start_day": start_day,
+        "max_requests": max_requests,
         "total_requests": total_requests,
         "unique_sessions": len(sessions_seen),
         "api_log_rows": api_log_rows,
@@ -383,9 +513,323 @@ def compose_workload(
     return stats
 
 
+def _iter_rednote_records(
+    rednote_path: Path,
+    *,
+    include_text: bool,
+    start_row: int = 0,
+    max_prompt_tokens: int | None = None,
+    max_completion_tokens: int | None = None,
+):
+    """Yield valid RedNote records with prompt/completion token pairs."""
+    with rednote_path.open(newline="", errors="replace") as handle:
+        reader = csv.DictReader(handle)
+        for row_idx, row in enumerate(reader):
+            if row_idx < start_row:
+                continue
+            try:
+                prompt_tokens = int(float(row.get("prompt_tokens") or 0))
+                completion_tokens = int(float(row.get("completion_tokens") or 0))
+            except ValueError:
+                continue
+            if prompt_tokens < 0 or completion_tokens <= 0:
+                continue
+            if max_prompt_tokens is not None and prompt_tokens > max_prompt_tokens:
+                continue
+            if max_completion_tokens is not None and completion_tokens > max_completion_tokens:
+                continue
+
+            prompt_text = ""
+            response_text = ""
+            if include_text:
+                prompt_text = _rednote_prompt_text(row.get("prompt", ""))
+                if not prompt_text.strip():
+                    continue
+                response_text = _rednote_response_text(row.get("response", ""))
+
+            yield {
+                "row_index": row_idx,
+                "request_id": row.get("request_id", ""),
+                "model_id": row.get("model_id", ""),
+                "provider": row.get("provider", ""),
+                "prompt_hash": row.get("prompt_hash", ""),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "prompt_text": prompt_text,
+                "response_text": response_text,
+            }
+
+
+def _load_rednote_records(
+    rednote_path: Path,
+    *,
+    include_text: bool,
+    start_row: int = 0,
+    max_prompt_tokens: int | None = None,
+    max_completion_tokens: int | None = None,
+) -> list[dict[str, object]]:
+    """Load reusable RedNote prompt/completion records into memory once."""
+    records = list(
+        _iter_rednote_records(
+            rednote_path,
+            include_text=include_text,
+            start_row=start_row,
+            max_prompt_tokens=max_prompt_tokens,
+            max_completion_tokens=max_completion_tokens,
+        )
+    )
+    if not records:
+        raise ValueError(f"No valid RedNote records found in {rednote_path}")
+    return records
+
+
+def compose_rednote_token_workload(
+    burstgpt_path: Path,
+    rednote_path: Path,
+    output_path: Path,
+    *,
+    days: int = 30,
+    start_day: int = 0,
+    max_requests: int | None = None,
+    rednote_start_row: int = 0,
+    rednote_max_prompt_tokens: int | None = None,
+    rednote_max_completion_tokens: int | None = None,
+    include_text: bool = True,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    """Compose BurstGPT arrivals with RedNote prompt/completion token pairs."""
+    if days <= 0:
+        raise ValueError(f"days must be positive, got {days}")
+    if start_day < 0:
+        raise ValueError(f"start_day must be non-negative, got {start_day}")
+    if max_requests is not None and max_requests <= 0:
+        raise ValueError(f"max_requests must be positive when set, got {max_requests}")
+    if rednote_start_row < 0:
+        raise ValueError(f"rednote_start_row must be non-negative, got {rednote_start_row}")
+    if rednote_max_prompt_tokens is not None and rednote_max_prompt_tokens <= 0:
+        raise ValueError(
+            "rednote_max_prompt_tokens must be positive when set, "
+            f"got {rednote_max_prompt_tokens}"
+        )
+    if rednote_max_completion_tokens is not None and rednote_max_completion_tokens <= 0:
+        raise ValueError(
+            "rednote_max_completion_tokens must be positive when set, "
+            f"got {rednote_max_completion_tokens}"
+        )
+    if not burstgpt_path.exists():
+        raise FileNotFoundError(
+            f"BurstGPT trace not found: {burstgpt_path}\n"
+            "Run: python3 scripts/prepare_workload.py --days 30"
+        )
+    if not rednote_path.exists():
+        raise FileNotFoundError(f"RedNote trace not found: {rednote_path}")
+
+    logger.info("Reading BurstGPT trace from %s ...", burstgpt_path)
+    with burstgpt_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        first = next(reader)
+        t0 = float(first["Timestamp"])
+
+    window_start = t0 + start_day * _SECONDS_PER_DAY
+    window_end = window_start + days * _SECONDS_PER_DAY
+    logger.info(
+        "Extraction window: day %d -> day %d (%.1f -> %.1f raw seconds)",
+        start_day,
+        start_day + days,
+        window_start,
+        window_end,
+    )
+
+    if not dry_run:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_handle = output_path.open("w")
+    else:
+        output_handle = None
+
+    rednote_pool: list[dict[str, object]] | None = None
+    rednote_iter = None
+    rednote_records_used = 0
+    rednote_cycles = 0
+    if include_text:
+        rednote_iter = _iter_rednote_records(
+            rednote_path,
+            include_text=True,
+            start_row=rednote_start_row,
+            max_prompt_tokens=rednote_max_prompt_tokens,
+            max_completion_tokens=rednote_max_completion_tokens,
+        )
+    else:
+        rednote_pool = _load_rednote_records(
+            rednote_path,
+            include_text=False,
+            start_row=rednote_start_row,
+            max_prompt_tokens=rednote_max_prompt_tokens,
+            max_completion_tokens=rednote_max_completion_tokens,
+        )
+        logger.info("Loaded %d reusable RedNote token-pair records", len(rednote_pool))
+
+    def next_rednote_record() -> dict[str, object]:
+        nonlocal rednote_iter, rednote_records_used, rednote_cycles
+        if rednote_pool is not None:
+            if rednote_records_used > 0 and rednote_records_used % len(rednote_pool) == 0:
+                rednote_cycles += 1
+            record = rednote_pool[rednote_records_used % len(rednote_pool)]
+            rednote_records_used += 1
+            return record
+
+        assert rednote_iter is not None
+        try:
+            record = next(rednote_iter)
+        except StopIteration:
+            if rednote_records_used == 0:
+                raise ValueError(f"No valid RedNote records found in {rednote_path}") from None
+            rednote_cycles += 1
+            rednote_iter = _iter_rednote_records(
+                rednote_path,
+                include_text=include_text,
+                start_row=rednote_start_row,
+                max_prompt_tokens=rednote_max_prompt_tokens,
+                max_completion_tokens=rednote_max_completion_tokens,
+            )
+            record = next(rednote_iter)
+        rednote_records_used += 1
+        return record
+
+    total_requests = 0
+    skipped_rows = 0
+    api_log_rows = 0
+    sessions_seen: set[str] = set()
+    token_totals: list[int] = []
+    prompt_token_totals: list[int] = []
+    completion_token_totals: list[int] = []
+    last_arrived_at = 0.0
+
+    try:
+        with burstgpt_path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row_idx, row in enumerate(reader):
+                ts = float(row["Timestamp"])
+                if ts < window_start:
+                    continue
+                if ts >= window_end:
+                    break
+                if max_requests is not None and total_requests >= max_requests:
+                    break
+
+                try:
+                    burst_total_tokens = int(row["Total tokens"])
+                except (KeyError, ValueError):
+                    skipped_rows += 1
+                    continue
+                if burst_total_tokens == 0:
+                    skipped_rows += 1
+                    continue
+
+                session_id = row.get("Session ID", "").strip()
+                if not session_id:
+                    session_id = f"api:{row_idx}"
+                    api_log_rows += 1
+                sessions_seen.add(session_id)
+
+                rednote = next_rednote_record()
+                request_tokens = int(rednote["prompt_tokens"])
+                response_tokens = int(rednote["completion_tokens"])
+                total_tokens = request_tokens + response_tokens
+                arrived_at = ts - window_start
+                record = {
+                    "arrived_at": arrived_at,
+                    "session_id": session_id,
+                    "num_prefill_tokens": request_tokens,
+                    "num_decode_tokens": response_tokens,
+                    "model": row.get("Model", ""),
+                    "log_type": row.get("Log Type", ""),
+                    "elapsed_time_sec": float(row.get("Elapsed time") or 0.0),
+                    "burstgpt_model": row.get("Model", ""),
+                    "rednote_request_id": rednote["request_id"],
+                    "rednote_model": rednote["model_id"],
+                    "rednote_provider": rednote["provider"],
+                    "rednote_prompt_hash": rednote["prompt_hash"],
+                    "rednote_row_index": rednote["row_index"],
+                }
+                if include_text:
+                    record["prompt_text"] = rednote["prompt_text"]
+                    record["response_text"] = rednote["response_text"]
+
+                if output_handle is not None:
+                    output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+                total_requests += 1
+                token_totals.append(total_tokens)
+                prompt_token_totals.append(request_tokens)
+                completion_token_totals.append(response_tokens)
+                last_arrived_at = arrived_at
+                if total_requests % 500_000 == 0:
+                    logger.info("  ... %d requests composed so far", total_requests)
+    finally:
+        if output_handle is not None:
+            output_handle.close()
+
+    stats: dict[str, object] = {
+        "burstgpt_file": str(burstgpt_path),
+        "rednote_file": str(rednote_path),
+        "output_file": str(output_path),
+        "days_requested": days,
+        "start_day": start_day,
+        "max_requests": max_requests,
+        "rednote_start_row": rednote_start_row,
+        "rednote_max_prompt_tokens": rednote_max_prompt_tokens,
+        "rednote_max_completion_tokens": rednote_max_completion_tokens,
+        "total_requests": total_requests,
+        "unique_sessions": len(sessions_seen),
+        "api_log_rows": api_log_rows,
+        "skipped_rows": skipped_rows,
+        "rednote_records_used": rednote_records_used,
+        "rednote_cycles": rednote_cycles,
+        "include_text": include_text,
+        "duration_seconds": last_arrived_at,
+        "requests_per_day": total_requests / days,
+    }
+
+    if token_totals:
+        sorted_total = sorted(token_totals)
+        sorted_prompt = sorted(prompt_token_totals)
+        sorted_completion = sorted(completion_token_totals)
+        midpoint = len(sorted_total) // 2
+        stats["median_prompt_tokens"] = int(sorted_prompt[midpoint])
+        stats["median_completion_tokens"] = int(sorted_completion[midpoint])
+        stats["median_total_tokens"] = int(sorted_total[midpoint])
+        stats["mean_prompt_tokens"] = sum(prompt_token_totals) / len(prompt_token_totals)
+        stats["mean_completion_tokens"] = (
+            sum(completion_token_totals) / len(completion_token_totals)
+        )
+        stats["mean_total_tokens"] = sum(token_totals) / len(token_totals)
+
+    if output_path.exists() and not dry_run:
+        stats["output_size_mb"] = round(output_path.stat().st_size / (1024 * 1024), 1)
+
+    logger.info(
+        "RedNote composition complete: %d requests, %d sessions, %d RedNote cycles",
+        total_requests,
+        len(sessions_seen),
+        rednote_cycles,
+    )
+    if dry_run:
+        logger.info("Dry run -- no file written.")
+    else:
+        logger.info("Written %s", output_path)
+
+    return stats
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compose BurstGPT arrivals/tokens with reused ShareGPT text.",
+        description="Compose BurstGPT arrivals with ShareGPT or RedNote prompt/token traces.",
+    )
+    parser.add_argument(
+        "--token-source",
+        choices=("sharegpt", "rednote"),
+        default="sharegpt",
+        help="External source for prompt text and/or token shape.",
     )
     parser.add_argument(
         "--burstgpt",
@@ -400,13 +844,51 @@ def main() -> None:
         help="Path to ShareGPT V3 JSON (default: data/.cache/ShareGPT_V3_...).",
     )
     parser.add_argument(
+        "--rednote",
+        type=Path,
+        default=_DEFAULT_REDNOTE,
+        help="Path to RedNote CSV (default: data/enterprise.csv).",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output JSONL path (default: data/burstgpt_{days}d.jsonl)",
+        help=(
+            "Output JSONL path. Defaults to data/burstgpt_{days}d.jsonl for "
+            "ShareGPT and data/burstgpt_rednote_{days}d.jsonl for RedNote."
+        ),
     )
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--start-day", type=int, default=0)
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=None,
+        help="Stop after this many composed requests. Useful for real-eval pilots.",
+    )
+    parser.add_argument(
+        "--rednote-start-row",
+        type=int,
+        default=0,
+        help="Skip this many RedNote CSV rows before taking prompt/token pairs.",
+    )
+    parser.add_argument(
+        "--rednote-max-prompt-tokens",
+        type=int,
+        default=None,
+        help="Skip RedNote rows above this prompt-token count.",
+    )
+    parser.add_argument(
+        "--rednote-max-completion-tokens",
+        type=int,
+        default=None,
+        help="Skip RedNote rows above this completion-token count.",
+    )
+    parser.add_argument(
+        "--omit-rednote-text",
+        action="store_true",
+        help="Write RedNote token pairs without prompt_text/response_text (simulator-only).",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
 
@@ -417,24 +899,45 @@ def main() -> None:
     )
 
     if args.output is None:
-        suffix = f"burstgpt_{args.days}d"
+        if args.token_source == "rednote":
+            suffix = f"burstgpt_rednote_{args.days}d"
+        else:
+            suffix = f"burstgpt_{args.days}d"
         if args.start_day > 0:
             suffix += f"_from{args.start_day}"
+        if args.max_requests is not None:
+            suffix += f"_n{args.max_requests}"
         args.output = _DEFAULT_OUTPUT_DIR / f"{suffix}.jsonl"
 
-    ensure_raw_workloads(
-        burstgpt_path=args.burstgpt,
-        sharegpt_path=args.sharegpt,
-    )
-
-    stats = compose_workload(
-        burstgpt_path=args.burstgpt,
-        sharegpt_path=args.sharegpt,
-        output_path=args.output,
-        days=args.days,
-        start_day=args.start_day,
-        dry_run=args.dry_run,
-    )
+    if args.token_source == "sharegpt":
+        ensure_raw_workloads(
+            burstgpt_path=args.burstgpt,
+            sharegpt_path=args.sharegpt,
+        )
+        stats = compose_workload(
+            burstgpt_path=args.burstgpt,
+            sharegpt_path=args.sharegpt,
+            output_path=args.output,
+            days=args.days,
+            start_day=args.start_day,
+            max_requests=args.max_requests,
+            dry_run=args.dry_run,
+        )
+    else:
+        ensure_burstgpt_workload(burstgpt_path=args.burstgpt)
+        stats = compose_rednote_token_workload(
+            burstgpt_path=args.burstgpt,
+            rednote_path=args.rednote,
+            output_path=args.output,
+            days=args.days,
+            start_day=args.start_day,
+            max_requests=args.max_requests,
+            rednote_start_row=args.rednote_start_row,
+            rednote_max_prompt_tokens=args.rednote_max_prompt_tokens,
+            rednote_max_completion_tokens=args.rednote_max_completion_tokens,
+            include_text=not args.omit_rednote_text,
+            dry_run=args.dry_run,
+        )
 
     print("\n--- Workload Composition Summary ---")
     for key, value in stats.items():
