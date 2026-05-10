@@ -11,6 +11,7 @@ from experiments.simulation import common, cost_layer
 from experiments.simulation.offline_oracle import OfflineOracleKind, assign_offline
 from experiments.subscriptions import load_subscription_plans
 from routewise_cli.main import main as routewise_main
+from rwsim.metrics import Run
 from rwsim.schemas import Request
 from rwsim.world.capacity import ProviderTier, WeightedConcurrencyState
 from rwsim.world.scenarios import ScenarioConfig
@@ -82,6 +83,54 @@ def test_cost_layer_prefix_cache_enables_synthetic_cached_input_prices():
         pytest.approx(0.4e-6),
         pytest.approx(0.8e-6),
     ]
+
+
+def test_cost_layer_parallel_cell_applies_prefix_cache_config(monkeypatch):
+    captured: dict[str, ScenarioConfig] = {}
+
+    def fake_make_scenario(name: str) -> ScenarioConfig:
+        return ScenarioConfig(
+            name=name,
+            description="test",
+            providers=[
+                common.make_api_provider(
+                    "api",
+                    cost_per_million_tokens=1.0,
+                    latency_family="uniform",
+                )
+            ],
+            arrival_process="trace",
+        )
+
+    def fake_run_policy(
+        scenario: ScenarioConfig,
+        requests: list[Request],
+        policy: str,
+        **kwargs,
+    ) -> Run:
+        del requests, policy, kwargs
+        captured["scenario"] = scenario
+        return Run(records=[])
+
+    monkeypatch.setattr(cost_layer, "make_scenario", fake_make_scenario)
+    monkeypatch.setattr(cost_layer, "load_workload", lambda **kwargs: [])
+    monkeypatch.setattr(cost_layer, "run_policy", fake_run_policy)
+
+    result = cost_layer.run_cost_layer_cell(
+        common.SectionCell("scenario", "greedy_cost", 42),
+        {},
+        "burstgpt",
+        None,
+        None,
+        False,
+        prefix_cache_enabled=True,
+        cached_input_price_fraction=0.2,
+    )
+
+    scenario = captured["scenario"]
+    assert result.scenario_name == "scenario"
+    assert scenario.metadata["prefix_cache_enabled"] is True
+    assert scenario.providers[0].cached_input_cost_per_token == pytest.approx(0.2e-6)
 
 
 def test_cost_layer_real_world_uses_one_pooled_latency_distribution():

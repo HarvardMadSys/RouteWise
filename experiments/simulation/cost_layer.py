@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from functools import partial
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -712,6 +713,11 @@ def main(argv: list[str] | None = None) -> int:
         known = ", ".join(sorted(known_policies))
         raise SystemExit(f"unknown cost-layer policy {unknown[0]!r}; known policies: {known}")
 
+    parallel_cell_runner = partial(
+        run_cost_layer_cell,
+        prefix_cache_enabled=args.prefix_cache_enabled,
+        cached_input_price_fraction=args.cached_input_price_fraction,
+    )
     rows = run_section(
         section_name=SECTION_NAME,
         scenarios=scenarios,
@@ -724,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
         max_requests=args.max_requests,
         output_dir=args.output_dir,
         jobs=args.jobs,
-        parallel_cell_runner=run_cost_layer_cell,
+        parallel_cell_runner=parallel_cell_runner,
     )
     print(json.dumps({"section": SECTION_NAME, "rows": len(rows), "output_dir": str(args.output_dir)}))
     return 0
@@ -834,9 +840,17 @@ def run_cost_layer_cell(
     duration_sec: float | None,
     max_requests: int | None,
     retain_records: bool,
+    *,
+    prefix_cache_enabled: bool = False,
+    cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
 ) -> SectionCellResult:
     """Run one cost-layer simulation cell in a worker process."""
     scenario = make_scenario(cell.scenario_name)
+    if prefix_cache_enabled:
+        enable_prefix_cache(
+            {scenario.name: scenario},
+            cached_input_price_fraction=cached_input_price_fraction,
+        )
     requests = load_workload(
         dataset=workload_dataset,
         duration_sec=duration_sec,
