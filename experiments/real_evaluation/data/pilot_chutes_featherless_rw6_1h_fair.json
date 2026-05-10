@@ -1,7 +1,7 @@
 {
   "model_family": "minimax-m2.5",
   "openrouter_model_id": "minimax/minimax-m2.5",
-  "primary_slo_ms": 2000,
+  "primary_slo_ms": 5000,
   "slo_thresholds_ms": [
     1000,
     2000,
