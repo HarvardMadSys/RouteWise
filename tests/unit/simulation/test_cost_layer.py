@@ -69,6 +69,21 @@ def test_cost_layer_on_demand_providers_hold_latency_constant_and_vary_cost():
     ]
 
 
+def test_cost_layer_prefix_cache_enables_synthetic_cached_input_prices():
+    scenarios = cost_layer.make_scenarios()
+
+    cost_layer.enable_prefix_cache(scenarios, cached_input_price_fraction=0.2)
+    scenario = scenarios["cost_layer_uniform"]
+
+    assert scenario.metadata["prefix_cache_enabled"] is True
+    assert scenario.metadata["cached_input_price_fraction"] == 0.2
+    assert [provider.cached_input_cost_per_token for provider in scenario.providers] == [
+        pytest.approx(0.2e-6),
+        pytest.approx(0.4e-6),
+        pytest.approx(0.8e-6),
+    ]
+
+
 def test_cost_layer_real_world_uses_one_pooled_latency_distribution():
     scenario = cost_layer.make_scenarios()["cost_layer_real_world"]
 
@@ -1058,6 +1073,9 @@ def test_cost_layer_cli_accepts_jobs(tmp_path):
             "random",
             "--jobs",
             "2",
+            "--prefix-cache-enabled",
+            "--cached-input-price-fraction",
+            "0.2",
             "--output-dir",
             str(output_dir),
         ]
@@ -1067,6 +1085,9 @@ def test_cost_layer_cli_accepts_jobs(tmp_path):
     assert metadata["jobs"] == 2
     assert metadata["execution_mode"] == "parallel"
     assert metadata["processed_requests_per_cell"] == 100
+    rows = json.loads((output_dir / "summary.json").read_text())
+    assert {row["prefix_cache_enabled"] for row in rows} == {True}
+    assert {row["cached_input_price_fraction"] for row in rows} == {0.2}
 
 
 def _assert_rows_close(actual: list[dict], expected: list[dict]) -> None:

@@ -10,6 +10,7 @@ from urllib.parse import quote, unquote
 from experiments.simulation.common import (
     COST_LAYER_LATENCY_ANCHOR_MS,
     COST_RATIO_PER_MILLION,
+    DEFAULT_CACHED_INPUT_PRICE_FRACTION,
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
     OUTPUT_COST_MULTIPLIER,
@@ -157,6 +158,30 @@ def make_scenarios(
             scenario = make_scenario(name)
             scenarios[scenario.name] = scenario
     return scenarios
+
+
+def enable_prefix_cache(
+    scenarios: dict[str, ScenarioConfig],
+    *,
+    cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+) -> None:
+    """Enable the minimal provider-local prefix-cache cost discount in scenarios."""
+    if cached_input_price_fraction < 0.0:
+        raise ValueError(
+            "cached input price fraction must be non-negative, got "
+            f"{cached_input_price_fraction!r}"
+        )
+    for scenario in scenarios.values():
+        scenario.metadata["prefix_cache_enabled"] = True
+        scenario.metadata["cached_input_price_fraction"] = cached_input_price_fraction
+        for provider in scenario.providers:
+            if (
+                provider.tier == ProviderTier.S_A
+                and provider.input_cost_per_token is not None
+            ):
+                provider.cached_input_cost_per_token = (
+                    provider.input_cost_per_token * cached_input_price_fraction
+                )
 
 
 def make_scenario(
@@ -586,6 +611,24 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Number of parallel scenario-policy-seed cells to run. Defaults to 1.",
     )
+    parser.add_argument(
+        "--prefix-cache-enabled",
+        action="store_true",
+        help=(
+            "Enable the provider-local prefix-cache cost discount. Synthetic API "
+            "cached-input prices default to 20%% of input price."
+        ),
+    )
+    parser.add_argument(
+        "--cached-input-price-fraction",
+        type=float,
+        default=DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+        help=(
+            "Cached input price as a fraction of S_A input price when "
+            f"--prefix-cache-enabled is set. Defaults to "
+            f"{DEFAULT_CACHED_INPUT_PRICE_FRACTION}."
+        ),
+    )
 
     args = parser.parse_args(argv)
     p_values = tuple(args.p_values) if args.p_values else P_SWEEP
@@ -654,6 +697,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 selected[name] = scenarios[name]
         scenarios = selected
+    if args.prefix_cache_enabled:
+        enable_prefix_cache(
+            scenarios,
+            cached_input_price_fraction=args.cached_input_price_fraction,
+        )
 
     presets = make_routewise_presets(p_values=p_values, include_hedging=False)
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
