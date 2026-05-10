@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Build one shared real-eval initial latency profile."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import tempfile
+from pathlib import Path
+
+from experiments.real_evaluation.inventory import load_inventory
+from experiments.real_evaluation.recorder import Recorder
+from experiments.real_evaluation.runner import (
+    DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+    DEFAULT_TIMEOUT_SEC,
+    DEFAULT_WARMUP_PROBES_PER_PROVIDER,
+    RealExperimentRunner,
+)
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inventory", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--probes-per-provider",
+        type=int,
+        default=DEFAULT_WARMUP_PROBES_PER_PROVIDER,
+    )
+    parser.add_argument(
+        "--profile-probe-sleep-sec",
+        type=float,
+        default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+    )
+    parser.add_argument("--round-interval-sec", type=float, default=0.0)
+    parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
+    parser.add_argument("--profile-window-sec", type=float, default=15 * 60.0)
+    parser.add_argument("--max-cost-usd", type=float, default=5.0)
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    inventory = load_inventory(args.inventory)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="routewise_profile_probe_") as tmp_dir:
+        recorder = Recorder(tmp_dir)
+        try:
+            runner = RealExperimentRunner(
+                inventory=inventory,
+                policy_names=["greedy_latency"],
+                recorder=recorder,
+                max_cost_usd=args.max_cost_usd,
+                timeout_sec=args.timeout_sec,
+                profile_window_sec=args.profile_window_sec,
+            )
+            runner.probe_profiles(
+                probes_per_provider=args.probes_per_provider,
+                sleep_sec=args.profile_probe_sleep_sec,
+                round_interval_sec=args.round_interval_sec,
+                phase="warmup",
+            )
+            profile = runner.export_initial_profile()
+            profile["_meta"] = {
+                "inventory": str(args.inventory),
+                "probes_per_provider": args.probes_per_provider,
+                "profile_probe_cost_usd": round(runner._profile_probe_cost_usd, 8),
+                "profile_probe_counts": dict(runner._profile_probe_counts),
+            }
+        finally:
+            recorder.close()
+
+    args.output.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n")
+    logging.info("wrote initial profile: %s", args.output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

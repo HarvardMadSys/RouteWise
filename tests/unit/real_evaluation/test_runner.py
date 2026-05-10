@@ -453,6 +453,37 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
     rec.close()
 
 
+def test_initial_profile_loads_into_all_policy_profiles(tmp_path) -> None:
+    runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_p100"])
+    now = time.time()
+    profile_path = tmp_path / "initial_profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {
+                    spec.name: {
+                        "samples": [{"ts": now - idx, "ttft_ms": 100.0 + idx} for idx in range(5)],
+                        "errors": [{"ts": now, "error_type": "HTTP 500"}],
+                    }
+                    for spec in runner.inventory.providers
+                },
+            }
+        )
+    )
+
+    runner.load_initial_profile(profile_path)
+    runner.validate_profile_bootstrap(min_success_samples=5)
+
+    for policy in runner.policies.values():
+        for spec in runner.inventory.providers:
+            state = policy.states[spec.name]
+            assert state.profile.sample_count(time.time()) == 5
+            assert state.profile.error_rate(time.time()) > 0
+
+    rec.close()
+
+
 def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
     runner, rec = _build_runner(policy_names=["or_auto", "or_sort_cost"])
 

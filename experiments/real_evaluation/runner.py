@@ -502,6 +502,91 @@ class RealExperimentRunner:
             phase="warmup",
         )
 
+    def export_initial_profile(self) -> dict[str, Any]:
+        """Export one policy's current latency profiles for later reuse."""
+        policy = next(iter(self.policies.values()), None)
+        now = time.time()
+        providers: dict[str, Any] = {}
+        if policy is None:
+            return {"version": 1, "created_ts": now, "providers": providers}
+        for spec in self.inventory.providers:
+            state = policy.states.get(spec.name)
+            if state is None:
+                continue
+            state.profile._active_samples(now)
+            providers[spec.name] = {
+                "samples": [
+                    {"ts": ts, "ttft_ms": ttft_ms} for ts, ttft_ms in state.profile.samples
+                ],
+                "errors": [
+                    {"ts": ts, "error_type": error_type}
+                    for ts, error_type in state.profile.error_samples
+                ],
+            }
+        return {
+            "version": 1,
+            "created_ts": now,
+            "providers": providers,
+        }
+
+    def load_initial_profile(
+        self,
+        path: Path | str,
+        *,
+        rebase_to_now: bool = True,
+    ) -> None:
+        """Load prebuilt latency profile samples into every policy."""
+        raw = json.loads(Path(path).read_text())
+        provider_entries = raw.get("providers", {})
+        if not isinstance(provider_entries, dict):
+            raise ValueError(f"invalid initial profile {path}: providers must be an object")
+
+        timestamps: list[float] = []
+        for entry in provider_entries.values():
+            if not isinstance(entry, dict):
+                continue
+            for sample in entry.get("samples", []):
+                if isinstance(sample, dict) and sample.get("ts") is not None:
+                    timestamps.append(float(sample["ts"]))
+            for error in entry.get("errors", []):
+                if isinstance(error, dict) and error.get("ts") is not None:
+                    timestamps.append(float(error["ts"]))
+        offset = time.time() - max(timestamps) if rebase_to_now and timestamps else 0.0
+
+        loaded_success = 0
+        loaded_errors = 0
+        for policy in self.policies.values():
+            for provider, entry in provider_entries.items():
+                if not isinstance(entry, dict):
+                    continue
+                state = policy.states.get(str(provider))
+                if state is None:
+                    continue
+                for sample in entry.get("samples", []):
+                    if not isinstance(sample, dict):
+                        continue
+                    state.profile.add_sample(
+                        float(sample["ts"]) + offset,
+                        float(sample["ttft_ms"]),
+                    )
+                    loaded_success += 1
+                for error in entry.get("errors", []):
+                    if not isinstance(error, dict):
+                        continue
+                    state.profile.add_sample(
+                        float(error["ts"]) + offset,
+                        -1.0,
+                        str(error.get("error_type") or "error"),
+                    )
+                    loaded_errors += 1
+
+        logger.info(
+            "loaded initial profile from %s: success_samples=%d error_samples=%d",
+            path,
+            loaded_success,
+            loaded_errors,
+        )
+
     def validate_profile_bootstrap(
         self,
         *,
@@ -853,6 +938,8 @@ class RealExperimentRunner:
         if rate_limited_before_final <= 0:
             return
         final_result.rate_limited = True
+        # CSV compatibility: after 429 fallback, retry_count means provider
+        # switches caused by 429s, not same-provider transport retries.
         final_result.retry_count += rate_limited_before_final
         final_result.retry_sleep_ms += sum(result.retry_sleep_ms for _, result in prior)
 
@@ -1352,6 +1439,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Number of warmup probe rounds per provider before replay.",
     )
     parser.add_argument(
+        "--initial-profile-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional JSON latency profile built by scripts/prebuild_profile.py. "
+            "Loaded before local warmup probes."
+        ),
+    )
+    parser.add_argument(
         "--warmup-probe-interval-sec",
         type=float,
         default=DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
@@ -1510,6 +1606,8 @@ def main(argv: list[str] | None = None) -> int:
         prefix_cache_routing=args.prefix_cache_routing,
     )
 
+    if args.initial_profile_path is not None:
+        runner.load_initial_profile(args.initial_profile_path)
     if args.warmup_probes > 0:
         runner.warmup(
             probes_per_provider=args.warmup_probes,
