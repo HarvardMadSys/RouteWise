@@ -276,3 +276,78 @@ def test_subscription_provider_allows_zero_marginal_price() -> None:
 
     assert cfg.input_price_per_m == 0.0
     assert cfg.output_price_per_m == 0.0
+
+
+class _CancellableStreamResponse(_FakeResponse):
+    """Streams chunks slowly so a cancel mid-flight is observable."""
+
+    def __init__(self, chunk_count: int = 10, chunk_sleep_sec: float = 0.02):
+        super().__init__(status_code=200)
+        self._chunk_count = chunk_count
+        self._chunk_sleep_sec = chunk_sleep_sec
+        self.chunks_yielded = 0
+
+    def iter_lines(self, decode_unicode: bool = True):
+        # First chunk delivers a visible token so the transport sets ttft.
+        yield "data: " + json.dumps(
+            {"choices": [{"delta": {"content": "hello"}}]}
+        )
+        self.chunks_yielded += 1
+        for _ in range(self._chunk_count - 1):
+            time.sleep(self._chunk_sleep_sec)
+            yield "data: " + json.dumps(
+                {"choices": [{"delta": {"content": "more"}}]}
+            )
+            self.chunks_yielded += 1
+        yield "data: [DONE]"
+
+
+def test_cancel_event_closes_stream_mid_flight(monkeypatch) -> None:
+    """Setting ``cancel_event`` mid-stream should close the response and
+    return ``status='canceled'``. Token chunks after the cancel point must
+    not be billed because the response was closed before draining them."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _CancellableStreamResponse(chunk_count=20, chunk_sleep_sec=0.02)
+    session = _FakeSession([response])
+    transport = _transport(session)
+    cancel = threading.Event()
+    ttft = threading.Event()
+    ttft_info: dict[str, object] = {}
+
+    # Fire cancel ~50ms in, after first token but well before all chunks
+    # would have been streamed (20 chunks * 20ms = 400ms).
+    def trigger_cancel() -> None:
+        ttft.wait(timeout=1.0)  # wait for first token
+        time.sleep(0.05)
+        cancel.set()
+
+    canceler = threading.Thread(target=trigger_cancel, daemon=True)
+    canceler.start()
+
+    result = transport.send(
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        ttft_event=ttft,
+        ttft_info=ttft_info,
+        cancel_event=cancel,
+    )
+
+    canceler.join(timeout=2.0)
+    assert result.status == "canceled"
+    assert result.error_message == "canceled_by_hedge_winner"
+    assert response.closed is True
+    assert response.chunks_yielded < 20  # ended early
+
+
+def test_cancel_event_not_set_completes_normally(monkeypatch) -> None:
+    """Baseline: same response with no cancel signal should drain to DONE."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _CancellableStreamResponse(chunk_count=3, chunk_sleep_sec=0.001)
+    session = _FakeSession([response])
+    transport = _transport(session)
+
+    result = transport.send(prompt="x", max_tokens=8, timeout=5)
+
+    assert result.status == "success"
+    assert response.chunks_yielded == 3

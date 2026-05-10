@@ -10,6 +10,10 @@ Two behaviours pinned here:
    thread starts, so the runner can charge concurrency / quota at the
    moment the backup actually goes on the wire (not after the hedged
    request returns).
+
+3. Cancel-aware racing — once a winner emerges (first visible token),
+   the loser's ``cancel_event`` must be set so its transport can close
+   the SSE stream and stop accumulating per-token billing.
 """
 
 from __future__ import annotations
@@ -49,7 +53,7 @@ def test_primary_http_error_triggers_backup() -> None:
     The phase5 trigger check must still launch the backup."""
 
     def fake_send(
-        provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
     ):
         if provider == "primary":
             if ttft_event is not None:
@@ -86,7 +90,7 @@ def test_primary_succeeds_quickly_no_hedge() -> None:
     must NOT be dispatched."""
 
     def fake_send(
-        provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
     ):
         # Primary signals fast.
         if ttft_info is not None:
@@ -121,7 +125,7 @@ def test_on_backup_dispatch_fires_before_backup_send() -> None:
     backup_send_ts: list[float] = []
 
     def fake_send(
-        provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
     ):
         if provider == "primary":
             if ttft_event is not None:
@@ -164,7 +168,7 @@ def test_on_backup_dispatch_not_called_when_primary_succeeds() -> None:
     calls: list[float] = []
 
     def fake_send(
-        provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
     ):
         if ttft_info is not None:
             ttft_info.update(
@@ -191,7 +195,7 @@ def test_callback_exception_does_not_abort_hedge() -> None:
     """A buggy callback must not prevent the backup from firing."""
 
     def fake_send(
-        provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
     ):
         if provider == "primary":
             if ttft_event is not None:
@@ -223,3 +227,129 @@ def test_callback_exception_does_not_abort_hedge() -> None:
     )
     assert hedged.hedge_triggered is True
     assert hedged.winner == "backup"
+
+
+def _hedge_race_send_factory(
+    primary_first_token_delay: float,
+    backup_first_token_delay: float,
+    seen_cancel: dict[str, bool],
+) -> callable:
+    """Build a fake send_fn that simulates two providers racing.
+
+    Each side sleeps until its first-token delay, then signals the
+    ``ttft_event``. After signalling it polls ``cancel_event`` for up to
+    300ms; if the cancel fires we record it via ``seen_cancel``.
+    """
+
+    def fake_send(
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
+    ):
+        delay = (
+            primary_first_token_delay
+            if provider == "primary"
+            else backup_first_token_delay
+        )
+        time.sleep(delay)
+        first_token_ts = time.time()  # capture AT first-token, like the real transport
+        if ttft_info is not None:
+            ttft_info.update(
+                ttft_ms=delay * 1000.0,
+                first_token_ts=first_token_ts,
+                status="success",
+            )
+        if ttft_event is not None:
+            ttft_event.set()
+
+        # Now linger like a real streaming response. Watch for cancel.
+        deadline = time.time() + 0.3
+        while time.time() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                seen_cancel[provider] = True
+                break
+            time.sleep(0.005)
+        return SingleRequestResult(
+            ttft_ms=delay * 1000.0,
+            e2e_ms=(time.time() - first_token_ts + delay) * 1000.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=20,
+            first_token_ts=first_token_ts,
+            start_ts=first_token_ts - delay,
+        )
+
+    return fake_send
+
+
+def test_cancel_loser_after_first_token_primary_wins() -> None:
+    """Primary returns first token first → backup gets cancel signal."""
+    seen: dict[str, bool] = {}
+    fake = _hedge_race_send_factory(
+        primary_first_token_delay=0.05,  # primary fast
+        backup_first_token_delay=0.30,   # backup slow
+        seen_cancel=seen,
+    )
+    hedged = send_hedged_request(
+        send_fn=fake,
+        primary_provider="primary",
+        backup_provider="backup",
+        hedge_delay_sec=0.0,  # force backup to fire immediately
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        dispatch_overhead_sec=0.0,
+        cancel_loser_after_first_token=True,
+    )
+    assert hedged.hedge_triggered is True
+    assert hedged.winner == "primary"
+    assert seen.get("backup") is True
+    assert seen.get("primary") is None  # winner not canceled
+
+
+def test_cancel_loser_after_first_token_backup_wins() -> None:
+    """Backup returns first token first → primary gets cancel signal."""
+    seen: dict[str, bool] = {}
+    fake = _hedge_race_send_factory(
+        primary_first_token_delay=0.30,  # primary slow
+        backup_first_token_delay=0.05,   # backup fast
+        seen_cancel=seen,
+    )
+    hedged = send_hedged_request(
+        send_fn=fake,
+        primary_provider="primary",
+        backup_provider="backup",
+        hedge_delay_sec=0.0,
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        dispatch_overhead_sec=0.0,
+        cancel_loser_after_first_token=True,
+    )
+    assert hedged.hedge_triggered is True
+    assert hedged.winner == "backup"
+    assert seen.get("primary") is True
+    assert seen.get("backup") is None
+
+
+def test_cancel_loser_disabled_no_cancel_event_set() -> None:
+    """When the cancel knob is False, neither side gets canceled."""
+    seen: dict[str, bool] = {}
+    fake = _hedge_race_send_factory(
+        primary_first_token_delay=0.05,
+        backup_first_token_delay=0.30,
+        seen_cancel=seen,
+    )
+    hedged = send_hedged_request(
+        send_fn=fake,
+        primary_provider="primary",
+        backup_provider="backup",
+        hedge_delay_sec=0.0,
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        dispatch_overhead_sec=0.0,
+        cancel_loser_after_first_token=False,
+    )
+    assert hedged.hedge_triggered is True
+    assert hedged.winner == "primary"
+    assert seen == {}  # nobody saw a cancel

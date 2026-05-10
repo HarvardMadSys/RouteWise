@@ -216,6 +216,7 @@ class BaseTransport:
         timeout: int = 60,
         ttft_event: threading.Event | None = None,
         ttft_info: dict[str, Any] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         raise NotImplementedError
 
@@ -278,7 +279,17 @@ class OpenAICompatStreamingTransport(BaseTransport):
         timeout: int = 60,
         ttft_event: threading.Event | None = None,
         ttft_info: dict[str, Any] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
+        """Stream one chat-completion. ``cancel_event`` lets the caller abort
+        the stream after the first token of a hedge race resolves a winner.
+
+        When the event fires the loop closes the SSE response and returns a
+        ``status="canceled"`` result with whatever token counts arrived before
+        the cancel. ``billed_cost_usd`` is best-effort: providers that emit
+        ``usage`` only in the final SSE chunk will report 0 for canceled
+        requests, which is the right behaviour because we don't know what was
+        billed server-side until the provider's invoice closes."""
         headers = self._build_headers()
         payload = self._build_payload(prompt, max_tokens)
         url = f"{self._endpoint()}/chat/completions"
@@ -372,6 +383,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
                     )
 
                 for raw_line in response.iter_lines(decode_unicode=True):
+                    if cancel_event is not None and cancel_event.is_set():
+                        status = "canceled"
+                        error_message = "canceled_by_hedge_winner"
+                        response.close()
+                        break
                     if time.perf_counter() >= deadline_perf:
                         status = "timeout"
                         error_message = "total request timeout"

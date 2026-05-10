@@ -47,12 +47,71 @@ def logger_log_dispatch_callback_error() -> None:
     logger.warning("on_backup_dispatch callback raised", exc_info=True)
 
 
+def _ttft_succeeded(
+    ttft_event: threading.Event, ttft_info: dict[str, Any]
+) -> bool:
+    """Did this side reach a successful first token?
+
+    The transport sets ``ttft_event`` in two situations: a successful first
+    visible token arrived (``ttft_info["ttft_ms"] > 0``), and the SSE
+    finished/errored without ever producing one (``ttft_ms`` stays at -1).
+    Only the former should win the race; the latter must let the other side
+    keep streaming.
+    """
+    if not ttft_event.is_set():
+        return False
+    return ttft_info.get("ttft_ms", -1.0) > 0
+
+
+def _race_monitor_loop(
+    primary_ttft: threading.Event,
+    primary_ttft_info: dict[str, Any],
+    backup_ttft: threading.Event,
+    backup_ttft_info: dict[str, Any],
+    primary_thread: threading.Thread,
+    backup_thread: threading.Thread,
+    primary_cancel: threading.Event,
+    backup_cancel: threading.Event,
+    deadline_sec: float,
+    poll_sec: float,
+) -> None:
+    """Cancel the hedge loser once the winner produces a visible token.
+
+    Polls both ``ttft_info`` slots; whichever reports a successful first
+    token first wins, and we set the *other* side's ``cancel_event``. If
+    both reach first token in the same poll interval we cancel neither
+    (effectively a tie — both will return shortly anyway). Exits early when
+    both transport threads have died (both errored / both finished cleanly).
+    """
+    deadline = time.time() + deadline_sec
+    while time.time() < deadline:
+        p_won = _ttft_succeeded(primary_ttft, primary_ttft_info)
+        b_won = _ttft_succeeded(backup_ttft, backup_ttft_info)
+        if p_won and not b_won:
+            backup_cancel.set()
+            return
+        if b_won and not p_won:
+            primary_cancel.set()
+            return
+        if p_won and b_won:
+            # Photo finish — both produced a visible token within one poll
+            # interval. No useful cancellation; let both stream out.
+            return
+        if not primary_thread.is_alive() and not backup_thread.is_alive():
+            return
+        time.sleep(poll_sec)
+
+
 class SendFn(Protocol):
     """Callable signature accepted by ``send_hedged_request``.
 
     A wrapper around one transport's ``send`` that adds the provider
     selection. Typical implementations look up the right
     :class:`BaseTransport` for ``provider`` and call its ``send`` method.
+
+    ``cancel_event`` is propagated to the transport so the SSE loop can
+    abort the loser of a hedge race after the winner returns its first
+    visible token.
     """
 
     def __call__(
@@ -63,6 +122,7 @@ class SendFn(Protocol):
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult: ...
 
 
@@ -106,6 +166,7 @@ def send_request(
         timeout=timeout,
         ttft_event=None,
         ttft_info=None,
+        cancel_event=None,
     )
 
 
@@ -119,6 +180,8 @@ def send_hedged_request(
     timeout: int = 60,
     dispatch_overhead_sec: float = 0.05,
     on_backup_dispatch: Callable[[float], None] | None = None,
+    cancel_loser_after_first_token: bool = True,
+    race_monitor_poll_sec: float = 0.005,
 ) -> HedgedResult:
     """Race a primary against a delayed backup.
 
@@ -132,8 +195,18 @@ def send_hedged_request(
          during the backup's lifetime, not only after it returns), then
          dispatch the backup. (See module docstring for why the second
          clause matters — this is the phase5 fix to phase6's bug.)
-      4. Wait for both threads to finish.
-      5. Pick the winner by ``first_token_ts``.
+      4. If ``cancel_loser_after_first_token`` (default True), spawn a
+         race-monitor thread that watches both ``ttft_info`` slots and
+         sets the loser's ``cancel_event`` once the winner produces a
+         visible token. The transport's SSE loop polls this event and
+         closes the response, so the loser stops streaming early and
+         we avoid paying the rest of its output-token cost on
+         providers that bill per streamed token (OpenRouter et al.).
+         Subscription / quota providers may still consume capacity
+         locally even after a cancel; this knob only controls the
+         client-side stream close.
+      5. Wait for both threads to finish.
+      6. Pick the winner by ``first_token_ts``.
 
     ``hedge_delay_sec == math.inf`` disables hedging (primary-only).
 
@@ -167,6 +240,8 @@ def send_hedged_request(
     backup_ttft = threading.Event()
     primary_ttft_info: dict[str, Any] = {}
     backup_ttft_info: dict[str, Any] = {}
+    primary_cancel = threading.Event()
+    backup_cancel = threading.Event()
 
     def run_primary() -> None:
         primary_holder["r"] = send_fn(
@@ -176,6 +251,7 @@ def send_hedged_request(
             timeout=timeout,
             ttft_event=primary_ttft,
             ttft_info=primary_ttft_info,
+            cancel_event=primary_cancel,
         )
 
     def run_backup() -> None:
@@ -186,6 +262,7 @@ def send_hedged_request(
             timeout=timeout,
             ttft_event=backup_ttft,
             ttft_info=backup_ttft_info,
+            cancel_event=backup_cancel,
         )
 
     primary_thread = threading.Thread(target=run_primary, daemon=True)
@@ -203,6 +280,7 @@ def send_hedged_request(
     )
 
     hedge_triggered = False
+    monitor_thread: threading.Thread | None = None
     if primary_failed_early:
         hedge_triggered = True
         if dispatch_overhead_sec > 0:
@@ -215,13 +293,33 @@ def send_hedged_request(
                 logger_log_dispatch_callback_error()
         backup_thread = threading.Thread(target=run_backup, daemon=True)
         backup_thread.start()
-        # TODO(routewise-hedging): cancel the loser stream after the first
-        # visible token wins the hedge race. Current real-eval semantics wait
-        # for both requests to finish, so cost and provider load are
-        # no-cancel measurements. A cancel-aware version should pass a shared
-        # cancellation signal into transports and close the loser response.
+
+        if cancel_loser_after_first_token:
+            monitor_thread = threading.Thread(
+                target=_race_monitor_loop,
+                args=(
+                    primary_ttft,
+                    primary_ttft_info,
+                    backup_ttft,
+                    backup_ttft_info,
+                    primary_thread,
+                    backup_thread,
+                    primary_cancel,
+                    backup_cancel,
+                    timeout + 5,
+                    race_monitor_poll_sec,
+                ),
+                name="hedge-race-monitor",
+                daemon=True,
+            )
+            monitor_thread.start()
+
         primary_thread.join(timeout=timeout + 5)
         backup_thread.join(timeout=timeout + 5)
+        if monitor_thread is not None:
+            # Monitor exits as soon as a winner emerges or both threads die,
+            # so this join is essentially instant.
+            monitor_thread.join(timeout=1.0)
     else:
         primary_thread.join(timeout=timeout + 5)
 

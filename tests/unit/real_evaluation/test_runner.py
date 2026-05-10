@@ -301,6 +301,7 @@ def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+    cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         assert prompt == WARMUP_PROBE_PROMPT
         return SingleRequestResult(
@@ -338,6 +339,7 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+    cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         seen.append(provider)
         return SingleRequestResult(
@@ -377,6 +379,7 @@ def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+    cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         assert prompt == WARMUP_PROBE_PROMPT
         probe_calls.append(provider)
@@ -429,7 +432,7 @@ def test_or_sentinels_round_trip_to_correct_sort_mode() -> None:
     runner, _ = _build_runner()
     captured: dict[str, str | None] = {}
 
-    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info):
+    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None):
         captured["sort_mode"] = self.cfg.sort_mode
         return SingleRequestResult(
             ttft_ms=10.0,
@@ -479,7 +482,7 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
     runner.inventory.openrouter_provider_ignore = ("BadProvider",)
     captured: dict[str, tuple[str, ...] | str | None] = {}
 
-    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info):
+    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None):
         captured["sort_mode"] = self.cfg.sort_mode
         captured["provider_only"] = self.cfg.provider_only
         captured["provider_ignore"] = self.cfg.provider_ignore
@@ -552,6 +555,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+    cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         if "primary_marker" in provider:
             if ttft_event is not None:
@@ -657,6 +661,7 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+    cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         nonlocal send_count
         send_count += 1

@@ -337,11 +337,18 @@ class RealExperimentRunner:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         """Dispatch one request to a real or sentinel provider."""
         if provider == OR_AUTO_SENTINEL or provider in OR_SORT_SENTINEL_TO_MODE:
             return self._send_or_sentinel(
-                provider, prompt, max_tokens, timeout, ttft_event, ttft_info
+                provider,
+                prompt,
+                max_tokens,
+                timeout,
+                ttft_event,
+                ttft_info,
+                cancel_event,
             )
 
         transport = self._transports.get(provider)
@@ -360,6 +367,7 @@ class RealExperimentRunner:
             timeout=timeout,
             ttft_event=ttft_event,
             ttft_info=ttft_info,
+            cancel_event=cancel_event,
         )
 
     def _send_or_sentinel(
@@ -370,6 +378,7 @@ class RealExperimentRunner:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         """Dispatch a sentinel via OpenRouter (auto or any sort= mode)."""
         base = self._or_base_cfg
@@ -404,6 +413,7 @@ class RealExperimentRunner:
             timeout=timeout,
             ttft_event=ttft_event,
             ttft_info=ttft_info,
+            cancel_event=cancel_event,
         )
 
     # ------------------------------------------------------------------
