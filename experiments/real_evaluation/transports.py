@@ -27,7 +27,6 @@ import os
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -37,17 +36,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-MINIMAX_NATIVE_BASE_URL = os.environ.get(
-    "MINIMAX_BASE_URL", "https://api.minimax.io/v1"
-)
-OLLAMA_CLOUD_BASE_URL = os.environ.get(
-    "OLLAMA_BASE_URL", "https://ollama.com/v1"
-)
+MINIMAX_NATIVE_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+OLLAMA_CLOUD_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com/v1")
 
 OPENROUTER_SORT_MODES: frozenset[str] = frozenset({"price", "throughput", "latency"})
 RATE_LIMIT_STATUS = 429
-DEFAULT_RATE_LIMIT_BACKOFF_SEC = 0.25
-MAX_RATE_LIMIT_BACKOFF_SEC = 5.0
 logger = logging.getLogger(__name__)
 
 
@@ -85,6 +78,7 @@ class SingleRequestResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     billed_cost_usd: float = 0.0
+    physical_cost_usd: float | None = None
     start_ts: float = 0.0
     first_token_ts: float | None = None
     http_status: int | None = None
@@ -93,6 +87,10 @@ class SingleRequestResult:
     rate_limited: bool = False
     cache_read_tokens_observed: int | None = None
     cost_source: str = "missing"
+
+    def __post_init__(self) -> None:
+        if self.physical_cost_usd is None:
+            self.physical_cost_usd = self.billed_cost_usd
 
 
 @dataclass
@@ -119,29 +117,26 @@ class TransportConfig:
     input_price_per_m: float = 0.0
     cached_input_price_per_m: float | None = None
     output_price_per_m: float = 0.0
+    billing_mode: str = "metered"
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.billing_mode not in ("metered", "subscription"):
+            raise ValueError(
+                f"{self.name!r}: billing_mode must be 'metered' or "
+                f"'subscription', got {self.billing_mode!r}"
+            )
         self.provider_only = _normalize_provider_filter(self.provider_only)
         self.provider_ignore = _normalize_provider_filter(self.provider_ignore)
         if self.sort_mode is not None and self.sort_mode not in OPENROUTER_SORT_MODES:
-            raise ValueError(
-                f"sort_mode={self.sort_mode!r} not in {sorted(OPENROUTER_SORT_MODES)}"
-            )
+            raise ValueError(f"sort_mode={self.sort_mode!r} not in {sorted(OPENROUTER_SORT_MODES)}")
         if self.sort_mode is not None and self.provider_hint is not None:
-            raise ValueError(
-                f"{self.name!r}: sort_mode and provider_hint are mutually exclusive"
-            )
+            raise ValueError(f"{self.name!r}: sort_mode and provider_hint are mutually exclusive")
         if self.sort_mode is not None and self.transport != "openrouter":
+            raise ValueError(f"{self.name!r}: sort_mode only applies to openrouter transport")
+        if (self.provider_only or self.provider_ignore) and self.transport != "openrouter":
             raise ValueError(
-                f"{self.name!r}: sort_mode only applies to openrouter transport"
-            )
-        if (
-            self.provider_only or self.provider_ignore
-        ) and self.transport != "openrouter":
-            raise ValueError(
-                f"{self.name!r}: provider_only/provider_ignore only apply to "
-                "openrouter transport"
+                f"{self.name!r}: provider_only/provider_ignore only apply to openrouter transport"
             )
 
 
@@ -179,31 +174,6 @@ def _nonnegative_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
-
-
-def _parse_retry_after_sec(value: str | None) -> float | None:
-    if not value:
-        return None
-    stripped = value.strip()
-    try:
-        return max(0.0, float(stripped))
-    except ValueError:
-        pass
-    try:
-        retry_at = parsedate_to_datetime(stripped)
-    except (TypeError, ValueError, IndexError, OverflowError):
-        return None
-    if retry_at is None:
-        return None
-    return max(0.0, retry_at.timestamp() - time.time())
-
-
-def _rate_limit_backoff_sec(response: requests.Response, retry_count: int) -> float:
-    retry_after = _parse_retry_after_sec(response.headers.get("Retry-After"))
-    if retry_after is not None:
-        return min(retry_after, MAX_RATE_LIMIT_BACKOFF_SEC)
-    backoff = DEFAULT_RATE_LIMIT_BACKOFF_SEC * (2 ** min(retry_count, 6))
-    return min(backoff, MAX_RATE_LIMIT_BACKOFF_SEC)
 
 
 class BaseTransport:
@@ -336,8 +306,6 @@ class OpenAICompatStreamingTransport(BaseTransport):
         reported_cost_usd: float | None = None
         observed_cached_tokens: int | None = None
         reported_provider: str | None = None
-        retry_count = 0
-        retry_sleep_sec = 0.0
         saw_rate_limit = False
 
         if ttft_info is not None:
@@ -370,25 +338,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
                     )
                     response.close()
                     if response.status_code == RATE_LIMIT_STATUS:
+                        # Per design: 429 means this provider is rate-limited
+                        # right now, retrying the same provider does not help.
+                        # Return immediately and let the policy/hedge layer
+                        # decide what to do (backup wins, request fails, etc.).
                         saw_rate_limit = True
-                        remaining = deadline_perf - time.perf_counter()
-                        if remaining > 0:
-                            sleep_sec = min(
-                                _rate_limit_backoff_sec(response, retry_count),
-                                remaining,
-                            )
-                            if sleep_sec > 0:
-                                retry_count += 1
-                                retry_sleep_sec += sleep_sec
-                                logger.info(
-                                    "%s hit HTTP 429; retrying after %.3fs "
-                                    "(attempt %d)",
-                                    self.cfg.name,
-                                    sleep_sec,
-                                    retry_count,
-                                )
-                                time.sleep(sleep_sec)
-                                continue
                         if ttft_event is not None:
                             ttft_event.set()
                     if ttft_info is not None:
@@ -405,8 +359,8 @@ class OpenAICompatStreamingTransport(BaseTransport):
                         start_ts=start_ts,
                         first_token_ts=None,
                         http_status=http_status,
-                        retry_count=retry_count,
-                        retry_sleep_ms=retry_sleep_sec * 1000.0,
+                        retry_count=0,
+                        retry_sleep_ms=0.0,
                         rate_limited=saw_rate_limit,
                     )
 
@@ -425,7 +379,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
                         continue
                     if not raw_line.startswith("data:"):
                         continue
-                    data_str = raw_line[len("data:"):].strip()
+                    data_str = raw_line[len("data:") :].strip()
                     if data_str == "[DONE]":
                         break
                     try:
@@ -436,9 +390,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
                     usage = chunk.get("usage") or {}
                     if isinstance(usage, dict):
                         prompt_tokens = int(usage.get("prompt_tokens") or prompt_tokens)
-                        completion_tokens = int(
-                            usage.get("completion_tokens") or completion_tokens
-                        )
+                        completion_tokens = int(usage.get("completion_tokens") or completion_tokens)
                         if usage.get("cost") is not None:
                             with suppress(TypeError, ValueError):
                                 reported_cost_usd = float(usage["cost"])
@@ -504,19 +456,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
             status = "no_tokens"
             error_message = "no_tokens_received"
 
-        # Prefer OpenRouter-reported actual cost when present (handles the
-        # case where or_auto / or_sort_latency picks a sub-provider whose
-        # price differs from this transport's default pricing).
-        cost_source = "missing"
-        if reported_cost_usd is not None and reported_cost_usd >= 0.0:
-            billed = reported_cost_usd
-            cost_source = "reported"
-        else:
-            if self.cfg.input_price_per_m > 0 or self.cfg.output_price_per_m > 0:
-                billed = self._estimate_cost(prompt_tokens, completion_tokens)
-                cost_source = "estimated"
-            else:
-                billed = 0.0
+        billed, physical, cost_source = self._resolve_costs(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reported_cost_usd=reported_cost_usd,
+        )
 
         logical_provider = self.cfg.name
         if reported_provider:
@@ -531,15 +475,46 @@ class OpenAICompatStreamingTransport(BaseTransport):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             billed_cost_usd=billed,
+            physical_cost_usd=physical,
             start_ts=start_ts,
             first_token_ts=first_token_ts,
             http_status=http_status,
-            retry_count=retry_count,
-            retry_sleep_ms=retry_sleep_sec * 1000.0,
+            retry_count=0,
+            retry_sleep_ms=0.0,
             rate_limited=saw_rate_limit,
             cache_read_tokens_observed=observed_cached_tokens,
             cost_source=cost_source,
         )
+
+    def _resolve_costs(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        reported_cost_usd: float | None,
+    ) -> tuple[float, float, str]:
+        """Return (paper billed cost, physical provider cost, source label)."""
+        reported = (
+            reported_cost_usd
+            if reported_cost_usd is not None and reported_cost_usd >= 0.0
+            else None
+        )
+
+        if self.cfg.billing_mode == "subscription":
+            physical = float(reported) if reported is not None else 0.0
+            source = "subscription_zero_marginal"
+            if reported is not None:
+                source += "+reported_physical"
+            return 0.0, physical, source
+
+        if reported is not None:
+            return float(reported), float(reported), "reported"
+
+        if self.cfg.input_price_per_m > 0 or self.cfg.output_price_per_m > 0:
+            estimated = self._estimate_cost(prompt_tokens, completion_tokens)
+            return estimated, estimated, "estimated"
+
+        return 0.0, 0.0, "missing"
 
 
 def build_transport(cfg: TransportConfig, session: requests.Session) -> BaseTransport:
@@ -566,9 +541,11 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         sort_mode         : optional OpenRouter ``sort`` (price/throughput/latency)
         provider_only     : optional OpenRouter allowlist for auto/sort routing
         provider_ignore   : optional OpenRouter denylist for auto/sort routing
+        api_key_env       : optional env-var override for this provider's API key
         input_price_per_m : optional, USD per 1M input tokens
         cached_input_price_per_m: optional, USD per 1M cached input tokens
         output_price_per_m: optional, USD per 1M output tokens
+        billing_mode      : metered (default) or subscription
     """
     transport = provider_entry["transport"]
     model = provider_entry.get("model")
@@ -580,19 +557,13 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
     if transport == "openrouter":
         base_url = OPENROUTER_BASE_URL
         api_key_env = "OPENROUTER_API_KEY"
-        model = (
-            model
-            or provider_entry.get("openrouter_model_id")
-            or "minimax/minimax-m2.5"
-        )
+        model = model or provider_entry.get("openrouter_model_id") or "minimax/minimax-m2.5"
         extra_headers = {
             "HTTP-Referer": "https://github.com/HarvardSys/hybridInference",
             "X-Title": "RouteWise real online evaluation",
         }
     elif transport == "chutes":
-        base_url = _ensure_v1_suffix(
-            os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai")
-        )
+        base_url = _ensure_v1_suffix(os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai"))
         api_key_env = "CHUTES_API_KEY"
         extra_headers = {}
     elif transport == "featherless":
@@ -612,6 +583,9 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
     else:
         raise ValueError(f"Unknown transport: {transport}")
 
+    if provider_entry.get("api_key_env") is not None:
+        api_key_env = str(provider_entry["api_key_env"])
+
     input_price_per_m, output_price_per_m = _resolve_provider_prices(provider_entry)
     cached_input_price_per_m = _cached_input_price_field(provider_entry)
 
@@ -628,6 +602,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         input_price_per_m=input_price_per_m,
         cached_input_price_per_m=cached_input_price_per_m,
         output_price_per_m=output_price_per_m,
+        billing_mode=str(provider_entry.get("billing_mode") or "metered"),
         extra_headers=extra_headers,
     )
 
@@ -636,7 +611,10 @@ def _resolve_provider_prices(provider_entry: dict[str, Any]) -> tuple[float, flo
     name = str(provider_entry.get("name", "<unnamed>"))
     tier = provider_entry.get("tier")
     transport = provider_entry.get("transport")
-    requires_positive_price = tier == "api" or transport == "openrouter"
+    billing_mode = str(provider_entry.get("billing_mode") or "metered")
+    requires_positive_price = billing_mode != "subscription" and (
+        tier == "api" or transport == "openrouter"
+    )
 
     input_price = _price_field(
         provider_entry,
@@ -671,9 +649,7 @@ def _price_field(
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{name}: {field_name} must be numeric, got {value!r}"
-        ) from exc
+        raise ValueError(f"{name}: {field_name} must be numeric, got {value!r}") from exc
     if not math.isfinite(parsed) or parsed < 0.0:
         raise ValueError(f"{name}: {field_name} must be finite and >= 0")
     return parsed

@@ -1,0 +1,101 @@
+{
+  "model_family": "minimax-m2.5",
+  "openrouter_model_id": "minimax/minimax-m2.5",
+  "primary_slo_ms": 5000,
+  "slo_thresholds_ms": [
+    1000,
+    2000,
+    3000,
+    5000
+  ],
+  "providers": [
+    {
+      "name": "Chutes_SQ",
+      "tier": "quota",
+      "transport": "openrouter",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_requests": 1667,
+      "quota_window_sec": 28800,
+      "concurrency_limit": null,
+      "billing_mode": "subscription",
+      "notes": "8h projection of Chutes public plan: 5000 requests/day -> ceil(5000*8/24)=1667 requests. Physically sent through OpenRouter Chutes, but paper accounting treats quota marginal cost as $0 and adds fixed subscription cost separately."
+    },
+    {
+      "name": "Featherless_SC",
+      "tier": "concurrency",
+      "transport": "featherless",
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "api_key_env": "FEATHERLESS_API_KEY",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "concurrency_limit": 1,
+      "billing_mode": "subscription",
+      "notes": "Per-process Featherless Premium capacity. Run one policy per process with one account key exported as FEATHERLESS_API_KEY. Paper accounting treats marginal request cost as $0 and adds fixed subscription cost separately."
+    },
+    {
+      "name": "OR_Chutes",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.118,
+      "output_price_per_m": 0.99,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Inceptron",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Inceptron",
+      "input_price_per_m": 0.24,
+      "output_price_per_m": 0.9,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_DeepInfra",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "DeepInfra",
+      "input_price_per_m": 0.27,
+      "output_price_per_m": 0.95,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_AtlasCloud",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "AtlasCloud",
+      "input_price_per_m": 0.295,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_Friendli",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Friendli",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    },
+    {
+      "name": "OR_SambaNova",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "SambaNova",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered"
+    }
+  ],
+  "openrouter_provider_only": [
+    "AtlasCloud",
+    "Chutes",
+    "DeepInfra",
+    "Friendli",
+    "Inceptron",
+    "SambaNova"
+  ],
+  "notes": "8h real-eval inventory for one policy process: SLO=5s, Chutes quota physically via OpenRouter but accounted as subscription quota, Featherless per-process concurrency=1, six-provider OpenRouter fallback pool."
+}

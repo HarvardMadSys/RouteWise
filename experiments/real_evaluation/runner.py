@@ -117,9 +117,7 @@ def load_trace_jsonl(
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"{trace_path}:{line_num}: invalid JSON: {exc.msg}"
-                ) from exc
+                raise ValueError(f"{trace_path}:{line_num}: invalid JSON: {exc.msg}") from exc
             arrived_raw = _first_present(rec, ("arrived_at", "arrival_time_sec"))
             if arrived_raw is None:
                 raise ValueError(
@@ -140,9 +138,7 @@ def load_trace_jsonl(
                     f"{trace_path}:{line_num}: missing output token cap "
                     "(expected num_decode_tokens or max_tokens)"
                 )
-            max_tokens = _coerce_int(
-                trace_path, line_num, "output token cap", max_tokens_raw
-            )
+            max_tokens = _coerce_int(trace_path, line_num, "output token cap", max_tokens_raw)
             if max_tokens <= 0:
                 skipped_nonpositive_output_cap += 1
                 continue
@@ -152,9 +148,7 @@ def load_trace_jsonl(
                     f"{trace_path}:{line_num}: missing non-empty prompt "
                     "(expected prompt_text or prompt)"
                 )
-            prompt_tokens_raw = _first_present(
-                rec, ("num_prefill_tokens", "prompt_tokens")
-            )
+            prompt_tokens_raw = _first_present(rec, ("num_prefill_tokens", "prompt_tokens"))
             if prompt_tokens_raw is None:
                 raise ValueError(
                     f"{trace_path}:{line_num}: missing prompt token count "
@@ -164,9 +158,7 @@ def load_trace_jsonl(
                 trace_path, line_num, "prompt token count", prompt_tokens_raw
             )
             if prompt_tokens < 0:
-                raise ValueError(
-                    f"{trace_path}:{line_num}: prompt token count must be >= 0"
-                )
+                raise ValueError(f"{trace_path}:{line_num}: prompt token count must be >= 0")
             out.append(
                 TraceRequest(
                     arrival_time_sec=relative,
@@ -211,22 +203,16 @@ def _coerce_float(path: Path, line_num: int, field: str, value: Any) -> float:
     try:
         return float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{path}:{line_num}: {field} must be numeric, got {value!r}"
-        ) from exc
+        raise ValueError(f"{path}:{line_num}: {field} must be numeric, got {value!r}") from exc
 
 
 def _coerce_int(path: Path, line_num: int, field: str, value: Any) -> int:
     try:
         as_float = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{path}:{line_num}: {field} must be an integer, got {value!r}"
-        ) from exc
+        raise ValueError(f"{path}:{line_num}: {field} must be an integer, got {value!r}") from exc
     if not math.isfinite(as_float) or not as_float.is_integer():
-        raise ValueError(
-            f"{path}:{line_num}: {field} must be an integer, got {value!r}"
-        )
+        raise ValueError(f"{path}:{line_num}: {field} must be an integer, got {value!r}")
     return int(as_float)
 
 
@@ -345,6 +331,13 @@ class RealExperimentRunner:
 
     def _first_openrouter_cfg(self) -> TransportConfig | None:
         for spec in self.inventory.providers:
+            if (
+                spec.transport_cfg.transport == "openrouter"
+                and spec.tier == "api"
+                and spec.transport_cfg.billing_mode == "metered"
+            ):
+                return spec.transport_cfg
+        for spec in self.inventory.providers:
             if spec.transport_cfg.transport == "openrouter":
                 return spec.transport_cfg
         return None
@@ -416,12 +409,8 @@ class RealExperimentRunner:
             name=sentinel,
             provider_hint=None,
             sort_mode=sort_mode,
-            provider_only=(
-                self.inventory.openrouter_provider_only or base.provider_only
-            ),
-            provider_ignore=(
-                self.inventory.openrouter_provider_ignore or base.provider_ignore
-            ),
+            provider_only=(self.inventory.openrouter_provider_only or base.provider_only),
+            provider_ignore=(self.inventory.openrouter_provider_ignore or base.provider_ignore),
             extra_headers=dict(base.extra_headers),
         )
         from experiments.real_evaluation.transports import OpenAICompatStreamingTransport
@@ -472,13 +461,11 @@ class RealExperimentRunner:
                 )
                 self._broadcast_sample(spec.name, ts, result)
                 with self._cost_lock:
-                    self._total_cost_usd += result.billed_cost_usd
-                    self._profile_probe_cost_usd += result.billed_cost_usd
-                    self._profile_probe_counts[phase] = (
-                        self._profile_probe_counts.get(phase, 0) + 1
-                    )
+                    self._total_cost_usd += self._single_physical_cost(result)
+                    self._profile_probe_cost_usd += self._single_physical_cost(result)
+                    self._profile_probe_counts[phase] = self._profile_probe_counts.get(phase, 0) + 1
                 logger.info(
-                    "%s probe round %d/%d %s: %s ttft=%.1fms cost=$%.5f",
+                    "%s probe round %d/%d %s: %s ttft=%.1fms billed=$%.5f physical=$%.5f",
                     phase,
                     round_idx + 1,
                     probes_per_provider,
@@ -486,6 +473,7 @@ class RealExperimentRunner:
                     result.status,
                     result.ttft_ms,
                     result.billed_cost_usd,
+                    self._single_physical_cost(result),
                 )
                 if sleep_sec > 0:
                     time.sleep(sleep_sec)
@@ -528,9 +516,7 @@ class RealExperimentRunner:
         if min_success_samples <= 0:
             return
         policies = [
-            policy
-            for policy in self.policies.values()
-            if policy.requires_latency_profile_bootstrap
+            policy for policy in self.policies.values() if policy.requires_latency_profile_bootstrap
         ]
         if not policies:
             return
@@ -580,14 +566,10 @@ class RealExperimentRunner:
         )
         try:
             if coalesce_identical_actions:
-                self._replay_coalesced_full_trace(
-                    trace, speedup=speedup, duration_sec=duration_sec
-                )
+                self._replay_coalesced_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
                 return
 
-            self._replay_parallel_full_trace(
-                trace, speedup=speedup, duration_sec=duration_sec
-            )
+            self._replay_parallel_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
         finally:
             self._stop_periodic_profile_probe_thread(probe_handle)
 
@@ -603,9 +585,7 @@ class RealExperimentRunner:
         stop_event = threading.Event()
 
         def _loop() -> None:
-            logger.info(
-                "periodic profile probing enabled: interval=%.1fs", interval_sec
-            )
+            logger.info("periodic profile probing enabled: interval=%.1fs", interval_sec)
             while not stop_event.wait(interval_sec):
                 if self._stop_event.is_set():
                     return
@@ -747,9 +727,7 @@ class RealExperimentRunner:
             return None
 
         prompt = req.prompt
-        expected_service_sec = max(
-            0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0
-        )
+        expected_service_sec = max(0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0)
 
         backup: str | None = None
         hedge_delay_sec = float("inf")
@@ -785,9 +763,7 @@ class RealExperimentRunner:
         backup_cached = 0
         backup_estimated_cost: float | None = None
         if backup is not None:
-            backup_cached, backup_estimated_cost = policy.routing_cache_diagnostics(
-                backup, ctx
-            )
+            backup_cached, backup_estimated_cost = policy.routing_cache_diagnostics(backup, ctx)
         return _PreparedDispatch(
             policy=policy,
             req=req,
@@ -820,9 +796,91 @@ class RealExperimentRunner:
             prepared.req.max_tokens,
         )
 
-    def _dispatch_one(
-        self, policy: BasePolicy, req: TraceRequest, req_index: int
+    def _send_single_with_rate_limit_fallback(
+        self,
+        prepared: _PreparedDispatch,
+        *,
+        initial_result: SingleRequestResult | None = None,
+    ) -> tuple[str, SingleRequestResult, list[tuple[str, SingleRequestResult]]]:
+        """Send a non-hedged request, retrying 429s on alternate providers."""
+        provider = prepared.decision.primary or ""
+        attempts: list[tuple[str, SingleRequestResult]] = []
+        excluded: set[str] = set()
+
+        while True:
+            if initial_result is not None and not attempts:
+                result = initial_result
+            else:
+                result = send_request(
+                    send_fn=self._send_via_transport,
+                    provider=provider,
+                    prompt=prepared.prompt,
+                    max_tokens=prepared.req.max_tokens,
+                    timeout=self.timeout_sec,
+                )
+            attempts.append((provider, result))
+            if not result.rate_limited:
+                break
+
+            excluded.add(provider)
+            fallback_candidates = prepared.policy.rate_limit_fallback_candidates(
+                time.time(),
+                prepared.ctx,
+                excluded=excluded,
+            )
+            next_provider = fallback_candidates[0] if fallback_candidates else None
+            if next_provider is None:
+                break
+
+            provider = next_provider
+            prepared.policy.charge_capacity(
+                provider,
+                time.time(),
+                prepared.expected_service_sec,
+            )
+
+        final_provider, final_result = attempts[-1]
+        self._annotate_rate_limit_fallback(final_result, attempts)
+        return final_provider, final_result, attempts
+
+    @staticmethod
+    def _annotate_rate_limit_fallback(
+        final_result: SingleRequestResult,
+        attempts: list[tuple[str, SingleRequestResult]],
     ) -> None:
+        prior = attempts[:-1]
+        rate_limited_before_final = sum(1 for _, result in prior if result.rate_limited)
+        if rate_limited_before_final <= 0:
+            return
+        final_result.rate_limited = True
+        final_result.retry_count += rate_limited_before_final
+        final_result.retry_sleep_ms += sum(result.retry_sleep_ms for _, result in prior)
+
+    def _feed_back_single_attempts(
+        self,
+        policy: BasePolicy,
+        attempts: list[tuple[str, SingleRequestResult]],
+    ) -> None:
+        for provider, result in attempts:
+            self._feed_back_single(policy, provider, result)
+
+    def _account_single_attempts(
+        self,
+        policy: BasePolicy,
+        attempts: list[tuple[str, SingleRequestResult]],
+        *,
+        physical: bool = True,
+    ) -> None:
+        with self._cost_lock:
+            self._cost_per_policy[policy.name] += sum(
+                result.billed_cost_usd for _, result in attempts
+            )
+            if physical:
+                self._total_cost_usd += sum(
+                    self._single_physical_cost(result) for _, result in attempts
+                )
+
+    def _dispatch_one(self, policy: BasePolicy, req: TraceRequest, req_index: int) -> None:
         prepared = self._prepare_dispatch(policy, req, req_index)
         if prepared is None:
             return
@@ -841,9 +899,7 @@ class RealExperimentRunner:
             # this, concurrent route() calls during the backup's
             # lifetime would still see the slot as free.
             def _charge_backup(dispatch_ts: float, _b=prepared.backup) -> None:
-                policy.charge_capacity(
-                    _b, dispatch_ts, prepared.expected_service_sec
-                )
+                policy.charge_capacity(_b, dispatch_ts, prepared.expected_service_sec)
 
             hedged = send_hedged_request(
                 send_fn=self._send_via_transport,
@@ -868,27 +924,26 @@ class RealExperimentRunner:
                 prepared.hedge_delay_sec,
                 primary_cached_input_tokens=prepared.primary_cached_input_tokens,
                 backup_cached_input_tokens=prepared.backup_cached_input_tokens,
-                primary_routing_estimated_cost_usd=(
-                    prepared.primary_routing_estimated_cost_usd
-                ),
-                backup_routing_estimated_cost_usd=(
-                    prepared.backup_routing_estimated_cost_usd
-                ),
+                primary_routing_estimated_cost_usd=(prepared.primary_routing_estimated_cost_usd),
+                backup_routing_estimated_cost_usd=(prepared.backup_routing_estimated_cost_usd),
             )
             return
 
-        result = send_request(
-            send_fn=self._send_via_transport,
-            provider=decision.primary or "",
-            prompt=prepared.prompt,
-            max_tokens=req.max_tokens,
-            timeout=self.timeout_sec,
+        final_provider, result, attempts = self._send_single_with_rate_limit_fallback(prepared)
+        self._feed_back_single_attempts(policy, attempts)
+        self._account_single_attempts(policy, attempts)
+        primary_cached, primary_estimated_cost = (
+            prepared.primary_cached_input_tokens,
+            (prepared.primary_routing_estimated_cost_usd),
         )
-        self._feed_back_single(policy, decision.primary or "", result)
-        self._account_single(policy, result)
+        if final_provider != decision.primary:
+            primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
+                final_provider,
+                prepared.ctx,
+            )
         self._record_prefix_cache_dispatch(
             policy,
-            decision.primary,
+            final_provider,
             prepared.ctx,
             result,
         )
@@ -898,10 +953,8 @@ class RealExperimentRunner:
             prepared.req_index,
             decision,
             result,
-            primary_cached_input_tokens=prepared.primary_cached_input_tokens,
-            primary_routing_estimated_cost_usd=(
-                prepared.primary_routing_estimated_cost_usd
-            ),
+            primary_cached_input_tokens=primary_cached,
+            primary_routing_estimated_cost_usd=primary_estimated_cost,
         )
 
     def _execute_coalesced_group(self, prepareds: list[_PreparedDispatch]) -> None:
@@ -936,7 +989,7 @@ class RealExperimentRunner:
                 dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
                 on_backup_dispatch=_charge_all_backups,
             )
-            physical_cost = self._hedged_cost(hedged)
+            physical_cost = self._hedged_physical_cost(hedged)
             for prepared in prepareds:
                 self._feed_back_hedged(prepared.policy, hedged)
                 self._account_cost(prepared.policy, hedged, physical=False)
@@ -953,9 +1006,7 @@ class RealExperimentRunner:
                     primary_routing_estimated_cost_usd=(
                         prepared.primary_routing_estimated_cost_usd
                     ),
-                    backup_routing_estimated_cost_usd=(
-                        prepared.backup_routing_estimated_cost_usd
-                    ),
+                    backup_routing_estimated_cost_usd=(prepared.backup_routing_estimated_cost_usd),
                 )
             self._account_physical_cost(physical_cost)
             return
@@ -967,11 +1018,45 @@ class RealExperimentRunner:
             max_tokens=first.req.max_tokens,
             timeout=self.timeout_sec,
         )
-        physical_cost = result.billed_cost_usd
+        if result.rate_limited:
+            for prepared in prepareds:
+                final_provider, final_result, attempts = self._send_single_with_rate_limit_fallback(
+                    prepared,
+                    initial_result=result,
+                )
+                self._feed_back_single_attempts(prepared.policy, attempts)
+                self._account_single_attempts(prepared.policy, attempts)
+                primary_cached, primary_estimated_cost = (
+                    prepared.primary_cached_input_tokens,
+                    (prepared.primary_routing_estimated_cost_usd),
+                )
+                if final_provider != prepared.decision.primary:
+                    primary_cached, primary_estimated_cost = (
+                        prepared.policy.routing_cache_diagnostics(
+                            final_provider,
+                            prepared.ctx,
+                        )
+                    )
+                self._record_prefix_cache_dispatch(
+                    prepared.policy,
+                    final_provider,
+                    prepared.ctx,
+                    final_result,
+                )
+                self._record_single(
+                    prepared.policy,
+                    prepared.req,
+                    prepared.req_index,
+                    prepared.decision,
+                    final_result,
+                    primary_cached_input_tokens=primary_cached,
+                    primary_routing_estimated_cost_usd=primary_estimated_cost,
+                )
+            return
+
+        physical_cost = self._single_physical_cost(result)
         for prepared in prepareds:
-            self._feed_back_single(
-                prepared.policy, prepared.decision.primary or "", result
-            )
+            self._feed_back_single(prepared.policy, prepared.decision.primary or "", result)
             self._account_single(prepared.policy, result, physical=False)
             self._record_prefix_cache_dispatch(
                 prepared.policy,
@@ -986,9 +1071,7 @@ class RealExperimentRunner:
                 prepared.decision,
                 result,
                 primary_cached_input_tokens=prepared.primary_cached_input_tokens,
-                primary_routing_estimated_cost_usd=(
-                    prepared.primary_routing_estimated_cost_usd
-                ),
+                primary_routing_estimated_cost_usd=(prepared.primary_routing_estimated_cost_usd),
             )
         self._account_physical_cost(physical_cost)
 
@@ -1029,9 +1112,7 @@ class RealExperimentRunner:
     # Profile + capacity feedback.
     # ------------------------------------------------------------------
 
-    def _broadcast_sample(
-        self, provider: str, ts: float, result: SingleRequestResult
-    ) -> None:
+    def _broadcast_sample(self, provider: str, ts: float, result: SingleRequestResult) -> None:
         error_type = None if result.status == "success" else result.status
         ttft_ms = result.ttft_ms if result.status == "success" else -1.0
         for policy in self.policies.values():
@@ -1066,6 +1147,18 @@ class RealExperimentRunner:
             cost += hedged.backup_result.billed_cost_usd
         return cost
 
+    @staticmethod
+    def _single_physical_cost(result: SingleRequestResult) -> float:
+        value = result.physical_cost_usd
+        return result.billed_cost_usd if value is None else float(value)
+
+    @classmethod
+    def _hedged_physical_cost(cls, hedged: HedgedResult) -> float:
+        cost = cls._single_physical_cost(hedged.primary_result)
+        if hedged.backup_result is not None:
+            cost += cls._single_physical_cost(hedged.backup_result)
+        return cost
+
     def _account_single(
         self,
         policy: BasePolicy,
@@ -1076,7 +1169,7 @@ class RealExperimentRunner:
         with self._cost_lock:
             self._cost_per_policy[policy.name] += result.billed_cost_usd
             if physical:
-                self._total_cost_usd += result.billed_cost_usd
+                self._total_cost_usd += self._single_physical_cost(result)
 
     def _account_cost(
         self,
@@ -1089,15 +1182,13 @@ class RealExperimentRunner:
         with self._cost_lock:
             self._cost_per_policy[policy.name] += cost
             if physical:
-                self._total_cost_usd += cost
+                self._total_cost_usd += self._hedged_physical_cost(hedged)
 
     def _cost_exhausted(self, policy_name: str) -> bool:
         with self._cost_lock:
             if self._total_cost_usd >= self.max_cost_usd:
                 self._stop_event.set()
-                logger.warning(
-                    "max_cost_usd $%.2f reached; halting", self.max_cost_usd
-                )
+                logger.warning("max_cost_usd $%.2f reached; halting", self.max_cost_usd)
                 return True
         return False
 
@@ -1247,9 +1338,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Cap the trace to at most this many rows.",
     )
-    parser.add_argument(
-        "--speedup", type=float, default=1.0, help="Replay speedup factor."
-    )
+    parser.add_argument("--speedup", type=float, default=1.0, help="Replay speedup factor.")
     parser.add_argument(
         "--duration-sec",
         type=float,
@@ -1266,9 +1355,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--warmup-probe-interval-sec",
         type=float,
         default=DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
-        help=(
-            "Seconds between warmup probe rounds. Use 0 for a fast smoke run."
-        ),
+        help=("Seconds between warmup probe rounds. Use 0 for a fast smoke run."),
     )
     parser.add_argument(
         "--periodic-probe-interval-sec",
@@ -1366,9 +1453,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     trace_end_sec = (
-        args.duration_sec * args.speedup
-        if math.isfinite(args.duration_sec)
-        else float("inf")
+        args.duration_sec * args.speedup if math.isfinite(args.duration_sec) else float("inf")
     )
     trace = load_trace_jsonl(
         args.trace,
@@ -1431,9 +1516,7 @@ def main(argv: list[str] | None = None) -> int:
             sleep_sec=args.profile_probe_sleep_sec,
             round_interval_sec=args.warmup_probe_interval_sec,
         )
-    runner.validate_profile_bootstrap(
-        min_success_samples=args.min_profile_success_samples
-    )
+    runner.validate_profile_bootstrap(min_success_samples=args.min_profile_success_samples)
 
     runner.replay(
         trace=trace,

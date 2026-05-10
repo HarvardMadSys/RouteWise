@@ -27,9 +27,7 @@ from experiments.real_evaluation.runner import (
 )
 from experiments.real_evaluation.transports import SingleRequestResult
 
-_INVENTORY_PATH = (
-    "experiments/real_evaluation/data/joint_minimax_m25_online.json"
-)
+_INVENTORY_PATH = "experiments/real_evaluation/data/joint_minimax_m25_online.json"
 
 
 def _build_runner(
@@ -69,9 +67,7 @@ def test_inventory_loads_subscription_plan_facts_from_canonical_yaml() -> None:
     assert chutes.subscription_plan == "chutes"
     assert chutes.quota_requests == 5000
     assert chutes.quota_window_sec == 86400
-    assert [(w.requests, w.window_sec) for w in chutes.quota_windows] == [
-        (5000, 86400.0)
-    ]
+    assert [(w.requests, w.window_sec) for w in chutes.quota_windows] == [(5000, 86400.0)]
 
     minimax = specs["MiniMax_SQ"]
     assert minimax.subscription_plan == "minimax_subscription_plus"
@@ -132,6 +128,58 @@ def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) ->
 
     assert [spec.name for spec in inventory.providers] == ["Chutes_SQ", "OR_Chutes"]
     assert inventory.openrouter_provider_only == ("Chutes",)
+
+
+def test_or_sentinel_base_prefers_metered_api_openrouter_config(tmp_path) -> None:
+    inventory_path = tmp_path / "inventory.json"
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "model_family": "test",
+                "openrouter_model_id": "test/model",
+                "primary_slo_ms": 2000,
+                "slo_thresholds_ms": [1000, 2000],
+                "providers": [
+                    {
+                        "name": "Chutes_SQ",
+                        "tier": "quota",
+                        "transport": "openrouter",
+                        "model": "test/model",
+                        "provider_hint": "Chutes",
+                        "input_price_per_m": 0.0,
+                        "output_price_per_m": 0.0,
+                        "quota_window_sec": 3600,
+                        "quota_requests": 100,
+                        "billing_mode": "subscription",
+                    },
+                    {
+                        "name": "OR_Chutes",
+                        "tier": "api",
+                        "transport": "openrouter",
+                        "model": "test/model",
+                        "provider_hint": "Chutes",
+                        "input_price_per_m": 0.1,
+                        "output_price_per_m": 1.0,
+                        "billing_mode": "metered",
+                    },
+                ],
+            }
+        )
+    )
+    inventory = load_inventory(inventory_path)
+    recorder = Recorder(tmp_path / "out")
+
+    runner = RealExperimentRunner(
+        inventory=inventory,
+        policy_names=["or_auto"],
+        recorder=recorder,
+        slo_ms=inventory.primary_slo_ms,
+    )
+
+    assert runner._or_base_cfg is not None
+    assert runner._or_base_cfg.name == "OR_Chutes"
+    assert runner._or_base_cfg.billing_mode == "metered"
+    recorder.close()
 
 
 def test_load_trace_jsonl_requires_real_prompt_and_token_fields(tmp_path) -> None:
@@ -346,7 +394,7 @@ def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
-    cancel_event: threading.Event | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         assert prompt == WARMUP_PROBE_PROMPT
         return SingleRequestResult(
@@ -384,7 +432,7 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
-    cancel_event: threading.Event | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         seen.append(provider)
         return SingleRequestResult(
@@ -424,7 +472,7 @@ def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
-    cancel_event: threading.Event | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         assert prompt == WARMUP_PROBE_PROMPT
         probe_calls.append(provider)
@@ -600,7 +648,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
-    cancel_event: threading.Event | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         if "primary_marker" in provider:
             if ttft_event is not None:
@@ -618,9 +666,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
         # When the runner sends to anyone other than the synthetic primary,
         # treat it as a successful send.
         if ttft_info is not None:
-            ttft_info.update(
-                ttft_ms=200.0, first_token_ts=time.time(), status="success"
-            )
+            ttft_info.update(ttft_ms=200.0, first_token_ts=time.time(), status="success")
         if ttft_event is not None:
             ttft_event.set()
         return SingleRequestResult(
@@ -645,9 +691,9 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     monkeypatch.setattr(
         policy,
         "route",
-        lambda now, ctx: __import__("experiments.real_evaluation.policies", fromlist=["RoutingDecision"]).RoutingDecision(
-            primary=primary_marker, notes="test"
-        ),
+        lambda now, ctx: __import__(
+            "experiments.real_evaluation.policies", fromlist=["RoutingDecision"]
+        ).RoutingDecision(primary=primary_marker, notes="test"),
     )
     monkeypatch.setattr(
         "experiments.real_evaluation.runner.select_safe_cheapest_backup",
@@ -706,14 +752,12 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
         timeout: int,
         ttft_event: threading.Event | None,
         ttft_info: dict[str, Any] | None,
-    cancel_event: threading.Event | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult:
         nonlocal send_count
         send_count += 1
         if ttft_info is not None:
-            ttft_info.update(
-                ttft_ms=100.0, first_token_ts=time.time(), status="success"
-            )
+            ttft_info.update(ttft_ms=100.0, first_token_ts=time.time(), status="success")
         if ttft_event is not None:
             ttft_event.set()
         return SingleRequestResult(
@@ -752,6 +796,64 @@ def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     assert runner._total_cost_usd == 0.01
 
 
+def test_non_hedged_greedy_cost_falls_back_to_next_provider_on_429(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    calls: list[str] = []
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        calls.append(provider)
+        if provider == "Featherless_SC":
+            return SingleRequestResult(
+                ttft_ms=-1.0,
+                e2e_ms=1.0,
+                status="HTTP 429",
+                provider=provider,
+                http_status=429,
+                rate_limited=True,
+                start_ts=time.time(),
+            )
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8),
+        req_index=0,
+    )
+
+    assert calls[:2] == ["Featherless_SC", "Chutes_SQ"]
+    assert runner._cost_per_policy["greedy_cost"] == 0.01
+    assert runner._total_cost_usd == 0.01
+    row = rec._rows[0]
+    assert row.primary_provider == "Featherless_SC"
+    assert row.actual_provider == "Chutes_SQ"
+    assert row.status == "success"
+    assert row.rate_limited is True
+    assert row.retry_count == 1
+    rec.close()
+
+
 def test_dispatch_updates_policy_local_prefix_cache_and_records_diagnostics(
     monkeypatch,
 ) -> None:
@@ -760,9 +862,7 @@ def test_dispatch_updates_policy_local_prefix_cache_and_records_diagnostics(
         prefix_cache_routing=True,
     )
     policy = runner.policies["budget_range_p100"]
-    provider = next(
-        spec.name for spec in runner.inventory.providers if spec.tier == "api"
-    )
+    provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
 
     monkeypatch.setattr(
         policy,

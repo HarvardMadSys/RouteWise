@@ -20,6 +20,7 @@ Policy taxonomy:
   - ``GreedyCostPolicy``      : cheapest feasible; zero-cost ties prefer
                                 ``S_C`` -> ``S_Q`` -> ``S_A``
   - ``GreedyLatencyPolicy``   : always lowest empirical-latency available
+  - ``RandomPolicy``          : uniform random over feasible providers
   - ``QuotaFirstPolicy`` / ``ConcurrencyFirstPolicy`` : tier-priority heuristics
 
 * **Current paper line** (``LP-TTFT-budget`` + ``Hedge-ProbTarget``):
@@ -334,8 +335,7 @@ class BasePolicy:
         self.specs = specs
         self.slo_sec = slo_ms / 1000.0
         self.states: dict[str, ProviderState] = {
-            spec.name: ProviderState.from_spec(spec, profile_window_sec)
-            for spec in specs
+            spec.name: ProviderState.from_spec(spec, profile_window_sec) for spec in specs
         }
         self.prefix_cache_routing = bool(prefix_cache_routing)
         self.provider_prefix_cache: dict[str, dict[str, int]] = {}
@@ -444,6 +444,23 @@ class BasePolicy:
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         raise NotImplementedError
 
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        """Policy-aware retry order after provider-local HTTP 429s."""
+        del ctx
+        candidates = [
+            state.spec.name
+            for state in self.states.values()
+            if state.spec.name not in excluded and state.is_available(now)
+        ]
+        candidates.sort()
+        return candidates
+
 
 # ---------------------------------------------------------------------------
 # Baselines.
@@ -461,6 +478,16 @@ class OrAutoPolicy(BasePolicy):
             return RoutingDecision(primary=None, notes="no_openrouter_spec")
         return RoutingDecision(primary=OR_AUTO_SENTINEL, notes="or_default")
 
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        del now, ctx, excluded
+        return []
+
 
 class _OpenRouterSortPolicy(BasePolicy):
     """Base for OpenRouter ``sort=<mode>`` baselines.
@@ -476,9 +503,17 @@ class _OpenRouterSortPolicy(BasePolicy):
         has_or = any(s.transport_cfg.transport == "openrouter" for s in self.specs)
         if not has_or:
             return RoutingDecision(primary=None, notes="no_openrouter_spec")
-        return RoutingDecision(
-            primary=self.sentinel, notes=f"or_sort_{self.sort_mode}"
-        )
+        return RoutingDecision(primary=self.sentinel, notes=f"or_sort_{self.sort_mode}")
+
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        del now, ctx, excluded
+        return []
 
 
 class OrSortLatencyPolicy(_OpenRouterSortPolicy):
@@ -528,10 +563,7 @@ class _GreedyBase(BasePolicy):
     def _candidates(self, now: float) -> list[ProviderState]:
         states = list(self.states.values())
         if self.or_only:
-            states = [
-                s for s in states
-                if s.spec.transport_cfg.transport == "openrouter"
-            ]
+            states = [s for s in states if s.spec.transport_cfg.transport == "openrouter"]
         return [s for s in states if s.is_available(now)]
 
 
@@ -547,10 +579,8 @@ class GreedyCostPolicy(_GreedyBase):
     name = "greedy_cost"
     or_only = False
 
-    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+    def _ranked_candidates(self, now: float, ctx: RequestContext) -> list[ProviderState]:
         candidates = self._candidates(now)
-        if not candidates:
-            return RoutingDecision(primary=None, notes="none_available")
         scored = []
         for state in candidates:
             cost = self.request_cost_for_state(state, ctx)
@@ -560,16 +590,33 @@ class GreedyCostPolicy(_GreedyBase):
             scored.append(
                 (
                     cost,
-                    _GREEDY_COST_TIER_RANK.get(
-                        state.spec.tier, _UNKNOWN_TIER_RANK
-                    ),
+                    _GREEDY_COST_TIER_RANK.get(state.spec.tier, _UNKNOWN_TIER_RANK),
                     latency if latency is not None else float("inf"),
                     state.spec.name,
                     state,
                 )
             )
         scored.sort(key=lambda item: item[:-1])
-        return RoutingDecision(primary=scored[0][-1].spec.name, notes="greedy_cost")
+        return [item[-1] for item in scored]
+
+    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+        candidates = self._ranked_candidates(now, ctx)
+        if not candidates:
+            return RoutingDecision(primary=None, notes="none_available")
+        return RoutingDecision(primary=candidates[0].spec.name, notes="greedy_cost")
+
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        return [
+            state.spec.name
+            for state in self._ranked_candidates(now, ctx)
+            if state.spec.name not in excluded
+        ]
 
 
 class OrGreedyCostPolicy(GreedyCostPolicy):
@@ -586,10 +633,8 @@ class GreedyLatencyPolicy(_GreedyBase):
     or_only = False
     requires_latency_profile_bootstrap = True
 
-    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+    def _ranked_candidates(self, now: float, ctx: RequestContext) -> list[ProviderState]:
         candidates = self._candidates(now)
-        if not candidates:
-            return RoutingDecision(primary=None, notes="none_available")
         scored = []
         for state in candidates:
             latency = state.profile.mean_ms(now)
@@ -605,7 +650,26 @@ class GreedyLatencyPolicy(_GreedyBase):
                 )
             )
         scored.sort(key=lambda item: item[:-1])
-        return RoutingDecision(primary=scored[0][-1].spec.name, notes="greedy_latency")
+        return [item[-1] for item in scored]
+
+    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+        candidates = self._ranked_candidates(now, ctx)
+        if not candidates:
+            return RoutingDecision(primary=None, notes="none_available")
+        return RoutingDecision(primary=candidates[0].spec.name, notes="greedy_latency")
+
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        return [
+            state.spec.name
+            for state in self._ranked_candidates(now, ctx)
+            if state.spec.name not in excluded
+        ]
 
 
 class OrGreedyLatencyPolicy(GreedyLatencyPolicy):
@@ -613,6 +677,38 @@ class OrGreedyLatencyPolicy(GreedyLatencyPolicy):
 
     name = "or_greedy_latency"
     or_only = True
+
+
+class RandomPolicy(BasePolicy):
+    """Joint-pool random baseline over currently available providers."""
+
+    name = "random"
+
+    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+        candidates = [state.spec.name for state in self.states.values() if state.is_available(now)]
+        if not candidates:
+            return RoutingDecision(primary=None, notes="none_available")
+        candidates.sort()
+        choice = random.Random(int(now * 1e6)).choice(candidates)
+        return RoutingDecision(primary=choice, notes="random")
+
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        del ctx
+        candidates = [
+            state.spec.name
+            for state in self.states.values()
+            if state.spec.name not in excluded and state.is_available(now)
+        ]
+        candidates.sort()
+        rng = random.Random(int(now * 1e6) + len(excluded))
+        rng.shuffle(candidates)
+        return candidates
 
 
 class TierFirstPolicy(BasePolicy):
@@ -685,9 +781,7 @@ class BudgetRangePolicy(BasePolicy):
             prefix_cache_routing=prefix_cache_routing,
         )
         if not 0 <= budget_percentile <= 100:
-            raise ValueError(
-                f"budget_percentile must be in [0, 100]; got {budget_percentile}"
-            )
+            raise ValueError(f"budget_percentile must be in [0, 100]; got {budget_percentile}")
         self.budget_percentile = int(budget_percentile)
         self.name = f"budget_range_p{self.budget_percentile}{self.name_suffix}"
 
@@ -702,13 +796,9 @@ class BudgetRangePolicy(BasePolicy):
             ctx.completion_tokens_budget,
             cost_fn=lambda spec: self.request_cost_for_spec(spec, ctx),
         )
-        request_costs = {
-            s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible
-        }
+        request_costs = {s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible}
         c_eff = {
-            s.spec.name: effective_cost(
-                s, request_costs[s.spec.name], now, U=U, L=L
-            )
+            s.spec.name: effective_cost(s, request_costs[s.spec.name], now, U=U, L=L)
             for s in feasible
         }
 
@@ -735,9 +825,7 @@ class BudgetRangePolicy(BasePolicy):
         if success and vector is not None:
             weights = _normalize_weights(names, vector)
             if weights:
-                primary = _sample_weighted(
-                    weights, rng=random.Random(int(now * 1e6))
-                )
+                primary = _sample_weighted(weights, rng=random.Random(int(now * 1e6)))
                 return RoutingDecision(
                     primary=primary,
                     lp_weights=weights,
@@ -749,9 +837,7 @@ class BudgetRangePolicy(BasePolicy):
                     notes=self.name,
                 )
 
-        return _fallback_in_budget(
-            feasible, c_eff, budget, c_max, fallback_label="range"
-        )
+        return _fallback_in_budget(feasible, c_eff, budget, c_max, fallback_label="range")
 
 
 class BudgetRangeHedgePolicy(BudgetRangePolicy):
@@ -810,7 +896,7 @@ def build_policy(
 
     Recognized names:
       * Baselines: ``or_auto``, ``or_sort_latency``, ``or_sort_cost``,
-        ``greedy_cost``, ``greedy_latency``, ``quota_first``,
+        ``greedy_cost``, ``greedy_latency``, ``random``, ``quota_first``,
         ``concurrency_first``
       * Paper line: ``budget_range_p<PP>`` and
         ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
@@ -837,6 +923,8 @@ def build_policy(
         return OrGreedyCostPolicy(**common)
     if name == "or_greedy_latency":
         return OrGreedyLatencyPolicy(**common)
+    if name == "random":
+        return RandomPolicy(**common)
     if name == "quota_first":
         return QuotaFirstPolicy(**common)
     if name == "concurrency_first":
@@ -876,12 +964,13 @@ __all__ = [
     "OrAutoPolicy",
     "OrGreedyCostPolicy",
     "OrGreedyLatencyPolicy",
-    "QuotaFirstPolicy",
-    "RequestContext",
-    "RoutingDecision",
     "OrSortCostPolicy",
     "OrSortLatencyPolicy",
     "OrSortThroughputPolicy",
+    "QuotaFirstPolicy",
+    "RandomPolicy",
+    "RequestContext",
+    "RoutingDecision",
     "TierFirstPolicy",
     "build_policy",
     "compute_hedge_time_sec",

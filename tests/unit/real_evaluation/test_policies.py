@@ -99,16 +99,13 @@ def test_profile_bootstrap_requirement_is_policy_owned() -> None:
         "or_sort_cost",
         "greedy_cost",
         "or_greedy_cost",
+        "random",
     ]
 
     for name in needs_profile:
-        assert build_policy(
-            name, specs=specs, slo_ms=2000.0
-        ).requires_latency_profile_bootstrap
+        assert build_policy(name, specs=specs, slo_ms=2000.0).requires_latency_profile_bootstrap
     for name in profile_free:
-        assert not build_policy(
-            name, specs=specs, slo_ms=2000.0
-        ).requires_latency_profile_bootstrap
+        assert not build_policy(name, specs=specs, slo_ms=2000.0).requires_latency_profile_bootstrap
 
 
 def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
@@ -121,9 +118,7 @@ def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
     spec = ProviderSpec(
         name="Ollama_SQ",
         tier="quota",
-        transport_cfg=TransportConfig(
-            name="Ollama_SQ", transport="ollama_cloud", model="x"
-        ),
+        transport_cfg=TransportConfig(name="Ollama_SQ", transport="ollama_cloud", model="x"),
         quota_window_sec=3600,
         quota_requests=2000,
         concurrency_limit=3,
@@ -148,9 +143,7 @@ def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
     spec = ProviderSpec(
         name="Featherless_SC",
         tier="concurrency",
-        transport_cfg=TransportConfig(
-            name="Featherless_SC", transport="featherless", model="x"
-        ),
+        transport_cfg=TransportConfig(name="Featherless_SC", transport="featherless", model="x"),
         concurrency_limit=3,
     )
     state = ProviderState.from_spec(spec)
@@ -168,18 +161,16 @@ def test_or_baselines_use_distinct_sentinels() -> None:
     """All four OR baselines (auto + 3 sort modes) round-trip to a unique
     sentinel string and a sensible ``provider.sort`` value."""
     specs = [_api_spec("OR_x", 0.3, 1.2)]
-    auto = build_policy("or_auto", specs=specs, slo_ms=2000.0).route(
-        0.0, RequestContext(10, 8)
-    )
+    auto = build_policy("or_auto", specs=specs, slo_ms=2000.0).route(0.0, RequestContext(10, 8))
     latency = build_policy("or_sort_latency", specs=specs, slo_ms=2000.0).route(
         0.0, RequestContext(10, 8)
     )
     price = build_policy("or_sort_cost", specs=specs, slo_ms=2000.0).route(
         0.0, RequestContext(10, 8)
     )
-    throughput = build_policy(
-        "or_sort_throughput", specs=specs, slo_ms=2000.0
-    ).route(0.0, RequestContext(10, 8))
+    throughput = build_policy("or_sort_throughput", specs=specs, slo_ms=2000.0).route(
+        0.0, RequestContext(10, 8)
+    )
 
     sentinels = {auto.primary, latency.primary, price.primary, throughput.primary}
     assert len(sentinels) == 4
@@ -198,20 +189,18 @@ def test_or_only_greedy_baselines_filter_to_openrouter() -> None:
     sub = ProviderSpec(
         name="Chutes_SQ",
         tier="quota",
-        transport_cfg=TransportConfig(
-            name="Chutes_SQ", transport="chutes", model="x"
-        ),
+        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
         quota_window_sec=3600,
         quota_requests=100,
     )
     specs = [cheap_or, expensive_or, sub]
 
-    or_cheapest = build_policy(
-        "or_greedy_cost", specs=specs, slo_ms=2000.0
-    ).route(0.0, RequestContext(10, 8))
-    joint_cheapest = build_policy(
-        "greedy_cost", specs=specs, slo_ms=2000.0
-    ).route(0.0, RequestContext(10, 8))
+    or_cheapest = build_policy("or_greedy_cost", specs=specs, slo_ms=2000.0).route(
+        0.0, RequestContext(10, 8)
+    )
+    joint_cheapest = build_policy("greedy_cost", specs=specs, slo_ms=2000.0).route(
+        0.0, RequestContext(10, 8)
+    )
 
     # OR-only must pick the cheap OR provider; joint pool can pick the
     # zero-priced subscription provider.
@@ -224,26 +213,50 @@ def test_greedy_cost_prefers_concurrency_before_quota_on_zero_cost_tie() -> None
     quota = ProviderSpec(
         name="Chutes_SQ",
         tier="quota",
-        transport_cfg=TransportConfig(
-            name="Chutes_SQ", transport="chutes", model="x"
-        ),
+        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
         quota_window_sec=3600,
         quota_requests=100,
     )
     concurrency = ProviderSpec(
         name="Featherless_SC",
         tier="concurrency",
-        transport_cfg=TransportConfig(
-            name="Featherless_SC", transport="featherless", model="x"
-        ),
+        transport_cfg=TransportConfig(name="Featherless_SC", transport="featherless", model="x"),
         concurrency_limit=1,
     )
     api = _api_spec("OR_cheap", 0.05, 0.2)
-    policy = build_policy(
-        "greedy_cost", specs=[quota, concurrency, api], slo_ms=2000.0
-    )
+    policy = build_policy("greedy_cost", specs=[quota, concurrency, api], slo_ms=2000.0)
 
     assert policy.route(0.0, RequestContext(10, 8)).primary == "Featherless_SC"
+    assert (
+        policy.rate_limit_fallback_candidates(
+            0.0,
+            RequestContext(10, 8),
+            excluded={"Featherless_SC"},
+        )[0]
+        == "Chutes_SQ"
+    )
+
+
+def test_random_policy_uses_only_available_providers() -> None:
+    quota = ProviderSpec(
+        name="Chutes_SQ",
+        tier="quota",
+        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
+        quota_window_sec=3600,
+        quota_requests=1,
+    )
+    concurrency = ProviderSpec(
+        name="Featherless_SC",
+        tier="concurrency",
+        transport_cfg=TransportConfig(name="Featherless_SC", transport="featherless", model="x"),
+        concurrency_limit=1,
+    )
+    api = _api_spec("OR_cheap", 0.05, 0.2)
+    policy = build_policy("random", specs=[quota, concurrency, api], slo_ms=2000.0)
+    policy.charge_capacity("Chutes_SQ", 0.0, 60.0)
+    policy.charge_capacity("Featherless_SC", 0.0, 60.0)
+
+    assert policy.route(0.0, RequestContext(10, 8)).primary == "OR_cheap"
 
 
 def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> None:
@@ -273,9 +286,7 @@ def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> No
 
     assert no_cache.route(now, ctx).primary == "OR_slow_cheap"
     assert cache_aware.route(now, ctx).primary == "OR_fast_expensive"
-    cached_tokens, estimated_cost = cache_aware.routing_cache_diagnostics(
-        "OR_fast_expensive", ctx
-    )
+    cached_tokens, estimated_cost = cache_aware.routing_cache_diagnostics("OR_fast_expensive", ctx)
     assert cached_tokens == 100
     assert estimated_cost == pytest.approx(0.1 / 1_000_000.0)
 

@@ -51,6 +51,10 @@ class ProviderSpec:
     concurrency_limit: int | None = None
 
     @property
+    def billing_mode(self) -> str:
+        return self.transport_cfg.billing_mode
+
+    @property
     def input_price_per_m(self) -> float:
         return self.transport_cfg.input_price_per_m
 
@@ -145,9 +149,7 @@ def _provider_filter(value: object) -> tuple[str, ...]:
     elif isinstance(value, (list, tuple)):
         values = value
     else:
-        raise ValueError(
-            f"OpenRouter provider filter must be a string or list: {value!r}"
-        )
+        raise ValueError(f"OpenRouter provider filter must be a string or list: {value!r}")
     out: list[str] = []
     seen: set[str] = set()
     for item in values:
@@ -188,9 +190,7 @@ def _quota_windows_from_entry(
             "quota_window_sec/quota_requests must come from experiments/subscription_plans.yaml"
         )
     if subscription_count <= 0:
-        raise ValueError(
-            f"provider {entry.get('name')!r}: subscription_count must be > 0"
-        )
+        raise ValueError(f"provider {entry.get('name')!r}: subscription_count must be > 0")
     plans = load_subscription_plans()
     try:
         plan = plans[str(plan_id)]
@@ -221,9 +221,7 @@ class ConcurrencyState:
     active: list[tuple[int, float]] = field(default_factory=list)
 
     def _prune(self, now: float) -> None:
-        self.active = [
-            (rid, deadline) for rid, deadline in self.active if deadline > now
-        ]
+        self.active = [(rid, deadline) for rid, deadline in self.active if deadline > now]
 
     def is_available(self, now: float) -> bool:
         self._prune(now)
@@ -326,9 +324,7 @@ class ProviderState:
     concurrency: ConcurrencyState | None
 
     @classmethod
-    def from_spec(
-        cls, spec: ProviderSpec, window_sec: float = PROFILE_WINDOW_SEC
-    ) -> ProviderState:
+    def from_spec(cls, spec: ProviderSpec, window_sec: float = PROFILE_WINDOW_SEC) -> ProviderState:
         quota_windows = spec.quota_windows
         if not quota_windows and (
             spec.quota_requests is not None and spec.quota_window_sec is not None
@@ -364,10 +360,7 @@ class ProviderState:
     def is_available(self, now: float) -> bool:
         if self.quota is not None and not self.quota.can_admit(now):
             return False
-        return not (
-            self.concurrency is not None
-            and not self.concurrency.is_available(now)
-        )
+        return not (self.concurrency is not None and not self.concurrency.is_available(now))
 
 
 def build_provider_states(
@@ -376,8 +369,7 @@ def build_provider_states(
 ) -> dict[str, ProviderState]:
     """Materialize one isolated ``ProviderState`` per spec from an inventory."""
     return {
-        spec.name: ProviderState.from_spec(spec, profile_window_sec)
-        for spec in inventory.providers
+        spec.name: ProviderState.from_spec(spec, profile_window_sec) for spec in inventory.providers
     }
 
 

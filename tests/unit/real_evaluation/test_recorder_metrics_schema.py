@@ -20,6 +20,7 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
         status="success",
         provider="primary",
         billed_cost_usd=0.02,
+        physical_cost_usd=0.025,
         start_ts=100.0,
         first_token_ts=100.5,
     )
@@ -30,6 +31,7 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
         provider="backup",
         completion_tokens=20,
         billed_cost_usd=0.01,
+        physical_cost_usd=0.012,
         start_ts=100.35,
         first_token_ts=100.47,
     )
@@ -70,6 +72,9 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
     assert record.slo_violated is False
     assert run.cost_by_tier() == {"api": 0.02, "quota": 0.01}
     assert record.total_cost_usd == 0.03
+    assert record.metadata["real_physical_cost_usd"] == pytest.approx(0.037)
+    assert record.metadata["real_primary_physical_cost_usd"] == pytest.approx(0.025)
+    assert record.metadata["real_backup_physical_cost_usd"] == pytest.approx(0.012)
     assert record.metadata["real_primary_cached_input_tokens"] == 30
     assert record.metadata["real_backup_cached_input_tokens"] == 20
 
@@ -77,5 +82,7 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
     summary = json.loads(summary_path.read_text())
     assert summary["routewise"]["ttft_ms_p50"] == 470.0
     assert summary["routewise"]["e2e_ms_p50"] == 650.0
+    assert summary["routewise"]["total_cost_usd"] == 0.03
+    assert summary["routewise"]["total_physical_cost_usd"] == 0.037
     assert summary["routewise"]["slo_violation_rate"] == 0.0
     recorder.close()

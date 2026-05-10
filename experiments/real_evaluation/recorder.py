@@ -56,8 +56,11 @@ CSV_FIELDS: tuple[str, ...] = (
     "primary_routing_estimated_cost_usd",
     "backup_routing_estimated_cost_usd",
     "billed_cost_usd",
+    "physical_cost_usd",
     "primary_cost_usd",
     "backup_cost_usd",
+    "primary_physical_cost_usd",
+    "backup_physical_cost_usd",
     "lp_status",
     "lp_weights",
     "budget_usd",
@@ -100,8 +103,11 @@ class RequestLogRow:
     primary_routing_estimated_cost_usd: float | None
     backup_routing_estimated_cost_usd: float | None
     billed_cost_usd: float
+    physical_cost_usd: float
     primary_cost_usd: float
     backup_cost_usd: float
+    primary_physical_cost_usd: float
+    backup_physical_cost_usd: float
     lp_status: str | None
     lp_weights: dict[str, float] | None
     budget_usd: float | None
@@ -165,8 +171,11 @@ class RequestLogRow:
                 else ""
             ),
             "billed_cost_usd": f"{self.billed_cost_usd:.8f}",
+            "physical_cost_usd": f"{self.physical_cost_usd:.8f}",
             "primary_cost_usd": f"{self.primary_cost_usd:.8f}",
             "backup_cost_usd": f"{self.backup_cost_usd:.8f}",
+            "primary_physical_cost_usd": f"{self.primary_physical_cost_usd:.8f}",
+            "backup_physical_cost_usd": f"{self.backup_physical_cost_usd:.8f}",
             "lp_status": self.lp_status or "",
             "lp_weights": _maybe_json(self.lp_weights),
             "budget_usd": (f"{self.budget_usd:.8f}" if self.budget_usd is not None else ""),
@@ -238,6 +247,9 @@ class Recorder:
         primary_cost = primary_result.billed_cost_usd
         backup_cost = backup_result.billed_cost_usd if backup_result else 0.0
         billed_cost = primary_cost + backup_cost
+        primary_physical_cost = float(primary_result.physical_cost_usd)
+        backup_physical_cost = float(backup_result.physical_cost_usd) if backup_result else 0.0
+        physical_cost = primary_physical_cost + backup_physical_cost
         cost_source = primary_result.cost_source
         if backup_result is not None:
             cost_source = f"{primary_result.cost_source}+{backup_result.cost_source}"
@@ -261,9 +273,7 @@ class Recorder:
         resolved_final_tier = final_tier or tier or resolved_primary_tier
         status = _canonical_status(chosen)
         slo_violated = (
-            False
-            if slo_ms is None
-            else status != Status.SUCCESS or record_ttft_ms > slo_ms
+            False if slo_ms is None else status != Status.SUCCESS or record_ttft_ms > slo_ms
         )
         row = RequestLogRow(
             ts=row_ts,
@@ -290,17 +300,18 @@ class Recorder:
             cost_source=cost_source,
             primary_cached_input_tokens=primary_cached_input_tokens,
             backup_cached_input_tokens=backup_cached_input_tokens,
-            primary_observed_cached_input_tokens=(
-                primary_result.cache_read_tokens_observed
-            ),
+            primary_observed_cached_input_tokens=(primary_result.cache_read_tokens_observed),
             backup_observed_cached_input_tokens=(
                 backup_result.cache_read_tokens_observed if backup_result else None
             ),
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
             billed_cost_usd=billed_cost,
+            physical_cost_usd=physical_cost,
             primary_cost_usd=primary_cost,
             backup_cost_usd=backup_cost,
+            primary_physical_cost_usd=primary_physical_cost,
+            backup_physical_cost_usd=backup_physical_cost,
             lp_status=decision.lp_status,
             lp_weights=decision.lp_weights,
             budget_usd=decision.budget_usd,
@@ -351,6 +362,9 @@ class Recorder:
                 "real_retry_sleep_ms": chosen.retry_sleep_ms,
                 "real_status": chosen.status,
                 "real_cost_source": cost_source,
+                "real_physical_cost_usd": physical_cost,
+                "real_primary_physical_cost_usd": primary_physical_cost,
+                "real_backup_physical_cost_usd": (backup_physical_cost if backup_result else None),
                 "real_primary_cached_input_tokens": primary_cached_input_tokens,
                 "real_backup_cached_input_tokens": backup_cached_input_tokens,
                 "real_primary_observed_cached_input_tokens": (
@@ -359,12 +373,8 @@ class Recorder:
                 "real_backup_observed_cached_input_tokens": (
                     backup_result.cache_read_tokens_observed if backup_result else None
                 ),
-                "real_primary_routing_estimated_cost_usd": (
-                    primary_routing_estimated_cost_usd
-                ),
-                "real_backup_routing_estimated_cost_usd": (
-                    backup_routing_estimated_cost_usd
-                ),
+                "real_primary_routing_estimated_cost_usd": (primary_routing_estimated_cost_usd),
+                "real_backup_routing_estimated_cost_usd": (backup_routing_estimated_cost_usd),
             },
         )
         self.write_row(row, record=record)
@@ -479,6 +489,11 @@ class Recorder:
                 "real_retry_sleep_ms": row.retry_sleep_ms,
                 "real_status": row.status,
                 "real_cost_source": row.cost_source,
+                "real_physical_cost_usd": row.physical_cost_usd,
+                "real_primary_physical_cost_usd": row.primary_physical_cost_usd,
+                "real_backup_physical_cost_usd": (
+                    row.backup_physical_cost_usd if row.backup_provider else None
+                ),
                 "real_primary_cached_input_tokens": row.primary_cached_input_tokens,
                 "real_backup_cached_input_tokens": row.backup_cached_input_tokens,
                 "real_primary_observed_cached_input_tokens": (
@@ -487,12 +502,8 @@ class Recorder:
                 "real_backup_observed_cached_input_tokens": (
                     row.backup_observed_cached_input_tokens
                 ),
-                "real_primary_routing_estimated_cost_usd": (
-                    row.primary_routing_estimated_cost_usd
-                ),
-                "real_backup_routing_estimated_cost_usd": (
-                    row.backup_routing_estimated_cost_usd
-                ),
+                "real_primary_routing_estimated_cost_usd": (row.primary_routing_estimated_cost_usd),
+                "real_backup_routing_estimated_cost_usd": (row.backup_routing_estimated_cost_usd),
             },
         )
 
@@ -544,6 +555,10 @@ class Recorder:
             hedge_backup_win_rate = (
                 n_hedge_won_by_backup / n_hedge_triggered if n_hedge_triggered else 0.0
             )
+            total_physical_cost_usd = sum(
+                float(record.metadata.get("real_physical_cost_usd") or 0.0)
+                for record in policy_records
+            )
             summary[policy] = {
                 "n_total": n_total,
                 "n_success": n_success,
@@ -554,11 +569,16 @@ class Recorder:
                 "total_retry_count": total_retry_count,
                 "total_retry_sleep_ms": round(total_retry_sleep_ms, 3),
                 "total_cost_usd": round(run.total_cost_usd(), 8),
+                "total_physical_cost_usd": round(total_physical_cost_usd, 8),
                 "success_rate": round(success_rate, 6),
                 "slo_violation_rate": round(slo_violation_rate, 6),
                 "hedge_trigger_rate": round(hedge_trigger_rate, 6),
                 "hedge_backup_win_rate": round(hedge_backup_win_rate, 6),
                 "mean_cost_usd": round(run.mean_cost_usd(), 8),
+                "mean_physical_cost_usd": round(
+                    total_physical_cost_usd / n_total if n_total else 0.0,
+                    8,
+                ),
                 "ttft_ms_p50": _percentile(ttfts, 50.0),
                 "ttft_ms_p90": _percentile(ttfts, 90.0),
                 "ttft_ms_p99": _percentile(ttfts, 99.0),

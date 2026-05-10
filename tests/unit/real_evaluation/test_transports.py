@@ -1,4 +1,4 @@
-"""Transport-level retry semantics."""
+"""Transport-level streaming semantics."""
 
 from __future__ import annotations
 
@@ -75,44 +75,19 @@ def _transport(session: _FakeSession) -> OpenAICompatStreamingTransport:
     return OpenAICompatStreamingTransport(cfg, session)  # type: ignore[arg-type]
 
 
-def test_http_429_is_retried_and_retry_delay_counts_toward_ttft(monkeypatch) -> None:
-    """A transient 429 is an execution retry, not a final provider miss.
-
-    The final success keeps ``status=success`` and TTFT/E2E are measured from
-    the first attempt, including rate-limit backoff.
-    """
+def test_http_429_returns_immediately_without_same_provider_retry(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    sleep_calls: list[float] = []
-    real_sleep = __import__("time").sleep
-
-    def short_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-        real_sleep(min(seconds, 0.01))
-
-    monkeypatch.setattr("experiments.real_evaluation.transports.time.sleep", short_sleep)
-    session = _FakeSession(
-        [
-            _FakeResponse(
-                429,
-                headers={"Retry-After": "0.01"},
-                payload={"error": {"message": "rate limited"}},
-            ),
-            _FakeResponse(
-                200,
-                stream_chunks=[
-                    {
-                        "choices": [{"delta": {"content": "hello"}}],
-                        "usage": {
-                            "prompt_tokens": 3,
-                            "completion_tokens": 5,
-                            "cost": 0.000123,
-                        },
-                        "provider": "actual-provider",
-                    }
-                ],
-            ),
-        ]
+    response = _FakeResponse(
+        429,
+        headers={"Retry-After": "0.01"},
+        payload={"error": {"message": "rate limited"}},
     )
+
+    def fail_sleep(seconds: float) -> None:
+        raise AssertionError(f"429 should not sleep before retrying, got {seconds}")
+
+    monkeypatch.setattr("experiments.real_evaluation.transports.time.sleep", fail_sleep)
+    session = _FakeSession([response])
     event = threading.Event()
     ttft_info: dict = {}
 
@@ -124,19 +99,19 @@ def test_http_429_is_retried_and_retry_delay_counts_toward_ttft(monkeypatch) -> 
         ttft_info=ttft_info,
     )
 
-    assert len(session.calls) == 2
-    assert sleep_calls == [0.01]
-    assert result.status == "success"
+    assert len(session.calls) == 1
+    assert response.closed is True
+    assert result.status == "HTTP 429"
     assert result.rate_limited is True
-    assert result.retry_count == 1
-    assert result.retry_sleep_ms == 10.0
-    assert result.ttft_ms >= result.retry_sleep_ms
-    assert result.e2e_ms >= result.ttft_ms
-    assert result.billed_cost_usd == 0.000123
-    assert result.cost_source == "reported"
-    assert result.provider == "OR_Test@actual-provider"
+    assert result.retry_count == 0
+    assert result.retry_sleep_ms == 0.0
+    assert result.ttft_ms == -1.0
+    assert result.e2e_ms >= 0.0
+    assert result.billed_cost_usd == 0.0
+    assert result.physical_cost_usd == 0.0
+    assert result.provider == "OR_Test"
     assert event.is_set()
-    assert ttft_info["status"] == "success"
+    assert ttft_info["status"] == "HTTP 429"
 
 
 def test_transport_parses_observed_cached_input_tokens(monkeypatch) -> None:
@@ -169,31 +144,27 @@ def test_observed_cache_read_tokens_accepts_anthropic_usage_shape() -> None:
     assert observed_cache_read_tokens({"cache_read_input_tokens": 13}) == 13
 
 
-def test_http_429_final_failure_only_after_retry_budget_exhausted(monkeypatch) -> None:
-    """If the rate limit never clears within the request timeout, only then
-    does the transport return a final HTTP 429 failure sample."""
+def test_http_429_retry_after_header_does_not_delay_provider_failure(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _FakeResponse(
+        429,
+        headers={"Retry-After": "10"},
+        payload={"error": {"message": "rate limited"}},
+    )
     session = _FakeSession(
         [
-            _FakeResponse(
-                429,
-                headers={"Retry-After": "10"},
-                payload={"error": {"message": "rate limited"}},
-            ),
-            _FakeResponse(
-                429,
-                headers={"Retry-After": "10"},
-                payload={"error": {"message": "still limited"}},
-            ),
+            response,
         ]
     )
 
-    result = _transport(session).send(prompt="x", max_tokens=8, timeout=0.005)
+    result = _transport(session).send(prompt="x", max_tokens=8, timeout=60)
 
+    assert len(session.calls) == 1
+    assert response.closed is True
     assert result.status == "HTTP 429"
     assert result.rate_limited is True
-    assert result.retry_count >= 1
-    assert result.retry_sleep_ms >= 1.0
+    assert result.retry_count == 0
+    assert result.retry_sleep_ms == 0.0
     assert result.ttft_ms == -1.0
 
 
@@ -293,6 +264,23 @@ def test_resolve_transport_config_parses_cached_input_price() -> None:
     assert cfg.cached_input_price_per_m == 0.02
 
 
+def test_resolve_transport_config_honors_api_key_env_override() -> None:
+    cfg = resolve_transport_config(
+        {
+            "name": "Featherless_SC",
+            "tier": "concurrency",
+            "transport": "featherless",
+            "model": "test/model",
+            "api_key_env": "FEATHERLESS_API_KEY_POLICY_0",
+            "input_price_per_m": 0.0,
+            "output_price_per_m": 0.0,
+            "billing_mode": "subscription",
+        }
+    )
+
+    assert cfg.api_key_env == "FEATHERLESS_API_KEY_POLICY_0"
+
+
 def test_openrouter_api_provider_requires_positive_prices() -> None:
     """OpenRouter/API providers must not silently fall back to zero cost."""
     with pytest.raises(ValueError, match="require positive input/output prices"):
@@ -326,6 +314,67 @@ def test_subscription_provider_allows_zero_marginal_price() -> None:
     assert cfg.output_price_per_m == 0.0
 
 
+def test_openrouter_subscription_provider_allows_zero_paper_price() -> None:
+    cfg = resolve_transport_config(
+        {
+            "name": "Chutes_SQ",
+            "tier": "quota",
+            "transport": "openrouter",
+            "model": "test/model",
+            "provider_hint": "Chutes",
+            "input_price_per_m": 0.0,
+            "output_price_per_m": 0.0,
+            "billing_mode": "subscription",
+        }
+    )
+
+    assert cfg.transport == "openrouter"
+    assert cfg.billing_mode == "subscription"
+    assert cfg.input_price_per_m == 0.0
+    assert cfg.output_price_per_m == 0.0
+
+
+def test_openrouter_subscription_reports_physical_but_zero_paper_cost(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                stream_chunks=[
+                    {
+                        "choices": [{"delta": {"content": "hello"}}],
+                        "usage": {
+                            "prompt_tokens": 3,
+                            "completion_tokens": 5,
+                            "cost": 0.000123,
+                        },
+                        "provider": "Chutes",
+                    }
+                ],
+            )
+        ]
+    )
+    cfg = TransportConfig(
+        name="Chutes_SQ",
+        transport="openrouter",
+        model="test/model",
+        provider_hint="Chutes",
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        billing_mode="subscription",
+    )
+
+    result = OpenAICompatStreamingTransport(cfg, session).send(
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+    )
+
+    assert result.billed_cost_usd == 0.0
+    assert result.physical_cost_usd == 0.000123
+    assert result.cost_source == "subscription_zero_marginal+reported_physical"
+
+
 class _CancellableStreamResponse(_FakeResponse):
     """Streams chunks slowly so a cancel mid-flight is observable."""
 
@@ -337,15 +386,11 @@ class _CancellableStreamResponse(_FakeResponse):
 
     def iter_lines(self, decode_unicode: bool = True):
         # First chunk delivers a visible token so the transport sets ttft.
-        yield "data: " + json.dumps(
-            {"choices": [{"delta": {"content": "hello"}}]}
-        )
+        yield "data: " + json.dumps({"choices": [{"delta": {"content": "hello"}}]})
         self.chunks_yielded += 1
         for _ in range(self._chunk_count - 1):
             time.sleep(self._chunk_sleep_sec)
-            yield "data: " + json.dumps(
-                {"choices": [{"delta": {"content": "more"}}]}
-            )
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": "more"}}]})
             self.chunks_yielded += 1
         yield "data: [DONE]"
 
