@@ -437,47 +437,36 @@ class RealExperimentRunner:
         sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
         round_interval_sec: float = 0.0,
         phase: str = "periodic",
+        stop_event: threading.Event | None = None,
     ) -> None:
         """Probe every provider and broadcast observations to all policies.
 
         This is profile-maintenance infrastructure. It is intentionally shared
         across policies so probe traffic does not multiply by policy count.
+        Transient provider failures are retried until the provider yields one
+        successful TTFT sample; configuration failures such as missing API keys
+        still fail fast.
         """
         if probes_per_provider <= 0:
             return
         for round_idx in range(probes_per_provider):
             for spec in self.inventory.providers:
-                if self._stop_event.is_set():
+                if self._probe_stop_requested(stop_event):
                     return
                 if self._cost_exhausted("profile_maintenance"):
                     return
-                ts = time.time()
-                result = self._send_via_transport(
-                    provider=spec.name,
-                    prompt=WARMUP_PROBE_PROMPT,
-                    max_tokens=8,
-                    timeout=self.timeout_sec,
-                    ttft_event=None,
-                    ttft_info=None,
+                result = self._probe_provider_until_success(
+                    spec,
+                    phase=phase,
+                    round_idx=round_idx,
+                    probes_per_provider=probes_per_provider,
+                    retry_sleep_sec=sleep_sec,
+                    stop_event=stop_event,
                 )
-                self._broadcast_sample(spec.name, ts, result)
-                with self._cost_lock:
-                    self._total_cost_usd += self._single_physical_cost(result)
-                    self._profile_probe_cost_usd += self._single_physical_cost(result)
-                    self._profile_probe_counts[phase] = self._profile_probe_counts.get(phase, 0) + 1
-                logger.info(
-                    "%s probe round %d/%d %s: %s ttft=%.1fms billed=$%.5f physical=$%.5f",
-                    phase,
-                    round_idx + 1,
-                    probes_per_provider,
-                    spec.name,
-                    result.status,
-                    result.ttft_ms,
-                    result.billed_cost_usd,
-                    self._single_physical_cost(result),
-                )
-                if sleep_sec > 0:
-                    time.sleep(sleep_sec)
+                if result is None:
+                    return
+                if sleep_sec > 0 and self._probe_sleep(sleep_sec, stop_event):
+                    return
             if round_idx + 1 < probes_per_provider and round_interval_sec > 0:
                 logger.info(
                     "%s probe round %d/%d complete; sleeping %.1fs",
@@ -488,6 +477,116 @@ class RealExperimentRunner:
                 )
                 if self._stop_event.wait(round_interval_sec):
                     return
+
+    def _probe_provider_until_success(
+        self,
+        spec: ProviderSpec,
+        *,
+        phase: str,
+        round_idx: int,
+        probes_per_provider: int,
+        retry_sleep_sec: float,
+        stop_event: threading.Event | None,
+    ) -> SingleRequestResult | None:
+        attempt = 0
+        while True:
+            if self._probe_stop_requested(stop_event):
+                return None
+            if self._cost_exhausted("profile_maintenance"):
+                return None
+
+            attempt += 1
+            ts = time.time()
+            try:
+                result = self._send_via_transport(
+                    provider=spec.name,
+                    prompt=WARMUP_PROBE_PROMPT,
+                    max_tokens=8,
+                    timeout=self.timeout_sec,
+                    ttft_event=None,
+                    ttft_info=None,
+                )
+            except RuntimeError as exc:
+                if "Missing API key" in str(exc):
+                    raise
+                logger.warning(
+                    "%s probe round %d/%d %s attempt %d raised %s; retrying",
+                    phase,
+                    round_idx + 1,
+                    probes_per_provider,
+                    spec.name,
+                    attempt,
+                    exc,
+                )
+                if retry_sleep_sec > 0 and self._probe_sleep(retry_sleep_sec, stop_event):
+                    return None
+                continue
+
+            self._account_profile_probe_attempt(phase, result)
+            if result.status == "success" and result.ttft_ms > 0:
+                self._broadcast_sample(spec.name, ts, result)
+                logger.info(
+                    (
+                        "%s probe round %d/%d %s: success ttft=%.1fms "
+                        "billed=$%.5f physical=$%.5f attempts=%d"
+                    ),
+                    phase,
+                    round_idx + 1,
+                    probes_per_provider,
+                    spec.name,
+                    result.ttft_ms,
+                    result.billed_cost_usd,
+                    self._single_physical_cost(result),
+                    attempt,
+                )
+                return result
+
+            logger.warning(
+                (
+                    "%s probe round %d/%d %s attempt %d failed: %s "
+                    "ttft=%.1fms billed=$%.5f physical=$%.5f; retrying"
+                ),
+                phase,
+                round_idx + 1,
+                probes_per_provider,
+                spec.name,
+                attempt,
+                result.status,
+                result.ttft_ms,
+                result.billed_cost_usd,
+                self._single_physical_cost(result),
+            )
+            if retry_sleep_sec > 0 and self._probe_sleep(retry_sleep_sec, stop_event):
+                return None
+
+    def _account_profile_probe_attempt(
+        self,
+        phase: str,
+        result: SingleRequestResult,
+    ) -> None:
+        physical_cost = self._single_physical_cost(result)
+        with self._cost_lock:
+            self._total_cost_usd += physical_cost
+            self._profile_probe_cost_usd += physical_cost
+            self._profile_probe_counts[phase] = self._profile_probe_counts.get(phase, 0) + 1
+
+    def _probe_stop_requested(self, stop_event: threading.Event | None = None) -> bool:
+        return self._stop_event.is_set() or bool(stop_event is not None and stop_event.is_set())
+
+    def _probe_sleep(
+        self,
+        sleep_sec: float,
+        stop_event: threading.Event | None = None,
+    ) -> bool:
+        deadline = time.time() + max(0.0, sleep_sec)
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return self._probe_stop_requested(stop_event)
+            if self._stop_event.wait(min(remaining, 0.1)):
+                return True
+            if stop_event is not None and stop_event.wait(0):
+                return True
 
     def warmup(
         self,
@@ -680,6 +779,7 @@ class RealExperimentRunner:
                     probes_per_provider=1,
                     sleep_sec=sleep_sec,
                     phase="periodic",
+                    stop_event=stop_event,
                 )
 
         thread = threading.Thread(

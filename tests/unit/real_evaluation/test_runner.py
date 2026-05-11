@@ -453,6 +453,59 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
     rec.close()
 
 
+def test_profile_probe_retries_provider_until_success(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    first_provider = runner.inventory.providers[0].name
+    calls: dict[str, int] = {}
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        assert prompt == WARMUP_PROBE_PROMPT
+        calls[provider] = calls.get(provider, 0) + 1
+        if provider == first_provider and calls[provider] == 1:
+            return SingleRequestResult(
+                ttft_ms=-1.0,
+                e2e_ms=-1.0,
+                status="HTTP 429",
+                provider=provider,
+                http_status=429,
+                rate_limited=True,
+            )
+        now = time.time()
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            physical_cost_usd=0.001,
+            start_ts=now,
+            first_token_ts=now + 0.1,
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="warmup")
+
+    providers = [spec.name for spec in runner.inventory.providers]
+    assert calls[first_provider] == 2
+    assert sum(calls.values()) == len(providers) + 1
+    assert runner._profile_probe_counts["warmup"] == len(providers) + 1
+
+    state = runner.policies["budget_range_p75_hedge"].states[first_provider]
+    assert state.profile.sample_count(time.time()) == 1
+    assert state.profile.error_rate(time.time()) == 0.0
+    rec.close()
+
+
 def test_initial_profile_loads_into_all_policy_profiles(tmp_path) -> None:
     runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_p100"])
     now = time.time()
