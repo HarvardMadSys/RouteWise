@@ -16,6 +16,7 @@ from experiments.real_evaluation.policies import (
     BudgetRangePolicy,
     RequestContext,
     build_policy,
+    select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.shadow_price import (
     concurrency_shadow_price,
@@ -81,6 +82,33 @@ def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     assert isinstance(hedged, BudgetRangeHedgePolicy)
     assert hedged.name == "budget_range_p75_hedge"
     assert hedged.use_hedge is True
+
+
+def test_probability_backup_does_not_fall_back_to_low_median_when_infeasible() -> None:
+    primary = _api_spec("OR_Inceptron", 0.24, 0.9)
+    low_median_heavy_tail = _api_spec("OR_AtlasCloud", 0.295, 1.2)
+    slow_backup = _api_spec("OR_Chutes", 0.118, 0.99)
+    states = {
+        spec.name: ProviderState.from_spec(spec)
+        for spec in [primary, low_median_heavy_tail, slow_backup]
+    }
+    now = 100.0
+    for _ in range(20):
+        states["OR_Inceptron"].profile.add_sample(now, 6000.0)
+        states["OR_Chutes"].profile.add_sample(now, 5500.0)
+    for _ in range(10):
+        states["OR_AtlasCloud"].profile.add_sample(now, 1000.0)
+        states["OR_AtlasCloud"].profile.add_sample(now, 6000.0)
+
+    backup = select_safe_cheapest_backup(
+        "OR_Inceptron",
+        states,
+        RequestContext(10, 8),
+        slo_sec=5.0,
+        now=now,
+    )
+
+    assert backup is None
 
 
 def test_profile_bootstrap_requirement_is_policy_owned() -> None:

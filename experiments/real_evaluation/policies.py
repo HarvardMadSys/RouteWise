@@ -223,6 +223,35 @@ def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]
 # ---------------------------------------------------------------------------
 
 
+def _combined_hedge_success_probability(
+    primary_state: ProviderState,
+    backup_state: ProviderState,
+    *,
+    elapsed_sec: float,
+    slo_sec: float,
+    now: float,
+    dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
+) -> float:
+    """Probability that hedging now keeps the request within SLO.
+
+    Mirrors ``rwsim.policies.hedging.combined_success_probability`` for the
+    real-eval ``ProviderState`` representation.
+    """
+    elapsed_ms = max(0.0, float(elapsed_sec)) * 1000.0
+    slo_ms = slo_sec * 1000.0
+    primary_cdf_t = primary_state.profile.cdf_at(elapsed_ms, now)
+    primary_cdf_slo = primary_state.profile.cdf_at(slo_ms, now)
+    primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
+    if primary_survival_t <= LP_EPS:
+        return 0.0
+
+    p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
+    p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
+    remaining_ms = (slo_sec - float(elapsed_sec) - dispatch_overhead_sec) * 1000.0
+    backup_success = 0.0 if remaining_ms <= 0.0 else backup_state.profile.cdf_at(remaining_ms, now)
+    return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
+
+
 def compute_hedge_time_sec(
     primary_state: ProviderState,
     backup_state: ProviderState,
@@ -243,21 +272,22 @@ def compute_hedge_time_sec(
     Returns ``math.inf`` if no ``t`` in ``[0, slo_sec - dispatch_overhead]``
     meets the target — the runner interprets that as "do not hedge".
 
-    Empirical version of ``lp_budget_eval._find_latest_safe_hedge_time_ms``.
+    Empirical version of ``rwsim``'s latest-safe probability-target hedging.
     """
-    slo_ms = slo_sec * 1000.0
     latest_safe: float | None = None
-    grid = np.arange(0.0, max(slo_sec, grid_step_sec) + 1e-9, grid_step_sec)
+    max_elapsed_sec = max(0.0, slo_sec - dispatch_overhead_sec)
+    grid = np.arange(0.0, max_elapsed_sec + 1e-9, grid_step_sec)
+    if len(grid) == 0:
+        grid = np.array([0.0])
     for elapsed_sec in grid:
-        elapsed_ms = float(elapsed_sec) * 1000.0
-        F_t = primary_state.profile.cdf_at(elapsed_ms, now)
-        F_L = primary_state.profile.cdf_at(slo_ms, now)
-        survived_t = max(1.0 - F_t, 1e-9)
-        p_not_violate = max(0.0, min(1.0, (F_L - F_t) / survived_t))
-        p_violate = max(0.0, min(1.0, (1.0 - F_L) / survived_t))
-        remaining_sec = slo_sec - float(elapsed_sec) - dispatch_overhead_sec
-        p_backup = backup_state.profile.cdf_at(remaining_sec * 1000.0, now)
-        combined = p_not_violate + p_violate * p_backup
+        combined = _combined_hedge_success_probability(
+            primary_state,
+            backup_state,
+            elapsed_sec=float(elapsed_sec),
+            slo_sec=slo_sec,
+            now=now,
+            dispatch_overhead_sec=dispatch_overhead_sec,
+        )
         if combined >= success_target:
             latest_safe = float(elapsed_sec)
     if latest_safe is not None:
@@ -276,35 +306,48 @@ def select_safe_cheapest_backup(
     dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
     cost_fn: Callable[[ProviderState], float] | None = None,
 ) -> str | None:
-    """Pick the cheapest non-primary provider whose CDF passes the SLO threshold.
+    """Pick the cheapest feasible probability-target backup.
 
-    Falls back to the lowest empirical-median provider when no candidate is
-    SLO-safe. Returns ``None`` only when there's no other provider at all.
+    This is the real-eval adapter of simulator ``select_probability_backup``.
+    A backup is feasible only if some latest-safe dispatch time lets the
+    primary+backup pair satisfy the combined SLO success target. If no backup is
+    feasible, return ``None`` and let the runner keep the request primary-only.
     """
-    remaining_ms = (slo_sec - dispatch_overhead_sec) * 1000.0
-    safe: list[tuple[float, ProviderState]] = []
-    for name, state in states.items():
-        if name == primary or not state.is_available(now):
-            continue
-        if state.profile.cdf_at(remaining_ms, now) >= success_target:
-            cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
-            safe.append((cost, state))
-    if safe:
-        safe.sort(key=lambda pair: (pair[0], pair[1].spec.name))
-        return safe[0][1].spec.name
-
-    others: list[tuple[float, ProviderState]] = []
-    for name, state in states.items():
-        if name == primary or not state.is_available(now):
-            continue
-        med = state.profile.median_ms(now)
-        if med is None:
-            med = float("inf")
-        others.append((med, state))
-    if not others:
+    primary_state = states.get(primary)
+    if primary_state is None:
         return None
-    others.sort(key=lambda pair: (pair[0], pair[1].spec.name))
-    return others[0][1].spec.name
+
+    feasible: list[tuple[float, float, float, str, ProviderState]] = []
+    for name, state in states.items():
+        if name == primary or not state.is_available(now):
+            continue
+        hedge_delay_sec = compute_hedge_time_sec(
+            primary_state,
+            state,
+            slo_sec,
+            now,
+            success_target=success_target,
+            dispatch_overhead_sec=dispatch_overhead_sec,
+        )
+        if not math.isfinite(hedge_delay_sec):
+            continue
+        success_probability = _combined_hedge_success_probability(
+            primary_state,
+            state,
+            elapsed_sec=hedge_delay_sec,
+            slo_sec=slo_sec,
+            now=now,
+            dispatch_overhead_sec=dispatch_overhead_sec,
+        )
+        cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
+        mean_ms, _ = _body_latency_proxy_ms(state, now)
+        if not math.isfinite(mean_ms):
+            mean_ms = UNPROFILED_LATENCY_PENALTY_MS
+        feasible.append((cost, -success_probability, mean_ms, state.spec.name, state))
+    if not feasible:
+        return None
+    feasible.sort(key=lambda item: item[:-1])
+    return feasible[0][-1].spec.name
 
 
 # ---------------------------------------------------------------------------
