@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 LP_EPS: float = 1e-9
+_COST_TIEBREAK_MS: float = 1e-3
 HEDGE_SUCCESS_TARGET: float = 0.99
 HEDGE_DISPATCH_OVERHEAD_SEC: float = 0.05
 BODY_MEAN_MIN_SAMPLES: int = 5
@@ -207,6 +208,26 @@ def _solve_simplex_lp(
     if not result.success:
         return False, None
     return True, np.asarray(result.x, dtype=float)
+
+
+def _cost_tiebroken_objective(
+    latency_objective_ms: Sequence[float],
+    effective_costs: Sequence[float],
+) -> list[float]:
+    """Prefer lower effective cost when LP latency objectives are equal."""
+    if len(latency_objective_ms) != len(effective_costs):
+        raise ValueError("latency objective and cost arrays must have the same length")
+    if len(latency_objective_ms) == 0:
+        return []
+
+    latencies = np.asarray(latency_objective_ms, dtype=float)
+    costs = np.asarray(effective_costs, dtype=float)
+    cost_span = float(costs.max() - costs.min())
+    if cost_span <= LP_EPS:
+        return [float(value) for value in latencies]
+
+    normalized_costs = (costs - costs.min()) / cost_span
+    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
 
 
 def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
@@ -897,8 +918,12 @@ class BudgetRangePolicy(BasePolicy):
         budget = float(c_min + p * (c_max - c_min))
 
         names = [s.spec.name for s in feasible]
+        objective = _cost_tiebroken_objective(
+            [tbar[name] for name in names],
+            [c_eff[name] for name in names],
+        )
         success, vector = _solve_simplex_lp(
-            objective=[tbar[name] for name in names],
+            objective=objective,
             upper_constraint=[c_eff[name] for name in names],
             upper_bound=budget,
         )
@@ -960,8 +985,12 @@ class BudgetRangePolicy(BasePolicy):
         c_max = max(c_values)
         budget = float(c_min + (self.budget_percentile / 100.0) * (c_max - c_min))
         names = [state.spec.name for state in feasible]
+        objective = _cost_tiebroken_objective(
+            [tbar[name] for name in names],
+            [c_eff[name] for name in names],
+        )
         success, vector = _solve_simplex_lp(
-            objective=[tbar[name] for name in names],
+            objective=objective,
             upper_constraint=[c_eff[name] for name in names],
             upper_bound=budget,
         )

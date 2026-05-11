@@ -70,6 +70,31 @@ def test_unprofiled_provider_does_not_appear_fastest() -> None:
     assert UNPROFILED_LATENCY_PENALTY_MS >= 1e8
 
 
+def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
+    """When latency objectives tie, real-eval should match simulator cost tiebreak."""
+    mid = _api_spec("OR_mid", 1.0, 0.0)
+    cheap = _api_spec("OR_cheap", 0.5, 0.0)
+    expensive = _api_spec("OR_expensive", 1.5, 0.0)
+    policy = BudgetRangePolicy(
+        [mid, cheap, expensive],
+        slo_ms=5000.0,
+        budget_percentile=100,
+    )
+    policy.set_cost_envelope((5.0e-5, 1.5e-4))
+    now = 100.0
+    for _ in range(10):
+        policy.add_sample("OR_mid", now, 500.0)
+        policy.add_sample("OR_cheap", now, 500.0)
+        policy.add_sample("OR_expensive", now, 500.0)
+
+    ctx = RequestContext(prompt_tokens=100, completion_tokens_budget=0)
+    decision = policy.route(now, ctx)
+
+    assert decision.primary == "OR_cheap"
+    assert decision.lp_weights == {"OR_cheap": 1.0}
+    assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
+
+
 def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     """Real eval should expose the same first two simulator layers:
     LP-only ``budget_range_p*`` and LP+hedge ``budget_range_p*_hedge``."""
