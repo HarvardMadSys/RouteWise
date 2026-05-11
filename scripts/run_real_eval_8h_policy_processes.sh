@@ -153,8 +153,11 @@ if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
 fi
 
 if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#CHUTES_KEYS[@]}" -lt "$CHUTES_POLICY_COUNT" ]]; then
-  echo "expected at least $CHUTES_POLICY_COUNT Chutes keys from CHUTES_API_KEYS or CHUTES_API_KEY_1..N, got ${#CHUTES_KEYS[@]}" >&2
-  exit 2
+  # Not strictly an error: inventory may use openrouter transport for
+  # Chutes_SQ (no direct Chutes key needed). Warn so users notice when they
+  # ARE expecting direct Chutes; assignment cycles through available keys
+  # and policies past the cycle get an empty CHUTES_API_KEY.
+  echo "WARNING: $CHUTES_POLICY_COUNT joint policies; only ${#CHUTES_KEYS[@]} Chutes keys. OK if inventory routes Chutes via OpenRouter (transport=openrouter). Otherwise direct Chutes calls past key #${#CHUTES_KEYS[@]} will fail with missing CHUTES_API_KEY." >&2
 fi
 
 OR_KEYS_REQUIRED=$OPENROUTER_DEDICATED_POLICY_COUNT
@@ -233,7 +236,7 @@ for i in "${!POLICIES[@]}"; do
   fi
   chutes_key=""
   chutes_key_slot=""
-  if requires_chutes_key "$policy" && [[ "${#CHUTES_KEYS[@]}" -gt 0 ]]; then
+  if requires_chutes_key "$policy" && [[ "${#CHUTES_KEYS[@]}" -gt 0 && "$chutes_idx" -lt "${#CHUTES_KEYS[@]}" ]]; then
     chutes_key="${CHUTES_KEYS[$chutes_idx]}"
     chutes_key_slot=$((chutes_idx + 1))
     chutes_idx=$((chutes_idx + 1))
