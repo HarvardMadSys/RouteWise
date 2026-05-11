@@ -229,6 +229,7 @@ class _PreparedDispatch:
     expected_service_sec: float
     backup: str | None
     hedge_delay_sec: float
+    primary_capacity_id: int | None = None
     primary_cached_input_tokens: int = 0
     backup_cached_input_tokens: int = 0
     primary_routing_estimated_cost_usd: float | None = None
@@ -841,7 +842,7 @@ class RealExperimentRunner:
             decision.hedge = backup
             decision.hedge_delay_sec = hedge_delay_sec
 
-        policy.charge_capacity(decision.primary, now, expected_service_sec)
+        primary_capacity_id = policy.charge_capacity(decision.primary, now, expected_service_sec)
         primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
             decision.primary, ctx
         )
@@ -859,6 +860,7 @@ class RealExperimentRunner:
             expected_service_sec=expected_service_sec,
             backup=backup,
             hedge_delay_sec=hedge_delay_sec,
+            primary_capacity_id=primary_capacity_id,
             primary_cached_input_tokens=primary_cached,
             backup_cached_input_tokens=backup_cached,
             primary_routing_estimated_cost_usd=primary_estimated_cost,
@@ -889,20 +891,25 @@ class RealExperimentRunner:
     ) -> tuple[str, SingleRequestResult, list[tuple[str, SingleRequestResult]]]:
         """Send a non-hedged request, retrying 429s on alternate providers."""
         provider = prepared.decision.primary or ""
+        capacity_id = prepared.primary_capacity_id
         attempts: list[tuple[str, SingleRequestResult]] = []
         excluded: set[str] = set()
 
         while True:
-            if initial_result is not None and not attempts:
-                result = initial_result
-            else:
-                result = send_request(
-                    send_fn=self._send_via_transport,
-                    provider=provider,
-                    prompt=prepared.prompt,
-                    max_tokens=prepared.req.max_tokens,
-                    timeout=self.timeout_sec,
-                )
+            try:
+                if initial_result is not None and not attempts:
+                    result = initial_result
+                else:
+                    result = send_request(
+                        send_fn=self._send_via_transport,
+                        provider=provider,
+                        prompt=prepared.prompt,
+                        max_tokens=prepared.req.max_tokens,
+                        timeout=self.timeout_sec,
+                    )
+            finally:
+                prepared.policy.release_capacity(provider, capacity_id, time.time())
+                capacity_id = None
             attempts.append((provider, result))
             if not result.rate_limited:
                 break
@@ -918,7 +925,7 @@ class RealExperimentRunner:
                 break
 
             provider = next_provider
-            prepared.policy.charge_capacity(
+            capacity_id = prepared.policy.charge_capacity(
                 provider,
                 time.time(),
                 prepared.expected_service_sec,
@@ -985,20 +992,36 @@ class RealExperimentRunner:
             # starts*, not after the hedged request returns. Without
             # this, concurrent route() calls during the backup's
             # lifetime would still see the slot as free.
-            def _charge_backup(dispatch_ts: float, _b=prepared.backup) -> None:
-                policy.charge_capacity(_b, dispatch_ts, prepared.expected_service_sec)
+            backup_capacity_id: int | None = None
+            backup_capacity_lock = threading.Lock()
 
-            hedged = send_hedged_request(
-                send_fn=self._send_via_transport,
-                primary_provider=decision.primary or "",
-                backup_provider=prepared.backup,
-                hedge_delay_sec=prepared.hedge_delay_sec,
-                prompt=prepared.prompt,
-                max_tokens=req.max_tokens,
-                timeout=self.timeout_sec,
-                dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
-                on_backup_dispatch=_charge_backup,
-            )
+            def _charge_backup(dispatch_ts: float, _b=prepared.backup) -> None:
+                nonlocal backup_capacity_id
+                capacity_id = policy.charge_capacity(_b, dispatch_ts, prepared.expected_service_sec)
+                with backup_capacity_lock:
+                    backup_capacity_id = capacity_id
+
+            try:
+                hedged = send_hedged_request(
+                    send_fn=self._send_via_transport,
+                    primary_provider=decision.primary or "",
+                    backup_provider=prepared.backup,
+                    hedge_delay_sec=prepared.hedge_delay_sec,
+                    prompt=prepared.prompt,
+                    max_tokens=req.max_tokens,
+                    timeout=self.timeout_sec,
+                    dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
+                    on_backup_dispatch=_charge_backup,
+                )
+            finally:
+                policy.release_capacity(
+                    decision.primary,
+                    prepared.primary_capacity_id,
+                    time.time(),
+                )
+                with backup_capacity_lock:
+                    capacity_id = backup_capacity_id
+                policy.release_capacity(prepared.backup, capacity_id, time.time())
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
             self._record_prefix_cache_dispatches(prepared, hedged)
@@ -1055,27 +1078,46 @@ class RealExperimentRunner:
         first = prepareds[0]
         if self._is_hedged_action(first):
             assert first.backup is not None
+            backup_capacity_ids: dict[int, int | None] = {}
+            backup_capacity_lock = threading.Lock()
 
             def _charge_all_backups(dispatch_ts: float) -> None:
                 for prepared in prepareds:
                     assert prepared.backup is not None
-                    prepared.policy.charge_capacity(
+                    capacity_id = prepared.policy.charge_capacity(
                         prepared.backup,
                         dispatch_ts,
                         prepared.expected_service_sec,
                     )
+                    with backup_capacity_lock:
+                        backup_capacity_ids[id(prepared)] = capacity_id
 
-            hedged = send_hedged_request(
-                send_fn=self._send_via_transport,
-                primary_provider=first.decision.primary or "",
-                backup_provider=first.backup,
-                hedge_delay_sec=first.hedge_delay_sec,
-                prompt=first.prompt,
-                max_tokens=first.req.max_tokens,
-                timeout=self.timeout_sec,
-                dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
-                on_backup_dispatch=_charge_all_backups,
-            )
+            try:
+                hedged = send_hedged_request(
+                    send_fn=self._send_via_transport,
+                    primary_provider=first.decision.primary or "",
+                    backup_provider=first.backup,
+                    hedge_delay_sec=first.hedge_delay_sec,
+                    prompt=first.prompt,
+                    max_tokens=first.req.max_tokens,
+                    timeout=self.timeout_sec,
+                    dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
+                    on_backup_dispatch=_charge_all_backups,
+                )
+            finally:
+                with backup_capacity_lock:
+                    backup_ids = dict(backup_capacity_ids)
+                for prepared in prepareds:
+                    prepared.policy.release_capacity(
+                        prepared.decision.primary,
+                        prepared.primary_capacity_id,
+                        time.time(),
+                    )
+                    prepared.policy.release_capacity(
+                        prepared.backup,
+                        backup_ids.get(id(prepared)),
+                        time.time(),
+                    )
             physical_cost = self._hedged_physical_cost(hedged)
             for prepared in prepareds:
                 self._feed_back_hedged(prepared.policy, hedged)
@@ -1098,13 +1140,22 @@ class RealExperimentRunner:
             self._account_physical_cost(physical_cost)
             return
 
-        result = send_request(
-            send_fn=self._send_via_transport,
-            provider=first.decision.primary or "",
-            prompt=first.prompt,
-            max_tokens=first.req.max_tokens,
-            timeout=self.timeout_sec,
-        )
+        try:
+            result = send_request(
+                send_fn=self._send_via_transport,
+                provider=first.decision.primary or "",
+                prompt=first.prompt,
+                max_tokens=first.req.max_tokens,
+                timeout=self.timeout_sec,
+            )
+        except Exception:
+            for prepared in prepareds:
+                prepared.policy.release_capacity(
+                    prepared.decision.primary,
+                    prepared.primary_capacity_id,
+                    time.time(),
+                )
+            raise
         if result.rate_limited:
             for prepared in prepareds:
                 final_provider, final_result, attempts = self._send_single_with_rate_limit_fallback(
@@ -1142,6 +1193,12 @@ class RealExperimentRunner:
             return
 
         physical_cost = self._single_physical_cost(result)
+        for prepared in prepareds:
+            prepared.policy.release_capacity(
+                prepared.decision.primary,
+                prepared.primary_capacity_id,
+                time.time(),
+            )
         for prepared in prepareds:
             self._feed_back_single(prepared.policy, prepared.decision.primary or "", result)
             self._account_single(prepared.policy, result, physical=False)

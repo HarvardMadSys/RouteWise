@@ -340,6 +340,7 @@ class BasePolicy:
         self.prefix_cache_routing = bool(prefix_cache_routing)
         self.provider_prefix_cache: dict[str, dict[str, int]] = {}
         self._lock = threading.Lock()
+        self._next_capacity_request_id = 1
 
     def request_cost_for_state(self, state: ProviderState, ctx: RequestContext) -> float:
         """Return this policy's route-time marginal cost for one provider."""
@@ -426,20 +427,34 @@ class BasePolicy:
         provider: str,
         now: float,
         expected_service_sec: float,
-    ) -> None:
+    ) -> int | None:
         """Record one dispatched request against quota / concurrency state."""
         with self._lock:
             state = self.states.get(provider)
             if state is None:
-                return
+                return None
             if state.quota is not None:
                 state.quota.charge(now)
             if state.concurrency is not None:
-                state.concurrency.admit(
-                    request_id=int(now * 1000) & 0xFFFFFFFF,
-                    now=now,
-                    expected_hold_sec=expected_service_sec,
-                )
+                request_id = self._next_capacity_request_id
+                self._next_capacity_request_id += 1
+                del expected_service_sec
+                return state.concurrency.admit(request_id=request_id, now=now)
+            return None
+
+    def release_capacity(
+        self,
+        provider: str | None,
+        request_id: int | None,
+        now: float | None = None,
+    ) -> None:
+        """Release a concurrency lease once the real request has finished."""
+        if provider is None or request_id is None:
+            return
+        with self._lock:
+            state = self.states.get(provider)
+            if state is not None and state.concurrency is not None:
+                state.concurrency.release(request_id, now)
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         raise NotImplementedError

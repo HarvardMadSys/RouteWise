@@ -665,9 +665,9 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     charge_calls: list[tuple[str, float]] = []
     original_charge = policy.charge_capacity
 
-    def tracking_charge(provider: str, ts: float, expected_service_sec: float) -> None:
+    def tracking_charge(provider: str, ts: float, expected_service_sec: float) -> int | None:
         charge_calls.append((provider, ts))
-        original_charge(provider, ts, expected_service_sec)
+        return original_charge(provider, ts, expected_service_sec)
 
     monkeypatch.setattr(policy, "charge_capacity", tracking_charge)
 
@@ -882,6 +882,24 @@ def test_non_hedged_greedy_cost_falls_back_to_next_provider_on_429(monkeypatch) 
     assert row.status == "success"
     assert row.rate_limited is True
     assert row.retry_count == 1
+    rec.close()
+
+
+def test_prepare_dispatch_holds_concurrency_capacity_until_release() -> None:
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    req = TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8)
+
+    first = runner._prepare_dispatch(policy, req, req_index=0)
+    second = runner._prepare_dispatch(policy, req, req_index=1)
+
+    assert first is not None
+    assert second is not None
+    assert first.decision.primary == "Featherless_SC"
+    assert second.decision.primary != "Featherless_SC"
+
+    policy.release_capacity(first.decision.primary, first.primary_capacity_id, time.time())
+    policy.release_capacity(second.decision.primary, second.primary_capacity_id, time.time())
     rec.close()
 
 

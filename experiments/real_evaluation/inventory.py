@@ -213,8 +213,9 @@ def _quota_windows_from_entry(
 class ConcurrencyState:
     """Active-request tracker for concurrency-limited providers.
 
-    Tracks ``(request_id, expected_finish_ts)`` pairs. ``_prune`` evicts
-    finished entries lazily on every read.
+    Tracks ``(request_id, deadline_ts)`` pairs. A deadline of ``inf`` means
+    the caller must explicitly release the slot when the real request finishes.
+    Finite deadlines are still supported for tests and legacy callers.
     """
 
     limit: int
@@ -233,9 +234,23 @@ class ConcurrencyState:
             return 0.0
         return float(min(len(self.active) / self.limit, 0.9999))
 
-    def admit(self, request_id: int, now: float, expected_hold_sec: float) -> None:
+    def admit(
+        self,
+        request_id: int,
+        now: float,
+        expected_hold_sec: float | None = None,
+    ) -> int:
         self._prune(now)
-        self.active.append((request_id, now + max(0.1, expected_hold_sec)))
+        deadline = float("inf")
+        if expected_hold_sec is not None:
+            deadline = now + max(0.1, expected_hold_sec)
+        self.active.append((request_id, deadline))
+        return request_id
+
+    def release(self, request_id: int, now: float | None = None) -> None:
+        if now is not None:
+            self._prune(now)
+        self.active = [(rid, deadline) for rid, deadline in self.active if rid != request_id]
 
 
 @dataclass

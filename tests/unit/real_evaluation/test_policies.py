@@ -157,6 +157,25 @@ def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
     assert eff == c_sp
 
 
+def test_concurrency_capacity_holds_until_explicit_release() -> None:
+    """Live concurrency accounting must track real completion, not estimates."""
+    spec = ProviderSpec(
+        name="Featherless_SC",
+        tier="concurrency",
+        transport_cfg=TransportConfig(name="Featherless_SC", transport="featherless", model="x"),
+        concurrency_limit=1,
+    )
+    policy = build_policy("greedy_cost", specs=[spec], slo_ms=2000.0)
+    now = 100.0
+
+    request_id = policy.charge_capacity("Featherless_SC", now, expected_service_sec=0.1)
+
+    assert request_id is not None
+    assert not policy.states["Featherless_SC"].is_available(now + 60.0)
+    policy.release_capacity("Featherless_SC", request_id, now + 60.0)
+    assert policy.states["Featherless_SC"].is_available(now + 60.0)
+
+
 def test_or_baselines_use_distinct_sentinels() -> None:
     """All four OR baselines (auto + 3 sort modes) round-trip to a unique
     sentinel string and a sensible ``provider.sort`` value."""
