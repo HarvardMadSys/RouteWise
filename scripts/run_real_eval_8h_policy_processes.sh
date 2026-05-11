@@ -58,6 +58,19 @@ requires_featherless_key() {
   esac
 }
 
+# Joint-pool policies that route to Chutes_SQ need a dedicated Chutes key
+# (subscription-tier direct API). OR-only baselines do not.
+requires_chutes_key() {
+  case "$1" in
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 OPENROUTER_KEYS=()
 if [[ -n "${OPENROUTER_API_KEYS:-}" ]]; then
   IFS=',' read -r -a OPENROUTER_KEYS <<< "$OPENROUTER_API_KEYS"
@@ -99,12 +112,33 @@ else
   fi
 fi
 
+CHUTES_KEYS=()
+if [[ -n "${CHUTES_API_KEYS:-}" ]]; then
+  IFS=',' read -r -a CHUTES_KEYS <<< "$CHUTES_API_KEYS"
+else
+  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    var="CHUTES_API_KEY_${n}"
+    alt_var="CHUTES_API_KEY${n}"
+    value="${!var:-${!alt_var:-}}"
+    if [[ -n "$value" ]]; then
+      CHUTES_KEYS+=("$value")
+    fi
+  done
+  if [[ "${#CHUTES_KEYS[@]}" -eq 0 && -n "${CHUTES_API_KEY:-}" ]]; then
+    CHUTES_KEYS+=("$CHUTES_API_KEY")
+  fi
+fi
+
 FEATHERLESS_POLICY_COUNT=0
+CHUTES_POLICY_COUNT=0
 OPENROUTER_DEDICATED_POLICY_COUNT=0
 HAS_NATIVE_OR_BASELINE=0
 for policy in "${POLICIES[@]}"; do
   if requires_featherless_key "$policy"; then
     FEATHERLESS_POLICY_COUNT=$((FEATHERLESS_POLICY_COUNT + 1))
+  fi
+  if requires_chutes_key "$policy"; then
+    CHUTES_POLICY_COUNT=$((CHUTES_POLICY_COUNT + 1))
   fi
   if is_native_or_baseline "$policy"; then
     HAS_NATIVE_OR_BASELINE=1
@@ -115,6 +149,11 @@ done
 
 if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
   echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
+  exit 2
+fi
+
+if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#CHUTES_KEYS[@]}" -lt "$CHUTES_POLICY_COUNT" ]]; then
+  echo "expected at least $CHUTES_POLICY_COUNT Chutes keys from CHUTES_API_KEYS or CHUTES_API_KEY_1..N, got ${#CHUTES_KEYS[@]}" >&2
   exit 2
 fi
 
@@ -130,13 +169,20 @@ fi
 mkdir -p "$OUTPUT_BASE"
 printf '%s\n' "${POLICIES[@]}" > "$OUTPUT_BASE/policies.txt"
 ASSIGNMENTS_PATH="$OUTPUT_BASE/policy_key_assignments.tsv"
-printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\n' > "$ASSIGNMENTS_PATH"
+printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tchutes_key_slot\tstart_delay_sec\n' > "$ASSIGNMENTS_PATH"
+
+# Stagger configuration. OR-only baselines never staggered (they use OR's
+# server-side routing and don't contend for our pinned providers). Other
+# policies (joint-pool / RouteWise / random / greedy) start STAGGER_SEC apart
+# so their concurrent bursts onto pinned providers are spread out per
+# Juncheng's recommendation.
+STAGGER_SEC="${STAGGER_SEC:-0}"
 
 PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
 if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   echo "prebuilding shared initial profile -> $INITIAL_PROFILE_PATH"
-  FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
+  CHUTES_API_KEY="${CHUTES_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
     --inventory "$INVENTORY" \
     --output "$INITIAL_PROFILE_PATH" \
     --probes-per-provider "$WARMUP_PROBES" \
@@ -170,7 +216,9 @@ EOF
 
 pids=()
 featherless_idx=0
+chutes_idx=0
 dedicated_or_idx=1
+non_or_launch_idx=0
 if [[ "$HAS_NATIVE_OR_BASELINE" -eq 0 ]]; then
   dedicated_or_idx=0
 fi
@@ -183,20 +231,33 @@ for i in "${!POLICIES[@]}"; do
     featherless_key_slot=$((featherless_idx + 1))
     featherless_idx=$((featherless_idx + 1))
   fi
+  chutes_key=""
+  chutes_key_slot=""
+  if requires_chutes_key "$policy" && [[ "${#CHUTES_KEYS[@]}" -gt 0 ]]; then
+    chutes_key="${CHUTES_KEYS[$chutes_idx]}"
+    chutes_key_slot=$((chutes_idx + 1))
+    chutes_idx=$((chutes_idx + 1))
+  fi
   if is_native_or_baseline "$policy"; then
     openrouter_key="${OPENROUTER_KEYS[0]}"
     openrouter_key_slot=1
+    start_delay=0
   else
     openrouter_key="${OPENROUTER_KEYS[$dedicated_or_idx]}"
     openrouter_key_slot=$((dedicated_or_idx + 1))
     dedicated_or_idx=$((dedicated_or_idx + 1))
+    start_delay=$((non_or_launch_idx * STAGGER_SEC))
+    non_or_launch_idx=$((non_or_launch_idx + 1))
   fi
-  printf '%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" >> "$ASSIGNMENTS_PATH"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$chutes_key_slot" "$start_delay" >> "$ASSIGNMENTS_PATH"
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
-  echo "launching $policy -> $out"
+  echo "launching $policy -> $out (start_delay=${start_delay}s)"
   (
-    FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
+    if [[ "$start_delay" -gt 0 ]]; then
+      sleep "$start_delay"
+    fi
+    CHUTES_API_KEY="$chutes_key" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
       --inventory "$INVENTORY" \
       --trace "$TRACE" \
       --policy "$policy" \
