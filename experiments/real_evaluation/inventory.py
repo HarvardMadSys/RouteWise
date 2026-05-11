@@ -22,7 +22,7 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     resolve_transport_config,
 )
-from experiments.subscriptions import load_subscription_plans
+from experiments.subscriptions import load_subscription_plans, subscription_fixed_cost_usd
 from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
 
 PROFILE_WINDOW_SEC: float = 15 * 60.0
@@ -78,6 +78,7 @@ class InventoryConfig:
     providers: list[ProviderSpec]
     openrouter_provider_only: tuple[str, ...] = ()
     openrouter_provider_ignore: tuple[str, ...] = ()
+    billing_duration_sec: float | None = None
 
 
 def load_inventory(path: Path | str) -> InventoryConfig:
@@ -138,6 +139,11 @@ def load_inventory(path: Path | str) -> InventoryConfig:
         providers=provider_specs,
         openrouter_provider_only=openrouter_provider_only,
         openrouter_provider_ignore=openrouter_provider_ignore,
+        billing_duration_sec=(
+            float(raw["billing_duration_sec"])
+            if raw.get("billing_duration_sec") is not None
+            else None
+        ),
     )
 
 
@@ -185,10 +191,11 @@ def _quota_windows_from_entry(
     if plan_id is None:
         return ()
     if entry.get("quota_window_sec") is not None or entry.get("quota_requests") is not None:
-        raise ValueError(
-            f"provider {entry.get('name')!r} uses subscription_plan={plan_id!r}; "
-            "quota_window_sec/quota_requests must come from experiments/subscription_plans.yaml"
-        )
+        # Live runs sometimes use OpenRouter to physically emulate a
+        # subscription tier while scaling quota to the experiment window.
+        # Keep subscription_plan for fixed-cost accounting, but honor the
+        # explicit quota fields for capacity.
+        return ()
     if subscription_count <= 0:
         raise ValueError(f"provider {entry.get('name')!r}: subscription_count must be > 0")
     plans = load_subscription_plans()
@@ -207,6 +214,28 @@ def _quota_windows_from_entry(
         )
         for window in plan.quota_windows
     )
+
+
+def subscription_fixed_cost_for_inventory(
+    inventory: InventoryConfig,
+    *,
+    billing_duration_sec: float,
+) -> float:
+    """Return prorated fixed subscription cost for one real-eval policy run."""
+    if billing_duration_sec <= 0.0:
+        return 0.0
+    plans = load_subscription_plans()
+    total = 0.0
+    for spec in inventory.providers:
+        if spec.billing_mode != "subscription" or spec.subscription_plan is None:
+            continue
+        plan = plans[str(spec.subscription_plan)]
+        total += subscription_fixed_cost_usd(
+            plan,
+            subscription_count=spec.subscription_count,
+            trace_days=billing_duration_sec / 86400.0,
+        )
+    return total
 
 
 @dataclass
@@ -400,4 +429,5 @@ __all__ = [
     "QuotaState",
     "build_provider_states",
     "load_inventory",
+    "subscription_fixed_cost_for_inventory",
 ]

@@ -507,7 +507,12 @@ class Recorder:
             },
         )
 
-    def write_summary(self, slo_ms: float) -> Path:
+    def write_summary(
+        self,
+        slo_ms: float,
+        *,
+        fixed_cost_usd_by_policy: dict[str, float] | None = None,
+    ) -> Path:
         """Write per-policy aggregates to ``summary.json`` and return the path."""
         with self._lock:
             rows = list(self._rows)
@@ -559,6 +564,9 @@ class Recorder:
                 float(record.metadata.get("real_physical_cost_usd") or 0.0)
                 for record in policy_records
             )
+            total_cost_usd = run.total_cost_usd() + (
+                fixed_cost_usd_by_policy or {}
+            ).get(policy, 0.0)
             summary[policy] = {
                 "n_total": n_total,
                 "n_success": n_success,
@@ -568,13 +576,13 @@ class Recorder:
                 "n_rate_limited": n_rate_limited,
                 "total_retry_count": total_retry_count,
                 "total_retry_sleep_ms": round(total_retry_sleep_ms, 3),
-                "total_cost_usd": round(run.total_cost_usd(), 8),
+                "total_cost_usd": round(total_cost_usd, 8),
                 "total_physical_cost_usd": round(total_physical_cost_usd, 8),
                 "success_rate": round(success_rate, 6),
                 "slo_violation_rate": round(slo_violation_rate, 6),
                 "hedge_trigger_rate": round(hedge_trigger_rate, 6),
                 "hedge_backup_win_rate": round(hedge_backup_win_rate, 6),
-                "mean_cost_usd": round(run.mean_cost_usd(), 8),
+                "mean_cost_usd": round(total_cost_usd / n_total if n_total else 0.0, 8),
                 "mean_physical_cost_usd": round(
                     total_physical_cost_usd / n_total if n_total else 0.0,
                     8,

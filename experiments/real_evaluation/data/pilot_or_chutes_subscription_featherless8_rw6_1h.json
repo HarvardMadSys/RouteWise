@@ -2,6 +2,7 @@
   "model_family": "minimax-m2.5",
   "openrouter_model_id": "minimax/minimax-m2.5",
   "primary_slo_ms": 5000,
+  "billing_duration_sec": 3600,
   "slo_thresholds_ms": [
     1000,
     2000,
@@ -19,6 +20,7 @@
       "quota_requests": 208,
       "quota_window_sec": 3600,
       "concurrency_limit": null,
+      "subscription_plan": "chutes",
       "billing_mode": "subscription",
       "notes": "1h projection of Chutes public plan: 5000 requests/day -> floor(5000/24)=208 requests. Physically sent through OpenRouter Chutes, but paper accounting treats quota marginal cost as $0 and adds fixed subscription cost separately."
     },
@@ -31,6 +33,7 @@
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
       "concurrency_limit": 1,
+      "subscription_plan": "featherless_premium",
       "billing_mode": "subscription",
       "notes": "Per-process Featherless Premium capacity. Run one joint-pool policy per process with one account key exported as FEATHERLESS_API_KEY. Paper accounting treats marginal request cost as $0 and adds fixed subscription cost separately."
     },

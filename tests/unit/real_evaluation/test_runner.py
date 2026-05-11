@@ -12,7 +12,11 @@ from unittest.mock import patch
 
 import pytest
 
-from experiments.real_evaluation.inventory import ProviderState, load_inventory
+from experiments.real_evaluation.inventory import (
+    ProviderState,
+    load_inventory,
+    subscription_fixed_cost_for_inventory,
+)
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -78,6 +82,22 @@ def test_inventory_loads_subscription_plan_facts_from_canonical_yaml() -> None:
     state = ProviderState.from_spec(minimax)
     assert state.quota is not None
     assert hasattr(state.quota, "windows")
+
+
+def test_inventory_allows_scaled_subscription_quota_for_fixed_cost_accounting() -> None:
+    inventory = load_inventory(
+        "experiments/real_evaluation/data/pilot_or_chutes_subscription_featherless8_rw6_1h.json"
+    )
+    specs = {spec.name: spec for spec in inventory.providers}
+
+    assert inventory.billing_duration_sec == 3600
+    assert specs["Chutes_SQ"].subscription_plan == "chutes"
+    assert specs["Chutes_SQ"].quota_requests == 208
+    assert specs["Featherless_SC"].subscription_plan == "featherless_premium"
+    assert subscription_fixed_cost_for_inventory(
+        inventory,
+        billing_duration_sec=3600,
+    ) == pytest.approx((20.0 + 25.0) / (30 * 24))
 
 
 def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) -> None:

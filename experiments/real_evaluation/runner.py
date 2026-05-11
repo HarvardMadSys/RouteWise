@@ -43,6 +43,7 @@ from experiments.real_evaluation.inventory import (
     InventoryConfig,
     ProviderSpec,
     load_inventory,
+    subscription_fixed_cost_for_inventory,
 )
 from experiments.real_evaluation.policies import (
     HEDGE_DISPATCH_OVERHEAD_SEC,
@@ -1593,11 +1594,34 @@ class RealExperimentRunner:
     # Cleanup.
     # ------------------------------------------------------------------
 
-    def finalize(self) -> Path:
+    def finalize(self, *, billing_duration_sec: float | None = None) -> Path:
         """Flush recorder and write summary JSON."""
-        path = self.recorder.write_summary(slo_ms=self.slo_ms)
+        path = self.recorder.write_summary(
+            slo_ms=self.slo_ms,
+            fixed_cost_usd_by_policy=self._summary_fixed_costs_by_policy(
+                billing_duration_sec=billing_duration_sec,
+            ),
+        )
         self.recorder.close()
         return path
+
+    def _summary_fixed_costs_by_policy(
+        self,
+        *,
+        billing_duration_sec: float | None,
+    ) -> dict[str, float]:
+        if billing_duration_sec is None or billing_duration_sec <= 0.0:
+            return {}
+        fixed_cost = subscription_fixed_cost_for_inventory(
+            self.inventory,
+            billing_duration_sec=billing_duration_sec,
+        )
+        if fixed_cost <= 0.0:
+            return {}
+        return {
+            policy_name: 0.0 if policy_name.startswith("or_") else fixed_cost
+            for policy_name in self.policies
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1846,7 +1870,12 @@ def main(argv: list[str] | None = None) -> int:
         periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
     )
 
-    summary_path = runner.finalize()
+    billing_duration_sec = (
+        inventory.billing_duration_sec
+        if inventory.billing_duration_sec is not None
+        else trace_span_sec
+    )
+    summary_path = runner.finalize(billing_duration_sec=billing_duration_sec)
     logger.info("wrote summary to %s", summary_path)
     return 0
 
