@@ -57,6 +57,7 @@ from experiments.real_evaluation.policies import (
     select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.recorder import Recorder
+from experiments.real_evaluation.shadow_price import workload_cost_envelope
 from experiments.real_evaluation.transports import (
     BaseTransport,
     SingleRequestResult,
@@ -305,6 +306,21 @@ class RealExperimentRunner:
         # worker thread sees a stable storage; a fresh ``threading.local()``
         # in ``_session()`` would defeat the per-thread reuse contract.
         self._thread_local = threading.local()
+
+    # ------------------------------------------------------------------
+    # Cost envelope plumbing.
+    # ------------------------------------------------------------------
+
+    def apply_cost_envelope(self, envelope: tuple[float, float] | None) -> None:
+        """Push a workload-level ``(L, U)`` envelope to all policies.
+
+        Mirrors the simulator path where the envelope is calibrated once from
+        the workload's cheapest-API cost distribution and shared across
+        policies for the whole run, instead of recomputing a degenerate
+        single-request ``L = U * 1e-3`` envelope on every routing call.
+        """
+        for policy in self.policies.values():
+            policy.set_cost_envelope(envelope)
 
     # ------------------------------------------------------------------
     # Transport plumbing.
@@ -1849,6 +1865,19 @@ def main(argv: list[str] | None = None) -> int:
         timeout_sec=args.timeout_sec,
         profile_window_sec=args.profile_window_sec,
         prefix_cache_routing=args.prefix_cache_routing,
+    )
+
+    cost_envelope = workload_cost_envelope(
+        inventory.providers,
+        [req.prompt_tokens for req in trace],
+        [req.max_tokens for req in trace],
+    )
+    runner.apply_cost_envelope(cost_envelope)
+    logger.info(
+        "workload cost envelope: L=$%.6g U=$%.6g (P10/P90 of cheapest-API per-request cost over %d trace requests)",
+        cost_envelope[0],
+        cost_envelope[1],
+        len(trace),
     )
 
     if args.initial_profile_path is not None:

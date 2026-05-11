@@ -19,9 +19,11 @@ from experiments.real_evaluation.policies import (
     select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.shadow_price import (
+    calibrate_envelopes,
     concurrency_shadow_price,
     effective_cost,
     quota_shadow_price,
+    workload_cost_envelope,
 )
 from experiments.real_evaluation.transports import TransportConfig
 
@@ -358,6 +360,53 @@ def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:
     )
 
     assert candidates[0] == "OR_Friendli"
+
+
+def test_workload_cost_envelope_uses_p10_p90_of_cheapest_api_costs() -> None:
+    """Workload envelope is P10/P90 of cheapest-API per-request cost, not U/1000."""
+    cheap = _api_spec("OR_Chutes", in_p=0.118, out_p=0.99)
+    mid = _api_spec("OR_DeepInfra", in_p=0.27, out_p=0.95)
+    expensive = _api_spec("OR_Friendli", in_p=0.30, out_p=1.20)
+    specs = [cheap, mid, expensive]
+
+    # 500 requests with prompt=650, output=15: cheapest is always OR_Chutes
+    # at 650 * 0.118/M + 15 * 0.99/M = $7.67e-5 + $1.485e-5 = $9.155e-5.
+    prompts = [650] * 500
+    completions = [15] * 500
+
+    L, U = workload_cost_envelope(specs, prompts, completions)
+
+    # Constant workload -> P10 == P90 -> falls back to L = U * floor_ratio.
+    assert pytest.approx(9.155e-5, rel=1e-3) == U
+    assert pytest.approx(U * 1e-3, rel=1e-6) == L
+
+    # Varied workload -> envelope should span real per-request cost range.
+    prompts2 = [100, 200, 400, 800, 1600]
+    completions2 = [5, 10, 20, 40, 80]
+    L2, U2 = workload_cost_envelope(specs, prompts2, completions2)
+    assert 0 < L2 < U2
+    assert U2 / L2 < 100  # Should NOT be 1000 like the calibrate_envelopes shortcut.
+
+
+def test_route_uses_workload_cost_envelope_when_set() -> None:
+    """``cost_envelope`` overrides the degenerate per-request calibration."""
+    spec = _api_spec("OR_x", in_p=0.30, out_p=1.20)
+    policy = BudgetRangePolicy([spec], 2000.0)
+
+    # Default: no override; falls back to calibrate_envelopes.
+    assert policy.cost_envelope is None
+    fallback_L, fallback_U = calibrate_envelopes(
+        policy.specs, ctx_prompt_tokens=650, ctx_completion_tokens=15
+    )
+    assert pytest.approx(fallback_U * 1e-3, rel=1e-6) == fallback_L
+
+    # After installing workload envelope, both L and U should reflect that.
+    policy.set_cost_envelope((1.0e-4, 2.0e-4))
+    assert policy.cost_envelope == (1.0e-4, 2.0e-4)
+
+    # Bad input rejected.
+    with pytest.raises(ValueError):
+        policy.set_cost_envelope((1.0, 0.5))
 
 
 def test_prefix_cache_state_is_isolated_per_policy() -> None:

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 from experiments.real_evaluation.transports import compute_request_cost_usd
 from rwsim.policies.effective_cost_kernel import scarcity_price
@@ -139,10 +142,81 @@ def calibrate_envelopes(
     return (L, U)
 
 
+def workload_cost_envelope(
+    specs: Sequence[ProviderSpec],
+    prompt_tokens_list: Sequence[int],
+    completion_tokens_list: Sequence[int],
+    *,
+    lower_percentile: float = 10.0,
+    upper_percentile: float = 90.0,
+    floor_ratio: float = 1e-3,
+) -> tuple[float, float]:
+    """Paper-formula ``(L, U)`` from the workload's cheapest-API cost distribution.
+
+    Mirrors :func:`experiments.simulation.common.workload_cost_envelope`. For
+    each request, the cheapest per-request cost across api-tier providers is
+    taken; ``L`` and ``U`` are then the ``lower_percentile`` and
+    ``upper_percentile`` of that distribution. Falls back to ``U * floor_ratio``
+    when the lower percentile is degenerate or non-positive.
+
+    The single-request shortcut in :func:`calibrate_envelopes` (which uses
+    ``L = U * floor_ratio`` directly) is structurally wrong for the RouteWise
+    shadow-price formula ``psi(z) = L * (U/L)^z`` because it makes ``L`` 1000x
+    smaller than the paper intended, so subscription tiers stay near-zero
+    in ``c_eff`` across most of the quota and the LP picks them blindly.
+    """
+    api_specs = [
+        s
+        for s in specs
+        if s.tier == "api" and (s.input_price_per_m > 0 or s.output_price_per_m > 0)
+    ]
+    if not api_specs:
+        return (1e-6, 1e-3)
+    if len(prompt_tokens_list) != len(completion_tokens_list):
+        raise ValueError(
+            "workload_cost_envelope: prompt_tokens_list and "
+            "completion_tokens_list must be the same length"
+        )
+
+    values: list[float] = []
+    for prompt_tokens, completion_tokens in zip(
+        prompt_tokens_list, completion_tokens_list, strict=False
+    ):
+        costs = [
+            compute_request_cost_usd(
+                int(prompt_tokens),
+                int(completion_tokens),
+                s.input_price_per_m,
+                s.output_price_per_m,
+            )
+            for s in api_specs
+        ]
+        positive_costs = [c for c in costs if c > 0.0 and math.isfinite(c)]
+        if positive_costs:
+            values.append(min(positive_costs))
+
+    if not values:
+        return (1e-6, 1e-3)
+
+    arr = np.asarray(values, dtype=float)
+    L = float(np.percentile(arr, lower_percentile))
+    U = float(np.percentile(arr, upper_percentile))
+    if (
+        not math.isfinite(L)
+        or not math.isfinite(U)
+        or U <= 0.0
+        or L <= 0.0
+        or L >= U
+    ):
+        L = float(max(U * floor_ratio, 1e-9))
+    return (L, U)
+
+
 __all__ = [
     "calibrate_envelopes",
     "concurrency_shadow_price",
     "effective_cost",
     "quota_shadow_price",
     "request_marginal_cost",
+    "workload_cost_envelope",
 ]
