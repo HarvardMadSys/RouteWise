@@ -757,6 +757,98 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     assert backup_ts >= primary_ts
 
 
+def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["budget_range_p100_hedge"])
+    policy = runner.policies["budget_range_p100_hedge"]
+    providers = list(policy.states)
+    primary, backup, fallback = providers[:3]
+    calls: list[str] = []
+
+    for provider in providers:
+        for _ in range(10):
+            policy.add_sample(provider, time.time(), 800.0)
+
+    monkeypatch.setattr(
+        policy,
+        "route",
+        lambda now, ctx: RoutingDecision(primary=primary, notes="hedge_429_test"),
+    )
+    monkeypatch.setattr(
+        "experiments.real_evaluation.runner.select_safe_cheapest_backup",
+        lambda **kwargs: backup,
+    )
+    monkeypatch.setattr(
+        "experiments.real_evaluation.runner.compute_hedge_time_sec",
+        lambda **kwargs: 0.0,
+    )
+
+    def fallback_candidates(
+        now: float,
+        ctx: Any,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        del now, ctx
+        assert {primary, backup}.issubset(excluded)
+        return [fallback]
+
+    monkeypatch.setattr(policy, "rate_limit_fallback_candidates", fallback_candidates)
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, cancel_event
+        calls.append(provider)
+        if provider in {primary, backup}:
+            if ttft_info is not None:
+                ttft_info["status"] = "HTTP 429"
+            if ttft_event is not None:
+                ttft_event.set()
+            return SingleRequestResult(
+                ttft_ms=-1.0,
+                e2e_ms=1.0,
+                status="HTTP 429",
+                provider=provider,
+                http_status=429,
+                rate_limited=True,
+                start_ts=time.time(),
+            )
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8),
+        req_index=0,
+    )
+
+    assert calls[:3] == [primary, backup, fallback]
+    row = rec._rows[0]
+    assert row.primary_provider == primary
+    assert row.actual_provider == fallback
+    assert row.status == "success"
+    assert row.rate_limited is True
+    assert row.retry_count == 2
+    rec.close()
+
+
 def test_coalesced_replay_executes_identical_action_once(monkeypatch) -> None:
     """Coalescing is a physical-execution optimization only: two policies
     that pick the same provider share one API call, while each policy still

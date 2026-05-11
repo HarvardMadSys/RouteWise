@@ -895,41 +895,66 @@ class RealExperimentRunner:
         attempts: list[tuple[str, SingleRequestResult]] = []
         excluded: set[str] = set()
 
-        while True:
-            try:
-                if initial_result is not None and not attempts:
-                    result = initial_result
-                else:
-                    result = send_request(
-                        send_fn=self._send_via_transport,
-                        provider=provider,
-                        prompt=prepared.prompt,
-                        max_tokens=prepared.req.max_tokens,
-                        timeout=self.timeout_sec,
-                    )
-            finally:
-                prepared.policy.release_capacity(provider, capacity_id, time.time())
-                capacity_id = None
-            attempts.append((provider, result))
-            if not result.rate_limited:
-                break
-
+        try:
+            if initial_result is not None:
+                result = initial_result
+            else:
+                result = send_request(
+                    send_fn=self._send_via_transport,
+                    provider=provider,
+                    prompt=prepared.prompt,
+                    max_tokens=prepared.req.max_tokens,
+                    timeout=self.timeout_sec,
+                )
+        finally:
+            prepared.policy.release_capacity(provider, capacity_id, time.time())
+        attempts.append((provider, result))
+        if result.rate_limited:
             excluded.add(provider)
+            return self._continue_after_rate_limited_attempts(prepared, attempts, excluded)
+
+        final_provider, final_result = attempts[-1]
+        self._annotate_rate_limit_fallback(final_result, attempts)
+        return final_provider, final_result, attempts
+
+    def _continue_after_rate_limited_attempts(
+        self,
+        prepared: _PreparedDispatch,
+        attempts: list[tuple[str, SingleRequestResult]],
+        excluded: set[str],
+    ) -> tuple[str, SingleRequestResult, list[tuple[str, SingleRequestResult]]]:
+        """Continue a request after one or more provider-local HTTP 429s."""
+        while attempts and attempts[-1][1].rate_limited:
             fallback_candidates = prepared.policy.rate_limit_fallback_candidates(
                 time.time(),
                 prepared.ctx,
                 excluded=excluded,
             )
-            next_provider = fallback_candidates[0] if fallback_candidates else None
-            if next_provider is None:
+            provider = next(
+                (candidate for candidate in fallback_candidates if candidate not in excluded),
+                None,
+            )
+            if provider is None:
                 break
 
-            provider = next_provider
             capacity_id = prepared.policy.charge_capacity(
                 provider,
                 time.time(),
                 prepared.expected_service_sec,
             )
+            try:
+                result = send_request(
+                    send_fn=self._send_via_transport,
+                    provider=provider,
+                    prompt=prepared.prompt,
+                    max_tokens=prepared.req.max_tokens,
+                    timeout=self.timeout_sec,
+                )
+            finally:
+                prepared.policy.release_capacity(provider, capacity_id, time.time())
+            attempts.append((provider, result))
+            if result.rate_limited:
+                excluded.add(provider)
 
         final_provider, final_result = attempts[-1]
         self._annotate_rate_limit_fallback(final_result, attempts)
@@ -1022,6 +1047,45 @@ class RealExperimentRunner:
                 with backup_capacity_lock:
                     capacity_id = backup_capacity_id
                 policy.release_capacity(prepared.backup, capacity_id, time.time())
+            hedged_attempts = [(decision.primary or "", hedged.primary_result)]
+            if hedged.backup_result is not None:
+                hedged_attempts.append((prepared.backup, hedged.backup_result))
+            if hedged_attempts and all(result.rate_limited for _, result in hedged_attempts):
+                excluded = {provider for provider, _ in hedged_attempts if provider}
+                initial_attempt_count = len(hedged_attempts)
+                final_provider, result, attempts = self._continue_after_rate_limited_attempts(
+                    prepared,
+                    hedged_attempts,
+                    excluded,
+                )
+                if len(attempts) > initial_attempt_count:
+                    self._feed_back_single_attempts(policy, attempts)
+                    self._account_single_attempts(policy, attempts)
+                    primary_cached, primary_estimated_cost = (
+                        prepared.primary_cached_input_tokens,
+                        prepared.primary_routing_estimated_cost_usd,
+                    )
+                    if final_provider != decision.primary:
+                        primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
+                            final_provider,
+                            prepared.ctx,
+                        )
+                    self._record_prefix_cache_dispatch(
+                        policy,
+                        final_provider,
+                        prepared.ctx,
+                        result,
+                    )
+                    self._record_single(
+                        policy,
+                        req,
+                        prepared.req_index,
+                        decision,
+                        result,
+                        primary_cached_input_tokens=primary_cached,
+                        primary_routing_estimated_cost_usd=primary_estimated_cost,
+                    )
+                    return
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
             self._record_prefix_cache_dispatches(prepared, hedged)

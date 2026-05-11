@@ -854,6 +854,84 @@ class BudgetRangePolicy(BasePolicy):
 
         return _fallback_in_budget(feasible, c_eff, budget, c_max, fallback_label="range")
 
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        """Re-solve the RouteWise body objective after provider-local 429s.
+
+        A 429 makes the provider temporarily infeasible for this request. The
+        fallback order should therefore respect the same cost budget and
+        latency objective as ``route()``, not fall back to alphabetical order.
+        """
+        feasible = [
+            state
+            for state in self.states.values()
+            if state.spec.name not in excluded and state.is_available(now)
+        ]
+        if not feasible:
+            return []
+
+        L, U = calibrate_envelopes(
+            self.specs,
+            ctx.prompt_tokens,
+            ctx.completion_tokens_budget,
+            cost_fn=lambda spec: self.request_cost_for_spec(spec, ctx),
+        )
+        request_costs = {
+            state.spec.name: self.request_cost_for_state(state, ctx) for state in feasible
+        }
+        c_eff = {
+            state.spec.name: effective_cost(state, request_costs[state.spec.name], now, U=U, L=L)
+            for state in feasible
+        }
+        tbar: dict[str, float] = {}
+        for state in feasible:
+            mean_ms, _ = _body_latency_proxy_ms(state, now)
+            if not math.isfinite(mean_ms):
+                mean_ms = UNPROFILED_LATENCY_PENALTY_MS
+            tbar[state.spec.name] = mean_ms
+
+        c_values = list(c_eff.values())
+        c_min = min(c_values)
+        c_max = max(c_values)
+        budget = float(c_min + (self.budget_percentile / 100.0) * (c_max - c_min))
+        names = [state.spec.name for state in feasible]
+        success, vector = _solve_simplex_lp(
+            objective=[tbar[name] for name in names],
+            upper_constraint=[c_eff[name] for name in names],
+            upper_bound=budget,
+        )
+
+        lp_order: list[str] = []
+        if success and vector is not None:
+            weights = _normalize_weights(names, vector)
+            lp_order = [
+                name
+                for name, weight in sorted(
+                    weights.items(),
+                    key=lambda item: (-item[1], tbar[item[0]], c_eff[item[0]], item[0]),
+                )
+                if weight > LP_EPS
+            ]
+
+        ordered = list(lp_order)
+        seen = set(ordered)
+        remainder = [name for name in names if name not in seen]
+        remainder.sort(
+            key=lambda name: (
+                c_eff[name] > budget + LP_EPS,
+                tbar[name],
+                c_eff[name],
+                name,
+            )
+        )
+        ordered.extend(remainder)
+        return ordered
+
 
 class BudgetRangeHedgePolicy(BudgetRangePolicy):
     """``LP-RangeBudget`` + ``Hedge-ProbTarget``."""

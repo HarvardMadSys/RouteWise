@@ -310,6 +310,28 @@ def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> No
     assert estimated_cost == pytest.approx(0.1 / 1_000_000.0)
 
 
+def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:
+    slow_alphabetical_first = _api_spec("OR_AtlasCloud", 0.1, 0.1)
+    fast_alphabetical_later = _api_spec("OR_Friendli", 10.0, 10.0)
+    policy = BudgetRangePolicy(
+        [slow_alphabetical_first, fast_alphabetical_later],
+        slo_ms=5000.0,
+        budget_percentile=100,
+    )
+    now = 100.0
+    for _ in range(10):
+        policy.add_sample("OR_AtlasCloud", now, 3000.0)
+        policy.add_sample("OR_Friendli", now, 300.0)
+
+    candidates = policy.rate_limit_fallback_candidates(
+        now,
+        RequestContext(prompt_tokens=10, completion_tokens_budget=8),
+        excluded={"Featherless_SC"},
+    )
+
+    assert candidates[0] == "OR_Friendli"
+
+
 def test_prefix_cache_state_is_isolated_per_policy() -> None:
     spec = _api_spec("OR_cached", 1.0, 0.1, cached_in_p=0.0)
     policy_a = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
