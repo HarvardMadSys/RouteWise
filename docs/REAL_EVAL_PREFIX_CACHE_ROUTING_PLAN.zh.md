@@ -53,7 +53,7 @@ Real-eval 里 prefix cache 分成两套口径：
 
 - `experiments/real_evaluation/shadow_price.py`
   - `request_marginal_cost()` 已经有 `TODO(routewise-cache)`。
-  - `calibrate_envelopes()` 也有 cache TODO。
+  - `workload_cost_envelope()` 是唯一的 RouteWise L/U calibration path，不能回退到 per-request envelope。
 
 - `experiments/real_evaluation/transports.py`
   - `SingleRequestResult.billed_cost_usd` 是最终 recorder 使用的账单。
@@ -216,7 +216,7 @@ def record_prefix_cache_dispatch(...)
 把当前：
 
 ```python
-L, U = calibrate_envelopes(self.specs, ctx.prompt_tokens, ctx.completion_tokens_budget)
+L, U = self._cost_envelope_or_raise()
 request_costs = {
     s.spec.name: request_cost_for_spec(s.spec, ctx) for s in feasible
 }
@@ -225,7 +225,7 @@ request_costs = {
 改成：
 
 ```python
-L, U = calibrate_envelopes(..., provider_prefix_cache=self.provider_prefix_cache, ctx=ctx)
+L, U = self._cost_envelope_or_raise()
 request_costs = {
     s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible
 }

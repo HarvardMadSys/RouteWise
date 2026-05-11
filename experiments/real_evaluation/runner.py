@@ -316,8 +316,8 @@ class RealExperimentRunner:
 
         Mirrors the simulator path where the envelope is calibrated once from
         the workload's cheapest-API cost distribution and shared across
-        policies for the whole run, instead of recomputing a degenerate
-        single-request ``L = U * 1e-3`` envelope on every routing call.
+        policies for the whole run. Real-eval policies fail fast if this is not
+        installed; there is intentionally no single-request fallback.
         """
         for policy in self.policies.values():
             policy.set_cost_envelope(envelope)

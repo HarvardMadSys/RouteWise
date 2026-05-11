@@ -61,7 +61,6 @@ from experiments.real_evaluation.runner import (
     load_trace_jsonl,
 )
 from experiments.real_evaluation.shadow_price import (
-    calibrate_envelopes,
     concurrency_shadow_price,
     effective_cost,
     quota_shadow_price,
@@ -116,7 +115,6 @@ __all__ = [
     "build_policy",
     "build_provider_states",
     "build_transport",
-    "calibrate_envelopes",
     "compute_hedge_time_sec",
     "compute_request_cost_usd",
     "concurrency_shadow_price",

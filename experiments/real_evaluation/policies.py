@@ -55,7 +55,6 @@ from experiments.real_evaluation.prefix_cache import (
     record_prefix_cache_dispatch,
 )
 from experiments.real_evaluation.shadow_price import (
-    calibrate_envelopes,
     effective_cost,
     request_marginal_cost,
 )
@@ -389,12 +388,11 @@ class BasePolicy:
     def set_cost_envelope(self, envelope: tuple[float, float] | None) -> None:
         """Install a workload-level ``(L, U)`` envelope for shadow pricing.
 
-        When set, ``route()`` / ``rate_limit_fallback_candidates()`` use this
-        envelope instead of the per-request fallback in
-        :func:`calibrate_envelopes`. The fallback uses ``L = U * 1e-3`` which
-        collapses ``c_eff`` for subscription tiers to ~0 over most of the quota
-        and makes the LP blindly prefer subscription providers. Workload-level
-        ``(L, U)`` (P10/P90 of cheapest-API costs) restores the paper formula.
+        ``BudgetRangePolicy`` requires this envelope before routing. It must be
+        computed once from the workload's P10/P90 cheapest-API request-cost
+        distribution by the runner; there is intentionally no per-request
+        fallback because that previously made subscription tiers appear nearly
+        free across most of the quota.
         """
         if envelope is None:
             self.cost_envelope = None
@@ -405,6 +403,14 @@ class BasePolicy:
                 f"cost_envelope must satisfy 0 < L < U; got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
+
+    def _cost_envelope_or_raise(self) -> tuple[float, float]:
+        if self.cost_envelope is None:
+            raise RuntimeError(
+                f"{self.name} requires a workload cost envelope; call "
+                "set_cost_envelope((L, U)) before routing."
+            )
+        return self.cost_envelope
 
     def request_cost_for_state(self, state: ProviderState, ctx: RequestContext) -> float:
         """Return this policy's route-time marginal cost for one provider."""
@@ -869,15 +875,7 @@ class BudgetRangePolicy(BasePolicy):
         if not feasible:
             return RoutingDecision(primary=None, notes="none_available")
 
-        if self.cost_envelope is not None:
-            L, U = self.cost_envelope
-        else:
-            L, U = calibrate_envelopes(
-                self.specs,
-                ctx.prompt_tokens,
-                ctx.completion_tokens_budget,
-                cost_fn=lambda spec: self.request_cost_for_spec(spec, ctx),
-            )
+        L, U = self._cost_envelope_or_raise()
         request_costs = {s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible}
         c_eff = {
             s.spec.name: effective_cost(s, request_costs[s.spec.name], now, U=U, L=L)
@@ -942,15 +940,7 @@ class BudgetRangePolicy(BasePolicy):
         if not feasible:
             return []
 
-        if self.cost_envelope is not None:
-            L, U = self.cost_envelope
-        else:
-            L, U = calibrate_envelopes(
-                self.specs,
-                ctx.prompt_tokens,
-                ctx.completion_tokens_budget,
-                cost_fn=lambda spec: self.request_cost_for_spec(spec, ctx),
-            )
+        L, U = self._cost_envelope_or_raise()
         request_costs = {
             state.spec.name: self.request_cost_for_state(state, ctx) for state in feasible
         }

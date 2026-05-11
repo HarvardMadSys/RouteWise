@@ -19,7 +19,6 @@ from experiments.real_evaluation.policies import (
     select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.shadow_price import (
-    calibrate_envelopes,
     concurrency_shadow_price,
     effective_cost,
     quota_shadow_price,
@@ -59,6 +58,7 @@ def test_unprofiled_provider_does_not_appear_fastest() -> None:
         _api_spec("Mid_profiled", 0.3, 1.5),
     ]
     policy = BudgetRangeHedgePolicy(specs, slo_ms=2000.0, budget_percentile=100)
+    policy.set_cost_envelope((1.0e-4, 2.0e-4))
     now = 1_000.0
     for _ in range(20):
         policy.add_sample("Mid_profiled", now, 1100.0)
@@ -326,6 +326,7 @@ def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> No
         prefix_cache_routing=True,
     )
     for policy in (no_cache, cache_aware):
+        policy.set_cost_envelope((1.0e-4, 2.0e-3))
         for _ in range(10):
             policy.add_sample("OR_slow_cheap", now, 1000.0)
             policy.add_sample("OR_fast_expensive", now, 100.0)
@@ -348,6 +349,7 @@ def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:
         slo_ms=5000.0,
         budget_percentile=100,
     )
+    policy.set_cost_envelope((1.0e-4, 2.0e-3))
     now = 100.0
     for _ in range(10):
         policy.add_sample("OR_AtlasCloud", now, 3000.0)
@@ -385,22 +387,24 @@ def test_workload_cost_envelope_uses_p10_p90_of_cheapest_api_costs() -> None:
     completions2 = [5, 10, 20, 40, 80]
     L2, U2 = workload_cost_envelope(specs, prompts2, completions2)
     assert 0 < L2 < U2
-    assert U2 / L2 < 100  # Should NOT be 1000 like the calibrate_envelopes shortcut.
+    assert U2 / L2 < 100  # Should NOT use the old single-request U/1000 shortcut.
 
 
-def test_route_uses_workload_cost_envelope_when_set() -> None:
-    """``cost_envelope`` overrides the degenerate per-request calibration."""
+def test_budget_range_requires_workload_cost_envelope_before_route() -> None:
+    """BudgetRange routing must fail fast without workload-level ``(L, U)``."""
     spec = _api_spec("OR_x", in_p=0.30, out_p=1.20)
     policy = BudgetRangePolicy([spec], 2000.0)
 
-    # Default: no override; falls back to calibrate_envelopes.
     assert policy.cost_envelope is None
-    fallback_L, fallback_U = calibrate_envelopes(
-        policy.specs, ctx_prompt_tokens=650, ctx_completion_tokens=15
-    )
-    assert pytest.approx(fallback_U * 1e-3, rel=1e-6) == fallback_L
+    with pytest.raises(RuntimeError, match="requires a workload cost envelope"):
+        policy.route(0.0, RequestContext(650, 15))
+    with pytest.raises(RuntimeError, match="requires a workload cost envelope"):
+        policy.rate_limit_fallback_candidates(
+            0.0,
+            RequestContext(650, 15),
+            excluded={"Some_other_provider"},
+        )
 
-    # After installing workload envelope, both L and U should reflect that.
     policy.set_cost_envelope((1.0e-4, 2.0e-4))
     assert policy.cost_envelope == (1.0e-4, 2.0e-4)
 

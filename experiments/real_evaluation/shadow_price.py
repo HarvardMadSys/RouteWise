@@ -11,7 +11,7 @@ from experiments.real_evaluation.transports import compute_request_cost_usd
 from rwsim.policies.effective_cost_kernel import scarcity_price
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
     from experiments.real_evaluation.inventory import ProviderSpec, ProviderState
 
@@ -103,45 +103,6 @@ def effective_cost(
     raise ValueError(f"Unsupported provider tier for real-eval effective cost: {state.spec.tier!r}")
 
 
-def calibrate_envelopes(
-    specs: Sequence[ProviderSpec],
-    ctx_prompt_tokens: int,
-    ctx_completion_tokens: int,
-    *,
-    floor_ratio: float = 1e-3,
-    cost_fn: Callable[[ProviderSpec], float] | None = None,
-) -> tuple[float, float]:
-    """Compute ``(L, U)`` envelopes from API providers in the inventory.
-
-    ``U`` is the most expensive API request cost; ``L = max(U * floor_ratio, 1e-9)``.
-    Mirrors :func:`rwsim.policies.routewise.calibrate_envelopes` (the simulator
-    version uses ``cost_per_token * typical_tokens`` since its providers expose
-    a per-token rate; we use ``input + output`` linear pricing because that's
-    what real provider APIs charge).
-    """
-    api_costs: list[float] = []
-    for spec in specs:
-        if spec.tier == "api" and (
-            spec.input_price_per_m > 0 or spec.output_price_per_m > 0
-        ):
-            if cost_fn is not None:
-                api_costs.append(cost_fn(spec))
-            else:
-                api_costs.append(
-                    compute_request_cost_usd(
-                        ctx_prompt_tokens,
-                        ctx_completion_tokens,
-                        spec.input_price_per_m,
-                        spec.output_price_per_m,
-                    )
-                )
-    if not api_costs:
-        return (1e-6, 1e-3)
-    U = float(max(api_costs))
-    L = float(max(U * floor_ratio, 1e-9))
-    return (L, U)
-
-
 def workload_cost_envelope(
     specs: Sequence[ProviderSpec],
     prompt_tokens_list: Sequence[int],
@@ -159,11 +120,12 @@ def workload_cost_envelope(
     ``upper_percentile`` of that distribution. Falls back to ``U * floor_ratio``
     when the lower percentile is degenerate or non-positive.
 
-    The single-request shortcut in :func:`calibrate_envelopes` (which uses
-    ``L = U * floor_ratio`` directly) is structurally wrong for the RouteWise
-    shadow-price formula ``psi(z) = L * (U/L)^z`` because it makes ``L`` 1000x
-    smaller than the paper intended, so subscription tiers stay near-zero
-    in ``c_eff`` across most of the quota and the LP picks them blindly.
+    This is intentionally the only real-eval envelope calibration path. A
+    single-request fallback such as ``L = U * floor_ratio`` is structurally
+    wrong for the RouteWise shadow-price formula ``psi(z) = L * (U/L)^z``:
+    it makes ``L`` roughly 1000x smaller than the paper intended, so
+    subscription tiers stay near-zero in ``c_eff`` across most of the quota
+    and the LP picks them blindly.
     """
     api_specs = [
         s
@@ -213,7 +175,6 @@ def workload_cost_envelope(
 
 
 __all__ = [
-    "calibrate_envelopes",
     "concurrency_shadow_price",
     "effective_cost",
     "quota_shadow_price",
