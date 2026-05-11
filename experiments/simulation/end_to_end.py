@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from experiments.simulation.common import (
+    DEFAULT_CACHED_INPUT_PRICE_FRACTION,
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
     OUTPUT_DIR,
@@ -113,6 +114,8 @@ def make_scenarios(
     concurrency_plan: str = DEFAULT_CONCURRENCY_PLAN,
     concurrency_count: int = DEFAULT_CONCURRENCY_COUNT,
     model: str = DEFAULT_CONCURRENCY_MODEL,
+    prefix_cache_enabled: bool = False,
+    cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
 ) -> dict[str, ScenarioConfig]:
     """Build all §3 scenarios keyed by scenario name."""
     return {
@@ -123,6 +126,8 @@ def make_scenarios(
             concurrency_plan=concurrency_plan,
             concurrency_count=concurrency_count,
             model=model,
+            prefix_cache_enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
         )
         for name in list_scenarios()
     }
@@ -136,45 +141,83 @@ def make_scenario(
     concurrency_plan: str = DEFAULT_CONCURRENCY_PLAN,
     concurrency_count: int = DEFAULT_CONCURRENCY_COUNT,
     model: str = DEFAULT_CONCURRENCY_MODEL,
+    prefix_cache_enabled: bool = False,
+    cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
 ) -> ScenarioConfig:
     """Build one §3 scenario by name."""
     if name == RW3_SCENARIO_NAME:
-        return _make_end_to_end_scenario(
-            scenario_name=name,
-            pool_name=RW3_POOL_NAME,
-            api_provider_limit=1,
-            quota_plan_id=quota_plan,
-            quota_count=quota_count,
-            concurrency_plan_id=concurrency_plan,
-            concurrency_count=concurrency_count,
-            model=model,
+        return _with_prefix_cache_config(
+            _make_end_to_end_scenario(
+                scenario_name=name,
+                pool_name=RW3_POOL_NAME,
+                api_provider_limit=1,
+                quota_plan_id=quota_plan,
+                quota_count=quota_count,
+                concurrency_plan_id=concurrency_plan,
+                concurrency_count=concurrency_count,
+                model=model,
+            ),
+            enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
         )
     if name == COST_TIERED_SCENARIO_NAME:
-        return _make_end_to_end_scenario(
-            scenario_name=name,
-            pool_name=RW8_POOL_NAME,
-            api_provider_limit=None,
-            quota_plan_id=quota_plan,
-            quota_count=quota_count,
-            concurrency_plan_id=concurrency_plan,
-            concurrency_count=concurrency_count,
-            model=model,
-            api_specs=COST_TIERED_API_SPECS,
-            api_price_source="cost_layer_synthetic_tiers",
+        return _with_prefix_cache_config(
+            _make_end_to_end_scenario(
+                scenario_name=name,
+                pool_name=RW8_POOL_NAME,
+                api_provider_limit=None,
+                quota_plan_id=quota_plan,
+                quota_count=quota_count,
+                concurrency_plan_id=concurrency_plan,
+                concurrency_count=concurrency_count,
+                model=model,
+                api_specs=COST_TIERED_API_SPECS,
+                api_price_source="cost_layer_synthetic_tiers",
+            ),
+            enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
         )
     if name == RW8_SCENARIO_NAME:
-        return _make_end_to_end_scenario(
-            scenario_name=name,
-            pool_name=MINIMAX_M25_RW8_POOL_NAME,
-            api_provider_limit=None,
-            quota_plan_id=quota_plan,
-            quota_count=quota_count,
-            concurrency_plan_id=concurrency_plan,
-            concurrency_count=concurrency_count,
-            model=model,
+        return _with_prefix_cache_config(
+            _make_end_to_end_scenario(
+                scenario_name=name,
+                pool_name=MINIMAX_M25_RW8_POOL_NAME,
+                api_provider_limit=None,
+                quota_plan_id=quota_plan,
+                quota_count=quota_count,
+                concurrency_plan_id=concurrency_plan,
+                concurrency_count=concurrency_count,
+                model=model,
+            ),
+            enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
         )
     known = ", ".join(list_scenarios())
     raise ValueError(f"unknown end-to-end scenario {name!r}; known: {known}")
+
+
+def _with_prefix_cache_config(
+    scenario: ScenarioConfig,
+    *,
+    enabled: bool,
+    cached_input_price_fraction: float,
+) -> ScenarioConfig:
+    """Apply provider-local prefix-cache accounting to one §3 scenario."""
+    if cached_input_price_fraction < 0.0:
+        raise ValueError(
+            "cached input price fraction must be non-negative, got "
+            f"{cached_input_price_fraction!r}"
+        )
+    scenario.metadata["prefix_cache_enabled"] = bool(enabled)
+    scenario.metadata["cached_input_price_fraction"] = cached_input_price_fraction
+    if not enabled:
+        return scenario
+    for provider in scenario.providers:
+        if provider.tier == ProviderTier.S_A and provider.input_cost_per_token is not None:
+            provider.cached_input_cost_per_token = (
+                provider.input_cost_per_token * cached_input_price_fraction
+            )
+    return scenario
 
 
 def policies_for_section(
@@ -547,6 +590,8 @@ def _enrich_rows_with_end_to_end_metadata(
                 "api_latency_provider_names": meta.get("api_latency_provider_names"),
                 "api_price_source": meta.get("api_price_source"),
                 "api_price_tiers_per_m": meta.get("api_price_tiers_per_m"),
+                "prefix_cache_enabled": meta.get("prefix_cache_enabled"),
+                "cached_input_price_fraction": meta.get("cached_input_price_fraction"),
                 "slo_ms": meta.get("slo_ms"),
                 "routewise_p": params.get("p"),
                 "hedging_enabled": bool(params.get("hedging", False)),
@@ -568,6 +613,8 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "api_latency_provider_names",
     "api_price_source",
     "api_price_tiers_per_m",
+    "prefix_cache_enabled",
+    "cached_input_price_fraction",
     "subscription_plan",
     "subscription_plan_display_name",
     "subscription_count",
@@ -703,6 +750,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional request-count truncation for smoke runs.",
     )
     parser.add_argument(
+        "--prefix-cache-enabled",
+        action="store_true",
+        help=(
+            "Enable provider-local prefix-cache cost discounts for API providers "
+            "when requests carry prefix_id/session metadata."
+        ),
+    )
+    parser.add_argument(
+        "--cached-input-price-fraction",
+        type=float,
+        default=DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+        help=(
+            "Cached-input price as a fraction of each API provider's normal input "
+            f"price. Defaults to {DEFAULT_CACHED_INPUT_PRICE_FRACTION}."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR / "end_to_end",
@@ -726,6 +790,8 @@ def main(argv: list[str] | None = None) -> int:
             concurrency_plan=args.concurrency_plan,
             concurrency_count=args.concurrency_count,
             model=args.model,
+            prefix_cache_enabled=args.prefix_cache_enabled,
+            cached_input_price_fraction=args.cached_input_price_fraction,
         )
         for name in selected_scenarios
     }
@@ -743,6 +809,8 @@ def main(argv: list[str] | None = None) -> int:
             "concurrency_plan": args.concurrency_plan,
             "concurrency_count": args.concurrency_count,
             "model": args.model,
+            "prefix_cache_enabled": args.prefix_cache_enabled,
+            "cached_input_price_fraction": args.cached_input_price_fraction,
         },
     )
 

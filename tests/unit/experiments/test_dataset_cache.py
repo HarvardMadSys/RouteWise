@@ -14,6 +14,7 @@ import pytest
 from experiments.simulation.dataset_cache import (
     TRACE_WORKLOAD_DATASETS,
     CacheStalenessError,
+    _load_freeinference_jsonl_requests,
     _load_sharegpt_jsonl_requests,
     _manifest_path,
     _read_manifest,
@@ -122,6 +123,78 @@ def test_jsonl_loader_preserves_optional_model_and_session(tmp_path):
     assert requests[1].timestamp == 5.0
     assert requests[1].model == "ChatGPT"
     assert requests[1].metadata["session_id"] == "api:7"
+
+
+def test_freeinference_jsonl_loader_supports_current_schema(tmp_path):
+    """FreeInference exports reverse-chronological API-log JSONL."""
+    jsonl = tmp_path / "freeinference-20260510-20260511.jsonl"
+    jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "request_id": "newer",
+                        "timestamp": "2026-05-11T00:00:10+00:00",
+                        "user_id": "u1",
+                        "model_id": "glm-5.1",
+                        "provider": "zai",
+                        "ttft_ms": 4,
+                        "latency_ms": 5,
+                        "prompt_tokens": 150,
+                        "completion_tokens": 20,
+                        "cache_read_tokens": 120,
+                        "cache_write_tokens": None,
+                        "total_tokens": 170,
+                        "cost_usd": "0.001",
+                        "status_code": 200,
+                        "error": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "request_id": "failed",
+                        "timestamp": "2026-05-11T00:00:05+00:00",
+                        "user_id": "u1",
+                        "model_id": "glm-5.1",
+                        "provider": "zai",
+                        "prompt_tokens": 10,
+                        "completion_tokens": 0,
+                        "total_tokens": 10,
+                        "status_code": 500,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "request_id": "older",
+                        "timestamp": "2026-05-11T00:00:00+00:00",
+                        "user_id": "u1",
+                        "model_id": "qwen3.6-35b",
+                        "provider": "sglang",
+                        "ttft_ms": None,
+                        "latency_ms": 25,
+                        "prompt_tokens": 100,
+                        "completion_tokens": 10,
+                        "cache_read_tokens": None,
+                        "total_tokens": 110,
+                        "cost_usd": "0.002",
+                        "status_code": 200,
+                    }
+                ),
+            ]
+        )
+    )
+
+    requests = _load_freeinference_jsonl_requests(jsonl)
+
+    assert [request.metadata["request_id"] for request in requests] == ["older", "newer"]
+    assert [request.timestamp for request in requests] == [0.0, 10.0]
+    assert requests[0].request_tokens == 100
+    assert requests[0].response_tokens == 10
+    assert requests[0].provider == "sglang"
+    assert requests[0].metadata["prefix_id"] == "freeinference:user:u1"
+    assert requests[1].metadata["cache_read_tokens"] == 120
+    assert requests[1].actual_cost == pytest.approx(0.001)
+    assert requests[1].latency_ms == 5
 
 
 def test_build_skips_existing(_synthetic_source, capsys):

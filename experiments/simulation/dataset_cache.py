@@ -40,13 +40,15 @@ import os
 import pickle
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from rwsim.data import DataLoader
+from rwsim.data import DataLoader, normalize_model_name
 from rwsim.schemas import Request
 
 TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
@@ -57,8 +59,8 @@ _DATA_LOADER_CONFIG = {"dataset": {}}
 
 _TRACE_DATASET_PATHS = {
     "freeinference": [
-        _TRACE_DATA_ROOT / "freeinference.csv",
-        _TRACE_DATA_ROOT / "freeinference_logs.csv",
+        _TRACE_DATA_ROOT / "freeinference.jsonl",
+        _TRACE_DATA_ROOT / "freeinference_logs.jsonl",
     ],
     "rednote": [
         _TRACE_DATA_ROOT / "enterprise.csv",
@@ -129,6 +131,154 @@ def _load_sharegpt_jsonl_requests(filepath: Path) -> list[Request]:
                 )
             )
     return requests
+
+
+def _first_present(record: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first key that exists and is not None."""
+    for key in keys:
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not parsed.is_integer():
+        return None
+    return int(parsed)
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_trace_timestamp(value: Any) -> float:
+    """Parse epoch or ISO-8601 trace timestamps into epoch seconds."""
+    if isinstance(value, int | float):
+        return float(value)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"missing timestamp: {value!r}")
+    timestamp = value.strip()
+    try:
+        return float(timestamp)
+    except ValueError:
+        pass
+    if timestamp.endswith("Z"):
+        timestamp = f"{timestamp[:-1]}+00:00"
+    return datetime.fromisoformat(timestamp).timestamp()
+
+
+def _looks_like_jsonl(path: Path) -> bool:
+    """Return whether the source starts like newline-delimited JSON."""
+    with path.open() as handle:
+        for line in handle:
+            stripped = line.lstrip()
+            if stripped:
+                return stripped.startswith("{")
+    return False
+
+
+def _load_freeinference_jsonl_requests(filepath: Path) -> list[Request]:
+    """Load FreeInference API-log JSONL records into simulator requests.
+
+    The current FreeInference export is a reverse-chronological JSONL log with
+    ``timestamp``, ``prompt_tokens``, ``completion_tokens``, provider/model
+    identity, and observed cache counters.  We keep observed cache counters as
+    metadata for calibration, but the simulator's routing-time cache model uses
+    an explicit ``prefix_id`` derived from ``user_id``.
+    """
+    requests: list[Request] = []
+    with filepath.open() as handle:
+        for line_num, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            status_code = _coerce_optional_int(record.get("status_code"))
+            if status_code is not None and status_code >= 400:
+                continue
+
+            request_tokens = _coerce_optional_int(
+                _first_present(record, ("prompt_tokens", "num_prefill_tokens"))
+            )
+            response_tokens = _coerce_optional_int(
+                _first_present(record, ("completion_tokens", "num_decode_tokens"))
+            )
+            total_tokens = _coerce_optional_int(record.get("total_tokens"))
+            if request_tokens is None or response_tokens is None:
+                continue
+            if total_tokens is None:
+                total_tokens = request_tokens + response_tokens
+            if total_tokens <= 0:
+                continue
+
+            timestamp = _parse_trace_timestamp(
+                _first_present(record, ("timestamp", "arrived_at", "arrival_time_sec"))
+            )
+            user_id = _first_present(record, ("user_id", "user"))
+            metadata = {
+                key: record[key]
+                for key in (
+                    "request_id",
+                    "user_id",
+                    "model_id",
+                    "provider",
+                    "reasoning_tokens",
+                    "cache_read_tokens",
+                    "cache_write_tokens",
+                    "status_code",
+                    "error",
+                )
+                if key in record
+            }
+            if user_id is not None and str(user_id).strip():
+                metadata["prefix_id"] = f"freeinference:user:{str(user_id).strip()}"
+
+            requests.append(
+                Request(
+                    id=line_num - 1,
+                    timestamp=timestamp,
+                    request_tokens=request_tokens,
+                    response_tokens=response_tokens,
+                    total_tokens=total_tokens,
+                    model=normalize_model_name(str(record.get("model_id") or "freeinference")),
+                    provider=str(record.get("provider") or "") or None,
+                    actual_cost=_coerce_optional_float(record.get("cost_usd")),
+                    latency_ms=_coerce_optional_int(record.get("latency_ms")),
+                    ttft_ms=_coerce_optional_int(record.get("ttft_ms")),
+                    metadata=metadata,
+                )
+            )
+
+    requests.sort(key=lambda request: request.timestamp)
+    first_timestamp = float(requests[0].timestamp) if requests else 0.0
+    return [
+        Request(
+            id=index,
+            timestamp=float(request.timestamp) - first_timestamp,
+            request_tokens=request.request_tokens,
+            estimated_response_tokens=request.estimated_response_tokens,
+            response_tokens=request.response_tokens,
+            total_tokens=request.total_tokens,
+            model=request.model,
+            provider=request.provider,
+            actual_cost=request.actual_cost,
+            latency_ms=request.latency_ms,
+            ttft_ms=request.ttft_ms,
+            slo_ms=request.slo_ms,
+            metadata=request.metadata,
+        )
+        for index, request in enumerate(requests)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +451,9 @@ def build_cache(dataset_name: str, *, force: bool = False) -> Path:
     print(f"          source sha256={fingerprint['source_sha256'][:16]}... ({elapsed_hash:.1f}s)")
 
     t1 = time.monotonic()
-    if source_path.suffix == ".jsonl":
+    if dataset_name == "freeinference" and _looks_like_jsonl(source_path):
+        requests = _load_freeinference_jsonl_requests(source_path)
+    elif source_path.suffix == ".jsonl":
         requests = _load_sharegpt_jsonl_requests(source_path)
     else:
         loader = DataLoader(_DATA_LOADER_CONFIG)

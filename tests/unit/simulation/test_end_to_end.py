@@ -148,6 +148,34 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
     )
 
 
+def test_end_to_end_prefix_cache_sets_api_cached_input_prices():
+    scenario = end_to_end.make_scenario(
+        "end_to_end_rw8",
+        prefix_cache_enabled=True,
+        cached_input_price_fraction=0.2,
+    )
+
+    assert scenario.metadata["prefix_cache_enabled"] is True
+    assert scenario.metadata["cached_input_price_fraction"] == pytest.approx(0.2)
+    assert scenario.providers[0].cached_input_cost_per_token is None
+    assert scenario.providers[1].cached_input_cost_per_token is None
+    assert [
+        provider.cached_input_cost_per_token * 1_000_000
+        for provider in scenario.providers[2:]
+    ] == pytest.approx(
+        [
+            0.048,
+            0.060,
+            0.030,
+            0.060,
+            0.068,
+            0.059,
+            0.030,
+            0.060,
+        ]
+    )
+
+
 def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
     policies = end_to_end.policies_for_section((0.0, 0.75))
     presets = end_to_end.make_policy_presets((0.0, 0.75))
@@ -189,6 +217,9 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
             "42",
             "--max-requests",
             "12",
+            "--prefix-cache-enabled",
+            "--cached-input-price-fraction",
+            "0.2",
             "--output-dir",
             str(output_dir),
         ]
@@ -207,6 +238,8 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert baseline["hedging_enabled"] is False
     assert baseline["explorer_enabled"] is False
     assert baseline["latency_profile_mode"] == "configured"
+    assert baseline["prefix_cache_enabled"] is True
+    assert baseline["cached_input_price_fraction"] == 0.2
     assert "simulated_429_rate" not in baseline
     assert hedging_row["routewise_p"] == 0.75
     assert hedging_row["hedging_enabled"] is True
@@ -220,3 +253,5 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert csv_rows[1]["real_world_pool"] == "rw3"
     assert csv_rows[1]["routewise_p"] == "0.75"
     assert csv_rows[1]["hedging_enabled"] == "True"
+    assert csv_rows[1]["prefix_cache_enabled"] == "True"
+    assert csv_rows[1]["cached_input_price_fraction"] == "0.2"
