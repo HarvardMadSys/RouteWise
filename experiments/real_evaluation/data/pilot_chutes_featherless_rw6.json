@@ -95,5 +95,5 @@
     "Inceptron",
     "SambaNova"
   ],
-  "notes": "Pilot inventory for 1h real run. Drops MiniMax_SQ/Ollama_SQ to avoid heavy-tail contamination. Restricts OR providers to a 6-provider filtered pool spanning fast-mid-slow + cheap-mid latency. RouteWise and openrouter_auto/sort_* baselines all share this same OR pool."
+  "notes": "Pilot inventory for 1h real run. Drops MiniMax_SQ/Ollama_SQ to avoid heavy-tail contamination. Restricts OR providers to a 6-provider filtered pool spanning fast-mid-slow + cheap-mid latency. RouteWise and or_auto/sort_* baselines all share this same OR pool."
 }

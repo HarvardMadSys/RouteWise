@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch the 8h real-eval plan as one OS process per policy. Each process sees
-# one Featherless account as FEATHERLESS_API_KEY and therefore one concurrency
-# slot in the inventory.
+# Launch the 8h real-eval plan as one OS process per policy. Joint-pool
+# policies get one Featherless account and one OpenRouter key each. Native
+# OpenRouter baselines share OPENROUTER_API_KEY_1 so they measure OR behavior
+# without consuming the per-policy key pool.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -31,19 +32,53 @@ MIN_PROFILE_SUCCESS_SAMPLES="${MIN_PROFILE_SUCCESS_SAMPLES:-5}"
 SHARED_WARMUP_PROFILE="${SHARED_WARMUP_PROFILE:-1}"
 INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}"
 
-POLICIES=(
-  greedy_cost
-  greedy_latency
-  random
-  budget_range_p0_hedge
-  budget_range_p25_hedge
-  budget_range_p50_hedge
-  budget_range_p75_hedge
-  budget_range_p100_hedge
-)
+DEFAULT_POLICY_LIST="greedy_cost greedy_latency budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
+# Override with POLICY_LIST="..." when running a smaller or alternate set.
+read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
 
-if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-  echo "OPENROUTER_API_KEY is required in $ENV_FILE or the environment" >&2
+is_native_or_baseline() {
+  case "$1" in
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+requires_featherless_key() {
+  case "$1" in
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+OPENROUTER_KEYS=()
+if [[ -n "${OPENROUTER_API_KEYS:-}" ]]; then
+  IFS=',' read -r -a OPENROUTER_KEYS <<< "$OPENROUTER_API_KEYS"
+else
+  saw_numbered_openrouter_key=0
+  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    var="OPENROUTER_API_KEY_${n}"
+    alt_var="OPENROUTER_API_KEY${n}"
+    value="${!var:-${!alt_var:-}}"
+    if [[ -n "$value" ]]; then
+      saw_numbered_openrouter_key=1
+      OPENROUTER_KEYS+=("$value")
+    fi
+  done
+  if [[ "$saw_numbered_openrouter_key" -eq 0 && -n "${OPENROUTER_API_KEY:-}" ]]; then
+    OPENROUTER_KEYS+=("$OPENROUTER_API_KEY")
+  fi
+fi
+
+if [[ "${#OPENROUTER_KEYS[@]}" -eq 0 ]]; then
+  echo "OPENROUTER_API_KEY, OPENROUTER_API_KEYS, or OPENROUTER_API_KEY_1..N is required in $ENV_FILE or the environment" >&2
   exit 2
 fi
 
@@ -51,28 +86,57 @@ FEATHERLESS_KEYS=()
 if [[ -n "${FEATHERLESS_API_KEYS:-}" ]]; then
   IFS=',' read -r -a FEATHERLESS_KEYS <<< "$FEATHERLESS_API_KEYS"
 else
-  for n in 1 2 3 4 5 6 7 8; do
+  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
     var="FEATHERLESS_API_KEY_${n}"
-    value="${!var:-}"
+    alt_var="FEATHERLESS_API_KEY${n}"
+    value="${!var:-${!alt_var:-}}"
     if [[ -n "$value" ]]; then
       FEATHERLESS_KEYS+=("$value")
     fi
   done
+  if [[ "${#FEATHERLESS_KEYS[@]}" -eq 0 && -n "${FEATHERLESS_API_KEY:-}" ]]; then
+    FEATHERLESS_KEYS+=("$FEATHERLESS_API_KEY")
+  fi
 fi
 
-if [[ "${#FEATHERLESS_KEYS[@]}" -ne "${#POLICIES[@]}" ]]; then
-  echo "expected ${#POLICIES[@]} Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..8, got ${#FEATHERLESS_KEYS[@]}" >&2
+FEATHERLESS_POLICY_COUNT=0
+OPENROUTER_DEDICATED_POLICY_COUNT=0
+HAS_NATIVE_OR_BASELINE=0
+for policy in "${POLICIES[@]}"; do
+  if requires_featherless_key "$policy"; then
+    FEATHERLESS_POLICY_COUNT=$((FEATHERLESS_POLICY_COUNT + 1))
+  fi
+  if is_native_or_baseline "$policy"; then
+    HAS_NATIVE_OR_BASELINE=1
+  else
+    OPENROUTER_DEDICATED_POLICY_COUNT=$((OPENROUTER_DEDICATED_POLICY_COUNT + 1))
+  fi
+done
+
+if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
+  echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
+  exit 2
+fi
+
+OR_KEYS_REQUIRED=$OPENROUTER_DEDICATED_POLICY_COUNT
+if [[ "$HAS_NATIVE_OR_BASELINE" -eq 1 ]]; then
+  OR_KEYS_REQUIRED=$((OR_KEYS_REQUIRED + 1))
+fi
+if [[ "${#OPENROUTER_KEYS[@]}" -lt "$OR_KEYS_REQUIRED" ]]; then
+  echo "expected at least $OR_KEYS_REQUIRED OpenRouter keys: key1 for native OR baselines plus one key per non-native policy; got ${#OPENROUTER_KEYS[@]}" >&2
   exit 2
 fi
 
 mkdir -p "$OUTPUT_BASE"
 printf '%s\n' "${POLICIES[@]}" > "$OUTPUT_BASE/policies.txt"
+ASSIGNMENTS_PATH="$OUTPUT_BASE/policy_key_assignments.tsv"
+printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\n' > "$ASSIGNMENTS_PATH"
 
 PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
 if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   echo "prebuilding shared initial profile -> $INITIAL_PROFILE_PATH"
-  FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]}" uv run python scripts/prebuild_profile.py \
+  FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
     --inventory "$INVENTORY" \
     --output "$INITIAL_PROFILE_PATH" \
     --probes-per-provider "$WARMUP_PROBES" \
@@ -98,17 +162,41 @@ WARMUP_PROBE_INTERVAL_SEC=$WARMUP_PROBE_INTERVAL_SEC
 PROFILE_PROBE_SLEEP_SEC=$PROFILE_PROBE_SLEEP_SEC
 PERIODIC_PROBE_INTERVAL_SEC=$PERIODIC_PROBE_INTERVAL_SEC
 MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
+POLICY_LIST=${POLICIES[*]}
+OPENROUTER_KEY_COUNT=${#OPENROUTER_KEYS[@]}
+FEATHERLESS_KEY_COUNT=${#FEATHERLESS_KEYS[@]}
+FEATHERLESS_POLICY_COUNT=$FEATHERLESS_POLICY_COUNT
 EOF
 
 pids=()
+featherless_idx=0
+dedicated_or_idx=1
+if [[ "$HAS_NATIVE_OR_BASELINE" -eq 0 ]]; then
+  dedicated_or_idx=0
+fi
 for i in "${!POLICIES[@]}"; do
   policy="${POLICIES[$i]}"
-  key="${FEATHERLESS_KEYS[$i]}"
+  featherless_key=""
+  featherless_key_slot=""
+  if requires_featherless_key "$policy"; then
+    featherless_key="${FEATHERLESS_KEYS[$featherless_idx]}"
+    featherless_key_slot=$((featherless_idx + 1))
+    featherless_idx=$((featherless_idx + 1))
+  fi
+  if is_native_or_baseline "$policy"; then
+    openrouter_key="${OPENROUTER_KEYS[0]}"
+    openrouter_key_slot=1
+  else
+    openrouter_key="${OPENROUTER_KEYS[$dedicated_or_idx]}"
+    openrouter_key_slot=$((dedicated_or_idx + 1))
+    dedicated_or_idx=$((dedicated_or_idx + 1))
+  fi
+  printf '%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" >> "$ASSIGNMENTS_PATH"
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
   echo "launching $policy -> $out"
   (
-    FEATHERLESS_API_KEY="$key" uv run python -m experiments.real_evaluation \
+    FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
       --inventory "$INVENTORY" \
       --trace "$TRACE" \
       --policy "$policy" \
