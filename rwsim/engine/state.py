@@ -40,7 +40,6 @@ class SimulationState:
     providers: Mapping[str, Provider] = field(default_factory=dict)
     capacity: CapacityState = field(default_factory=CapacityState)
     user_last_provider: dict[str, str] = field(default_factory=dict)
-    provider_prefix_cache: dict[str, dict[str, int]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod

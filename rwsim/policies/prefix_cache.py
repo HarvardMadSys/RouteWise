@@ -1,4 +1,11 @@
-"""Provider-local prefix-cache cost helpers."""
+"""Trace-driven prefix-cache cost helpers.
+
+The cached-input-token count for a request is read directly from the trace
+(e.g. ``cache_read_tokens`` in the freeinference dataset). When the trace
+does not supply that field we conservatively treat the request as a cold
+miss; we no longer extrapolate cache locality from a provider-local prefix
+model, which was too aggressive about predicting hits.
+"""
 
 from __future__ import annotations
 
@@ -10,15 +17,6 @@ if TYPE_CHECKING:
     from rwsim.engine.state import SimulationState
     from rwsim.schemas import Request
     from rwsim.world.providers import Provider
-
-
-def request_prefix_id(request: Request) -> str | None:
-    """Return the conversation/session key used for prefix-cache locality."""
-    for key in ("prefix_id", "sharegpt_conversation_id", "session_id"):
-        value = request.metadata.get(key)
-        if value is not None and str(value) != "":
-            return str(value)
-    return None
 
 
 def response_tokens_for_request(request: Request) -> float:
@@ -38,7 +36,12 @@ def cached_input_tokens(
     *,
     cache_enabled: bool = True,
 ) -> int:
-    """Return length-based cached input tokens for one provider/request pair."""
+    """Return length-based cached input tokens for one provider/request pair.
+
+    The value comes from the trace; if the trace does not report it for this
+    request we return 0 (cold miss). We never synthesize cache hits from a
+    provider-local prefix history.
+    """
     if not cache_enabled or not _state_cache_enabled(state):
         return 0
     if provider.tier != ProviderTier.S_A:
@@ -46,13 +49,26 @@ def cached_input_tokens(
     if provider.cached_input_cost_per_token is None:
         return 0
 
-    prefix_id = request_prefix_id(request)
-    if prefix_id is None:
+    observed_cached_tokens = trace_observed_cached_input_tokens(request)
+    if observed_cached_tokens is None:
         return 0
-
-    previous_context_tokens = state.provider_prefix_cache.get(provider.name, {}).get(prefix_id, 0)
     request_tokens = max(int(request.request_tokens or 0), 0)
-    return min(request_tokens, max(int(previous_context_tokens), 0))
+    return min(request_tokens, observed_cached_tokens)
+
+
+def trace_observed_cached_input_tokens(request: Request) -> int | None:
+    """Return trace-provided cached input tokens when the workload supplies them."""
+    for key in ("cached_input_tokens", "cache_read_tokens"):
+        if key not in request.metadata:
+            continue
+        value = request.metadata.get(key)
+        if value is None or value == "":
+            return None
+        try:
+            return max(int(float(value)), 0)
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def cache_aware_marginal_cost(
@@ -63,7 +79,7 @@ def cache_aware_marginal_cost(
     now: float,
     cache_enabled: bool = True,
 ) -> float:
-    """Return real API marginal cost after provider-local cache discount."""
+    """Return real API marginal cost after trace-reported cache discount."""
     cached_tokens = cached_input_tokens(
         provider,
         request,
@@ -77,30 +93,6 @@ def cache_aware_marginal_cost(
     )
 
 
-def record_prefix_cache_dispatch(
-    provider: Provider,
-    request: Request,
-    state: SimulationState,
-    response_tokens: int | float,
-    *,
-    cache_enabled: bool = True,
-) -> None:
-    """Record the context length a provider has seen after a dispatch."""
-    if not cache_enabled or not _state_cache_enabled(state):
-        return
-    if provider.tier != ProviderTier.S_A:
-        return
-    if provider.cached_input_cost_per_token is None:
-        return
-
-    prefix_id = request_prefix_id(request)
-    if prefix_id is None:
-        return
-
-    context_tokens = max(int(request.request_tokens or 0), 0) + max(int(response_tokens or 0), 0)
-    state.provider_prefix_cache.setdefault(provider.name, {})[prefix_id] = context_tokens
-
-
 def _state_cache_enabled(state: SimulationState) -> bool:
     return bool(state.metadata.get("prefix_cache_enabled", False))
 
@@ -108,7 +100,6 @@ def _state_cache_enabled(state: SimulationState) -> bool:
 __all__ = [
     "cache_aware_marginal_cost",
     "cached_input_tokens",
-    "record_prefix_cache_dispatch",
-    "request_prefix_id",
     "response_tokens_for_request",
+    "trace_observed_cached_input_tokens",
 ]

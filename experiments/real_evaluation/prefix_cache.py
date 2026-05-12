@@ -1,7 +1,13 @@
 """Prefix-cache helpers for real-eval routing decisions.
 
-These helpers model cache hits only for route-time cost estimation. They do
-not change provider-reported billed cost.
+The cached-input-token count comes directly from the replayed trace
+(``cache_read_tokens`` / ``cached_input_tokens`` in the freeinference
+dataset). When the trace does not report a value, the request is treated
+as a cold miss. We do not synthesize cache locality from a provider-local
+prefix model, which was too aggressive at predicting hits.
+
+These helpers model cache hits only for route-time cost estimation; they
+do not change provider-reported billed cost.
 """
 
 from __future__ import annotations
@@ -13,21 +19,21 @@ from experiments.real_evaluation.transports import compute_request_cost_usd
 if TYPE_CHECKING:
     from experiments.real_evaluation.inventory import ProviderSpec
 
-ProviderPrefixCache = dict[str, dict[str, int]]
-
 
 def cached_input_tokens(
     *,
-    provider_name: str,
-    prefix_id: str | None,
     prompt_tokens: int,
-    provider_prefix_cache: ProviderPrefixCache,
+    trace_cached_input_tokens: int | None,
 ) -> int:
-    """Return the length-based prefix-cache hit for one provider/session."""
-    if prefix_id is None:
+    """Return the length-based cached-input-token count for one request.
+
+    Returns 0 when the trace does not report a value; otherwise caps the
+    reported value by the prompt length.
+    """
+    if trace_cached_input_tokens is None:
         return 0
-    previous_context = provider_prefix_cache.get(provider_name, {}).get(prefix_id, 0)
-    return min(max(int(prompt_tokens), 0), max(int(previous_context), 0))
+    capped = max(int(trace_cached_input_tokens), 0)
+    return min(max(int(prompt_tokens), 0), capped)
 
 
 def cache_aware_request_cost_usd(
@@ -35,8 +41,7 @@ def cache_aware_request_cost_usd(
     *,
     prompt_tokens: int,
     completion_tokens: int,
-    prefix_id: str | None,
-    provider_prefix_cache: ProviderPrefixCache,
+    trace_cached_input_tokens: int | None,
     enabled: bool,
 ) -> float:
     """Return routing-estimated API cost, optionally discounting cached input."""
@@ -51,10 +56,8 @@ def cache_aware_request_cost_usd(
         )
 
     cached = cached_input_tokens(
-        provider_name=spec.name,
-        prefix_id=prefix_id,
         prompt_tokens=prompt_tokens,
-        provider_prefix_cache=provider_prefix_cache,
+        trace_cached_input_tokens=trace_cached_input_tokens,
     )
     uncached = max(int(prompt_tokens) - cached, 0)
     return (
@@ -64,29 +67,7 @@ def cache_aware_request_cost_usd(
     ) / 1_000_000.0
 
 
-def record_prefix_cache_dispatch(
-    *,
-    provider_name: str,
-    prefix_id: str | None,
-    prompt_tokens: int,
-    completion_tokens: int,
-    provider_prefix_cache: ProviderPrefixCache,
-) -> None:
-    """Record the context length available after a dispatched request."""
-    if prefix_id is None:
-        return
-    prompt_tokens = max(int(prompt_tokens), 0)
-    completion_tokens = max(int(completion_tokens), 0)
-    if prompt_tokens <= 0 and completion_tokens <= 0:
-        return
-    provider_prefix_cache.setdefault(provider_name, {})[prefix_id] = (
-        prompt_tokens + completion_tokens
-    )
-
-
 __all__ = [
-    "ProviderPrefixCache",
     "cache_aware_request_cost_usd",
     "cached_input_tokens",
-    "record_prefix_cache_dispatch",
 ]

@@ -333,7 +333,7 @@ def test_random_policy_uses_only_available_providers() -> None:
     assert policy.route(0.0, RequestContext(10, 8)).primary == "OR_cheap"
 
 
-def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> None:
+def test_budget_range_policy_uses_trace_cached_input_tokens_for_api_cost() -> None:
     slow_cheap = _api_spec("OR_slow_cheap", 1.0, 0.1)
     fast_expensive = _api_spec("OR_fast_expensive", 10.0, 0.1, cached_in_p=0.0)
     now = 100.0
@@ -356,8 +356,9 @@ def test_budget_range_policy_uses_policy_local_prefix_cache_for_api_cost() -> No
             policy.add_sample("OR_slow_cheap", now, 1000.0)
             policy.add_sample("OR_fast_expensive", now, 100.0)
 
-    ctx = RequestContext(100, 1, prefix_id="conv-1")
-    cache_aware.provider_prefix_cache["OR_fast_expensive"] = {"conv-1": 100}
+    ctx = RequestContext(
+        100, 1, prefix_id="conv-1", trace_cached_input_tokens=100
+    )
 
     assert no_cache.route(now, ctx).primary == "OR_slow_cheap"
     assert cache_aware.route(now, ctx).primary == "OR_fast_expensive"
@@ -438,18 +439,13 @@ def test_budget_range_requires_workload_cost_envelope_before_route() -> None:
         policy.set_cost_envelope((1.0, 0.5))
 
 
-def test_prefix_cache_state_is_isolated_per_policy() -> None:
+def test_routing_cache_diagnostics_returns_zero_when_trace_field_missing() -> None:
     spec = _api_spec("OR_cached", 1.0, 0.1, cached_in_p=0.0)
-    policy_a = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
-    policy_b = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
-    ctx = RequestContext(50, 5, prefix_id="conv-1")
-
-    policy_a.record_prefix_cache_dispatch(
-        "OR_cached",
-        ctx,
-        prompt_tokens=50,
-        completion_tokens=10,
+    policy = BudgetRangePolicy([spec], 2000.0, prefix_cache_routing=True)
+    ctx_missing = RequestContext(50, 5, prefix_id="conv-1")
+    ctx_with_field = RequestContext(
+        50, 5, prefix_id="conv-1", trace_cached_input_tokens=40
     )
 
-    assert policy_a.routing_cache_diagnostics("OR_cached", ctx)[0] == 50
-    assert policy_b.routing_cache_diagnostics("OR_cached", ctx)[0] == 0
+    assert policy.routing_cache_diagnostics("OR_cached", ctx_missing)[0] == 0
+    assert policy.routing_cache_diagnostics("OR_cached", ctx_with_field)[0] == 40

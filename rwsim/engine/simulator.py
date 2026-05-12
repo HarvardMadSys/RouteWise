@@ -17,11 +17,7 @@ import numpy as np
 
 from rwsim.engine.state import SimulationState
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
-from rwsim.policies.prefix_cache import (
-    cached_input_tokens,
-    record_prefix_cache_dispatch,
-    response_tokens_for_request,
-)
+from rwsim.policies.prefix_cache import cached_input_tokens
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -145,19 +141,12 @@ class Simulator:
                 primary_ttft_ms,
             )
 
-        response_tokens = response_tokens_for_request(request)
         primary_cached_input_tokens = cached_input_tokens(primary, request, state)
         primary.account_request(request.id, now, primary_service_time)
         primary_cost_usd = primary.marginal_cost_for_request(
             request,
             now,
             cached_input_tokens=primary_cached_input_tokens,
-        )
-        record_prefix_cache_dispatch(
-            primary,
-            request,
-            state,
-            response_tokens,
         )
         billed_cost = primary_cost_usd
 
@@ -203,12 +192,6 @@ class Simulator:
                     request,
                     dispatch_time,
                     cached_input_tokens=backup_cached_input_tokens,
-                )
-                record_prefix_cache_dispatch(
-                    backup,
-                    request,
-                    state,
-                    response_tokens,
                 )
                 billed_cost += backup_cost_usd
                 hedge_delay_ms = (dispatch_time - now) * 1000.0

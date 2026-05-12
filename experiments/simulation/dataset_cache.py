@@ -193,9 +193,10 @@ def _load_freeinference_jsonl_requests(filepath: Path) -> list[Request]:
 
     The current FreeInference export is a reverse-chronological JSONL log with
     ``timestamp``, ``prompt_tokens``, ``completion_tokens``, provider/model
-    identity, and observed cache counters.  We keep observed cache counters as
-    metadata for calibration, but the simulator's routing-time cache model uses
-    an explicit ``prefix_id`` derived from ``user_id``.
+    identity, and observed cache counters.  Observed cache-read counters are
+    kept in metadata so simulator cost accounting can use them when present;
+    an explicit ``prefix_id`` derived from ``user_id`` remains available as a
+    fallback cache-locality key when observed counters are missing.
     """
     requests: list[Request] = []
     with filepath.open() as handle:

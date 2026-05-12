@@ -1068,7 +1068,7 @@ def test_prepare_dispatch_holds_concurrency_capacity_until_release() -> None:
     rec.close()
 
 
-def test_dispatch_updates_policy_local_prefix_cache_and_records_diagnostics(
+def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
     monkeypatch,
 ) -> None:
     runner, rec = _build_runner(
@@ -1117,14 +1117,70 @@ def test_dispatch_updates_policy_local_prefix_cache_and_records_diagnostics(
             prompt_tokens=20,
             max_tokens=5,
             prefix_id="conv-1",
+            trace_cached_input_tokens=12,
         ),
         req_index=0,
     )
 
-    assert policy.provider_prefix_cache[provider]["conv-1"] == 25
     row = rec._rows[0]
-    assert row.primary_cached_input_tokens == 0
+    assert row.primary_cached_input_tokens == 12
     assert row.primary_observed_cached_input_tokens == 7
     assert row.cost_source == "reported"
     assert row.billed_cost_usd == 0.01
+    rec.close()
+
+
+def test_dispatch_treats_missing_trace_cache_field_as_cold_miss(monkeypatch) -> None:
+    runner, rec = _build_runner(
+        policy_names=["budget_range_p100"],
+        prefix_cache_routing=True,
+    )
+    policy = runner.policies["budget_range_p100"]
+    provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
+
+    monkeypatch.setattr(
+        policy,
+        "route",
+        lambda now, ctx: RoutingDecision(primary=provider, notes="cache_test"),
+    )
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=20,
+            completion_tokens=5,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+            cost_source="reported",
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(
+            arrival_time_sec=0.0,
+            prompt="x",
+            prompt_tokens=20,
+            max_tokens=5,
+            prefix_id="conv-1",
+            trace_cached_input_tokens=None,
+        ),
+        req_index=0,
+    )
+
+    row = rec._rows[0]
+    assert row.primary_cached_input_tokens == 0
     rec.close()

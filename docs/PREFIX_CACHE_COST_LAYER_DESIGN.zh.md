@@ -1,40 +1,39 @@
 # Prefix Cache Cost Layer Design
 
-> 目标：按 May 4 / May 5 会议里 Juncheng 说的 "easy way"，把 prefix cache 作为一个简单、可解释的 cost-layer feature 加进 simulator。第一版只改 API input-token billing，不改 latency、queueing、capacity accounting、hedging success probability。
+> 目标：把 prefix cache 作为简单、可解释的 cost-layer feature 加进 simulator。第一版只改 API input-token billing，不改 latency、queueing、capacity accounting、hedging success probability。
 
-最后更新: 2026-05-10。
+最后更新：2026-05-11。
 
 ---
 
 ## 1. TL;DR
 
-第一版采用 length-based approximation：
+第一版采用 **trace-driven** 的 cache-hit 信号：
 
 ```text
-same provider
-+ same conversation/session
-+ previous context length overlaps current prompt length
-=> assume prefix cache hit
+same request in the freeinference trace already reports cache_read_tokens
+=> use that value (capped by prompt length) as cached input tokens
 => discount API input-token cost
 ```
 
-核心 state 是：
+如果 trace 没给这个字段（或值为空/None），保守地视为 cold miss，不做 discount。
 
-```python
-provider_prefix_cache: dict[str, dict[str, int]]
-```
-
-含义：
+核心字段是 request metadata 里 trace loader 透传的：
 
 ```text
-provider_name -> session_id/prefix_id -> previous_context_tokens
+request.metadata["cache_read_tokens"]      # freeinference 主字段
+request.metadata["cached_input_tokens"]    # 兼容别名
 ```
 
-route 时，对每个 provider 估计：
+route 时，对每个 S_A provider 计算：
 
 ```python
-previous_context_tokens = provider_prefix_cache[provider].get(prefix_id, 0)
-cached_input_tokens = min(request.request_tokens, previous_context_tokens)
+trace_cached = trace_observed_cached_input_tokens(request)  # int | None
+if trace_cached is None or provider.tier != S_A or provider.cached_input_cost_per_token is None:
+    cached_input_tokens = 0
+else:
+    cached_input_tokens = min(request.request_tokens, trace_cached)
+
 uncached_input_tokens = request.request_tokens - cached_input_tokens
 ```
 
@@ -47,47 +46,25 @@ cost =
   + output_tokens * output_price
 ```
 
-dispatch 后更新：
-
-```python
-provider_prefix_cache[chosen_provider][prefix_id] =
-    request.request_tokens + response_tokens
-```
-
-第一版不比较 prompt 文本，不做 LCP，不做 semantic similarity，不做 provider hit-rate probability，不做 TTL/LRU。
+simulator **不再** 维护任何 provider-local prefix cache state，也不在 dispatch 后做 cache update。
 
 ---
 
-## 2. Meeting Basis
+## 2. Why Not Provider-Local Prefix Model
 
-Juncheng 在 May 4 会议里的原话：
+旧设计在 `SimulationState` 里维护
 
-```text
-The missing part, now is prefix cache. That's a big part we ignored.
+```python
+provider_prefix_cache: dict[str, dict[str, int]]
 ```
 
-他的 easy way：
+并按 `request_tokens + response_tokens` 累加 previous context length，dispatch 后更新；route 时 `cached_input_tokens = min(prompt_tokens, previous_context_tokens)`。问题：
 
-```text
-If you see there is a significant overlap in context length with the user's
-previous request, you know there's a prefix cache hit. When you know the prefix
-cache hit, you can estimate the cost. So basically, you reflect that in cost.
-```
+- 它假设“同一个 session 下一轮 prompt 一定复用全部上文”，对真实流量过于乐观，会高估 cache hit 概率。
+- freeinference 这种真实 API trace 自带 `cache_read_tokens`，它才是 ground truth。我们自己构造的 length-based proxy 通常和 ground truth 不一致。
+- post-dispatch update 把 cache state 和 hedged/canceled/billing 路径耦合，复杂且容易错配。
 
-他也明确说第一版不要把它放进 latency：
-
-```text
-For latency, let's ignore it for now...
-we don't consider prefix cache in the latency part.
-```
-
-原因：
-
-1. TTFT / tail latency 主要由 queueing latency 主导。
-2. 真实 provider 可能 load balance 到不同 node，即使逻辑上有 prefix overlap，也不保证实际 node-level hit。
-3. 他不想引入 provider-specific cache hit-rate complexity；第一版可以直接假设 predicted cache 会 hit。
-
-因此 simulator 第一版只在 cost layer 体现 prefix cache。
+因此 simulator 改成：**trace 字段是唯一信号源；缺失就是 cold miss**。Real-eval 走同一套语义，保证两边一致。
 
 ---
 
@@ -95,88 +72,37 @@ we don't consider prefix cache in the latency part.
 
 第一版明确不做：
 
+- 不维护 provider-local prefix cache state。
+- 不在缺失 trace 字段时合成 cache hit。
 - 不做 prompt text longest-common-prefix。
 - 不做 tokenizer-level exact prefix matching。
 - 不做 embedding / semantic similarity。
-- 不做 multi-context per user matching。
-- 不用 `user_id` 作为默认 cache key。
 - 不做 provider-specific cache hit probability。
-- 不做 TTL / LRU eviction。
-- 不使用 `cache_read_tokens` 作为 routing truth。
 - 不改变 TTFT distribution。
 - 不改变 queueing / capacity accounting / service duration。
 - 不改变 quota / concurrency shadow-price 公式。
 - 不在 cache-enabled ablation 中 claim existing exact offline oracle 仍是 strict optimum。
 
-这些可以作为 future work 或 sensitivity，不进 Phase A。
-
 ---
 
 ## 4. Request Metadata
 
-### 4.1 Prefix ID
+### 4.1 Trace Cached Input Tokens
 
-`prefix_id` 表示同一条可复用上下文链。Phase A 只使用 conversation/session 级别 id：
-
-```text
-request.metadata["prefix_id"]
-or request.metadata["sharegpt_conversation_id"]
-or request.metadata["session_id"]
-or None
-```
-
-如果 `prefix_id is None`，该 request 视为 cold，不参与 prefix-cache discount。
-
-这不是在设计 multi-user router；它只是回答 Juncheng 说的 "user's previous request" 在 trace 里应该对应哪条历史上下文。对 ShareGPT/BurstGPT 这类 conversation trace，`conversation_id/session_id` 就是这个边界。
-
-Phase A 不默认使用 `user_id`。原因是一个 user 可以有多条 unrelated tasks，把 `user_id` 当成单一上下文链会夸大 cache hit。FreeInference 这种没有 session id 的 trace，先不作为 Phase A 主实验；后续可以单独做 `user_id as session_id` sensitivity。
-
-### 4.2 Context Length Overlap
-
-第一版不比较 prompt 文本。它只保存 provider 在某个 session 上一次 dispatch 后看到的上下文 token 数：
+`Request.metadata` 透传 trace 原始字段：
 
 ```text
-previous_context_tokens = previous_prompt_tokens + previous_response_tokens
+request.metadata["cache_read_tokens"]    # freeinference 主键，优先
+request.metadata["cached_input_tokens"]  # 简化别名
 ```
 
-当前请求如果考虑发给同一个 provider：
+helper `trace_observed_cached_input_tokens(request)` 按上面顺序返回第一个非空的整数；都没有就 `None`。
 
-```python
-cached_input_tokens = min(
-    current_request_tokens,
-    previous_context_tokens,
-)
-```
+Loader 不再要求生成 `prefix_id`；conversation/session id 只在 diagnostics / 后续 sensitivity 里可选使用。
 
-这对应 Juncheng 的 "significant overlap in context length"：如果当前 prompt 长度不超过 provider 已经见过的上一轮上下文长度，就把这部分视为 cache hit；如果当前 prompt 更长，则最多命中上一轮上下文长度。
+### 4.2 Cap By Prompt Length
 
-Phase A 不设额外 overlap threshold。原因是多轮 chat 的下一轮 prompt 通常包含之前上下文；这个 coarse model 的目标是让 cost layer 看到 provider-local cache locality，而不是精确判定真实 token prefix。
-
-### 4.3 Loader Rule
-
-Phase A 需要 loader 保留或生成：
-
-```text
-prefix_id
-request_tokens
-response_tokens / estimated_response_tokens
-```
-
-推荐规则：
-
-```text
-ShareGPT:
-  prefix_id = sharegpt_conversation_id
-
-Burst/session trace:
-  prefix_id = session_id
-
-No conversation/session id:
-  prefix_id = None
-  cache disabled for that request
-```
-
-Phase A 不需要 loader 保留 `prompt_text` / `response_text` 来计算 cache hit。文本字段可以继续保留给 future exact-prefix sensitivity，但不是核心实现依赖。
+helper `cached_input_tokens(provider, request, state)` 把 trace 值按 `min(prompt_tokens, value)` 截断，避免 trace 把 0 prompt 之外的 token 也算成 hit。如果 trace 给的是 0，则按 cold miss 处理（这正是 "authoritative zero" 行为：trace 明确告诉我们没有 cache hit）。
 
 ---
 
@@ -191,104 +117,51 @@ cached_input_cost_per_token: float | None = None
 语义：
 
 ```text
-None:
-  provider does not support cached-input discount
-
-float:
-  cached input token price for this provider
+None  -> provider 不支持 cached-input discount；即使 trace 报告 cache hit 也按 input_price 计费
+float -> cached input token 单价
 ```
 
 如果没有真实 cached-input price，可以在 scenario factory 里用 fraction 生成：
 
 ```text
-cached_input_cost_per_token =
-  input_cost_per_token * cached_input_price_fraction
+cached_input_cost_per_token = input_cost_per_token * cached_input_price_fraction
 ```
 
-Phase A synthetic price 实验固定：
-
-```text
-cached_input_price_fraction = 0.2
-```
-
-也就是对现有 synthetic API price `{1, 2, 4}`，cache-read input price 直接设成 `{0.2, 0.4, 0.8}`，保持 provider 之间的相对价格结构不变，只表达“cache read 比普通 input token 便宜”。
+Phase A synthetic 实验固定 `cached_input_price_fraction = 0.2`，即对 synthetic API price `{1, 2, 4}`，cache-read input price 为 `{0.2, 0.4, 0.8}`。这是固定 design choice，不是主实验 knob。
 
 不同 tier 的处理：
 
 ```text
-S_A:
-  use cache-aware API token billing
-
-S_Q:
-  keep quota shadow price unchanged
-
-S_C:
-  keep concurrency shadow price unchanged
+S_A: use cache-aware API token billing
+S_Q: keep quota shadow price unchanged
+S_C: keep concurrency shadow price unchanged
 ```
 
-原因：`S_Q` / `S_C` 在 RouteWise effective cost 里是 opportunity cost，不是 provider API token billing。
-
-如果 provider 只有 legacy blended `cost_per_token`，没有拆开的 `input_cost_per_token` / `output_cost_per_token`，cache discount 默认 disabled，避免错误地给 blended price 打折。
+如果 provider 只有 legacy blended `cost_per_token`，cache discount 默认 disabled。
 
 ---
 
 ## 6. Runtime State
 
-在 `SimulationState` 里增加：
+`SimulationState` **不** 再持有 `provider_prefix_cache` 字段。
+
+唯一保留的 master switch 是 scenario metadata：
 
 ```python
-provider_prefix_cache: dict[str, dict[str, int]]
+scenario.metadata["prefix_cache_enabled"] = True | False
 ```
 
-含义：
-
-```text
-provider_name -> prefix_id -> previous_context_tokens
-```
-
-例子：
-
-```text
-session A turn 1 routed to provider P:
-  prompt = 1000 tokens
-  response = 500 tokens
-
-after dispatch:
-  provider_prefix_cache[P][A] = 1500
-
-session A turn 2 considers provider P:
-  prompt = 1800 tokens
-  cached_input_tokens = min(1800, 1500) = 1500
-
-session A turn 2 considers provider Q:
-  provider_prefix_cache[Q][A] missing
-  cached_input_tokens = 0
-```
-
-第一版采用 infinite cache：
-
-- no TTL
-- no LRU
-- no node-level miss
-- one integer per `(provider, prefix_id)`
-
-空间复杂度：
-
-```text
-O(num_providers_that_saw_prefixes * num_prefix_ids_seen_by_provider)
-```
-
-状态非常小，不需要存 prompt text。
+`SimulationState.metadata` 把它复制下来；helper 用它作为 cache-aware billing 的总开关。
 
 ---
 
 ## 7. Helper API
 
-建议新增 helper，例如 `rwsim/policies/prefix_cache.py`：
+`rwsim/policies/prefix_cache.py` 暴露：
 
 ```python
-def request_prefix_id(request: Request) -> str | None:
-    ...
+def trace_observed_cached_input_tokens(request: Request) -> int | None:
+    """读 request.metadata 的 cache_read_tokens / cached_input_tokens。"""
 
 def cached_input_tokens(
     provider: Provider,
@@ -297,7 +170,7 @@ def cached_input_tokens(
     *,
     cache_enabled: bool = True,
 ) -> int:
-    ...
+    """trace 字段缺失 → 0；否则按 min(request_tokens, value) 截断。"""
 
 def cache_aware_marginal_cost(
     provider: Provider,
@@ -307,35 +180,15 @@ def cache_aware_marginal_cost(
     now: float,
     cache_enabled: bool = True,
 ) -> float:
-    ...
+    """走 cached_input_tokens(...) → provider.marginal_cost_for_request(...) 的薄封装。"""
 
-def record_prefix_cache_dispatch(
-    provider: Provider,
-    request: Request,
-    state: SimulationState,
-    response_tokens: int,
-    *,
-    cache_enabled: bool = True,
-) -> None:
-    ...
+def response_tokens_for_request(request: Request) -> float:
+    """billing-like 计算时使用的 output token 数。"""
 ```
 
-`response_tokens` 应使用 simulator 对这次 dispatch 记账时采用的输出 token 数。如果调用点只能使用 `estimated_response_tokens`，需要在调用点保持 billing 和 cache update 使用同一个值。
+`request_prefix_id` 和 `record_prefix_cache_dispatch` 已删除。
 
-`Provider.marginal_cost_for_request()` 可以增加可选参数：
-
-```python
-def marginal_cost_for_request(
-    self,
-    request,
-    now: float,
-    *,
-    cached_input_tokens: int = 0,
-) -> float:
-    ...
-```
-
-旧调用默认 `cached_input_tokens=0`，行为不变。
+`Provider.marginal_cost_for_request(request, now, *, cached_input_tokens=0)` 接口不变；旧调用默认 `cached_input_tokens=0`。
 
 ---
 
@@ -343,24 +196,19 @@ def marginal_cost_for_request(
 
 ### 8.1 Cached Tokens
 
-逻辑：
-
 ```python
-if not cache_enabled:
+if not cache_enabled or not state.metadata.get("prefix_cache_enabled"):
     return 0
-
+if provider.tier != ProviderTier.S_A:
+    return 0
 if provider.cached_input_cost_per_token is None:
     return 0
 
-prefix_id = request_prefix_id(request)
-if prefix_id is None:
+trace_value = trace_observed_cached_input_tokens(request)
+if trace_value is None:
     return 0
 
-previous_context_tokens = state.provider_prefix_cache[provider.name].get(
-    prefix_id, 0
-)
-
-return min(request.request_tokens, previous_context_tokens)
+return min(max(request.request_tokens, 0), max(trace_value, 0))
 ```
 
 ### 8.2 API Cost
@@ -368,10 +216,7 @@ return min(request.request_tokens, previous_context_tokens)
 对 `S_A` provider:
 
 ```python
-uncached_input_tokens = max(
-    request.request_tokens - cached_input_tokens,
-    0,
-)
+uncached_input_tokens = max(request.request_tokens - cached_input_tokens, 0)
 
 cost = (
     uncached_input_tokens * provider.input_cost_per_token
@@ -382,19 +227,11 @@ cost = (
 
 如果 provider 没有 split input/output price，直接走旧的 `marginal_cost_for_request()`。
 
-### 8.3 Cache Update
+### 8.3 No Post-Dispatch Update
 
-dispatch 成功后：
+dispatch 完成后 simulator **不** 写任何 cache state。trace 字段就是 ground truth；不需要事后回写。
 
-```python
-state.provider_prefix_cache[provider.name][prefix_id] = (
-    request.request_tokens + response_tokens
-)
-```
-
-Rejected request 不更新 cache。
-
-如果 hedge backup 真的 dispatch 了，backup provider 也要更新自己的 cache，因为它确实收到了 prompt。
+Rejected / hedged / canceled 路径也都没有 cache update 逻辑。
 
 ---
 
@@ -402,70 +239,42 @@ Rejected request 不更新 cache。
 
 ### 9.1 RouteWise Effective Cost
 
-RouteWise 的 `S_A` 分支应使用 cache-aware marginal cost：
-
-```text
-S_A:
-  cache_aware_marginal_cost(provider, request, state)
-
-S_Q:
-  quota shadow price unchanged
-
-S_C:
-  concurrency shadow price unchanged
-```
-
-当前 simulator 的 `Policy.route(request, state)` 已经把 `SimulationState` 传给 policy，因此 Phase A 不需要改 base policy 接口。
+`S_A` 分支使用 `cache_aware_marginal_cost(provider, request, state)`；`S_Q` / `S_C` shadow price 不变。Policy 接口不变。
 
 ### 9.2 Baselines
 
-`greedy_cost` 必须使用同一个 cache-aware API cost，否则会不公平。
-
-`greedy_latency` 的 primary key 仍然是 latency；如果需要 cost tie-break，也应使用 cache-aware cost。
+`greedy_cost` 必须使用同一个 cache-aware API cost，否则会不公平。`greedy_latency` 的 primary key 仍然是 latency，cost tie-break 也用 cache-aware cost。
 
 ### 9.3 Hedging
 
-backup provider selection 如果看 marginal cost，也应使用 cache-aware cost。
-
-primary 和 backup 的 cache update 都在实际 dispatch 后发生。primary provider 的 cache update 不会让同一 request 的 backup 获得 discount，因为 provider-local cache 不共享。
+backup provider selection 如果看 marginal cost，使用 cache-aware cost。primary 与 backup 看到的 trace cache 字段相同，因此 backup 也会得到相同的 cache discount；这反映了一个事实：trace 报告的是真实历史 dispatch 在某 provider 上的 cache hit，我们用作 coarse locality 信号，不再 per-provider 假设。
 
 ### 9.4 Billing Order
 
-保持 pre-dispatch / post-dispatch ordering：
+简化为：
 
-1. Policy route 使用 dispatch 前 cache state。
-2. Primary cost 使用 dispatch 前 cache state。
-3. Primary dispatch 后更新 primary provider cache。
-4. Backup 如果实际 dispatch，backup cost 使用 backup dispatch 前 cache state。
-5. Backup dispatch 后更新 backup provider cache。
+1. Policy route 使用 trace 字段决定 cache-aware cost。
+2. Primary cost 用同一字段计费。
+3. Primary dispatch 后无需 cache update。
+4. Backup 如果实际 dispatch，用同一字段计费。
+5. Backup dispatch 后无需 cache update。
 
 ---
 
 ## 10. Offline Oracle
 
-Prefix cache 让 cost 依赖之前 routing assignment：
+Cache 仍然让 cost 取决于“是否选了能命中 cache 的 provider”，但在 trace-only model 下每条 request 的 cache token 是固定的（不依赖之前的 routing assignment）。因此：
+
+- 旧 path-independent offline exact oracle 仍能在 cache-enabled run 里运行；
+- 但它的 cost 比较仍然要使用 cache-aware billing 公式，否则不公平。
+
+实操上推荐：
 
 ```text
-cost(i, provider) depends on whether earlier requests in the same session
-were assigned to that provider.
+cache ablation compares online policies on cache-aware billing
+exact offline oracle can be reported alongside, but using the same
+cache-aware billing function as the online policies.
 ```
-
-因此现有 path-independent offline exact oracle 不能继续在 cache-enabled run 里 claim strict optimum。
-
-Phase A 建议：
-
-```text
-cache ablation compares online policies only
-and does not report exact offline optimum.
-```
-
-如果需要参考线，可以实现并明确命名：
-
-```text
-cache-aware greedy oracle / heuristic oracle
-```
-
-不要叫 exact oracle。
 
 ---
 
@@ -473,32 +282,13 @@ cache-aware greedy oracle / heuristic oracle
 
 ### 11.1 Dataset
 
-Phase A 优先用干净 conversation/session trace：
+Phase A 优先用 **freeinference** 风格 trace，因为它自带 `cache_read_tokens`：
 
 ```text
-ShareGPT:
-  prefix_id = sharegpt_conversation_id
-
-BurstGPT/session trace:
-  prefix_id = session_id
+freeinference: 直接用 metadata["cache_read_tokens"]
+ShareGPT / BurstGPT: 通常没有 cache_read_tokens，整批按 cold miss 处理
+                     （需要 cache 实验时可以单独跑 dataset_cache 生成的 mock 字段）
 ```
-
-FreeInference / RedNote 不作为 Phase A 主实验，因为它们是真实 API logs，不一定有 clean session chain：
-
-- FreeInference sampled rows 里 `session_id` 为空。
-- RedNote 有部分 `session_id`，但不是所有行都有。
-- 两者都有 `user_id` 和 prompt text，但用 `user_id` 当单一 chain 会把 unrelated tasks 混在一起。
-
-后续可以单独做 sensitivity：
-
-```text
-user_id as session_id
-text-prefix matching
-prompt_hash exact-repeat matching
-cache_read_tokens calibration
-```
-
-这些不进最小实现。
 
 ### 11.2 Policies
 
@@ -515,31 +305,20 @@ Phase A 不做 cached-price sweep。默认：
 
 ```text
 cache_enabled in {false, true}
-cached_input_price_fraction = 0.2
+cached_input_price_fraction = 0.2     # synthetic API only
 ```
 
-对 synthetic price `{1, 2, 4}`，cached input price 就是普通 input price 的 20%。这个值是固定 design choice，不是主实验 knob。真实 provider price 可用时，优先使用 per-provider `cached_input_cost_per_token`。
-
-`cache_enabled` 应在 helper 层实现，不通过 mutate provider config 实现。这样 control run 和 treatment run 可以复用同一份 provider config；`cache_enabled=False` 时 `cached_input_tokens(...)` 直接返回 0。
-
-后续 sensitivity 可以再 sweep：
-
-```text
-cached_input_price_fraction in {0.0, 0.1, 0.2, 0.5}
-```
-
-但这不进 Phase A 主结果。
+`cache_enabled` 通过 helper 层 / `prefix_cache_enabled` scenario metadata 实现，不修改 provider config。control run 和 treatment run 复用同一份 provider config；`cache_enabled=False` 时 `cached_input_tokens(...)` 直接返回 0。
 
 ### 11.4 Metrics
 
 新增 cache-specific metrics：
 
 ```text
-cache_hit_rate
+cache_hit_rate                # trace 报告的 cache hit 占请求比例
 cached_input_token_fraction
 cached_input_tokens_total
 uncached_input_tokens_total
-provider_cache_hit_rate
 provider_mix
 total_cost_usd
 api_cost_usd
@@ -554,8 +333,6 @@ vs
 same scenario / same seed / cache_enabled=true
 ```
 
-单次 run 只记录 cached/uncached token counts 和实际 billed cost。
-
 Latency metrics 仍然保留，但预期变化只来自 provider mix 改变，而不是 cache 直接改变 TTFT distribution。
 
 ---
@@ -564,47 +341,41 @@ Latency metrics 仍然保留，但预期变化只来自 provider mix 改变，�
 
 需要覆盖：
 
-1. **Provider pricing.** cached input tokens 用 cached input price，output tokens 不打折。
-2. **Cold cache.** no prefix id / no provider cache / provider no cached price 时 cost 与旧路径一致。
-3. **Provider-locality.** provider A 见过 session 不会让 provider B 获得 discount。
-4. **State update.** dispatch 后 provider cache 记录 `request_tokens + response_tokens`。
-5. **RouteWise routing.** cached API provider 的 effective cost 降低，能改变选择。
+1. **Cold cache.** 没有 trace cache 字段、`prefix_cache_enabled=False`、或 provider 没有 cached price 时，cost 与旧路径一致。
+2. **Trace-driven hit.** trace 报告 `cache_read_tokens=k` → `cached_input_tokens = min(prompt, k)`，并按 cached-input price 计费。
+3. **Zero is authoritative.** trace 显式给 0 时按 cold miss 处理，不再回退到 length-based proxy。
+4. **State update absent.** dispatch 后 `SimulationState` 没有任何 cache-related mutation。
+5. **RouteWise routing.** trace 报告 cache hit 的 API provider 在 effective cost 下被偏好。
 6. **Baseline fairness.** greedy_cost 使用 cache-aware cost。
-7. **Hedging.** backup dispatch 会更新 backup provider cache。
-8. **Latency unchanged.** cache hit 不改变 sampled TTFT distribution。
-9. **No-cache compatibility.** cache disabled 或所有 provider `cached_input_cost_per_token=None` 时，golden behavior 不变。
-10. **Offline oracle compatibility.** cache-disabled no-cache scenarios 继续复现 existing offline oracle summary，确保 Phase A 不误伤主实验路径。
+7. **Latency unchanged.** cache hit 不改变 sampled TTFT distribution。
+8. **No-cache compatibility.** cache disabled 或所有 provider `cached_input_cost_per_token=None` 时，golden behavior 不变。
 
 ---
 
 ## 13. Implementation Phases
 
-### Phase A: Minimal Length-Based Cost Model
+### Phase A: Trace-Driven Cost Model
 
-- Add `cached_input_cost_per_token` to provider schema/config.
-- Add `provider_prefix_cache: dict[str, dict[str, int]]` to `SimulationState`.
-- Add prefix-cache helper module.
-- Make `S_A` cost cache-aware in RouteWise, baselines, hedging backup selection, and simulator billing.
-- Add unit tests.
+- 保留 provider schema 里的 `cached_input_cost_per_token`。
+- 在 helper / `Request.metadata` 中支持 `cache_read_tokens` / `cached_input_tokens` 透传。
+- `S_A` cost cache-aware（RouteWise、baselines、hedging backup selection、simulator billing）。
+- 删除 `provider_prefix_cache` 字段和 `record_prefix_cache_dispatch` 调用路径。
+- 单元测试覆盖 §12。
 
 ### Phase B: Scenario / Metrics
 
-- Add ShareGPT/BurstGPT prefix-cache ablation scenarios.
-- Add provider cached-price configs or cached-price fraction.
-- Add cache metrics to simulation outputs.
-- Add paired no-cache vs cache-enabled comparison script.
+- 在 freeinference 风格 trace 上加 prefix-cache ablation scenario。
+- 加 cache metrics 到 simulation outputs。
+- paired no-cache vs cache-enabled comparison script。
 
 ### Phase C: Optional Sensitivity
 
-- `user_id as session_id` for FreeInference / RedNote.
-- prompt text LCP / tokenizer-level prefix matching.
-- prompt_hash exact-repeat matching.
-- provider-specific hit probability.
-- TTL/LRU eviction.
-- min overlap threshold.
-- cached-input price fraction sweep.
-- `cache_read_tokens` calibration for logs that report it.
-- cache-aware greedy oracle.
+- prompt text LCP / tokenizer-level prefix matching（针对没有 `cache_read_tokens` 的 trace）。
+- prompt_hash exact-repeat matching。
+- provider-specific hit probability。
+- min overlap threshold。
+- cached-input price fraction sweep。
+- cache-aware greedy oracle。
 
 These should not block Phase A.
 
@@ -615,29 +386,29 @@ These should not block Phase A.
 Safe wording:
 
 ```text
-We model provider-side prefix caching as a per-provider, per-session
-length-based input-cost discount. When a request arrives in a session that has
-previously been routed to the same provider, we treat up to the previous
-request-plus-response token count as cached input tokens, billed at the
-provider's cached-input price. Cache affects only API billing; latency
-distributions are unchanged.
+We model provider-side prefix caching as a trace-driven, per-request
+input-cost discount. For each request we read the cached-input-token count
+from the trace's reported cache_read_tokens field (capped by prompt
+length); when the trace does not report a value we treat the request as a
+cold miss. Cached tokens are billed at the provider's cached-input price.
+Cache affects only API billing; latency distributions are unchanged.
 ```
 
 Assumption footnote:
 
 ```text
-This is an intentionally coarse model following our design goal of isolating
-the cost-layer effect. We use an infinite provider-local cache and assume
-predicted cache hits are billed at the provider's cached-input price. Exact
-text-prefix matching, eviction, and provider-specific hit probabilities are
-left to sensitivity analysis.
+This is an intentionally coarse model. We rely on the trace's reported
+cache-read tokens as the cache-hit signal and apply the same value across
+candidate providers at routing time, which makes our cost model
+provider-agnostic for the cached fraction. Exact text-prefix matching and
+provider-specific hit probabilities are left to sensitivity analysis.
 ```
 
 Oracle caveat:
 
 ```text
-Because cache-aware costs depend on previous routing assignments, the existing
-path-independent offline oracle is not an exact optimum for cache-enabled runs.
-We therefore report cache ablations without the exact oracle, or use a clearly
-labeled cache-aware greedy heuristic.
+Under the trace-driven cache model, per-request cached-token counts do not
+depend on previous routing assignments, so the existing path-independent
+offline oracle remains valid as long as it uses the same cache-aware
+billing function as the online policies.
 ```

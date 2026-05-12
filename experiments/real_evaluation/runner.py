@@ -85,6 +85,7 @@ class TraceRequest:
     prompt_tokens: int
     max_tokens: int
     prefix_id: str | None = None
+    trace_cached_input_tokens: int | None = None
 
 
 def load_trace_jsonl(
@@ -168,6 +169,7 @@ def load_trace_jsonl(
                     prompt_tokens=prompt_tokens,
                     max_tokens=max_tokens,
                     prefix_id=_prefix_id_from_record(rec),
+                    trace_cached_input_tokens=_trace_cached_input_tokens_from_record(rec),
                 )
             )
             if max_requests is not None and len(out) >= max_requests:
@@ -199,6 +201,22 @@ def _prefix_id_from_record(rec: dict[str, Any]) -> str | None:
         return None
     prefix_id = str(value).strip()
     return prefix_id or None
+
+
+def _trace_cached_input_tokens_from_record(rec: dict[str, Any]) -> int | None:
+    """Return trace-reported cached-input token count, or ``None`` if absent.
+
+    Accepts ``cache_read_tokens`` (the freeinference field name) and
+    ``cached_input_tokens`` for parity with the simulator. Missing or empty
+    values yield ``None`` so the caller treats the request as a cold miss.
+    """
+    value = _first_present(rec, ("cache_read_tokens", "cached_input_tokens"))
+    if value is None or value == "":
+        return None
+    try:
+        return max(int(float(value)), 0)
+    except (TypeError, ValueError):
+        return None
 
 
 def _coerce_float(path: Path, line_num: int, field: str, value: Any) -> float:
@@ -922,6 +940,7 @@ class RealExperimentRunner:
             prompt_tokens=max(1, req.prompt_tokens or 1),
             completion_tokens_budget=max(1, req.max_tokens),
             prefix_id=req.prefix_id,
+            trace_cached_input_tokens=req.trace_cached_input_tokens,
         )
         now = time.time()
         decision = policy.route(now, ctx)
@@ -1187,12 +1206,6 @@ class RealExperimentRunner:
                             final_provider,
                             prepared.ctx,
                         )
-                    self._record_prefix_cache_dispatch(
-                        policy,
-                        final_provider,
-                        prepared.ctx,
-                        result,
-                    )
                     self._record_single(
                         policy,
                         req,
@@ -1205,7 +1218,6 @@ class RealExperimentRunner:
                     return
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
-            self._record_prefix_cache_dispatches(prepared, hedged)
             self._record_hedged(
                 policy,
                 req,
@@ -1232,12 +1244,6 @@ class RealExperimentRunner:
                 final_provider,
                 prepared.ctx,
             )
-        self._record_prefix_cache_dispatch(
-            policy,
-            final_provider,
-            prepared.ctx,
-            result,
-        )
         self._record_single(
             policy,
             req,
@@ -1303,7 +1309,6 @@ class RealExperimentRunner:
             for prepared in prepareds:
                 self._feed_back_hedged(prepared.policy, hedged)
                 self._account_cost(prepared.policy, hedged, physical=False)
-                self._record_prefix_cache_dispatches(prepared, hedged)
                 self._record_hedged(
                     prepared.policy,
                     prepared.req,
@@ -1356,12 +1361,6 @@ class RealExperimentRunner:
                             prepared.ctx,
                         )
                     )
-                self._record_prefix_cache_dispatch(
-                    prepared.policy,
-                    final_provider,
-                    prepared.ctx,
-                    final_result,
-                )
                 self._record_single(
                     prepared.policy,
                     prepared.req,
@@ -1383,12 +1382,6 @@ class RealExperimentRunner:
         for prepared in prepareds:
             self._feed_back_single(prepared.policy, prepared.decision.primary or "", result)
             self._account_single(prepared.policy, result, physical=False)
-            self._record_prefix_cache_dispatch(
-                prepared.policy,
-                prepared.decision.primary,
-                prepared.ctx,
-                result,
-            )
             self._record_single(
                 prepared.policy,
                 prepared.req,
@@ -1399,39 +1392,6 @@ class RealExperimentRunner:
                 primary_routing_estimated_cost_usd=(prepared.primary_routing_estimated_cost_usd),
             )
         self._account_physical_cost(physical_cost)
-
-    @staticmethod
-    def _record_prefix_cache_dispatch(
-        policy: BasePolicy,
-        provider: str | None,
-        ctx: RequestContext,
-        result: SingleRequestResult,
-    ) -> None:
-        policy.record_prefix_cache_dispatch(
-            provider,
-            ctx,
-            prompt_tokens=result.prompt_tokens,
-            completion_tokens=result.completion_tokens,
-        )
-
-    def _record_prefix_cache_dispatches(
-        self,
-        prepared: _PreparedDispatch,
-        hedged: HedgedResult,
-    ) -> None:
-        self._record_prefix_cache_dispatch(
-            prepared.policy,
-            prepared.decision.primary,
-            prepared.ctx,
-            hedged.primary_result,
-        )
-        if hedged.backup_result is not None:
-            self._record_prefix_cache_dispatch(
-                prepared.policy,
-                prepared.backup,
-                prepared.ctx,
-                hedged.backup_result,
-            )
 
     # ------------------------------------------------------------------
     # Profile + capacity feedback.

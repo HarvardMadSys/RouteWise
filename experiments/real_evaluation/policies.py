@@ -52,7 +52,6 @@ from experiments.real_evaluation.inventory import (
 from experiments.real_evaluation.prefix_cache import (
     cache_aware_request_cost_usd,
     cached_input_tokens,
-    record_prefix_cache_dispatch,
 )
 from experiments.real_evaluation.shadow_price import (
     effective_cost,
@@ -99,6 +98,7 @@ class RequestContext:
     prompt_tokens: int
     completion_tokens_budget: int
     prefix_id: str | None = None
+    trace_cached_input_tokens: int | None = None
 
 
 @dataclass
@@ -401,7 +401,6 @@ class BasePolicy:
             spec.name: ProviderState.from_spec(spec, profile_window_sec) for spec in specs
         }
         self.prefix_cache_routing = bool(prefix_cache_routing)
-        self.provider_prefix_cache: dict[str, dict[str, int]] = {}
         self.cost_envelope: tuple[float, float] | None = None
         self._lock = threading.Lock()
         self._next_capacity_request_id = 1
@@ -438,16 +437,14 @@ class BasePolicy:
         return self.request_cost_for_spec(state.spec, ctx)
 
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
-        """Return route-time API cost, optionally using policy-local cache state."""
-        with self._lock:
-            return cache_aware_request_cost_usd(
-                spec,
-                prompt_tokens=ctx.prompt_tokens,
-                completion_tokens=ctx.completion_tokens_budget,
-                prefix_id=ctx.prefix_id,
-                provider_prefix_cache=self.provider_prefix_cache,
-                enabled=self.prefix_cache_routing,
-            )
+        """Return route-time API cost, optionally using trace-reported cache hit."""
+        return cache_aware_request_cost_usd(
+            spec,
+            prompt_tokens=ctx.prompt_tokens,
+            completion_tokens=ctx.completion_tokens_budget,
+            trace_cached_input_tokens=ctx.trace_cached_input_tokens,
+            enabled=self.prefix_cache_routing,
+        )
 
     def routing_cache_diagnostics(
         self,
@@ -460,46 +457,22 @@ class BasePolicy:
         state = self.states.get(provider)
         if state is None:
             return (0, None)
-        with self._lock:
-            cached_tokens = (
-                cached_input_tokens(
-                    provider_name=provider,
-                    prefix_id=ctx.prefix_id,
-                    prompt_tokens=ctx.prompt_tokens,
-                    provider_prefix_cache=self.provider_prefix_cache,
-                )
-                if self.prefix_cache_routing
-                else 0
-            )
-            estimated_cost = cache_aware_request_cost_usd(
-                state.spec,
+        cached_tokens = (
+            cached_input_tokens(
                 prompt_tokens=ctx.prompt_tokens,
-                completion_tokens=ctx.completion_tokens_budget,
-                prefix_id=ctx.prefix_id,
-                provider_prefix_cache=self.provider_prefix_cache,
-                enabled=self.prefix_cache_routing,
+                trace_cached_input_tokens=ctx.trace_cached_input_tokens,
             )
+            if self.prefix_cache_routing
+            else 0
+        )
+        estimated_cost = cache_aware_request_cost_usd(
+            state.spec,
+            prompt_tokens=ctx.prompt_tokens,
+            completion_tokens=ctx.completion_tokens_budget,
+            trace_cached_input_tokens=ctx.trace_cached_input_tokens,
+            enabled=self.prefix_cache_routing,
+        )
         return (cached_tokens, estimated_cost)
-
-    def record_prefix_cache_dispatch(
-        self,
-        provider: str | None,
-        ctx: RequestContext,
-        *,
-        prompt_tokens: int,
-        completion_tokens: int,
-    ) -> None:
-        """Update this policy's provider-local cache state after dispatch."""
-        if not self.prefix_cache_routing or provider is None or provider not in self.states:
-            return
-        with self._lock:
-            record_prefix_cache_dispatch(
-                provider_name=provider,
-                prefix_id=ctx.prefix_id,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                provider_prefix_cache=self.provider_prefix_cache,
-            )
 
     def add_sample(
         self,
