@@ -96,6 +96,45 @@ def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
     assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
 
 
+def test_budget_range_latency_objective_penalizes_error_attempts() -> None:
+    fast_flaky = _api_spec("OR_fast_flaky", 1.0, 0.0)
+    steady = _api_spec("OR_steady", 1.0, 0.0)
+    policy = BudgetRangePolicy(
+        [fast_flaky, steady],
+        slo_ms=5000.0,
+        budget_percentile=100,
+    )
+    policy.set_cost_envelope((1.0e-4, 2.0e-4))
+    now = 100.0
+    for _ in range(4):
+        policy.add_sample("OR_fast_flaky", now, 100.0)
+    for _ in range(6):
+        policy.add_sample("OR_fast_flaky", now, -1.0, "HTTP 429")
+    for _ in range(10):
+        policy.add_sample("OR_steady", now, 1000.0)
+
+    decision = policy.route(now, RequestContext(prompt_tokens=100, completion_tokens_budget=0))
+
+    assert decision.primary == "OR_steady"
+
+
+def test_greedy_latency_penalizes_error_attempts() -> None:
+    fast_flaky = _api_spec("OR_fast_flaky", 1.0, 0.0)
+    steady = _api_spec("OR_steady", 1.0, 0.0)
+    policy = build_policy("greedy_latency", [fast_flaky, steady], slo_ms=5000.0)
+    now = 100.0
+    for _ in range(4):
+        policy.add_sample("OR_fast_flaky", now, 100.0)
+    for _ in range(6):
+        policy.add_sample("OR_fast_flaky", now, -1.0, "HTTP 429")
+    for _ in range(10):
+        policy.add_sample("OR_steady", now, 1000.0)
+
+    decision = policy.route(now, RequestContext(prompt_tokens=100, completion_tokens_budget=0))
+
+    assert decision.primary == "OR_steady"
+
+
 def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     """Real eval should expose the same first two simulator layers:
     LP-only ``budget_range_p*`` and LP+hedge ``budget_range_p*_hedge``."""

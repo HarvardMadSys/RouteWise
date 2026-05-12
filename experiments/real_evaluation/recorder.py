@@ -37,6 +37,15 @@ CSV_FIELDS: tuple[str, ...] = (
     "hedge_triggered",
     "hedge_winner",
     "hedge_delay_ms",
+    "hedge_checkpoint_ts",
+    "primary_start_ts",
+    "backup_dispatch_ts",
+    "backup_start_ts",
+    "primary_first_token_ts",
+    "backup_first_token_ts",
+    "actual_dispatch_overhead_ms",
+    "checkpoint_dispatch_overhead_ms",
+    "backup_dispatch_overhead_ms",
     "actual_provider",
     "tier",
     "transport",
@@ -84,6 +93,15 @@ class RequestLogRow:
     hedge_triggered: bool
     hedge_winner: str | None
     hedge_delay_ms: float | None
+    hedge_checkpoint_ts: float | None
+    primary_start_ts: float | None
+    backup_dispatch_ts: float | None
+    backup_start_ts: float | None
+    primary_first_token_ts: float | None
+    backup_first_token_ts: float | None
+    actual_dispatch_overhead_ms: float | None
+    checkpoint_dispatch_overhead_ms: float | None
+    backup_dispatch_overhead_ms: float | None
     actual_provider: str
     tier: str | None
     transport: str | None
@@ -136,6 +154,17 @@ class RequestLogRow:
             "hedge_delay_ms": (
                 f"{self.hedge_delay_ms:.3f}" if self.hedge_delay_ms is not None else ""
             ),
+            "hedge_checkpoint_ts": _format_ts(self.hedge_checkpoint_ts),
+            "primary_start_ts": _format_ts(self.primary_start_ts),
+            "backup_dispatch_ts": _format_ts(self.backup_dispatch_ts),
+            "backup_start_ts": _format_ts(self.backup_start_ts),
+            "primary_first_token_ts": _format_ts(self.primary_first_token_ts),
+            "backup_first_token_ts": _format_ts(self.backup_first_token_ts),
+            "actual_dispatch_overhead_ms": _format_ms(self.actual_dispatch_overhead_ms),
+            "checkpoint_dispatch_overhead_ms": _format_ms(
+                self.checkpoint_dispatch_overhead_ms
+            ),
+            "backup_dispatch_overhead_ms": _format_ms(self.backup_dispatch_overhead_ms),
             "actual_provider": self.actual_provider,
             "tier": self.tier or "",
             "transport": self.transport or "",
@@ -239,6 +268,8 @@ class Recorder:
         backup_cached_input_tokens: int = 0,
         primary_routing_estimated_cost_usd: float | None = None,
         backup_routing_estimated_cost_usd: float | None = None,
+        hedge_checkpoint_ts: float | None = None,
+        backup_dispatch_ts: float | None = None,
         ts: float | None = None,
     ) -> None:
         """Convenience wrapper that builds a ``RequestLogRow`` from common parts."""
@@ -257,6 +288,25 @@ class Recorder:
             hedge_delay_sec * 1000.0
             if hedge_delay_sec is not None and hedge_delay_sec != float("inf")
             else None
+        )
+        primary_start_ts = primary_result.start_ts if primary_result.start_ts > 0 else None
+        backup_start_ts = (
+            backup_result.start_ts
+            if backup_result is not None and backup_result.start_ts > 0
+            else None
+        )
+        actual_dispatch_overhead_ms = _actual_dispatch_overhead_ms(
+            primary_start_ts=primary_start_ts,
+            backup_start_ts=backup_start_ts,
+            hedge_delay_ms=hedge_delay_ms,
+        )
+        checkpoint_dispatch_overhead_ms = _checkpoint_dispatch_overhead_ms(
+            hedge_checkpoint_ts=hedge_checkpoint_ts,
+            backup_start_ts=backup_start_ts,
+        )
+        backup_dispatch_overhead_ms = _backup_dispatch_overhead_ms(
+            backup_dispatch_ts=backup_dispatch_ts,
+            backup_start_ts=backup_start_ts,
         )
         record_ttft_ms = _user_visible_ttft_ms(
             primary_result=primary_result,
@@ -286,6 +336,15 @@ class Recorder:
             hedge_triggered=hedge_triggered,
             hedge_winner=hedge_winner,
             hedge_delay_ms=hedge_delay_ms,
+            hedge_checkpoint_ts=hedge_checkpoint_ts,
+            primary_start_ts=primary_start_ts,
+            backup_dispatch_ts=backup_dispatch_ts,
+            backup_start_ts=backup_start_ts,
+            primary_first_token_ts=primary_result.first_token_ts,
+            backup_first_token_ts=backup_result.first_token_ts if backup_result else None,
+            actual_dispatch_overhead_ms=actual_dispatch_overhead_ms,
+            checkpoint_dispatch_overhead_ms=checkpoint_dispatch_overhead_ms,
+            backup_dispatch_overhead_ms=backup_dispatch_overhead_ms,
             actual_provider=chosen.provider,
             tier=resolved_final_tier,
             transport=transport,
@@ -375,6 +434,17 @@ class Recorder:
                 ),
                 "real_primary_routing_estimated_cost_usd": (primary_routing_estimated_cost_usd),
                 "real_backup_routing_estimated_cost_usd": (backup_routing_estimated_cost_usd),
+                "real_hedge_checkpoint_ts": hedge_checkpoint_ts,
+                "real_primary_start_ts": primary_start_ts,
+                "real_backup_dispatch_ts": backup_dispatch_ts,
+                "real_backup_start_ts": backup_start_ts,
+                "real_primary_first_token_ts": primary_result.first_token_ts,
+                "real_backup_first_token_ts": (
+                    backup_result.first_token_ts if backup_result else None
+                ),
+                "real_actual_dispatch_overhead_ms": actual_dispatch_overhead_ms,
+                "real_checkpoint_dispatch_overhead_ms": checkpoint_dispatch_overhead_ms,
+                "real_backup_dispatch_overhead_ms": backup_dispatch_overhead_ms,
             },
         )
         self.write_row(row, record=record)
@@ -412,7 +482,11 @@ class Recorder:
             backup_result=hedged.backup_result,
             hedge_triggered=hedged.hedge_triggered,
             hedge_winner=hedged.winner if hedged.hedge_triggered else None,
-            hedge_delay_sec=hedge_delay_sec,
+            hedge_delay_sec=(
+                hedged.hedge_delay_sec
+                if hedged.hedge_delay_sec is not None
+                else hedge_delay_sec
+            ),
             chosen_result=hedged.chosen_result,
             tier=tier,
             primary_tier=primary_tier,
@@ -424,6 +498,8 @@ class Recorder:
             backup_cached_input_tokens=backup_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
+            hedge_checkpoint_ts=hedged.hedge_checkpoint_ts,
+            backup_dispatch_ts=hedged.backup_dispatch_ts,
             ts=ts,
         )
 
@@ -504,6 +580,17 @@ class Recorder:
                 ),
                 "real_primary_routing_estimated_cost_usd": (row.primary_routing_estimated_cost_usd),
                 "real_backup_routing_estimated_cost_usd": (row.backup_routing_estimated_cost_usd),
+                "real_hedge_checkpoint_ts": row.hedge_checkpoint_ts,
+                "real_primary_start_ts": row.primary_start_ts,
+                "real_backup_dispatch_ts": row.backup_dispatch_ts,
+                "real_backup_start_ts": row.backup_start_ts,
+                "real_primary_first_token_ts": row.primary_first_token_ts,
+                "real_backup_first_token_ts": row.backup_first_token_ts,
+                "real_actual_dispatch_overhead_ms": row.actual_dispatch_overhead_ms,
+                "real_checkpoint_dispatch_overhead_ms": (
+                    row.checkpoint_dispatch_overhead_ms
+                ),
+                "real_backup_dispatch_overhead_ms": row.backup_dispatch_overhead_ms,
             },
         )
 
@@ -564,6 +651,24 @@ class Recorder:
                 float(record.metadata.get("real_physical_cost_usd") or 0.0)
                 for record in policy_records
             )
+            actual_dispatch_overheads = [
+                float(value)
+                for record in policy_records
+                for value in [record.metadata.get("real_actual_dispatch_overhead_ms")]
+                if value is not None
+            ]
+            checkpoint_dispatch_overheads = [
+                float(value)
+                for record in policy_records
+                for value in [record.metadata.get("real_checkpoint_dispatch_overhead_ms")]
+                if value is not None
+            ]
+            backup_dispatch_overheads = [
+                float(value)
+                for record in policy_records
+                for value in [record.metadata.get("real_backup_dispatch_overhead_ms")]
+                if value is not None
+            ]
             total_cost_usd = run.total_cost_usd() + (
                 fixed_cost_usd_by_policy or {}
             ).get(policy, 0.0)
@@ -595,6 +700,30 @@ class Recorder:
                 "e2e_ms_p90": _percentile(e2es, 90.0),
                 "e2e_ms_p99": _percentile(e2es, 99.0),
                 "e2e_ms_mean": _mean(e2es),
+                "actual_dispatch_overhead_ms_n": len(actual_dispatch_overheads),
+                "actual_dispatch_overhead_ms_mean": _mean(actual_dispatch_overheads),
+                "actual_dispatch_overhead_ms_p50": _percentile(actual_dispatch_overheads, 50.0),
+                "actual_dispatch_overhead_ms_p90": _percentile(actual_dispatch_overheads, 90.0),
+                "actual_dispatch_overhead_ms_p99": _percentile(actual_dispatch_overheads, 99.0),
+                "checkpoint_dispatch_overhead_ms_n": len(checkpoint_dispatch_overheads),
+                "checkpoint_dispatch_overhead_ms_mean": _mean(checkpoint_dispatch_overheads),
+                "checkpoint_dispatch_overhead_ms_p50": _percentile(
+                    checkpoint_dispatch_overheads,
+                    50.0,
+                ),
+                "checkpoint_dispatch_overhead_ms_p90": _percentile(
+                    checkpoint_dispatch_overheads,
+                    90.0,
+                ),
+                "checkpoint_dispatch_overhead_ms_p99": _percentile(
+                    checkpoint_dispatch_overheads,
+                    99.0,
+                ),
+                "backup_dispatch_overhead_ms_n": len(backup_dispatch_overheads),
+                "backup_dispatch_overhead_ms_mean": _mean(backup_dispatch_overheads),
+                "backup_dispatch_overhead_ms_p50": _percentile(backup_dispatch_overheads, 50.0),
+                "backup_dispatch_overhead_ms_p90": _percentile(backup_dispatch_overheads, 90.0),
+                "backup_dispatch_overhead_ms_p99": _percentile(backup_dispatch_overheads, 99.0),
             }
         summary["_meta"] = {
             "slo_ms": slo_ms,
@@ -629,6 +758,45 @@ def _percentile(values: list[float], pct: float) -> float | None:
     hi = min(lo + 1, len(s) - 1)
     frac = rank - lo
     return round(float(s[lo] + (s[hi] - s[lo]) * frac), 3)
+
+
+def _format_ts(value: float | None) -> str:
+    return f"{value:.6f}" if value is not None else ""
+
+
+def _format_ms(value: float | None) -> str:
+    return f"{value:.3f}" if value is not None else ""
+
+
+def _actual_dispatch_overhead_ms(
+    *,
+    primary_start_ts: float | None,
+    backup_start_ts: float | None,
+    hedge_delay_ms: float | None,
+) -> float | None:
+    if primary_start_ts is None or backup_start_ts is None or hedge_delay_ms is None:
+        return None
+    return (backup_start_ts - primary_start_ts) * 1000.0 - hedge_delay_ms
+
+
+def _checkpoint_dispatch_overhead_ms(
+    *,
+    hedge_checkpoint_ts: float | None,
+    backup_start_ts: float | None,
+) -> float | None:
+    if hedge_checkpoint_ts is None or backup_start_ts is None:
+        return None
+    return (backup_start_ts - hedge_checkpoint_ts) * 1000.0
+
+
+def _backup_dispatch_overhead_ms(
+    *,
+    backup_dispatch_ts: float | None,
+    backup_start_ts: float | None,
+) -> float | None:
+    if backup_dispatch_ts is None or backup_start_ts is None:
+        return None
+    return (backup_start_ts - backup_dispatch_ts) * 1000.0
 
 
 def _canonical_status(result: SingleRequestResult) -> Status:

@@ -72,6 +72,9 @@ BODY_MEAN_MIN_SAMPLES: int = 5
 # USD, not seconds) — that yielded ~0.1 ms and made unprofiled
 # providers look fastest.
 UNPROFILED_LATENCY_PENALTY_MS: float = 1e9
+_HEDGE_CHECKPOINT_START_FRACTION: float = 0.25
+_HEDGE_CHECKPOINT_END_FRACTION: float = 0.90
+_HEDGE_CHECKPOINT_INTERVAL_MS: float = 100.0
 
 # Sentinel provider names used for OpenRouter's native routing modes. The
 # runner translates these into transport-level config when dispatching.
@@ -116,6 +119,18 @@ class RoutingDecision:
     notes: str = ""
 
 
+@dataclass(frozen=True)
+class CheckpointHedgeDecision:
+    """Backup decision made at one in-flight hedge checkpoint."""
+
+    backup: str | None
+    elapsed_sec: float
+    success_probability: float | None = None
+    future_feasible: bool = False
+    feasible_count: int = 0
+    candidate_count: int = 0
+
+
 def request_cost_for_spec(spec: ProviderSpec, ctx: RequestContext) -> float:
     """Pricing-model marginal cost for one request on this provider."""
     return request_marginal_cost(
@@ -155,21 +170,27 @@ def _tier_mix_from_weights(
     return mix
 
 
-def _body_latency_proxy_ms(state: ProviderState, now: float) -> tuple[float, bool]:
+def _body_latency_proxy_ms(
+    state: ProviderState,
+    now: float,
+    *,
+    error_penalty_ms: float,
+) -> tuple[float, bool]:
     """Empirical body-latency estimate ``T̄_j(t)`` for one provider.
 
     Returns ``(mean_ms, used_fallback)`` where ``used_fallback`` is True if
     the rolling profile had too few samples and we fell back to the
-    median or a large sentinel.
+    mean from a small sample set or a large sentinel.
+
+    Failed attempts, including HTTP 429s, do not have a meaningful TTFT.
+    They enter the body objective as synthetic ``error_penalty_ms`` samples
+    so burst-sensitive providers are avoided after live rate-limit feedback.
     """
-    n = state.profile.sample_count(now)
-    if n >= BODY_MEAN_MIN_SAMPLES:
-        mean = state.profile.mean_ms(now)
+    n = state.profile.total_count(now)
+    if n > 0:
+        mean = state.profile.mean_with_errors_ms(now, error_penalty_ms=error_penalty_ms)
         if mean is not None:
-            return float(mean), False
-    median = state.profile.median_ms(now)
-    if median is not None:
-        return float(median), True
+            return float(mean), n < BODY_MEAN_MIN_SAMPLES
     return float("inf"), True
 
 
@@ -353,7 +374,11 @@ def select_safe_cheapest_backup(
             now=now,
         )
         cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
-        mean_ms, _ = _body_latency_proxy_ms(state, now)
+        mean_ms, _ = _body_latency_proxy_ms(
+            state,
+            now,
+            error_penalty_ms=slo_sec * 1000.0,
+        )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
         feasible.append((cost, -success_probability, mean_ms, state.spec.name, state))
@@ -361,6 +386,181 @@ def select_safe_cheapest_backup(
         return None
     feasible.sort(key=lambda item: item[:-1])
     return feasible[0][-1].spec.name
+
+
+def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
+    """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds."""
+    slo_ms = max(0.0, float(slo_sec) * 1000.0)
+    start_ms = _ceil_to_interval_ms(
+        slo_ms * _HEDGE_CHECKPOINT_START_FRACTION,
+        _HEDGE_CHECKPOINT_INTERVAL_MS,
+    )
+    end_ms = slo_ms * _HEDGE_CHECKPOINT_END_FRACTION
+    if start_ms > end_ms + LP_EPS:
+        return ()
+
+    checkpoints_ms: list[float] = []
+    current_ms = start_ms
+    while current_ms <= end_ms + LP_EPS:
+        checkpoints_ms.append(current_ms)
+        current_ms += _HEDGE_CHECKPOINT_INTERVAL_MS
+    return tuple(ms / 1000.0 for ms in checkpoints_ms)
+
+
+def select_checkpoint_backup(
+    primary: str,
+    states: dict[str, ProviderState],
+    ctx: RequestContext,
+    slo_sec: float,
+    now: float,
+    *,
+    elapsed_sec: float,
+    future_checkpoints_sec: Sequence[float] = (),
+    success_target: float = HEDGE_SUCCESS_TARGET,
+    cost_fn: Callable[[ProviderState], float] | None = None,
+) -> CheckpointHedgeDecision:
+    """Evaluate probability-target hedging at a single checkpoint.
+
+    This mirrors the simulator RouteWise tick semantics: at each checkpoint,
+    score all feasible backups using the conditional SLO success probability.
+    Dispatch the cheapest feasible backup only if no later checkpoint still
+    has a feasible backup; otherwise wait and re-evaluate later.
+    """
+    primary_state = states.get(primary)
+    if primary_state is None:
+        return CheckpointHedgeDecision(backup=None, elapsed_sec=float(elapsed_sec))
+
+    current = _select_checkpoint_candidate(
+        primary_state=primary_state,
+        states=states,
+        ctx=ctx,
+        slo_sec=slo_sec,
+        now=now,
+        elapsed_sec=elapsed_sec,
+        success_target=success_target,
+        cost_fn=cost_fn,
+    )
+    if current is None:
+        candidate_count, feasible_count = _checkpoint_candidate_counts(
+            primary_state=primary_state,
+            states=states,
+            slo_sec=slo_sec,
+            now=now,
+            elapsed_sec=elapsed_sec,
+            success_target=success_target,
+        )
+        return CheckpointHedgeDecision(
+            backup=None,
+            elapsed_sec=float(elapsed_sec),
+            candidate_count=candidate_count,
+            feasible_count=feasible_count,
+        )
+
+    _, success_probability, _, selected = current
+    candidate_count, feasible_count = _checkpoint_candidate_counts(
+        primary_state=primary_state,
+        states=states,
+        slo_sec=slo_sec,
+        now=now,
+        elapsed_sec=elapsed_sec,
+        success_target=success_target,
+    )
+    future_feasible = False
+    for future_elapsed in future_checkpoints_sec:
+        if future_elapsed <= elapsed_sec + LP_EPS:
+            continue
+        future = _select_checkpoint_candidate(
+            primary_state=primary_state,
+            states=states,
+            ctx=ctx,
+            slo_sec=slo_sec,
+            now=now,
+            elapsed_sec=future_elapsed,
+            success_target=success_target,
+            cost_fn=cost_fn,
+        )
+        if future is not None:
+            future_feasible = True
+            break
+
+    return CheckpointHedgeDecision(
+        backup=None if future_feasible else selected.spec.name,
+        elapsed_sec=float(elapsed_sec),
+        success_probability=float(success_probability),
+        future_feasible=future_feasible,
+        feasible_count=feasible_count,
+        candidate_count=candidate_count,
+    )
+
+
+def _select_checkpoint_candidate(
+    *,
+    primary_state: ProviderState,
+    states: dict[str, ProviderState],
+    ctx: RequestContext,
+    slo_sec: float,
+    now: float,
+    elapsed_sec: float,
+    success_target: float,
+    cost_fn: Callable[[ProviderState], float] | None,
+) -> tuple[float, float, float, ProviderState] | None:
+    candidates: list[tuple[float, float, float, ProviderState]] = []
+    for state in states.values():
+        if state.spec.name == primary_state.spec.name or not state.is_available(now):
+            continue
+        success_probability = _combined_hedge_success_probability(
+            primary_state,
+            state,
+            elapsed_sec=elapsed_sec,
+            slo_sec=slo_sec,
+            now=now,
+        )
+        if success_probability < success_target - LP_EPS:
+            continue
+        cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
+        mean_ms, _ = _body_latency_proxy_ms(
+            state,
+            now,
+            error_penalty_ms=slo_sec * 1000.0,
+        )
+        if not math.isfinite(mean_ms):
+            mean_ms = UNPROFILED_LATENCY_PENALTY_MS
+        candidates.append((cost, success_probability, mean_ms, state))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1], item[2], item[3].spec.name))
+    return candidates[0]
+
+
+def _checkpoint_candidate_counts(
+    *,
+    primary_state: ProviderState,
+    states: dict[str, ProviderState],
+    slo_sec: float,
+    now: float,
+    elapsed_sec: float,
+    success_target: float,
+) -> tuple[int, int]:
+    candidate_count = 0
+    feasible_count = 0
+    for state in states.values():
+        if state.spec.name == primary_state.spec.name or not state.is_available(now):
+            continue
+        candidate_count += 1
+        success_probability = _combined_hedge_success_probability(
+            primary_state,
+            state,
+            elapsed_sec=elapsed_sec,
+            slo_sec=slo_sec,
+            now=now,
+        )
+        if success_probability >= success_target - LP_EPS:
+            feasible_count += 1
+    return candidate_count, feasible_count
+
+
+def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
+    return math.ceil((value_ms - LP_EPS) / interval_ms) * interval_ms
 
 
 # ---------------------------------------------------------------------------
@@ -656,9 +856,11 @@ class GreedyCostPolicy(_GreedyBase):
         scored = []
         for state in candidates:
             cost = self.request_cost_for_state(state, ctx)
-            latency = state.profile.mean_ms(now)
-            if latency is None:
-                latency = state.profile.median_ms(now)
+            latency, _ = _body_latency_proxy_ms(
+                state,
+                now,
+                error_penalty_ms=self.slo_sec * 1000.0,
+            )
             scored.append(
                 (
                     cost,
@@ -709,9 +911,11 @@ class GreedyLatencyPolicy(_GreedyBase):
         candidates = self._candidates(now)
         scored = []
         for state in candidates:
-            latency = state.profile.mean_ms(now)
-            if latency is None:
-                latency = state.profile.median_ms(now)
+            latency, _ = _body_latency_proxy_ms(
+                state,
+                now,
+                error_penalty_ms=self.slo_sec * 1000.0,
+            )
             cost = self.request_cost_for_state(state, ctx)
             scored.append(
                 (
@@ -871,7 +1075,11 @@ class BudgetRangePolicy(BasePolicy):
 
         tbar: dict[str, float] = {}
         for s in feasible:
-            mean_ms, _ = _body_latency_proxy_ms(s, now)
+            mean_ms, _ = _body_latency_proxy_ms(
+                s,
+                now,
+                error_penalty_ms=self.slo_sec * 1000.0,
+            )
             if not math.isfinite(mean_ms):
                 mean_ms = UNPROFILED_LATENCY_PENALTY_MS
             tbar[s.spec.name] = mean_ms
@@ -941,7 +1149,11 @@ class BudgetRangePolicy(BasePolicy):
         }
         tbar: dict[str, float] = {}
         for state in feasible:
-            mean_ms, _ = _body_latency_proxy_ms(state, now)
+            mean_ms, _ = _body_latency_proxy_ms(
+                state,
+                now,
+                error_penalty_ms=self.slo_sec * 1000.0,
+            )
             if not math.isfinite(mean_ms):
                 mean_ms = UNPROFILED_LATENCY_PENALTY_MS
             tbar[state.spec.name] = mean_ms
@@ -1105,6 +1317,7 @@ __all__ = [
     "BasePolicy",
     "BudgetRangeHedgePolicy",
     "BudgetRangePolicy",
+    "CheckpointHedgeDecision",
     "ConcurrencyFirstPolicy",
     "GreedyCostPolicy",
     "GreedyLatencyPolicy",
@@ -1121,6 +1334,8 @@ __all__ = [
     "TierFirstPolicy",
     "build_policy",
     "compute_hedge_time_sec",
+    "hedge_checkpoints_for_slo",
     "request_cost_for_spec",
+    "select_checkpoint_backup",
     "select_safe_cheapest_backup",
 ]

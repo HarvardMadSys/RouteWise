@@ -338,7 +338,7 @@ def test_load_trace_jsonl_synthesizes_missing_freeinference_prompt(tmp_path) -> 
     assert len(trace) == 1
     assert trace[0].prompt_tokens == 64
     assert len(trace[0].prompt.split()) == 64
-    assert trace[0].prompt.startswith("This background paragraph is irrelevant")
+    assert trace[0].prompt.startswith("a a a")
     assert trace[0].prompt.endswith(
         "FINAL REQUEST: Ignore all previous synthetic padding. Do not include analysis, "
         "reasoning, markdown, labels, or <think> tags. Output only a fictional story "
@@ -811,10 +811,7 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
 
 
 def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
-    """When a hedge is triggered through the runner, backup capacity
-    must be charged via the executor's ``on_backup_dispatch`` callback —
-    i.e. before the backup completes, not after the hedged request
-    returns."""
+    """When a checkpoint hedge fires, backup capacity is charged before send."""
     runner, _ = _build_runner(policy_names=["budget_range_p100_hedge"])
     policy = runner.policies["budget_range_p100_hedge"]
 
@@ -889,12 +886,19 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
         ).RoutingDecision(primary=primary_marker, notes="test"),
     )
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.select_safe_cheapest_backup",
-        lambda **kwargs: backup_name,
+        "experiments.real_evaluation.runner.hedge_checkpoints_for_slo",
+        lambda slo_sec: (0.0,),
     )
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.compute_hedge_time_sec",
-        lambda **kwargs: 0.05,
+        "experiments.real_evaluation.runner.select_checkpoint_backup",
+        lambda **kwargs: __import__(
+            "experiments.real_evaluation.policies",
+            fromlist=["CheckpointHedgeDecision"],
+        ).CheckpointHedgeDecision(
+            backup=backup_name,
+            elapsed_sec=kwargs["elapsed_sec"],
+            success_probability=0.99,
+        ),
     )
 
     from experiments.real_evaluation.runner import TraceRequest
@@ -936,12 +940,19 @@ def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
         lambda now, ctx: RoutingDecision(primary=primary, notes="hedge_429_test"),
     )
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.select_safe_cheapest_backup",
-        lambda **kwargs: backup,
+        "experiments.real_evaluation.runner.hedge_checkpoints_for_slo",
+        lambda slo_sec: (0.0,),
     )
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.compute_hedge_time_sec",
-        lambda **kwargs: 0.0,
+        "experiments.real_evaluation.runner.select_checkpoint_backup",
+        lambda **kwargs: __import__(
+            "experiments.real_evaluation.policies",
+            fromlist=["CheckpointHedgeDecision"],
+        ).CheckpointHedgeDecision(
+            backup=backup,
+            elapsed_sec=kwargs["elapsed_sec"],
+            success_probability=0.99,
+        ),
     )
 
     def fallback_candidates(

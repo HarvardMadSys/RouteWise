@@ -20,7 +20,12 @@ from __future__ import annotations
 
 import time
 
-from experiments.real_evaluation.executor import send_hedged_request
+import pytest
+
+from experiments.real_evaluation.executor import (
+    send_checkpoint_hedged_request,
+    send_hedged_request,
+)
 from experiments.real_evaluation.transports import SingleRequestResult
 
 
@@ -144,7 +149,7 @@ def test_on_backup_dispatch_fires_before_backup_send() -> None:
     def on_dispatch(ts: float) -> None:
         callback_ts.append(ts)
 
-    send_hedged_request(
+    hedged = send_hedged_request(
         send_fn=fake_send,
         primary_provider="primary",
         backup_provider="backup",
@@ -156,8 +161,57 @@ def test_on_backup_dispatch_fires_before_backup_send() -> None:
     )
     assert len(callback_ts) == 1
     assert len(backup_send_ts) == 1
+    assert hedged.backup_dispatch_ts == pytest.approx(callback_ts[0])
     # Callback fires no later than the backup HTTP send starts.
     assert callback_ts[0] <= backup_send_ts[0] + 0.05  # generous slack
+
+
+def test_checkpoint_hedge_dispatches_at_callback_selected_checkpoint() -> None:
+    checkpoint_calls: list[tuple[float, float]] = []
+    sent: list[str] = []
+
+    def fake_send(
+        provider, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None
+    ):
+        del prompt, max_tokens, timeout, cancel_event
+        sent.append(provider)
+        if provider == "primary":
+            time.sleep(0.08)
+            if ttft_info is not None:
+                ttft_info.update(
+                    ttft_ms=80.0,
+                    first_token_ts=time.time(),
+                    status="success",
+                )
+            if ttft_event is not None:
+                ttft_event.set()
+            return _success_send(provider, ttft_ms=80.0)
+        if ttft_info is not None:
+            ttft_info.update(ttft_ms=5.0, first_token_ts=time.time(), status="success")
+        if ttft_event is not None:
+            ttft_event.set()
+        return _success_send(provider, ttft_ms=5.0)
+
+    def checkpoint_fn(elapsed_sec: float, checkpoint_ts: float) -> str | None:
+        checkpoint_calls.append((elapsed_sec, checkpoint_ts))
+        return "backup" if elapsed_sec >= 0.01 else None
+
+    hedged = send_checkpoint_hedged_request(
+        send_fn=fake_send,
+        primary_provider="primary",
+        hedge_checkpoints_sec=(0.01, 0.02),
+        checkpoint_fn=checkpoint_fn,
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+    )
+
+    assert hedged.hedge_triggered is True
+    assert hedged.backup_provider == "backup"
+    assert hedged.hedge_delay_sec == pytest.approx(0.01)
+    assert hedged.hedge_checkpoint_ts == pytest.approx(checkpoint_calls[0][1])
+    assert hedged.backup_dispatch_ts is not None
+    assert sent[:2] == ["primary", "backup"]
 
 
 def test_on_backup_dispatch_not_called_when_primary_succeeds() -> None:

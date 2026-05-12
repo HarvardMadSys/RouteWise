@@ -333,11 +333,24 @@ class LatencyProfile:
     def sample_count(self, now: float) -> int:
         return len(self._active_samples(now))
 
+    def total_count(self, now: float) -> int:
+        values = self._active_samples(now)
+        return len(values) + len(self.error_samples)
+
     def mean_ms(self, now: float) -> float | None:
         values = self._active_samples(now)
         if not values:
             return None
         return float(np.mean(values))
+
+    def mean_with_errors_ms(self, now: float, *, error_penalty_ms: float) -> float | None:
+        """Return mean over successes plus synthetic latency for failed attempts."""
+        values = self._active_samples(now)
+        n_errors = len(self.error_samples)
+        n_total = len(values) + n_errors
+        if n_total == 0:
+            return None
+        return float((sum(values) + n_errors * float(error_penalty_ms)) / n_total)
 
     def median_ms(self, now: float) -> float | None:
         values = self._active_samples(now)

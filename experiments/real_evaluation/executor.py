@@ -126,6 +126,12 @@ class SendFn(Protocol):
     ) -> SingleRequestResult: ...
 
 
+class CheckpointHedgeFn(Protocol):
+    """Callable used to decide whether to dispatch a backup at a checkpoint."""
+
+    def __call__(self, elapsed_sec: float, checkpoint_ts: float) -> str | None: ...
+
+
 @dataclass
 class HedgedResult:
     """Outcome of a hedged dispatch.
@@ -140,6 +146,10 @@ class HedgedResult:
     backup_result: SingleRequestResult | None
     winner: str  # "primary" | "backup"
     hedge_triggered: bool
+    backup_provider: str | None = None
+    hedge_delay_sec: float | None = None
+    hedge_checkpoint_ts: float | None = None
+    backup_dispatch_ts: float | None = None
     primary_ttft_info: dict[str, Any] = field(default_factory=dict)
     backup_ttft_info: dict[str, Any] = field(default_factory=dict)
 
@@ -280,6 +290,7 @@ def send_hedged_request(
 
     hedge_triggered = False
     monitor_thread: threading.Thread | None = None
+    backup_dispatch_ts: float | None = None
     if primary_failed_early:
         hedge_triggered = True
         backup_dispatch_ts = time.time()
@@ -346,14 +357,198 @@ def send_hedged_request(
         backup_result=backup_result,
         winner=winner,
         hedge_triggered=hedge_triggered,
+        backup_provider=backup_provider if hedge_triggered else None,
+        hedge_delay_sec=hedge_delay_sec if hedge_triggered else None,
+        hedge_checkpoint_ts=backup_dispatch_ts,
+        backup_dispatch_ts=backup_dispatch_ts,
+        primary_ttft_info=dict(primary_ttft_info),
+        backup_ttft_info=dict(backup_ttft_info),
+    )
+
+
+def send_checkpoint_hedged_request(
+    send_fn: SendFn,
+    primary_provider: str,
+    hedge_checkpoints_sec: tuple[float, ...],
+    checkpoint_fn: CheckpointHedgeFn,
+    prompt: str,
+    max_tokens: int,
+    timeout: int = 60,
+    cancel_loser_after_first_token: bool = True,
+    race_monitor_poll_sec: float = 0.005,
+) -> HedgedResult:
+    """Dispatch a primary and evaluate hedge decisions at SLO checkpoints.
+
+    Unlike ``send_hedged_request``, this does not receive a pre-selected backup
+    or a fixed delay. The caller supplies the RouteWise checkpoint schedule and
+    a callback that re-evaluates the probability target using current state.
+    """
+    checkpoints = tuple(
+        sorted(
+            float(checkpoint)
+            for checkpoint in hedge_checkpoints_sec
+            if math.isfinite(checkpoint) and checkpoint >= 0.0
+        )
+    )
+    if not checkpoints:
+        primary_result = send_request(
+            send_fn,
+            provider=primary_provider,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        return HedgedResult(
+            primary_result=primary_result,
+            backup_result=None,
+            winner="primary",
+            hedge_triggered=False,
+        )
+
+    primary_holder: dict[str, SingleRequestResult] = {}
+    backup_holder: dict[str, SingleRequestResult | None] = {"r": None}
+    primary_ttft = threading.Event()
+    backup_ttft = threading.Event()
+    primary_ttft_info: dict[str, Any] = {}
+    backup_ttft_info: dict[str, Any] = {}
+    primary_cancel = threading.Event()
+    backup_cancel = threading.Event()
+
+    def run_primary() -> None:
+        primary_holder["r"] = send_fn(
+            provider=primary_provider,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            ttft_event=primary_ttft,
+            ttft_info=primary_ttft_info,
+            cancel_event=primary_cancel,
+        )
+
+    def run_backup(provider: str) -> None:
+        backup_holder["r"] = send_fn(
+            provider=provider,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            ttft_event=backup_ttft,
+            ttft_info=backup_ttft_info,
+            cancel_event=backup_cancel,
+        )
+
+    primary_thread = threading.Thread(target=run_primary, daemon=True)
+    schedule_start_ts = time.time()
+    primary_thread.start()
+
+    hedge_triggered = False
+    hedge_delay_sec: float | None = None
+    hedge_checkpoint_ts: float | None = None
+    backup_dispatch_ts: float | None = None
+    backup_provider: str | None = None
+    backup_thread: threading.Thread | None = None
+    monitor_thread: threading.Thread | None = None
+
+    for checkpoint_sec in checkpoints:
+        wait_until = schedule_start_ts + checkpoint_sec
+        wait_remaining = max(0.0, wait_until - time.time())
+        if _ttft_succeeded(primary_ttft, primary_ttft_info):
+            break
+        if wait_remaining > 0.0:
+            if primary_ttft.is_set():
+                time.sleep(wait_remaining)
+            else:
+                primary_ttft.wait(timeout=wait_remaining)
+        if _ttft_succeeded(primary_ttft, primary_ttft_info):
+            break
+
+        checkpoint_ts = time.time()
+        try:
+            selected_backup = checkpoint_fn(checkpoint_sec, checkpoint_ts)
+        except Exception:
+            logger.warning("checkpoint hedge callback raised", exc_info=True)
+            selected_backup = None
+        if selected_backup is None:
+            continue
+
+        hedge_triggered = True
+        hedge_delay_sec = checkpoint_sec
+        hedge_checkpoint_ts = checkpoint_ts
+        backup_provider = selected_backup
+        backup_dispatch_ts = time.time()
+        backup_thread = threading.Thread(
+            target=run_backup,
+            args=(selected_backup,),
+            daemon=True,
+        )
+        backup_thread.start()
+
+        if cancel_loser_after_first_token:
+            monitor_thread = threading.Thread(
+                target=_race_monitor_loop,
+                args=(
+                    primary_ttft,
+                    primary_ttft_info,
+                    backup_ttft,
+                    backup_ttft_info,
+                    primary_thread,
+                    backup_thread,
+                    primary_cancel,
+                    backup_cancel,
+                    timeout + 5,
+                    race_monitor_poll_sec,
+                ),
+                name="hedge-race-monitor",
+                daemon=True,
+            )
+            monitor_thread.start()
+        break
+
+    primary_thread.join(timeout=timeout + 5)
+    if backup_thread is not None:
+        backup_thread.join(timeout=timeout + 5)
+    if monitor_thread is not None:
+        monitor_thread.join(timeout=1.0)
+
+    primary_result = primary_holder.get("r") or SingleRequestResult(
+        ttft_ms=-1.0,
+        e2e_ms=-1.0,
+        status="error",
+        provider=primary_provider,
+        error_message="primary_thread_missing_result",
+    )
+    backup_result = backup_holder.get("r")
+
+    def first_token_or_inf(r: SingleRequestResult | None) -> float:
+        if r is None or r.status != "success" or r.first_token_ts is None:
+            return float("inf")
+        return float(r.first_token_ts)
+
+    winner = "primary"
+    if hedge_triggered:
+        primary_first = first_token_or_inf(primary_result)
+        backup_first = first_token_or_inf(backup_result)
+        if backup_first < primary_first:
+            winner = "backup"
+
+    return HedgedResult(
+        primary_result=primary_result,
+        backup_result=backup_result,
+        winner=winner,
+        hedge_triggered=hedge_triggered,
+        backup_provider=backup_provider,
+        hedge_delay_sec=hedge_delay_sec,
+        hedge_checkpoint_ts=hedge_checkpoint_ts,
+        backup_dispatch_ts=backup_dispatch_ts,
         primary_ttft_info=dict(primary_ttft_info),
         backup_ttft_info=dict(backup_ttft_info),
     )
 
 
 __all__ = [
+    "CheckpointHedgeFn",
     "HedgedResult",
     "SendFn",
+    "send_checkpoint_hedged_request",
     "send_hedged_request",
     "send_request",
 ]

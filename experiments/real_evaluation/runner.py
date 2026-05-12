@@ -11,8 +11,7 @@ Migrated from
 lines 1046-1600. Differences:
 
 - Per-policy CSV via :class:`Recorder` (not the old inline writer)
-- Hedge dispatch uses :func:`executor.send_hedged_request` (with the
-  phase5 trigger-semantics fix)
+- Hedge dispatch uses checkpoint-time probability re-evaluation.
 - Sentinel handling for OpenRouter native modes is centralized here
 - ``--max-cost-usd`` guardrail per policy and globally
 """
@@ -37,6 +36,7 @@ import requests
 
 from experiments.real_evaluation.executor import (
     HedgedResult,
+    send_checkpoint_hedged_request,
     send_hedged_request,
     send_request,
 )
@@ -53,8 +53,8 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
-    compute_hedge_time_sec,
-    select_safe_cheapest_backup,
+    hedge_checkpoints_for_slo,
+    select_checkpoint_backup,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
@@ -256,16 +256,14 @@ def _synthesize_prompt_text(*, prompt_tokens: int, output_tokens: int) -> str:
 
     This is intentionally simple and dependency-free: one repeated whitespace
     word roughly maps to one BPE-ish token for the providers we probe. The
-    final instruction is last so it dominates the synthetic padding.
+    final instruction is last so it dominates the synthetic padding. Keep the
+    filler to one-token-ish ASCII words; multi-piece words caused large
+    FreeInference rows to overflow provider context limits.
     """
     instruction = SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE.format(output_tokens=output_tokens)
     instruction_words = instruction.split()
-    filler_template = ["This", "background", "paragraph", "is", "irrelevant"]
-    filler_words: list[str] = []
     target_filler_words = max(int(prompt_tokens) - len(instruction_words), 0)
-    while len(filler_words) < target_filler_words:
-        filler_words.extend(filler_template)
-    filler_words = filler_words[:target_filler_words]
+    filler_words = ["a"] * target_filler_words
     return " ".join([*filler_words, *instruction_words]).strip()
 
 
@@ -341,6 +339,7 @@ class _PreparedDispatch:
     expected_service_sec: float
     backup: str | None
     hedge_delay_sec: float
+    hedge_checkpoints_sec: tuple[float, ...] = ()
     primary_capacity_id: int | None = None
     primary_cached_input_tokens: int = 0
     backup_cached_input_tokens: int = 0
@@ -1049,30 +1048,9 @@ class RealExperimentRunner:
 
         backup: str | None = None
         hedge_delay_sec = float("inf")
+        hedge_checkpoints_sec: tuple[float, ...] = ()
         if policy.use_hedge:
-            backup = select_safe_cheapest_backup(
-                primary=decision.primary,
-                states=policy.states,
-                ctx=ctx,
-                slo_sec=self.slo_sec,
-                now=now,
-                cost_fn=lambda state: policy.request_cost_for_state(state, ctx),
-            )
-            hedge_delay_sec = float("inf")
-            if (
-                backup is not None
-                and backup != decision.primary
-                and decision.primary in policy.states
-                and backup in policy.states
-            ):
-                hedge_delay_sec = compute_hedge_time_sec(
-                    primary_state=policy.states[decision.primary],
-                    backup_state=policy.states[backup],
-                    slo_sec=self.slo_sec,
-                    now=now,
-                )
-            decision.hedge = backup
-            decision.hedge_delay_sec = hedge_delay_sec
+            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
 
         primary_capacity_id = policy.charge_capacity(decision.primary, now, expected_service_sec)
         primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
@@ -1092,6 +1070,7 @@ class RealExperimentRunner:
             expected_service_sec=expected_service_sec,
             backup=backup,
             hedge_delay_sec=hedge_delay_sec,
+            hedge_checkpoints_sec=hedge_checkpoints_sec,
             primary_capacity_id=primary_capacity_id,
             primary_cached_input_tokens=primary_cached,
             backup_cached_input_tokens=backup_cached,
@@ -1101,11 +1080,22 @@ class RealExperimentRunner:
 
     @staticmethod
     def _is_hedged_action(prepared: _PreparedDispatch) -> bool:
-        return prepared.backup is not None and math.isfinite(prepared.hedge_delay_sec)
+        return bool(prepared.hedge_checkpoints_sec) or (
+            prepared.backup is not None and math.isfinite(prepared.hedge_delay_sec)
+        )
 
     def _action_key(self, prepared: _PreparedDispatch) -> tuple[Any, ...]:
         """Physical action identity for safe coalescing."""
         hedged = self._is_hedged_action(prepared)
+        if prepared.hedge_checkpoints_sec and prepared.backup is None:
+            return (
+                "checkpoint_hedged",
+                prepared.policy.name,
+                prepared.req_index,
+                prepared.decision.primary,
+                prepared.prompt,
+                prepared.req.max_tokens,
+            )
         return (
             "hedged" if hedged else "single",
             prepared.decision.primary,
@@ -1242,6 +1232,124 @@ class RealExperimentRunner:
         req = prepared.req
         decision = prepared.decision
 
+        if prepared.hedge_checkpoints_sec:
+            backup_capacity_id: int | None = None
+            backup_capacity_lock = threading.Lock()
+
+            def _checkpoint_backup(elapsed_sec: float, checkpoint_ts: float) -> str | None:
+                nonlocal backup_capacity_id
+                future_checkpoints = tuple(
+                    checkpoint
+                    for checkpoint in prepared.hedge_checkpoints_sec
+                    if checkpoint > elapsed_sec + 1e-9
+                )
+                checkpoint_decision = select_checkpoint_backup(
+                    primary=decision.primary or "",
+                    states=policy.states,
+                    ctx=prepared.ctx,
+                    slo_sec=self.slo_sec,
+                    now=checkpoint_ts,
+                    elapsed_sec=elapsed_sec,
+                    future_checkpoints_sec=future_checkpoints,
+                    cost_fn=lambda state: policy.request_cost_for_state(state, prepared.ctx),
+                )
+                if checkpoint_decision.backup is None:
+                    return None
+
+                backup = checkpoint_decision.backup
+                prepared.backup = backup
+                prepared.hedge_delay_sec = elapsed_sec
+                decision.hedge = backup
+                decision.hedge_delay_sec = elapsed_sec
+                (
+                    prepared.backup_cached_input_tokens,
+                    prepared.backup_routing_estimated_cost_usd,
+                ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
+                capacity_id = policy.charge_capacity(
+                    backup,
+                    checkpoint_ts,
+                    prepared.expected_service_sec,
+                )
+                with backup_capacity_lock:
+                    backup_capacity_id = capacity_id
+                return backup
+
+            try:
+                hedged = send_checkpoint_hedged_request(
+                    send_fn=self._send_via_transport,
+                    primary_provider=decision.primary or "",
+                    hedge_checkpoints_sec=prepared.hedge_checkpoints_sec,
+                    checkpoint_fn=_checkpoint_backup,
+                    prompt=prepared.prompt,
+                    max_tokens=req.max_tokens,
+                    timeout=self.timeout_sec,
+                )
+            finally:
+                policy.release_capacity(
+                    decision.primary,
+                    prepared.primary_capacity_id,
+                    time.time(),
+                )
+                with backup_capacity_lock:
+                    capacity_id = backup_capacity_id
+                policy.release_capacity(prepared.backup, capacity_id, time.time())
+
+            if hedged.backup_provider is not None and prepared.backup is None:
+                prepared.backup = hedged.backup_provider
+                decision.hedge = hedged.backup_provider
+            if hedged.hedge_delay_sec is not None:
+                prepared.hedge_delay_sec = hedged.hedge_delay_sec
+                decision.hedge_delay_sec = hedged.hedge_delay_sec
+
+            hedged_attempts = [(decision.primary or "", hedged.primary_result)]
+            if hedged.backup_result is not None and prepared.backup is not None:
+                hedged_attempts.append((prepared.backup, hedged.backup_result))
+            if hedged_attempts and all(result.rate_limited for _, result in hedged_attempts):
+                excluded = {provider for provider, _ in hedged_attempts if provider}
+                initial_attempt_count = len(hedged_attempts)
+                final_provider, result, attempts = self._continue_after_rate_limited_attempts(
+                    prepared,
+                    hedged_attempts,
+                    excluded,
+                )
+                if len(attempts) > initial_attempt_count:
+                    self._feed_back_single_attempts(policy, attempts)
+                    self._account_single_attempts(policy, attempts)
+                    primary_cached, primary_estimated_cost = (
+                        prepared.primary_cached_input_tokens,
+                        prepared.primary_routing_estimated_cost_usd,
+                    )
+                    if final_provider != decision.primary:
+                        primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
+                            final_provider,
+                            prepared.ctx,
+                        )
+                    self._record_single(
+                        policy,
+                        req,
+                        prepared.req_index,
+                        decision,
+                        result,
+                        primary_cached_input_tokens=primary_cached,
+                        primary_routing_estimated_cost_usd=primary_estimated_cost,
+                    )
+                    return
+            self._feed_back_hedged(policy, hedged)
+            self._account_cost(policy, hedged)
+            self._record_hedged(
+                policy,
+                req,
+                prepared.req_index,
+                decision,
+                hedged,
+                prepared.hedge_delay_sec,
+                primary_cached_input_tokens=prepared.primary_cached_input_tokens,
+                backup_cached_input_tokens=prepared.backup_cached_input_tokens,
+                primary_routing_estimated_cost_usd=(prepared.primary_routing_estimated_cost_usd),
+                backup_routing_estimated_cost_usd=(prepared.backup_routing_estimated_cost_usd),
+            )
+            return
+
         if self._is_hedged_action(prepared):
             assert prepared.backup is not None
 
@@ -1358,6 +1466,10 @@ class RealExperimentRunner:
             return
 
         first = prepareds[0]
+        if first.hedge_checkpoints_sec and first.backup is None:
+            for prepared in prepareds:
+                self._execute_prepared_dispatch(prepared)
+            return
         if self._is_hedged_action(first):
             assert first.backup is not None
             backup_capacity_ids: dict[int, int | None] = {}
