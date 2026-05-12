@@ -908,7 +908,7 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=5000.0,
         metadata={
             "public_scenario": f"cost_layer_{family}",
             "artifact_label": f"cost_layer_{family}",
@@ -963,7 +963,7 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=5000.0,
     )
 
 
@@ -1042,7 +1042,7 @@ def _make_quota_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=5000.0,
         metadata={
             "public_scenario": QUOTA_SCENARIO,
             "artifact_label": label,
@@ -1131,7 +1131,7 @@ def _make_concurrency_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=5000.0,
         metadata={
             "public_scenario": CONCURRENCY_SCENARIO,
             "artifact_label": label,
@@ -1265,7 +1265,7 @@ def _make_joint_scenario_for_plans(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=5000.0,
         metadata={
             "public_scenario": JOINT_SCENARIO,
             "artifact_label": label,

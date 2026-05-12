@@ -24,6 +24,7 @@ class ProviderPoolEntry:
     ttft_dist: EmpiricalDistribution
     input_per_m: float
     output_per_m: float
+    cached_input_per_m: float | None
     price_source: str
 
 
@@ -58,6 +59,7 @@ def load_provider_pool(
             ttft_dist=distributions[provider_name],
             input_per_m=prices[provider_name][0],
             output_per_m=prices[provider_name][1],
+            cached_input_per_m=prices[provider_name][2],
             price_source=price_source,
         )
         for provider_name in distributions
@@ -75,7 +77,7 @@ def _load_prices(
     pool: dict[str, Any],
     provider_names: tuple[str, ...],
     config_path: Path,
-) -> tuple[dict[str, tuple[float, float]], str]:
+) -> tuple[dict[str, tuple[float, float, float | None]], str]:
     pricing = pool.get("pricing")
     if not isinstance(pricing, dict):
         raise ValueError(f"provider pool {pool!r} must define pricing: {config_path}")
@@ -96,13 +98,13 @@ def _load_static_prices(
     pricing: dict[str, Any],
     provider_names: tuple[str, ...],
     config_path: Path,
-) -> dict[str, tuple[float, float]]:
+) -> dict[str, tuple[float, float, float | None]]:
     default_input = pricing.get("default_input_per_m")
     default_output = pricing.get("default_output_per_m")
     overrides = pricing.get("overrides", {})
     if not isinstance(overrides, dict):
         raise ValueError(f"static pricing overrides must be a mapping: {config_path}")
-    prices: dict[str, tuple[float, float]] = {}
+    prices: dict[str, tuple[float, float, float | None]] = {}
     for provider_name in provider_names:
         override = overrides.get(provider_name, {})
         if override is None:
@@ -119,7 +121,7 @@ def _load_static_prices(
                 f"static pricing missing input/output price for {provider_name!r}: "
                 f"{config_path}"
             )
-        prices[provider_name] = (float(input_per_m), float(output_per_m))
+        prices[provider_name] = (float(input_per_m), float(output_per_m), None)
     return prices
 
 
@@ -129,13 +131,13 @@ def _load_openrouter_prices_from_metadata(
     provider_names: tuple[str, ...],
     *,
     config_path: Path,
-) -> dict[str, tuple[float, float]]:
+) -> dict[str, tuple[float, float, float | None]]:
     metadata = _load_pool_profile_metadata(config, pool, config_path)
     provider_metadata = metadata.get("providers", {})
     if not isinstance(provider_metadata, dict):
         raise ValueError(f"profile metadata providers must be a mapping: {config_path}")
 
-    prices: dict[str, tuple[float, float]] = {}
+    prices: dict[str, tuple[float, float, float | None]] = {}
     missing: list[str] = []
     for provider_name in provider_names:
         raw_provider = provider_metadata.get(provider_name, {})
@@ -148,7 +150,12 @@ def _load_openrouter_prices_from_metadata(
         if input_per_m is None or output_per_m is None:
             missing.append(provider_name)
             continue
-        prices[provider_name] = (float(input_per_m), float(output_per_m))
+        cached_input_per_m = price.get("input_cache_read_price_per_m")
+        prices[provider_name] = (
+            float(input_per_m),
+            float(output_per_m),
+            None if cached_input_per_m is None else float(cached_input_per_m),
+        )
 
     if missing:
         raise ValueError(

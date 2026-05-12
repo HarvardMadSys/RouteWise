@@ -33,7 +33,7 @@ def test_end_to_end_rw3_uses_one_api_plus_quota_and_concurrency():
     assert scenario.metadata["model"] == "qwen3-235b"
     assert scenario.metadata["model_class"] == "ge_70b"
     assert scenario.metadata["effective_concurrency_limit"] == 8
-    assert scenario.metadata["slo_ms"] == pytest.approx(2000.0)
+    assert scenario.metadata["slo_ms"] == pytest.approx(5000.0)
     assert [provider.tier for provider in scenario.providers] == [
         ProviderTier.S_Q,
         ProviderTier.S_C,
@@ -156,24 +156,24 @@ def test_end_to_end_prefix_cache_sets_api_cached_input_prices():
     )
 
     assert scenario.metadata["prefix_cache_enabled"] is True
-    assert scenario.metadata["cached_input_price_fraction"] == pytest.approx(0.2)
+    assert scenario.metadata["cached_input_price_fraction"] is None
+    assert (
+        scenario.metadata["cached_input_price_source"]
+        == "metadata_openrouter_input_cache_read"
+    )
     assert scenario.providers[0].cached_input_cost_per_token is None
     assert scenario.providers[1].cached_input_cost_per_token is None
-    assert [
-        provider.cached_input_cost_per_token * 1_000_000
+    cached_prices = [
+        (
+            None
+            if provider.cached_input_cost_per_token is None
+            else provider.cached_input_cost_per_token * 1_000_000
+        )
         for provider in scenario.providers[2:]
-    ] == pytest.approx(
-        [
-            0.048,
-            0.060,
-            0.030,
-            0.060,
-            0.068,
-            0.059,
-            0.030,
-            0.060,
-        ]
-    )
+    ]
+    assert cached_prices[:3] == pytest.approx([0.030, 0.060, 0.030])
+    assert cached_prices[3] is None
+    assert cached_prices[4:] == pytest.approx([0.040, 0.060, 0.075, 0.030])
 
 
 def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
@@ -195,7 +195,7 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
     assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
     assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
     assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(2000.0)
+    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(5000.0)
 
 
 def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
@@ -244,7 +244,7 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert hedging_row["routewise_p"] == 0.75
     assert hedging_row["hedging_enabled"] is True
     assert hedging_row["explorer_enabled"] is False
-    assert hedging_row["slo_ms"] == 2000.0
+    assert hedging_row["slo_ms"] == 5000.0
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))

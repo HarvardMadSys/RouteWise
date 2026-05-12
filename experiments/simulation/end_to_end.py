@@ -78,7 +78,7 @@ DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_COUNT = 8
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
 DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
-DEFAULT_SLO_MS = 2000.0
+DEFAULT_SLO_MS = 5000.0
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
 _SCENARIO_KWARGS_PRESET_KEY = "__end_to_end_scenario_kwargs__"
@@ -208,12 +208,26 @@ def _with_prefix_cache_config(
             "cached input price fraction must be non-negative, got "
             f"{cached_input_price_fraction!r}"
         )
+    use_fraction_fallback = (
+        scenario.metadata.get("api_price_source") != "metadata_openrouter_price"
+    )
     scenario.metadata["prefix_cache_enabled"] = bool(enabled)
-    scenario.metadata["cached_input_price_fraction"] = cached_input_price_fraction
+    scenario.metadata["cached_input_price_fraction"] = (
+        cached_input_price_fraction if use_fraction_fallback else None
+    )
+    scenario.metadata["cached_input_price_source"] = (
+        "fraction_of_input_price"
+        if use_fraction_fallback
+        else "metadata_openrouter_input_cache_read"
+    )
     if not enabled:
         return scenario
     for provider in scenario.providers:
         if provider.tier == ProviderTier.S_A and provider.input_cost_per_token is not None:
+            if provider.cached_input_cost_per_token is not None:
+                continue
+            if not use_fraction_fallback:
+                continue
             provider.cached_input_cost_per_token = (
                 provider.input_cost_per_token * cached_input_price_fraction
             )
@@ -346,6 +360,7 @@ def _make_end_to_end_scenario(
                 item.ttft_dist,
                 input_per_m=item.input_per_m,
                 output_per_m=item.output_per_m,
+                cached_input_per_m=item.cached_input_per_m,
             )
             for item in api_items
         ]
@@ -356,6 +371,11 @@ def _make_end_to_end_scenario(
                 "provider": provider.name,
                 "input_per_m": provider.effective_input_cost_per_token * 1_000_000.0,
                 "output_per_m": provider.effective_output_cost_per_token * 1_000_000.0,
+                "cached_input_per_m": (
+                    None
+                    if provider.cached_input_cost_per_token is None
+                    else provider.cached_input_cost_per_token * 1_000_000.0
+                ),
             }
             for provider in api_providers
         ]
@@ -489,12 +509,16 @@ def _make_empirical_api_provider(
     provider_name: str | None = None,
     input_per_m: float,
     output_per_m: float,
+    cached_input_per_m: float | None = None,
 ) -> TieredProvider:
     return TieredProvider(
         name=provider_name or f"api_{latency_provider_name}",
         cost_per_token=input_per_m / 1_000_000.0,
         input_cost_per_token=input_per_m / 1_000_000.0,
         output_cost_per_token=output_per_m / 1_000_000.0,
+        cached_input_cost_per_token=(
+            None if cached_input_per_m is None else cached_input_per_m / 1_000_000.0
+        ),
         ttft_dist=ttft_dist,
         tps_dist=make_tps_distribution(),
         tier=ProviderTier.S_A,
@@ -592,6 +616,7 @@ def _enrich_rows_with_end_to_end_metadata(
                 "api_price_tiers_per_m": meta.get("api_price_tiers_per_m"),
                 "prefix_cache_enabled": meta.get("prefix_cache_enabled"),
                 "cached_input_price_fraction": meta.get("cached_input_price_fraction"),
+                "cached_input_price_source": meta.get("cached_input_price_source"),
                 "slo_ms": meta.get("slo_ms"),
                 "routewise_p": params.get("p"),
                 "hedging_enabled": bool(params.get("hedging", False)),
@@ -615,6 +640,7 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "api_price_tiers_per_m",
     "prefix_cache_enabled",
     "cached_input_price_fraction",
+    "cached_input_price_source",
     "subscription_plan",
     "subscription_plan_display_name",
     "subscription_count",
