@@ -64,7 +64,6 @@ if TYPE_CHECKING:
 LP_EPS: float = 1e-9
 _COST_TIEBREAK_MS: float = 1e-3
 HEDGE_SUCCESS_TARGET: float = 0.99
-HEDGE_DISPATCH_OVERHEAD_SEC: float = 0.05
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
 # still yields a feasible solution but never picks them when *any*
@@ -250,7 +249,6 @@ def _combined_hedge_success_probability(
     elapsed_sec: float,
     slo_sec: float,
     now: float,
-    dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
 ) -> float:
     """Probability that hedging now keeps the request within SLO.
 
@@ -267,7 +265,7 @@ def _combined_hedge_success_probability(
 
     p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
     p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
-    remaining_ms = (slo_sec - float(elapsed_sec) - dispatch_overhead_sec) * 1000.0
+    remaining_ms = (slo_sec - float(elapsed_sec)) * 1000.0
     backup_success = 0.0 if remaining_ms <= 0.0 else backup_state.profile.cdf_at(remaining_ms, now)
     return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
 
@@ -279,7 +277,6 @@ def compute_hedge_time_sec(
     now: float,
     *,
     success_target: float = HEDGE_SUCCESS_TARGET,
-    dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
     grid_step_sec: float = 0.05,
 ) -> float:
     """Return the latest backup-dispatch wait time meeting target success.
@@ -289,13 +286,13 @@ def compute_hedge_time_sec(
         P(not violate | wait t) + P(violate | wait t) * P(backup ok in remaining)
         >= success_target.
 
-    Returns ``math.inf`` if no ``t`` in ``[0, slo_sec - dispatch_overhead]``
-    meets the target — the runner interprets that as "do not hedge".
+    Returns ``math.inf`` if no ``t`` in ``[0, slo_sec]`` meets the target —
+    the runner interprets that as "do not hedge".
 
     Empirical version of ``rwsim``'s latest-safe probability-target hedging.
     """
     latest_safe: float | None = None
-    max_elapsed_sec = max(0.0, slo_sec - dispatch_overhead_sec)
+    max_elapsed_sec = max(0.0, slo_sec)
     grid = np.arange(0.0, max_elapsed_sec + 1e-9, grid_step_sec)
     if len(grid) == 0:
         grid = np.array([0.0])
@@ -306,7 +303,6 @@ def compute_hedge_time_sec(
             elapsed_sec=float(elapsed_sec),
             slo_sec=slo_sec,
             now=now,
-            dispatch_overhead_sec=dispatch_overhead_sec,
         )
         if combined >= success_target:
             latest_safe = float(elapsed_sec)
@@ -323,7 +319,6 @@ def select_safe_cheapest_backup(
     now: float,
     *,
     success_target: float = HEDGE_SUCCESS_TARGET,
-    dispatch_overhead_sec: float = HEDGE_DISPATCH_OVERHEAD_SEC,
     cost_fn: Callable[[ProviderState], float] | None = None,
 ) -> str | None:
     """Pick the cheapest feasible probability-target backup.
@@ -347,7 +342,6 @@ def select_safe_cheapest_backup(
             slo_sec,
             now,
             success_target=success_target,
-            dispatch_overhead_sec=dispatch_overhead_sec,
         )
         if not math.isfinite(hedge_delay_sec):
             continue
@@ -357,7 +351,6 @@ def select_safe_cheapest_backup(
             elapsed_sec=hedge_delay_sec,
             slo_sec=slo_sec,
             now=now,
-            dispatch_overhead_sec=dispatch_overhead_sec,
         )
         cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
         mean_ms, _ = _body_latency_proxy_ms(state, now)
@@ -1102,7 +1095,6 @@ def build_policy(
 
 
 __all__ = [
-    "HEDGE_DISPATCH_OVERHEAD_SEC",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
     "OR_SORT_COST_SENTINEL",

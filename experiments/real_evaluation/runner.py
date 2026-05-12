@@ -47,7 +47,6 @@ from experiments.real_evaluation.inventory import (
     subscription_fixed_cost_for_inventory,
 )
 from experiments.real_evaluation.policies import (
-    HEDGE_DISPATCH_OVERHEAD_SEC,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     BasePolicy,
@@ -1268,7 +1267,6 @@ class RealExperimentRunner:
                     prompt=prepared.prompt,
                     max_tokens=req.max_tokens,
                     timeout=self.timeout_sec,
-                    dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
                     on_backup_dispatch=_charge_backup,
                 )
             finally:
@@ -1385,7 +1383,6 @@ class RealExperimentRunner:
                     prompt=first.prompt,
                     max_tokens=first.req.max_tokens,
                     timeout=self.timeout_sec,
-                    dispatch_overhead_sec=HEDGE_DISPATCH_OVERHEAD_SEC,
                     on_backup_dispatch=_charge_all_backups,
                 )
             finally:

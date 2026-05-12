@@ -77,7 +77,6 @@ def test_primary_http_error_triggers_backup() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
     )
     assert hedged.hedge_triggered is True
     assert hedged.winner == "backup"
@@ -109,7 +108,6 @@ def test_primary_succeeds_quickly_no_hedge() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
     )
     assert hedged.hedge_triggered is False
     assert hedged.winner == "primary"
@@ -154,7 +152,6 @@ def test_on_backup_dispatch_fires_before_backup_send() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
         on_backup_dispatch=on_dispatch,
     )
     assert len(callback_ts) == 1
@@ -222,7 +219,6 @@ def test_callback_exception_does_not_abort_hedge() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
         on_backup_dispatch=bad_callback,
     )
     assert hedged.hedge_triggered is True
@@ -297,7 +293,6 @@ def test_cancel_loser_after_first_token_primary_wins() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
         cancel_loser_after_first_token=True,
     )
     assert hedged.hedge_triggered is True
@@ -322,7 +317,6 @@ def test_cancel_loser_after_first_token_backup_wins() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
         cancel_loser_after_first_token=True,
     )
     assert hedged.hedge_triggered is True
@@ -347,7 +341,6 @@ def test_cancel_loser_disabled_no_cancel_event_set() -> None:
         prompt="x",
         max_tokens=8,
         timeout=5,
-        dispatch_overhead_sec=0.0,
         cancel_loser_after_first_token=False,
     )
     assert hedged.hedge_triggered is True

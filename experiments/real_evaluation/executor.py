@@ -178,7 +178,6 @@ def send_hedged_request(
     prompt: str,
     max_tokens: int,
     timeout: int = 60,
-    dispatch_overhead_sec: float = 0.05,
     on_backup_dispatch: Callable[[float], None] | None = None,
     cancel_loser_after_first_token: bool = True,
     race_monitor_poll_sec: float = 0.005,
@@ -283,8 +282,6 @@ def send_hedged_request(
     monitor_thread: threading.Thread | None = None
     if primary_failed_early:
         hedge_triggered = True
-        if dispatch_overhead_sec > 0:
-            time.sleep(dispatch_overhead_sec)
         backup_dispatch_ts = time.time()
         if on_backup_dispatch is not None:
             try:
