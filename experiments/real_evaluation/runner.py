@@ -860,17 +860,13 @@ class RealExperimentRunner:
         *,
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
-        coalesce_identical_actions: bool = False,
         periodic_probe_interval_sec: float = 0.0,
         periodic_probe_sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
     ) -> None:
         """Replay a trace against the configured policies.
 
-        Default semantics are paper-safe: every policy gets the full trace at
-        the same wall-clock request arrivals with isolated policy state.
-        ``coalesce_identical_actions=True`` keeps those full-trace semantics
-        but executes identical physical actions once, then fans the observed
-        result out to each policy's virtual accounting.
+        Every policy gets the full trace at the same wall-clock request
+        arrivals with isolated policy state.
         """
         if not trace:
             logger.warning("replay called with empty trace")
@@ -880,10 +876,6 @@ class RealExperimentRunner:
             sleep_sec=periodic_probe_sleep_sec,
         )
         try:
-            if coalesce_identical_actions:
-                self._replay_coalesced_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
-                return
-
             self._replay_parallel_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
         finally:
             self._stop_periodic_profile_probe_thread(probe_handle)
@@ -984,43 +976,6 @@ class RealExperimentRunner:
 
         self._join_threads(threads)
 
-    def _replay_coalesced_full_trace(
-        self,
-        trace: list[TraceRequest],
-        *,
-        speedup: float,
-        duration_sec: float,
-    ) -> None:
-        run_start = time.time()
-        threads: list[threading.Thread] = []
-        policies = list(self.policies.values())
-        for i, req in enumerate(trace):
-            if not self._wait_for_request_arrival(
-                run_start, req, speedup=speedup, duration_sec=duration_sec
-            ):
-                break
-
-            groups: dict[tuple[Any, ...], list[_PreparedDispatch]] = {}
-            for policy in policies:
-                prepared = self._prepare_dispatch(policy, req, i)
-                if prepared is None:
-                    continue
-                groups.setdefault(self._action_key(prepared), []).append(prepared)
-
-            for prepareds in groups.values():
-                t = threading.Thread(
-                    target=self._execute_coalesced_group,
-                    args=(prepareds,),
-                    daemon=True,
-                )
-                t.start()
-                threads.append(t)
-
-            if (i + 1) % 25 == 0:
-                threads = [t for t in threads if t.is_alive()]
-
-        self._join_threads(threads)
-
     # ------------------------------------------------------------------
     # Per-request dispatch.
     # ------------------------------------------------------------------
@@ -1082,27 +1037,6 @@ class RealExperimentRunner:
     def _is_hedged_action(prepared: _PreparedDispatch) -> bool:
         return bool(prepared.hedge_checkpoints_sec) or (
             prepared.backup is not None and math.isfinite(prepared.hedge_delay_sec)
-        )
-
-    def _action_key(self, prepared: _PreparedDispatch) -> tuple[Any, ...]:
-        """Physical action identity for safe coalescing."""
-        hedged = self._is_hedged_action(prepared)
-        if prepared.hedge_checkpoints_sec and prepared.backup is None:
-            return (
-                "checkpoint_hedged",
-                prepared.policy.name,
-                prepared.req_index,
-                prepared.decision.primary,
-                prepared.prompt,
-                prepared.req.max_tokens,
-            )
-        return (
-            "hedged" if hedged else "single",
-            prepared.decision.primary,
-            prepared.backup if hedged else None,
-            round(prepared.hedge_delay_sec, 6) if hedged else None,
-            prepared.prompt,
-            prepared.req.max_tokens,
         )
 
     def _send_single_with_rate_limit_fallback(
@@ -1457,148 +1391,6 @@ class RealExperimentRunner:
             primary_routing_estimated_cost_usd=primary_estimated_cost,
         )
 
-    def _execute_coalesced_group(self, prepareds: list[_PreparedDispatch]) -> None:
-        """Execute one physical action and fan out result to virtual policies."""
-        if not prepareds:
-            return
-        if len(prepareds) == 1:
-            self._execute_prepared_dispatch(prepareds[0])
-            return
-
-        first = prepareds[0]
-        if first.hedge_checkpoints_sec and first.backup is None:
-            for prepared in prepareds:
-                self._execute_prepared_dispatch(prepared)
-            return
-        if self._is_hedged_action(first):
-            assert first.backup is not None
-            backup_capacity_ids: dict[int, int | None] = {}
-            backup_capacity_lock = threading.Lock()
-
-            def _charge_all_backups(dispatch_ts: float) -> None:
-                for prepared in prepareds:
-                    assert prepared.backup is not None
-                    capacity_id = prepared.policy.charge_capacity(
-                        prepared.backup,
-                        dispatch_ts,
-                        prepared.expected_service_sec,
-                    )
-                    with backup_capacity_lock:
-                        backup_capacity_ids[id(prepared)] = capacity_id
-
-            try:
-                hedged = send_hedged_request(
-                    send_fn=self._send_via_transport,
-                    primary_provider=first.decision.primary or "",
-                    backup_provider=first.backup,
-                    hedge_delay_sec=first.hedge_delay_sec,
-                    prompt=first.prompt,
-                    max_tokens=first.req.max_tokens,
-                    timeout=self.timeout_sec,
-                    on_backup_dispatch=_charge_all_backups,
-                )
-            finally:
-                with backup_capacity_lock:
-                    backup_ids = dict(backup_capacity_ids)
-                for prepared in prepareds:
-                    prepared.policy.release_capacity(
-                        prepared.decision.primary,
-                        prepared.primary_capacity_id,
-                        time.time(),
-                    )
-                    prepared.policy.release_capacity(
-                        prepared.backup,
-                        backup_ids.get(id(prepared)),
-                        time.time(),
-                    )
-            physical_cost = self._hedged_physical_cost(hedged)
-            for prepared in prepareds:
-                self._feed_back_hedged(prepared.policy, hedged)
-                self._account_cost(prepared.policy, hedged, physical=False)
-                self._record_hedged(
-                    prepared.policy,
-                    prepared.req,
-                    prepared.req_index,
-                    prepared.decision,
-                    hedged,
-                    prepared.hedge_delay_sec,
-                    primary_cached_input_tokens=prepared.primary_cached_input_tokens,
-                    backup_cached_input_tokens=prepared.backup_cached_input_tokens,
-                    primary_routing_estimated_cost_usd=(
-                        prepared.primary_routing_estimated_cost_usd
-                    ),
-                    backup_routing_estimated_cost_usd=(prepared.backup_routing_estimated_cost_usd),
-                )
-            self._account_physical_cost(physical_cost)
-            return
-
-        try:
-            result = send_request(
-                send_fn=self._send_via_transport,
-                provider=first.decision.primary or "",
-                prompt=first.prompt,
-                max_tokens=first.req.max_tokens,
-                timeout=self.timeout_sec,
-            )
-        except Exception:
-            for prepared in prepareds:
-                prepared.policy.release_capacity(
-                    prepared.decision.primary,
-                    prepared.primary_capacity_id,
-                    time.time(),
-                )
-            raise
-        if result.rate_limited:
-            for prepared in prepareds:
-                final_provider, final_result, attempts = self._send_single_with_rate_limit_fallback(
-                    prepared,
-                    initial_result=result,
-                )
-                self._feed_back_single_attempts(prepared.policy, attempts)
-                self._account_single_attempts(prepared.policy, attempts)
-                primary_cached, primary_estimated_cost = (
-                    prepared.primary_cached_input_tokens,
-                    (prepared.primary_routing_estimated_cost_usd),
-                )
-                if final_provider != prepared.decision.primary:
-                    primary_cached, primary_estimated_cost = (
-                        prepared.policy.routing_cache_diagnostics(
-                            final_provider,
-                            prepared.ctx,
-                        )
-                    )
-                self._record_single(
-                    prepared.policy,
-                    prepared.req,
-                    prepared.req_index,
-                    prepared.decision,
-                    final_result,
-                    primary_cached_input_tokens=primary_cached,
-                    primary_routing_estimated_cost_usd=primary_estimated_cost,
-                )
-            return
-
-        physical_cost = self._single_physical_cost(result)
-        for prepared in prepareds:
-            prepared.policy.release_capacity(
-                prepared.decision.primary,
-                prepared.primary_capacity_id,
-                time.time(),
-            )
-        for prepared in prepareds:
-            self._feed_back_single(prepared.policy, prepared.decision.primary or "", result)
-            self._account_single(prepared.policy, result, physical=False)
-            self._record_single(
-                prepared.policy,
-                prepared.req,
-                prepared.req_index,
-                prepared.decision,
-                result,
-                primary_cached_input_tokens=prepared.primary_cached_input_tokens,
-                primary_routing_estimated_cost_usd=(prepared.primary_routing_estimated_cost_usd),
-            )
-        self._account_physical_cost(physical_cost)
-
     # ------------------------------------------------------------------
     # Profile + capacity feedback.
     # ------------------------------------------------------------------
@@ -1838,15 +1630,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--coalesce-identical-actions",
-        action="store_true",
-        help=(
-            "Run every policy on the full trace, but execute identical "
-            "physical provider actions once and fan out the observed result "
-            "to each policy's virtual accounting."
-        ),
-    )
-    parser.add_argument(
         "--max-requests",
         type=int,
         default=None,
@@ -2081,7 +1864,6 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
-        coalesce_identical_actions=args.coalesce_identical_actions,
         periodic_probe_interval_sec=args.periodic_probe_interval_sec,
         periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
     )
