@@ -647,13 +647,19 @@ class BasePolicy:
         helper replaces the oracle with the policy's online predictor so the
         live LP path matches the simulator (default: bucket mean over
         log-spaced input-length buckets).
+
+        Locking note: the predictor's internal state (e.g. bucket counts and
+        running sums) is mutated by ``observe_response`` from result threads
+        while ``route`` calls run in parallel. ``self._lock`` serializes both
+        sides so a routing read cannot see a half-applied update.
         """
         stub = _PredictionRequest(
             id=0,
             timestamp=0.0,
             request_tokens=int(ctx.prompt_tokens),
         )
-        prediction = self.output_predictor.predict(stub)
+        with self._lock:
+            prediction = self.output_predictor.predict(stub)
         return max(1, int(round(prediction.median)))
 
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:

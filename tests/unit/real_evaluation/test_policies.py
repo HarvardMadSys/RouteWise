@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from experiments.offline_stage.value_estimators import ConstantOutputPredictor
@@ -467,6 +469,97 @@ def test_observe_response_updates_predictor() -> None:
     policy.observe_response(ctx, completion_tokens=100)
     warm_cost = policy.request_cost_for_spec(api, ctx)
     assert warm_cost == pytest.approx(80.0 / 1_000_000.0)
+
+
+def test_predict_and_observe_response_are_mutually_excluded() -> None:
+    """Concurrent ``route``/``observe_response`` calls must serialize their
+    accesses to the predictor so a routing read cannot land in the middle
+    of an ``update``.
+
+    The custom predictor asserts that ``predict`` and ``update`` never
+    overlap, which would catch the lock asymmetry where ``observe_response``
+    was guarded but ``_predicted_output_tokens`` was not.
+    """
+    from experiments.offline_stage.value_estimators import OutputTokenPredictor
+    from experiments.offline_stage.value_estimators.base import QuantilePrediction
+
+    class _ConcurrencyAssertingPredictor(OutputTokenPredictor):
+        """Records overlap between predict and update; never crashes."""
+
+        def __init__(self) -> None:
+            self._in_predict = 0
+            self._in_update = 0
+            self._cross_violation = False
+            self._race_lock = threading.Lock()
+
+        def predict(self, request):  # noqa: ANN001 - duck typed
+            with self._race_lock:
+                if self._in_update > 0:
+                    self._cross_violation = True
+                self._in_predict += 1
+            try:
+                # Burn a few microseconds inside the critical section so
+                # an unprotected caller would actually overlap with update.
+                for _ in range(50):
+                    pass
+            finally:
+                with self._race_lock:
+                    self._in_predict -= 1
+            return QuantilePrediction(q10=10.0, q50=10.0, q90=10.0)
+
+        def update(self, request):  # noqa: ANN001 - duck typed
+            with self._race_lock:
+                if self._in_predict > 0:
+                    self._cross_violation = True
+                self._in_update += 1
+            try:
+                for _ in range(50):
+                    pass
+            finally:
+                with self._race_lock:
+                    self._in_update -= 1
+
+        def reset(self) -> None:
+            pass
+
+        @property
+        def is_warmed_up(self) -> bool:
+            return True
+
+    predictor = _ConcurrencyAssertingPredictor()
+    api = _api_spec("OR_x", in_p=0.0, out_p=1.0)
+    policy = build_policy(
+        "greedy_cost",
+        specs=[api],
+        slo_ms=2000.0,
+        output_predictor=predictor,
+    )
+    ctx = RequestContext(prompt_tokens=64, completion_tokens_budget=1)
+
+    stop = threading.Event()
+
+    def hammer_predict() -> None:
+        while not stop.is_set():
+            policy.request_cost_for_spec(api, ctx)
+
+    def hammer_update() -> None:
+        while not stop.is_set():
+            policy.observe_response(ctx, completion_tokens=42)
+
+    predict_threads = [threading.Thread(target=hammer_predict) for _ in range(4)]
+    update_threads = [threading.Thread(target=hammer_update) for _ in range(4)]
+    for t in predict_threads + update_threads:
+        t.start()
+    # Let the contention build up briefly; under an unlocked predict path
+    # this is enough to trip the cross-violation flag.
+    threading.Event().wait(0.05)
+    stop.set()
+    for t in predict_threads + update_threads:
+        t.join(timeout=2.0)
+
+    assert not predictor._cross_violation, (
+        "predict and update overlapped — policy lock did not serialize predictor access"
+    )
 
 
 def test_observe_response_ignores_missing_completion_tokens() -> None:
