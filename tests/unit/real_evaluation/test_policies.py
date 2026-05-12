@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from experiments.offline_stage.value_estimators import ConstantOutputPredictor
 from experiments.real_evaluation.inventory import (
     ProviderSpec,
     ProviderState,
@@ -383,12 +384,14 @@ def test_budget_range_policy_uses_trace_cached_input_tokens_for_api_cost() -> No
         slo_ms=2000.0,
         budget_percentile=0,
         prefix_cache_routing=False,
+        output_predictor=ConstantOutputPredictor(value=1.0),
     )
     cache_aware = BudgetRangePolicy(
         [slow_cheap, fast_expensive],
         slo_ms=2000.0,
         budget_percentile=0,
         prefix_cache_routing=True,
+        output_predictor=ConstantOutputPredictor(value=1.0),
     )
     for policy in (no_cache, cache_aware):
         policy.set_cost_envelope((1.0e-4, 2.0e-3))
@@ -405,6 +408,86 @@ def test_budget_range_policy_uses_trace_cached_input_tokens_for_api_cost() -> No
     cached_tokens, estimated_cost = cache_aware.routing_cache_diagnostics("OR_fast_expensive", ctx)
     assert cached_tokens == 100
     assert estimated_cost == pytest.approx(0.1 / 1_000_000.0)
+
+
+def test_request_cost_uses_output_predictor_not_completion_budget() -> None:
+    """Route-time API cost must come from the policy's output-token predictor,
+    not from ``ctx.completion_tokens_budget``.
+
+    The latter is the trace's realized output length — an oracle. Real-eval
+    must mirror the simulator and ask the policy's online predictor (default:
+    bucket mean) for the predicted output length so the live LP path uses
+    arrival-time information only.
+    """
+    api = _api_spec("OR_x", in_p=0.0, out_p=1.0)
+    predictor = ConstantOutputPredictor(value=42.0)
+    policy = build_policy(
+        "greedy_cost",
+        specs=[api],
+        slo_ms=2000.0,
+        output_predictor=predictor,
+    )
+
+    # ``completion_tokens_budget=999`` is the oracle value we MUST NOT use.
+    ctx = RequestContext(prompt_tokens=10, completion_tokens_budget=999)
+    cost = policy.request_cost_for_spec(api, ctx)
+
+    # ``out_p = 1.0`` USD/M tokens, so cost == predicted_output * 1.0 / 1e6.
+    # If the implementation still used ctx.completion_tokens_budget, the
+    # answer would be 999 / 1e6 (~9.99e-04), not 42 / 1e6 (~4.2e-05).
+    assert cost == pytest.approx(42.0 / 1_000_000.0)
+
+
+def test_observe_response_updates_predictor() -> None:
+    """``observe_response`` should feed realized completion tokens back into
+    the predictor so cold-start defaults are replaced by warmed-up means."""
+    api = _api_spec("OR_x", in_p=0.0, out_p=1.0)
+    from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
+
+    predictor = BucketMeanOutputPredictor(
+        min_samples_bucket=2,
+        min_samples_global=2,
+        default_output_tokens=500.0,
+    )
+    policy = build_policy(
+        "greedy_cost",
+        specs=[api],
+        slo_ms=2000.0,
+        output_predictor=predictor,
+    )
+    ctx = RequestContext(prompt_tokens=1024, completion_tokens_budget=1)
+
+    # Cold start: predictor returns the default; cost reflects 500.
+    cold_cost = policy.request_cost_for_spec(api, ctx)
+    assert cold_cost == pytest.approx(500.0 / 1_000_000.0)
+
+    # Two observed completions in the same input-length bucket warm the
+    # bucket up, so the next prediction is their mean (= 80), not the default.
+    policy.observe_response(ctx, completion_tokens=60)
+    policy.observe_response(ctx, completion_tokens=100)
+    warm_cost = policy.request_cost_for_spec(api, ctx)
+    assert warm_cost == pytest.approx(80.0 / 1_000_000.0)
+
+
+def test_observe_response_ignores_missing_completion_tokens() -> None:
+    """Zero or ``None`` completion-token counts (e.g. failed responses) must
+    not corrupt the predictor with a zero sample."""
+    api = _api_spec("OR_x", in_p=0.0, out_p=1.0)
+    predictor = ConstantOutputPredictor(value=42.0)
+    policy = build_policy(
+        "greedy_cost",
+        specs=[api],
+        slo_ms=2000.0,
+        output_predictor=predictor,
+    )
+    ctx = RequestContext(prompt_tokens=10, completion_tokens_budget=1)
+
+    policy.observe_response(ctx, completion_tokens=None)
+    policy.observe_response(ctx, completion_tokens=0)
+
+    # Constant predictor is unaffected, but the call must not raise.
+    cost = policy.request_cost_for_spec(api, ctx)
+    assert cost == pytest.approx(42.0 / 1_000_000.0)
 
 
 def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:

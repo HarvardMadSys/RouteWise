@@ -1139,6 +1139,17 @@ class RealExperimentRunner:
         for provider, result in attempts:
             self._feed_back_single(policy, provider, result)
 
+    def _observe_completion(
+        self,
+        policy: BasePolicy,
+        prepared: _PreparedDispatch,
+        result: SingleRequestResult,
+    ) -> None:
+        """Update the policy's output-token predictor with a realized response."""
+        if result.status != "success":
+            return
+        policy.observe_response(prepared.ctx, result.completion_tokens)
+
     def _account_single_attempts(
         self,
         policy: BasePolicy,
@@ -1249,6 +1260,7 @@ class RealExperimentRunner:
                 if len(attempts) > initial_attempt_count:
                     self._feed_back_single_attempts(policy, attempts)
                     self._account_single_attempts(policy, attempts)
+                    self._observe_completion(policy, prepared, result)
                     primary_cached, primary_estimated_cost = (
                         prepared.primary_cached_input_tokens,
                         prepared.primary_routing_estimated_cost_usd,
@@ -1270,6 +1282,7 @@ class RealExperimentRunner:
                     return
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
+            self._observe_completion(policy, prepared, hedged.chosen_result)
             self._record_hedged(
                 policy,
                 req,
@@ -1334,6 +1347,7 @@ class RealExperimentRunner:
                 if len(attempts) > initial_attempt_count:
                     self._feed_back_single_attempts(policy, attempts)
                     self._account_single_attempts(policy, attempts)
+                    self._observe_completion(policy, prepared, result)
                     primary_cached, primary_estimated_cost = (
                         prepared.primary_cached_input_tokens,
                         prepared.primary_routing_estimated_cost_usd,
@@ -1355,6 +1369,7 @@ class RealExperimentRunner:
                     return
             self._feed_back_hedged(policy, hedged)
             self._account_cost(policy, hedged)
+            self._observe_completion(policy, prepared, hedged.chosen_result)
             self._record_hedged(
                 policy,
                 req,
@@ -1372,6 +1387,7 @@ class RealExperimentRunner:
         final_provider, result, attempts = self._send_single_with_rate_limit_fallback(prepared)
         self._feed_back_single_attempts(policy, attempts)
         self._account_single_attempts(policy, attempts)
+        self._observe_completion(policy, prepared, result)
         primary_cached, primary_estimated_cost = (
             prepared.primary_cached_input_tokens,
             (prepared.primary_routing_estimated_cost_usd),

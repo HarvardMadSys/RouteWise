@@ -44,6 +44,10 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 from scipy.optimize import linprog
 
+from experiments.offline_stage.value_estimators import (
+    BucketMeanOutputPredictor,
+    OutputTokenPredictor,
+)
 from experiments.real_evaluation.inventory import (
     PROFILE_WINDOW_SEC,
     ProviderSpec,
@@ -57,6 +61,7 @@ from experiments.real_evaluation.shadow_price import (
     effective_cost,
     request_marginal_cost,
 )
+from rwsim.schemas import Request as _PredictionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -588,6 +593,7 @@ class BasePolicy:
         slo_ms: float,
         profile_window_sec: float = PROFILE_WINDOW_SEC,
         prefix_cache_routing: bool = False,
+        output_predictor: OutputTokenPredictor | None = None,
     ) -> None:
         self.specs = specs
         self.slo_sec = slo_ms / 1000.0
@@ -596,6 +602,9 @@ class BasePolicy:
         }
         self.prefix_cache_routing = bool(prefix_cache_routing)
         self.cost_envelope: tuple[float, float] | None = None
+        self.output_predictor: OutputTokenPredictor = (
+            output_predictor if output_predictor is not None else BucketMeanOutputPredictor()
+        )
         self._lock = threading.Lock()
         self._next_capacity_request_id = 1
 
@@ -630,15 +639,49 @@ class BasePolicy:
         """Return this policy's route-time marginal cost for one provider."""
         return self.request_cost_for_spec(state.spec, ctx)
 
+    def _predicted_output_tokens(self, ctx: RequestContext) -> int:
+        """Route-time output-token estimate from the policy's predictor.
+
+        Real-eval policies historically used ``ctx.completion_tokens_budget``,
+        which is the trace's realized output length — i.e. an oracle. This
+        helper replaces the oracle with the policy's online predictor so the
+        live LP path matches the simulator (default: bucket mean over
+        log-spaced input-length buckets).
+        """
+        stub = _PredictionRequest(
+            id=0,
+            timestamp=0.0,
+            request_tokens=int(ctx.prompt_tokens),
+        )
+        prediction = self.output_predictor.predict(stub)
+        return max(1, int(round(prediction.median)))
+
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
         """Return route-time API cost, optionally using trace-reported cache hit."""
         return cache_aware_request_cost_usd(
             spec,
             prompt_tokens=ctx.prompt_tokens,
-            completion_tokens=ctx.completion_tokens_budget,
+            completion_tokens=self._predicted_output_tokens(ctx),
             trace_cached_input_tokens=ctx.trace_cached_input_tokens,
             enabled=self.prefix_cache_routing,
         )
+
+    def observe_response(
+        self,
+        ctx: RequestContext,
+        completion_tokens: int | None,
+    ) -> None:
+        """Update the output-token predictor with a realized response."""
+        if completion_tokens is None or completion_tokens <= 0:
+            return
+        stub = _PredictionRequest(
+            id=0,
+            timestamp=0.0,
+            request_tokens=int(ctx.prompt_tokens),
+            response_tokens=int(completion_tokens),
+        )
+        with self._lock:
+            self.output_predictor.update(stub)
 
     def routing_cache_diagnostics(
         self,
@@ -662,7 +705,7 @@ class BasePolicy:
         estimated_cost = cache_aware_request_cost_usd(
             state.spec,
             prompt_tokens=ctx.prompt_tokens,
-            completion_tokens=ctx.completion_tokens_budget,
+            completion_tokens=self._predicted_output_tokens(ctx),
             trace_cached_input_tokens=ctx.trace_cached_input_tokens,
             enabled=self.prefix_cache_routing,
         )
@@ -1048,12 +1091,14 @@ class BudgetRangePolicy(BasePolicy):
         profile_window_sec: float = PROFILE_WINDOW_SEC,
         budget_percentile: int = 100,
         prefix_cache_routing: bool = False,
+        output_predictor: OutputTokenPredictor | None = None,
     ) -> None:
         super().__init__(
             specs,
             slo_ms,
             profile_window_sec,
             prefix_cache_routing=prefix_cache_routing,
+            output_predictor=output_predictor,
         )
         if not 0 <= budget_percentile <= 100:
             raise ValueError(f"budget_percentile must be in [0, 100]; got {budget_percentile}")
@@ -1250,6 +1295,7 @@ def build_policy(
     slo_ms: float,
     profile_window_sec: float = PROFILE_WINDOW_SEC,
     prefix_cache_routing: bool = False,
+    output_predictor: OutputTokenPredictor | None = None,
 ) -> BasePolicy:
     """Construct one policy by name.
 
@@ -1265,6 +1311,7 @@ def build_policy(
         "slo_ms": slo_ms,
         "profile_window_sec": profile_window_sec,
         "prefix_cache_routing": prefix_cache_routing,
+        "output_predictor": output_predictor,
     }
     if name == "or_auto":
         return OrAutoPolicy(**common)
