@@ -24,6 +24,13 @@ OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_direct_or8_top_${RUN_
 MAX_COST_USD="${MAX_COST_USD:-20}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 SPEEDUP="${SPEEDUP:-1.0}"
+# Optional inventory-SLO override. When set, passes --slo-ms to every runner
+# process. Useful for SLO ablations without editing the inventory file.
+SLO_MS="${SLO_MS:-}"
+# Optional wall-clock cap on the replay phase. Defensive: if a policy hangs
+# the runner stops dispatching new trace requests after this many seconds.
+# Leave unset to let the runner replay the whole trace without a cap.
+DURATION_SEC="${DURATION_SEC:-}"
 WARMUP_PROBES="${WARMUP_PROBES:-5}"
 WARMUP_PROBE_INTERVAL_SEC="${WARMUP_PROBE_INTERVAL_SEC:-0}"
 PROFILE_PROBE_SLEEP_SEC="${PROFILE_PROBE_SLEEP_SEC:-0.5}"
@@ -182,7 +189,7 @@ printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tchutes_key_slot\tstar
 # policies (joint-pool / RouteWise / random / greedy) start STAGGER_SEC apart
 # so their concurrent bursts onto pinned providers are spread out per
 # Juncheng's recommendation.
-STAGGER_SEC="${STAGGER_SEC:-0}"
+STAGGER_SEC="${STAGGER_SEC:-30}"
 
 PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
@@ -211,12 +218,23 @@ if [[ "$PREFIX_CACHE_ROUTING" != "0" ]]; then
   TRACE_ARGS+=(--prefix-cache-routing)
 fi
 
+EXTRA_RUNNER_ARGS=()
+if [[ -n "$SLO_MS" ]]; then
+  EXTRA_RUNNER_ARGS+=(--slo-ms "$SLO_MS")
+fi
+if [[ -n "$DURATION_SEC" ]]; then
+  EXTRA_RUNNER_ARGS+=(--duration-sec "$DURATION_SEC")
+fi
+
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
 MAX_COST_USD=$MAX_COST_USD
 TIMEOUT_SEC=$TIMEOUT_SEC
 SPEEDUP=$SPEEDUP
+SLO_MS=$SLO_MS
+DURATION_SEC=$DURATION_SEC
+STAGGER_SEC=$STAGGER_SEC
 WARMUP_PROBES=$WARMUP_PROBES
 PROCESS_WARMUP_PROBES=$PROCESS_WARMUP_PROBES
 SHARED_WARMUP_PROFILE=$SHARED_WARMUP_PROFILE
@@ -288,6 +306,7 @@ for i in "${!POLICIES[@]}"; do
       --warmup-probes "$PROCESS_WARMUP_PROBES" \
       "${INITIAL_PROFILE_ARGS[@]}" \
       "${TRACE_ARGS[@]}" \
+      "${EXTRA_RUNNER_ARGS[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
       --periodic-probe-interval-sec "$PERIODIC_PROBE_INTERVAL_SEC" \
