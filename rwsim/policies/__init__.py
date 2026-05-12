@@ -27,6 +27,14 @@ DEFAULT_PRESETS: dict[str, dict[str, Any]] = {
         "policy": "BaselinePolicy",
         "params": {"mode": "random"},
     },
+    "or_sort_cost": {
+        "policy": "BaselinePolicy",
+        "params": {"mode": "or_sort_cost"},
+    },
+    "or_sort_latency": {
+        "policy": "BaselinePolicy",
+        "params": {"mode": "or_sort_latency"},
+    },
     "ablation_lp_only": {
         "policy": "RouteWisePolicy",
         "params": {"hedging": False, "explorer": False},

@@ -29,16 +29,29 @@ _GREEDY_COST_TIER_RANK: dict[ProviderTier, int] = {
 _UNKNOWN_TIER_RANK = 99
 
 
+_BASELINE_MODES = frozenset(
+    {"greedy_cost", "greedy_latency", "random", "or_sort_cost", "or_sort_latency"}
+)
+
+
 @dataclass
 class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
-    """Greedy-cost, greedy-latency, and random baselines."""
+    """Greedy-cost, greedy-latency, random, plus the OR-tier sort baselines.
+
+    ``or_sort_cost`` and ``or_sort_latency`` mirror OpenRouter's request-level
+    ``sort=price`` / ``sort=latency`` parameters: OR sees only its listed
+    (S_A) providers and picks the cheapest / fastest one per request, with no
+    awareness of the user's separate Chutes / Featherless subscriptions. In
+    the simulator that becomes a tier-restricted variant of greedy_cost /
+    greedy_latency.
+    """
 
     mode: str
     seed: int = 0
     rng: np.random.Generator = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.mode not in {"greedy_cost", "greedy_latency", "random"}:
+        if self.mode not in _BASELINE_MODES:
             raise ValueError(f"Unknown baseline mode: {self.mode!r}")
         self.rng = np.random.default_rng(self.seed)
 
@@ -50,7 +63,14 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
         if not providers:
             raise ValueError("No providers configured for baseline policy.")
 
-        if self.mode == "greedy_cost":
+        # or_sort_* policies model OpenRouter's view: only S_A providers are
+        # visible. Subscription tiers belong to the user, not to OR.
+        if self.mode.startswith("or_sort_"):
+            api_only = [p for p in providers if p.tier == ProviderTier.S_A]
+            if api_only:
+                providers = api_only
+
+        if self.mode in ("greedy_cost", "or_sort_cost"):
             primary = min(
                 providers,
                 key=lambda provider: (
@@ -60,7 +80,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
                     provider.name,
                 ),
             )
-        elif self.mode == "greedy_latency":
+        elif self.mode in ("greedy_latency", "or_sort_latency"):
             primary = min(
                 providers,
                 key=lambda provider: (

@@ -66,9 +66,11 @@ PUBLIC_SCENARIO_TAG = "end_to_end"
 RW3_SCENARIO_NAME = "end_to_end_rw3"
 COST_TIERED_SCENARIO_NAME = "end_to_end_3sa_cost_tiers"
 RW8_SCENARIO_NAME = "end_to_end_rw8"
+OR8_1H_EFFMEAN_SCENARIO_NAME = "end_to_end_or8_1h_effmean"
 RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
+MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME = "minimax_m25_or8_1h_effmean"
 
 # Match the live real-eval setup: one Chutes quota subscription and one
 # Featherless Premium account, whose ge_70b weighted capacity admits one
@@ -105,7 +107,12 @@ COST_TIERED_API_SPECS: tuple[tuple[str, str, float, float], ...] = (
 
 def list_scenarios() -> tuple[str, ...]:
     """Return §3 scenario names."""
-    return (RW3_SCENARIO_NAME, COST_TIERED_SCENARIO_NAME, RW8_SCENARIO_NAME)
+    return (
+        RW3_SCENARIO_NAME,
+        COST_TIERED_SCENARIO_NAME,
+        RW8_SCENARIO_NAME,
+        OR8_1H_EFFMEAN_SCENARIO_NAME,
+    )
 
 
 def make_scenarios(
@@ -117,6 +124,7 @@ def make_scenarios(
     model: str = DEFAULT_CONCURRENCY_MODEL,
     prefix_cache_enabled: bool = False,
     cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+    slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, ScenarioConfig]:
     """Build all §3 scenarios keyed by scenario name."""
     return {
@@ -129,6 +137,7 @@ def make_scenarios(
             model=model,
             prefix_cache_enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
+            slo_ms=slo_ms,
         )
         for name in list_scenarios()
     }
@@ -144,6 +153,7 @@ def make_scenario(
     model: str = DEFAULT_CONCURRENCY_MODEL,
     prefix_cache_enabled: bool = False,
     cached_input_price_fraction: float = DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+    slo_ms: float = DEFAULT_SLO_MS,
 ) -> ScenarioConfig:
     """Build one §3 scenario by name."""
     if name == RW3_SCENARIO_NAME:
@@ -157,6 +167,7 @@ def make_scenario(
                 concurrency_plan_id=concurrency_plan,
                 concurrency_count=concurrency_count,
                 model=model,
+                slo_ms=slo_ms,
             ),
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
@@ -174,6 +185,7 @@ def make_scenario(
                 model=model,
                 api_specs=COST_TIERED_API_SPECS,
                 api_price_source="cost_layer_synthetic_tiers",
+                slo_ms=slo_ms,
             ),
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
@@ -189,6 +201,23 @@ def make_scenario(
                 concurrency_plan_id=concurrency_plan,
                 concurrency_count=concurrency_count,
                 model=model,
+                slo_ms=slo_ms,
+            ),
+            enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
+        )
+    if name == OR8_1H_EFFMEAN_SCENARIO_NAME:
+        return _with_prefix_cache_config(
+            _make_end_to_end_scenario(
+                scenario_name=name,
+                pool_name=MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME,
+                api_provider_limit=None,
+                quota_plan_id=quota_plan,
+                quota_count=quota_count,
+                concurrency_plan_id=concurrency_plan,
+                concurrency_count=concurrency_count,
+                model=model,
+                slo_ms=slo_ms,
             ),
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
@@ -243,6 +272,8 @@ def policies_for_section(
         "greedy_cost",
         "greedy_latency",
         "random",
+        "or_sort_cost",
+        "or_sort_latency",
         *(routewise_lp_policy_name(value) for value in p_values),
         *(routewise_hedging_policy_name(value) for value in p_values),
     )
@@ -253,6 +284,7 @@ def make_policy_presets(
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
     output_predictor_quantile: str = "q50",
+    slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
     presets = make_routewise_presets(
@@ -268,7 +300,7 @@ def make_policy_presets(
         params = dict(preset.get("params", {}))
         params["latency_profile_mode"] = "configured"
         params["explorer"] = False
-        params["slo_ms"] = DEFAULT_SLO_MS
+        params["slo_ms"] = float(slo_ms)
         preset["params"] = params
     return presets
 
@@ -339,6 +371,7 @@ def _make_end_to_end_scenario(
     model: str,
     api_specs: tuple[tuple[str, str, float, float], ...] | None = None,
     api_price_source: str | None = None,
+    slo_ms: float = DEFAULT_SLO_MS,
 ) -> ScenarioConfig:
     plans = load_subscription_plans()
     quota_plan = _require_plan(plans, quota_plan_id, tier="quota")
@@ -458,14 +491,14 @@ def _make_end_to_end_scenario(
         f"§3 end-to-end {pool_name.upper()}: {len(api_providers)} empirical "
         f"OpenRouter API provider(s), {quota_plan.display_name} x{quota_count} "
         f"({quota_window_text}), {concurrency_plan.display_name} "
-        f"x{concurrency_count} for model {model!r}; SLO={DEFAULT_SLO_MS:.0f}ms."
+        f"x{concurrency_count} for model {model!r}; SLO={slo_ms:.0f}ms."
     )
     return ScenarioConfig(
         name=scenario_name,
         description=description,
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=DEFAULT_SLO_MS,
+        primary_slo_ms=float(slo_ms),
         metadata={
             "public_scenario": PUBLIC_SCENARIO_TAG,
             "artifact_label": scenario_name,
@@ -494,7 +527,7 @@ def _make_end_to_end_scenario(
             "quota_latency_profile_provider": quota_profile_key,
             "concurrency_latency_profile_provider": concurrency_profile_key,
             "api_latency_family": "real_world",
-            "slo_ms": DEFAULT_SLO_MS,
+            "slo_ms": float(slo_ms),
             "quota_windows": [
                 {
                     "name": window.name,
@@ -839,6 +872,15 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Number of parallel scenario-policy-seed cells to run. Defaults to 1.",
     )
+    parser.add_argument(
+        "--slo-ms",
+        type=float,
+        default=DEFAULT_SLO_MS,
+        help=(
+            "Single-request SLO threshold (ms) used both as the RouteWise hedging "
+            f"target and the SLO-violation reporting threshold. Defaults to {DEFAULT_SLO_MS}."
+        ),
+    )
 
     args = parser.parse_args(argv)
     p_values = tuple(args.p_values) if args.p_values else DEFAULT_ROUTEWISE_P_VALUES
@@ -853,6 +895,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             prefix_cache_enabled=args.prefix_cache_enabled,
             cached_input_price_fraction=args.cached_input_price_fraction,
+            slo_ms=args.slo_ms,
         )
         for name in selected_scenarios
     }
@@ -860,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         p_values,
         output_predictor=args.predictor,
         output_predictor_quantile=args.predictor_quantile,
+        slo_ms=args.slo_ms,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
     unknown = [policy for policy in policies if policy not in presets]
@@ -876,6 +920,7 @@ def main(argv: list[str] | None = None) -> int:
             "model": args.model,
             "prefix_cache_enabled": args.prefix_cache_enabled,
             "cached_input_price_fraction": args.cached_input_price_fraction,
+            "slo_ms": args.slo_ms,
         },
     )
 
