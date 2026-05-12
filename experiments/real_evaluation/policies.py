@@ -724,7 +724,6 @@ class BasePolicy:
         excluded: set[str],
     ) -> list[str]:
         """Policy-aware retry order after provider-local HTTP 429s."""
-        del ctx
         candidates = [
             state.spec.name
             for state in self.states.values()
@@ -975,7 +974,6 @@ class RandomPolicy(BasePolicy):
         *,
         excluded: set[str],
     ) -> list[str]:
-        del ctx
         candidates = [
             state.spec.name
             for state in self.states.values()
