@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 LP_EPS: float = 1e-9
 _COST_TIEBREAK_MS: float = 1e-3
 HEDGE_SUCCESS_TARGET: float = 0.99
+RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
 # still yields a feasible solution but never picks them when *any*
@@ -183,8 +184,8 @@ def _body_latency_proxy_ms(
     mean from a small sample set or a large sentinel.
 
     Failed attempts, including HTTP 429s, do not have a meaningful TTFT.
-    They enter the body objective as synthetic ``error_penalty_ms`` samples
-    so burst-sensitive providers are avoided after live rate-limit feedback.
+    They enter the body objective as synthetic 60s samples so burst-sensitive
+    providers are avoided after live rate-limit feedback.
     """
     n = state.profile.total_count(now)
     if n > 0:
@@ -377,7 +378,7 @@ def select_safe_cheapest_backup(
         mean_ms, _ = _body_latency_proxy_ms(
             state,
             now,
-            error_penalty_ms=slo_sec * 1000.0,
+            error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
         )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
@@ -521,7 +522,7 @@ def _select_checkpoint_candidate(
         mean_ms, _ = _body_latency_proxy_ms(
             state,
             now,
-            error_penalty_ms=slo_sec * 1000.0,
+            error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
         )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
@@ -858,7 +859,7 @@ class GreedyCostPolicy(_GreedyBase):
             latency, _ = _body_latency_proxy_ms(
                 state,
                 now,
-                error_penalty_ms=self.slo_sec * 1000.0,
+                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
             )
             scored.append(
                 (
@@ -913,7 +914,7 @@ class GreedyLatencyPolicy(_GreedyBase):
             latency, _ = _body_latency_proxy_ms(
                 state,
                 now,
-                error_penalty_ms=self.slo_sec * 1000.0,
+                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
             )
             cost = self.request_cost_for_state(state, ctx)
             scored.append(
@@ -1076,7 +1077,7 @@ class BudgetRangePolicy(BasePolicy):
             mean_ms, _ = _body_latency_proxy_ms(
                 s,
                 now,
-                error_penalty_ms=self.slo_sec * 1000.0,
+                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
             )
             if not math.isfinite(mean_ms):
                 mean_ms = UNPROFILED_LATENCY_PENALTY_MS
@@ -1150,7 +1151,7 @@ class BudgetRangePolicy(BasePolicy):
             mean_ms, _ = _body_latency_proxy_ms(
                 state,
                 now,
-                error_penalty_ms=self.slo_sec * 1000.0,
+                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
             )
             if not math.isfinite(mean_ms):
                 mean_ms = UNPROFILED_LATENCY_PENALTY_MS
