@@ -18,9 +18,9 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 TRACE="${TRACE:-data/real_eval/burstgpt_day2_h17_8h.jsonl}"
-INVENTORY="${INVENTORY:-experiments/real_evaluation/data/pilot_or_chutes_subscription_featherless8_rw6_8h.json}"
+INVENTORY="${INVENTORY:-experiments/real_evaluation/data/pilot_chutes_direct_or8_top_8h.json}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
-OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_or_chutes_sub_${RUN_ID}}"
+OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_direct_or8_top_${RUN_ID}}"
 MAX_COST_USD="${MAX_COST_USD:-20}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 SPEEDUP="${SPEEDUP:-1.0}"
@@ -31,6 +31,9 @@ PERIODIC_PROBE_INTERVAL_SEC="${PERIODIC_PROBE_INTERVAL_SEC:-180}"
 MIN_PROFILE_SUCCESS_SAMPLES="${MIN_PROFILE_SUCCESS_SAMPLES:-5}"
 SHARED_WARMUP_PROFILE="${SHARED_WARMUP_PROFILE:-1}"
 INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}"
+SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
+SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
+PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
 
 DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
@@ -197,6 +200,17 @@ if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   INITIAL_PROFILE_ARGS=(--initial-profile-path "$INITIAL_PROFILE_PATH")
 fi
 
+TRACE_ARGS=()
+if [[ "$SYNTHESIZE_MISSING_PROMPTS" != "0" ]]; then
+  TRACE_ARGS+=(--synthesize-missing-prompts)
+  if [[ -n "$SYNTHETIC_OUTPUT_TOKENS" ]]; then
+    TRACE_ARGS+=(--synthetic-output-tokens "$SYNTHETIC_OUTPUT_TOKENS")
+  fi
+fi
+if [[ "$PREFIX_CACHE_ROUTING" != "0" ]]; then
+  TRACE_ARGS+=(--prefix-cache-routing)
+fi
+
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
@@ -211,6 +225,9 @@ WARMUP_PROBE_INTERVAL_SEC=$WARMUP_PROBE_INTERVAL_SEC
 PROFILE_PROBE_SLEEP_SEC=$PROFILE_PROBE_SLEEP_SEC
 PERIODIC_PROBE_INTERVAL_SEC=$PERIODIC_PROBE_INTERVAL_SEC
 MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
+SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
+SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
+PREFIX_CACHE_ROUTING=$PREFIX_CACHE_ROUTING
 POLICY_LIST=${POLICIES[*]}
 OPENROUTER_KEY_COUNT=${#OPENROUTER_KEYS[@]}
 FEATHERLESS_KEY_COUNT=${#FEATHERLESS_KEYS[@]}
@@ -270,6 +287,7 @@ for i in "${!POLICIES[@]}"; do
       --timeout-sec "$TIMEOUT_SEC" \
       --warmup-probes "$PROCESS_WARMUP_PROBES" \
       "${INITIAL_PROFILE_ARGS[@]}" \
+      "${TRACE_ARGS[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
       --periodic-probe-interval-sec "$PERIODIC_PROBE_INTERVAL_SEC" \
