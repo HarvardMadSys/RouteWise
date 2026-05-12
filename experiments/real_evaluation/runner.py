@@ -23,6 +23,7 @@ import dataclasses
 import json
 import logging
 import math
+import os
 import sys
 import threading
 import time
@@ -458,6 +459,10 @@ class RealExperimentRunner:
         self._profile_probe_cost_usd: float = 0.0
         self._profile_probe_counts: dict[str, int] = {"warmup": 0, "periodic": 0}
         self._stop_event = threading.Event()
+        # Tracks providers whose API key env var is unset so the periodic
+        # prober can skip them after warning once. Populated lazily by
+        # ``_provider_api_key_missing``.
+        self._providers_missing_api_key: set[str] = set()
         # ``threading.local`` must live on the runner instance so each
         # worker thread sees a stable storage; a fresh ``threading.local()``
         # in ``_session()`` would defeat the per-thread reuse contract.
@@ -628,6 +633,31 @@ class RealExperimentRunner:
     # Warmup + replay.
     # ------------------------------------------------------------------
 
+    def _provider_api_key_missing(self, spec: ProviderSpec) -> bool:
+        """Return True iff this process can't authenticate to ``spec``.
+
+        Used by the periodic prober to skip providers whose API key env var
+        wasn't injected by the launcher. ``run_real_eval_8h_policy_processes.sh``
+        assigns CHUTES_API_KEY / FEATHERLESS_API_KEY only to joint-pool
+        policies that actually dispatch to those providers; OR-only baselines
+        (or_auto, or_sort_*) launch with those env vars empty. Without this
+        skip the prober would crash mid-run trying to probe e.g. Chutes_SQ
+        from an or_auto process.
+        """
+        env_name = spec.transport_cfg.api_key_env
+        if not env_name:
+            return False
+        if os.environ.get(env_name):
+            return False
+        if spec.name not in self._providers_missing_api_key:
+            self._providers_missing_api_key.add(spec.name)
+            logger.warning(
+                "profile prober skipping provider %s: env %s is unset in this process",
+                spec.name,
+                env_name,
+            )
+        return True
+
     def probe_profiles(
         self,
         *,
@@ -642,8 +672,11 @@ class RealExperimentRunner:
         This is profile-maintenance infrastructure. It is intentionally shared
         across policies so probe traffic does not multiply by policy count.
         Transient provider failures are retried until the provider yields one
-        successful TTFT sample; configuration failures such as missing API keys
-        still fail fast.
+        successful TTFT sample. Providers whose API key env var is unset in
+        this process are skipped (with a one-time warning), so e.g. OR-only
+        baselines launched without CHUTES_API_KEY/FEATHERLESS_API_KEY don't
+        crash the prober — those policies never dispatch traffic to the
+        skipped providers anyway.
         """
         if probes_per_provider <= 0:
             return
@@ -653,6 +686,8 @@ class RealExperimentRunner:
                     return
                 if self._cost_exhausted("profile_maintenance"):
                     return
+                if self._provider_api_key_missing(spec):
+                    continue
                 result = self._probe_provider_until_success(
                     spec,
                     phase=phase,
