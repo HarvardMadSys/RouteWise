@@ -23,7 +23,6 @@ import dataclasses
 import json
 import logging
 import math
-import os
 import sys
 import threading
 import time
@@ -633,31 +632,6 @@ class RealExperimentRunner:
     # Warmup + replay.
     # ------------------------------------------------------------------
 
-    def _provider_api_key_missing(self, spec: ProviderSpec) -> bool:
-        """Return True iff this process can't authenticate to ``spec``.
-
-        Used by the periodic prober to skip providers whose API key env var
-        wasn't injected by the launcher. ``run_real_eval_8h_policy_processes.sh``
-        assigns CHUTES_API_KEY / FEATHERLESS_API_KEY only to joint-pool
-        policies that actually dispatch to those providers; OR-only baselines
-        (or_auto, or_sort_*) launch with those env vars empty. Without this
-        skip the prober would crash mid-run trying to probe e.g. Chutes_SQ
-        from an or_auto process.
-        """
-        env_name = spec.transport_cfg.api_key_env
-        if not env_name:
-            return False
-        if os.environ.get(env_name):
-            return False
-        if spec.name not in self._providers_missing_api_key:
-            self._providers_missing_api_key.add(spec.name)
-            logger.warning(
-                "profile prober skipping provider %s: env %s is unset in this process",
-                spec.name,
-                env_name,
-            )
-        return True
-
     def probe_profiles(
         self,
         *,
@@ -673,10 +647,10 @@ class RealExperimentRunner:
         across policies so probe traffic does not multiply by policy count.
         Transient provider failures are retried until the provider yields one
         successful TTFT sample. Providers whose API key env var is unset in
-        this process are skipped (with a one-time warning), so e.g. OR-only
-        baselines launched without CHUTES_API_KEY/FEATHERLESS_API_KEY don't
-        crash the prober — those policies never dispatch traffic to the
-        skipped providers anyway.
+        this process get skipped on first encounter (with a one-time warning)
+        so e.g. OR-only baselines launched without CHUTES_API_KEY /
+        FEATHERLESS_API_KEY don't crash the prober — those policies never
+        dispatch real traffic to the skipped providers anyway.
         """
         if probes_per_provider <= 0:
             return
@@ -686,7 +660,7 @@ class RealExperimentRunner:
                     return
                 if self._cost_exhausted("profile_maintenance"):
                     return
-                if self._provider_api_key_missing(spec):
+                if spec.name in self._providers_missing_api_key:
                     continue
                 result = self._probe_provider_until_success(
                     spec,
@@ -697,6 +671,12 @@ class RealExperimentRunner:
                     stop_event=stop_event,
                 )
                 if result is None:
+                    # ``None`` either signals a hard stop (stop_event or
+                    # cost-exhausted) or a provider-level skip after a
+                    # missing-API-key error. The latter just continues to
+                    # the next provider; the former exits the whole loop.
+                    if spec.name in self._providers_missing_api_key:
+                        continue
                     return
                 if sleep_sec > 0 and self._probe_sleep(sleep_sec, stop_event):
                     return
@@ -741,7 +721,19 @@ class RealExperimentRunner:
                 )
             except RuntimeError as exc:
                 if "Missing API key" in str(exc):
-                    raise
+                    # Mark this provider as permanently skipped for the
+                    # rest of this process. The launcher only injects
+                    # API keys for providers a given policy actually
+                    # dispatches to; bailing the whole run for a key
+                    # that policy never touches would be wrong.
+                    if spec.name not in self._providers_missing_api_key:
+                        self._providers_missing_api_key.add(spec.name)
+                        logger.warning(
+                            "profile prober skipping provider %s: %s",
+                            spec.name,
+                            exc,
+                        )
+                    return None
                 logger.warning(
                     "%s probe round %d/%d %s attempt %d raised %s; retrying",
                     phase,
@@ -1379,6 +1371,7 @@ class RealExperimentRunner:
                         prepared.req_index,
                         decision,
                         result,
+                        final_provider=final_provider,
                         primary_cached_input_tokens=primary_cached,
                         primary_routing_estimated_cost_usd=primary_estimated_cost,
                     )
@@ -1466,6 +1459,7 @@ class RealExperimentRunner:
                         prepared.req_index,
                         decision,
                         result,
+                        final_provider=final_provider,
                         primary_cached_input_tokens=primary_cached,
                         primary_routing_estimated_cost_usd=primary_estimated_cost,
                     )
@@ -1506,6 +1500,7 @@ class RealExperimentRunner:
             prepared.req_index,
             decision,
             result,
+            final_provider=final_provider,
             primary_cached_input_tokens=primary_cached,
             primary_routing_estimated_cost_usd=primary_estimated_cost,
         )
@@ -1628,10 +1623,18 @@ class RealExperimentRunner:
         decision: RoutingDecision,
         result: SingleRequestResult,
         *,
+        final_provider: str | None = None,
         primary_cached_input_tokens: int = 0,
         primary_routing_estimated_cost_usd: float | None = None,
     ) -> None:
         spec = self._spec_by_name.get(decision.primary or "")
+        # ``final_provider`` differs from ``decision.primary`` whenever the
+        # rate-limit fallback rerouted the request to a different provider.
+        # Recording the originally-decided spec's tier here would mislabel
+        # those rows (e.g. a Chutes_SQ -> OR_DeepInfra fallback would be
+        # logged as ``tier=quota`` even though OR_DeepInfra is an API
+        # provider), which throws off downstream tier-mix analysis.
+        final_spec = self._spec_by_name.get(final_provider or "") or spec
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -1640,9 +1643,11 @@ class RealExperimentRunner:
             decision=decision,
             primary_result=result,
             primary_tier=spec.tier if spec else None,
-            final_tier=spec.tier if spec else None,
+            final_tier=final_spec.tier if final_spec else None,
             slo_ms=self.slo_sec * 1000.0,
-            transport=spec.transport_cfg.transport if spec else None,
+            transport=(final_spec or spec).transport_cfg.transport
+            if (final_spec or spec)
+            else None,
             primary_cached_input_tokens=primary_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
         )
