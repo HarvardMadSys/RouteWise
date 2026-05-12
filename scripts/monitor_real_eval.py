@@ -23,11 +23,12 @@ import csv
 import json
 import math
 import re
+import shutil
 import statistics
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # Matches the leading INFO line written by runner.py at startup, e.g.
@@ -505,7 +506,62 @@ def render_snapshot(base_dir: Path) -> str:
             ]
         )
 
-    return "\n".join(header_lines) + "\n\n" + render_table(rows, headers)
+    table_text = "\n".join(header_lines) + "\n\n" + render_table(rows, headers)
+    return table_text, {
+        "snapshot_ts": now,
+        "snapshot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "output_dir": str(base_dir),
+        "n_policies": n_policies,
+        "trace_total_requests": trace_total,
+        "trace_time_sec": trace_time_sec,
+        "wall_elapsed_sec": elapsed_sec,
+        "duration_cap_sec": duration_cap_sec,
+        "completion_time_pct": completion_time_pct if not math.isnan(completion_time_pct) else None,
+        "completion_count_pct": completion_count_pct if not math.isnan(completion_count_pct) else None,
+        "slo_ms": default_slo_ms,
+        "total_cost_usd": sum(s.total_cost_usd for s in stats),
+        "policies": [_stats_to_dict(s) for s in stats],
+    }
+
+
+def _stats_to_dict(s: PolicyStats) -> dict:
+    d = asdict(s)
+    for key in ("latency_mean_ms", "latency_p50_ms", "latency_p90_ms",
+                "latency_p95_ms", "latency_p99_ms"):
+        if d[key] is not None and math.isnan(d[key]):
+            d[key] = None
+    return d
+
+
+def save_snapshot(base_dir: Path, label: str | None = None) -> Path:
+    """Save a timestamped snapshot: JSON metrics, text table, and copies of
+    every policy's current ``requests.csv`` and ``run.log``."""
+    table_text, data = render_snapshot(base_dir)
+    ts_str = time.strftime("%Y%m%d_%H%M%S")
+    name = f"snapshot_{ts_str}" + (f"_{label}" if label else "")
+    snap_dir = base_dir / "snapshots" / name
+    snap_dir.mkdir(parents=True, exist_ok=True)
+
+    (snap_dir / "summary.txt").write_text(table_text + "\n")
+    with (snap_dir / "summary.json").open("w") as f:
+        json.dump(data, f, indent=2)
+
+    policy_dirs = discover_policies(base_dir)
+    for pdir in policy_dirs:
+        dest = snap_dir / pdir.name
+        dest.mkdir(exist_ok=True)
+        for fname in ("requests.csv", "run.log", "args.json"):
+            src = pdir / fname
+            if src.exists():
+                shutil.copy2(src, dest / fname)
+
+    for extra in ("run_env.txt", "policies.txt", "initial_profile.json",
+                   "policy_key_assignments.tsv"):
+        src = base_dir / extra
+        if src.exists():
+            shutil.copy2(src, snap_dir / extra)
+
+    return snap_dir
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -521,6 +577,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0.0,
         help="If > 0, refresh the snapshot every N seconds (Ctrl+C to stop).",
     )
+    parser.add_argument(
+        "--snapshot",
+        action="store_true",
+        help="Save a timestamped snapshot (JSON + text + CSV copies) into "
+             "<base_dir>/snapshots/ and print the path.",
+    )
+    parser.add_argument(
+        "--snapshot-label",
+        type=str,
+        default=None,
+        help="Optional label appended to the snapshot directory name.",
+    )
     return parser.parse_args(argv)
 
 
@@ -530,13 +598,23 @@ def main(argv: list[str] | None = None) -> int:
     if not base.is_dir():
         print(f"error: {base} is not a directory", file=sys.stderr)
         return 2
+
+    if args.snapshot:
+        snap_dir = save_snapshot(base, label=args.snapshot_label)
+        table_text, _ = render_snapshot(base)
+        print(table_text)
+        print(f"\nsnapshot saved -> {snap_dir}")
+        return 0
+
     if args.watch <= 0:
-        print(render_snapshot(base))
+        table_text, _ = render_snapshot(base)
+        print(table_text)
         return 0
     try:
         while True:
             sys.stdout.write("\x1b[2J\x1b[H")
-            sys.stdout.write(render_snapshot(base))
+            table_text, _ = render_snapshot(base)
+            sys.stdout.write(table_text)
             sys.stdout.write("\n")
             sys.stdout.flush()
             time.sleep(args.watch)
