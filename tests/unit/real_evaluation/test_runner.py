@@ -826,12 +826,28 @@ def test_or_sentinels_round_trip_to_correct_sort_mode() -> None:
         assert captured["sort_mode"] is None
 
 
-def test_or_sentinels_inherit_inventory_provider_filters() -> None:
-    """OpenRouter auto/sort sentinels should apply the inventory-level
-    provider filter instead of routing over the full OpenRouter pool."""
+def test_or_sentinels_use_api_tier_allowlist_only() -> None:
+    """OpenRouter auto/sort sentinels are API-only baselines.
+
+    Sentinel dispatch must derive ``provider.only`` from the inventory's
+    API-tier OpenRouter providers, ignoring any extra names that
+    ``openrouter_provider_only`` carries for the joint-pool path. The
+    sentinel allowlist should equal the set of ``provider_hint`` values
+    for API-tier OpenRouter specs — nothing more, nothing less. This
+    keeps the baseline a pure API comparison even when subscription
+    tiers ride on the openrouter transport (e.g. Chutes via OR).
+    """
     runner, _ = _build_runner()
-    runner.inventory.openrouter_provider_only = ("Chutes", "DeepInfra")
+    # Set an inventory-level allowlist that contains a synthetic name not in
+    # any spec. If the sentinel were still forwarding the inventory list
+    # verbatim, this name would surface in provider_only.
+    runner.inventory.openrouter_provider_only = (
+        "Friendli",
+        "DeepInfra",
+        "SubscriptionEndpointNotInProviders",
+    )
     runner.inventory.openrouter_provider_ignore = ("BadProvider",)
+
     captured: dict[str, object] = {}
 
     def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None):
@@ -854,6 +870,19 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
         OpenAICompatStreamingTransport,
     )
 
+    expected_api_hints = tuple(
+        sorted(
+            {
+                spec.transport_cfg.provider_hint
+                for spec in runner.inventory.providers
+                if spec.tier == "api"
+                and spec.transport_cfg.transport == "openrouter"
+                and spec.transport_cfg.provider_hint
+            }
+        )
+    )
+    assert expected_api_hints  # sanity: inventory really has API-tier OR providers
+
     with patch.object(OpenAICompatStreamingTransport, "send", fake_send):
         runner._send_via_transport(
             provider=OR_AUTO_SENTINEL,
@@ -864,7 +893,10 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
             ttft_info=None,
         )
         assert captured["sort_mode"] is None
-        assert captured["provider_only"] == ("Chutes", "DeepInfra")
+        assert captured["provider_only"] == expected_api_hints
+        # The synthetic non-spec name from the inventory allowlist must be
+        # filtered out — sentinels only see what's actually in providers[].
+        assert "SubscriptionEndpointNotInProviders" not in captured["provider_only"]
         assert captured["provider_ignore"] == ("BadProvider",)
         assert captured["stream_cancel_billing"] == "continues"
         assert captured["stream_cancel_billing_by_provider"]["chutes"] == "stops"
@@ -879,8 +911,74 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
             ttft_info=None,
         )
         assert captured["sort_mode"] == "latency"
-        assert captured["provider_only"] == ("Chutes", "DeepInfra")
+        assert captured["provider_only"] == expected_api_hints
+        assert "SubscriptionEndpointNotInProviders" not in captured["provider_only"]
         assert captured["provider_ignore"] == ("BadProvider",)
+
+
+def test_or_sentinel_excludes_or_routed_chutes_subscription_from_baseline() -> None:
+    """End-to-end regression: when the inventory routes Chutes_SQ through
+    OpenRouter as a subscription backup, the OR baseline sentinels must
+    still NOT see ``Chutes`` in their candidate set.
+
+    This guards the ``pilot_or_chutes_subscription_or8_top_24h.json``
+    contingency, where ``openrouter_provider_only`` has to include
+    ``Chutes`` so that ``Chutes_SQ`` survives the inventory filter, but
+    OR auto/sort must keep behaving as an 8-API-provider baseline.
+    """
+    inventory_path = (
+        "experiments/real_evaluation/data/pilot_or_chutes_subscription_or8_top_24h.json"
+    )
+    inventory = load_inventory(inventory_path)
+    assert "Chutes" in inventory.openrouter_provider_only  # premise of the bug
+    chutes_spec = next(spec for spec in inventory.providers if spec.name == "Chutes_SQ")
+    assert chutes_spec.tier == "quota"
+    assert chutes_spec.transport_cfg.transport == "openrouter"
+
+    rec = Recorder(tempfile.mkdtemp())
+    runner = RealExperimentRunner(
+        inventory=inventory,
+        policy_names=["or_auto", "or_sort_latency", "or_sort_cost"],
+        recorder=rec,
+        slo_ms=inventory.primary_slo_ms,
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None):
+        captured["sentinel"] = self.cfg.name
+        captured["provider_only"] = self.cfg.provider_only
+        return SingleRequestResult(
+            ttft_ms=10.0,
+            e2e_ms=20.0,
+            status="success",
+            provider=self.cfg.name,
+            first_token_ts=time.time(),
+        )
+
+    from experiments.real_evaluation.transports import (
+        OpenAICompatStreamingTransport,
+    )
+
+    sentinels = [OR_AUTO_SENTINEL, "__or_sort_latency__", "__or_sort_cost__"]
+    with patch.object(OpenAICompatStreamingTransport, "send", fake_send):
+        for sentinel in sentinels:
+            runner._send_via_transport(
+                provider=sentinel,
+                prompt="x",
+                max_tokens=8,
+                timeout=5,
+                ttft_event=None,
+                ttft_info=None,
+            )
+            assert "Chutes" not in captured["provider_only"], (
+                f"sentinel {sentinel!r} leaked Chutes (quota tier) into the OR baseline "
+                f"candidate set: {captured['provider_only']}"
+            )
+            # And it should still cover the API-tier OR providers.
+            assert "Friendli" in captured["provider_only"]
+            assert "DeepInfra" in captured["provider_only"]
+    rec.close()
 
 
 def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:

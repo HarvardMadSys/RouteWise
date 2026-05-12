@@ -578,12 +578,33 @@ class RealExperimentRunner:
                 error_message="no_openrouter_in_inventory",
             )
         sort_mode = OR_SORT_SENTINEL_TO_MODE.get(sentinel)
+        # OR auto/sort sentinels are API-only baselines. The inventory's
+        # ``openrouter_provider_only`` field also has to include subscription
+        # endpoints (e.g. Chutes via OpenRouter) so the joint pool can survive
+        # ``_skip_openrouter_provider_entry``; if we forwarded that full list
+        # to the sentinel here, OR's server-side routing would pick subscription
+        # tiers as candidates and pollute the API-only baseline. Derive the
+        # sentinel allowlist from API-tier OR providers in the inventory
+        # instead, so the baseline always faces exactly the eight (or N)
+        # metered API providers the experiment is comparing against.
+        sentinel_allowlist = tuple(
+            sorted(
+                {
+                    spec.transport_cfg.provider_hint
+                    for spec in self.inventory.providers
+                    if spec.tier == "api"
+                    and spec.transport_cfg.transport == "openrouter"
+                    and spec.transport_cfg.provider_hint
+                }
+            )
+        )
+        provider_only = sentinel_allowlist or base.provider_only
         cfg = dataclasses.replace(
             base,
             name=sentinel,
             provider_hint=None,
             sort_mode=sort_mode,
-            provider_only=(self.inventory.openrouter_provider_only or base.provider_only),
+            provider_only=provider_only,
             provider_ignore=(self.inventory.openrouter_provider_ignore or base.provider_ignore),
             stream_cancel_billing="continues",
             stream_cancel_billing_by_provider=dict(
