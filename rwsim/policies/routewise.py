@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
@@ -33,6 +33,15 @@ if TYPE_CHECKING:
     from rwsim.engine.state import SimulationState
     from rwsim.world.providers import Provider
 
+
+class OutputPredictor(Protocol):
+    """Optional output-token predictor consulted at routing time."""
+
+    def predict(self, request: Request) -> Any: ...
+
+    def update(self, request: Request) -> None: ...
+
+
 _LP_EPS = 1e-9
 _COST_TIEBREAK_MS = 1e-3
 _HEDGE_CHECKPOINT_START_FRACTION = 0.25
@@ -52,6 +61,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
     latency_profile_mode: LatencyProfileMode = "observed"
+    output_predictor: OutputPredictor | None = None
+    output_predictor_quantile: str = "q50"
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
     _latency_profile: LatencyProfileStrategy = field(init=False, repr=False)
@@ -71,6 +82,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 f"got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
+        if self.output_predictor_quantile not in {"q10", "q50", "q90"}:
+            raise ValueError(
+                "output_predictor_quantile must be one of q10, q50, q90; "
+                f"got {self.output_predictor_quantile!r}"
+            )
         self.rng = np.random.default_rng(self.seed)
         self._latency_profile = make_latency_profile_strategy(
             self.latency_profile_mode,
@@ -89,7 +105,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
         L, U = self.cost_envelope
         c_eff = {
-            provider.name: effective_cost(
+            provider.name: self._effective_cost_for_request(
                 provider,
                 request,
                 state.now,
@@ -196,7 +212,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         outcome: RoutingOutcome,
     ) -> None:
         """Feed observed TTFT samples into policy-owned profiles."""
-        del request
+        if self.output_predictor is not None:
+            self.output_predictor.update(request)
         self._latency_profile.observe(
             decision.primary_provider,
             outcome.metadata.get("primary_observed_at", 0.0),
@@ -212,6 +229,36 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                     float(backup_observed_at),
                     float(backup_ttft_ms),
                 )
+
+    def _effective_cost_for_request(
+        self,
+        provider: Provider,
+        request: Request,
+        now: float,
+        *,
+        U: float,
+        L: float,
+        state: SimulationState | None,
+    ) -> float:
+        """Effective cost with optional predictor-based S_A output tokens."""
+        if self.output_predictor is None or provider.tier != ProviderTier.S_A:
+            return effective_cost(provider, request, now, U=U, L=L, state=state)
+        prediction = self.output_predictor.predict(request)
+        predicted_response_tokens = max(
+            float(getattr(prediction, self.output_predictor_quantile)),
+            0.0,
+        )
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        cached_tokens = 0
+        if state is not None:
+            from rwsim.policies.prefix_cache import cached_input_tokens
+
+            cached_tokens = cached_input_tokens(provider, request, state)
+        return provider.token_cost(
+            request_tokens=request_tokens,
+            response_tokens=predicted_response_tokens,
+            cached_input_tokens=cached_tokens,
+        )
 
     def _ensure_profiles(self, providers: dict[str, Provider]) -> None:
         for name in providers:

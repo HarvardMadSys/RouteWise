@@ -293,6 +293,8 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
         "explorer": False,
         "p": 0.75,
         "cost_envelope": common.WORKLOAD_COST_ENVELOPE,
+        "output_predictor_spec": {"kind": common.DEFAULT_OUTPUT_PREDICTOR},
+        "output_predictor_quantile": "q50",
     }
 
 

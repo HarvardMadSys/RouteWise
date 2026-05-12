@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from experiments.simulation.common import (
     DEFAULT_CACHED_INPUT_PRICE_FRACTION,
+    DEFAULT_OUTPUT_PREDICTOR,
     DEFAULT_SEEDS,
     DEFAULT_WORKLOAD,
     OUTPUT_DIR,
@@ -69,13 +70,13 @@ RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
 
-# Conservative default from the §1.3.2 joint q/c sweep:
-# outputs/simulation/cost_layer_1_3_2_joint_qc_sweep_q10_20_c8_16_p0_greedy/summary.csv.
-# The baseline-optimal point is q=14,c=8; RouteWise p0 remains cheaper there.
+# Match the live real-eval setup: one Chutes quota subscription and one
+# Featherless Premium account, whose ge_70b weighted capacity admits one
+# concurrent request.
 DEFAULT_QUOTA_PLAN = "chutes"
-DEFAULT_QUOTA_COUNT = 14
+DEFAULT_QUOTA_COUNT = 1
 DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
-DEFAULT_CONCURRENCY_COUNT = 8
+DEFAULT_CONCURRENCY_COUNT = 1
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
 DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
 DEFAULT_SLO_MS = 5000.0
@@ -249,12 +250,17 @@ def policies_for_section(
 
 def make_policy_presets(
     p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
+    *,
+    output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
+    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
     presets = make_routewise_presets(
         p_values=p_values,
         include_hedging=True,
         cost_envelope=WORKLOAD_COST_ENVELOPE,
+        output_predictor=output_predictor,
+        output_predictor_quantile=output_predictor_quantile,
     )
     for preset in presets.values():
         if preset.get("policy") != "RouteWisePolicy":
@@ -622,10 +628,22 @@ def _enrich_rows_with_end_to_end_metadata(
                 "hedging_enabled": bool(params.get("hedging", False)),
                 "explorer_enabled": bool(params.get("explorer", False)),
                 "latency_profile_mode": params.get("latency_profile_mode"),
+                "output_predictor": _predictor_name_from_params(params),
+                "output_predictor_quantile": params.get("output_predictor_quantile"),
             }
         )
         enriched.append(merged)
     return enriched
+
+
+def _predictor_name_from_params(params: dict[str, Any]) -> str | None:
+    spec = params.get("output_predictor_spec")
+    if not isinstance(spec, dict):
+        return None
+    kind = str(spec.get("kind") or "")
+    if kind == "constant":
+        return f"constant_{spec.get('calibration', 'mean')}"
+    return kind or None
 
 
 _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
@@ -661,6 +679,8 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "hedging_enabled",
     "explorer_enabled",
     "latency_profile_mode",
+    "output_predictor",
+    "output_predictor_quantile",
     "seeds",
     "n_requests",
     "mean_ttft_ms",
@@ -793,6 +813,21 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--predictor",
+        default=DEFAULT_OUTPUT_PREDICTOR,
+        help=(
+            "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
+            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+        ),
+    )
+    parser.add_argument(
+        "--predictor-quantile",
+        default="q50",
+        choices=("q10", "q50", "q90"),
+        help="Which quantile to use from the predictor output. Defaults to q50.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR / "end_to_end",
@@ -821,7 +856,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         for name in selected_scenarios
     }
-    presets = make_policy_presets(p_values)
+    presets = make_policy_presets(
+        p_values,
+        output_predictor=args.predictor,
+        output_predictor_quantile=args.predictor_quantile,
+    )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
