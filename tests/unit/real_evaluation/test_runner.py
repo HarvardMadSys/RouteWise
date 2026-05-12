@@ -129,6 +129,7 @@ def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) ->
                         "provider_hint": "Chutes",
                         "input_price_per_m": 0.1,
                         "output_price_per_m": 1.0,
+                        "stream_cancel_billing": "stops",
                     },
                     {
                         "name": "OR_DeepInfra",
@@ -138,6 +139,7 @@ def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) ->
                         "provider_hint": "DeepInfra",
                         "input_price_per_m": 0.2,
                         "output_price_per_m": 1.2,
+                        "stream_cancel_billing": "stops",
                     },
                 ],
             }
@@ -148,6 +150,7 @@ def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) ->
 
     assert [spec.name for spec in inventory.providers] == ["Chutes_SQ", "OR_Chutes"]
     assert inventory.openrouter_provider_only == ("Chutes",)
+    assert inventory.openrouter_stream_cancel_billing_by_provider == {"chutes": "stops"}
 
 
 def test_or_sentinel_base_prefers_metered_api_openrouter_config(tmp_path) -> None:
@@ -171,6 +174,7 @@ def test_or_sentinel_base_prefers_metered_api_openrouter_config(tmp_path) -> Non
                         "quota_window_sec": 3600,
                         "quota_requests": 100,
                         "billing_mode": "subscription",
+                        "stream_cancel_billing": "stops",
                     },
                     {
                         "name": "OR_Chutes",
@@ -181,6 +185,7 @@ def test_or_sentinel_base_prefers_metered_api_openrouter_config(tmp_path) -> Non
                         "input_price_per_m": 0.1,
                         "output_price_per_m": 1.0,
                         "billing_mode": "metered",
+                        "stream_cancel_billing": "stops",
                     },
                 ],
             }
@@ -264,6 +269,83 @@ def test_load_trace_jsonl_prefix_id_prefers_explicit_then_conversation(tmp_path)
         "conv-2",
         "session-3",
     ]
+
+
+def test_load_trace_jsonl_accepts_freeinference_schema_and_sorts_arrivals(tmp_path) -> None:
+    trace_path = _write_trace(
+        tmp_path,
+        [
+            {
+                "timestamp": "2026-05-12T00:00:10Z",
+                "prompt_text": "Say hello again.",
+                "prompt_tokens": "128",
+                "completion_tokens": "9",
+                "cache_read_tokens": "64",
+                "status_code": 200,
+                "user_id": "u-1",
+            },
+            {
+                "timestamp": "2026-05-12T00:00:05+00:00",
+                "prompt_text": "failed request",
+                "prompt_tokens": 64,
+                "completion_tokens": 8,
+                "status_code": 500,
+                "user_id": "skip-me",
+            },
+            {
+                "timestamp": "2026-05-12T00:00:00+00:00",
+                "prompt": "Say hello.",
+                "prompt_tokens": 64,
+                "completion_tokens": 4,
+                "cache_read_tokens": 12,
+                "status_code": 200,
+                "user_id": "u-0",
+            },
+        ],
+    )
+
+    trace = load_trace_jsonl(trace_path)
+
+    assert [row.arrival_time_sec for row in trace] == [0.0, 10.0]
+    assert [row.prompt for row in trace] == ["Say hello.", "Say hello again."]
+    assert [row.prompt_tokens for row in trace] == [64, 128]
+    assert [row.max_tokens for row in trace] == [4, 9]
+    assert [row.trace_cached_input_tokens for row in trace] == [12, 64]
+    assert [row.prefix_id for row in trace] == ["u-0", "u-1"]
+
+
+def test_load_trace_jsonl_synthesizes_missing_freeinference_prompt(tmp_path) -> None:
+    trace_path = _write_trace(
+        tmp_path,
+        [
+            {
+                "timestamp": "2026-05-12T00:00:00Z",
+                "prompt_tokens": 64,
+                "completion_tokens": 128,
+                "cache_read_tokens": 48,
+                "status_code": 200,
+                "user_id": "u-0",
+            },
+        ],
+    )
+
+    trace = load_trace_jsonl(
+        trace_path,
+        synthesize_missing_prompts=True,
+        synthetic_output_tokens=256,
+    )
+
+    assert len(trace) == 1
+    assert trace[0].prompt_tokens == 64
+    assert len(trace[0].prompt.split()) == 64
+    assert trace[0].prompt.startswith("This background paragraph is irrelevant")
+    assert trace[0].prompt.endswith(
+        "FINAL REQUEST: Ignore all previous synthetic padding. Do not include analysis, "
+        "reasoning, markdown, labels, or <think> tags. Output only a fictional story "
+        "of about 256 tokens. Start the story with: Once upon a time"
+    )
+    assert trace[0].max_tokens == 256
+    assert trace[0].trace_cached_input_tokens == 48
 
 
 @pytest.mark.parametrize(
@@ -677,12 +759,16 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
     runner, _ = _build_runner()
     runner.inventory.openrouter_provider_only = ("Chutes", "DeepInfra")
     runner.inventory.openrouter_provider_ignore = ("BadProvider",)
-    captured: dict[str, tuple[str, ...] | str | None] = {}
+    captured: dict[str, object] = {}
 
     def fake_send(self, prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event=None):
         captured["sort_mode"] = self.cfg.sort_mode
         captured["provider_only"] = self.cfg.provider_only
         captured["provider_ignore"] = self.cfg.provider_ignore
+        captured["stream_cancel_billing"] = self.cfg.stream_cancel_billing
+        captured["stream_cancel_billing_by_provider"] = (
+            self.cfg.stream_cancel_billing_by_provider
+        )
         return SingleRequestResult(
             ttft_ms=10.0,
             e2e_ms=20.0,
@@ -707,6 +793,9 @@ def test_or_sentinels_inherit_inventory_provider_filters() -> None:
         assert captured["sort_mode"] is None
         assert captured["provider_only"] == ("Chutes", "DeepInfra")
         assert captured["provider_ignore"] == ("BadProvider",)
+        assert captured["stream_cancel_billing"] == "continues"
+        assert captured["stream_cancel_billing_by_provider"]["chutes"] == "stops"
+        assert captured["stream_cancel_billing_by_provider"]["minimax"] == "continues"
 
         runner._send_via_transport(
             provider="__or_sort_latency__",

@@ -46,7 +46,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "cached_input_price_per_m": 0.06,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Novita",
@@ -56,7 +57,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Minimax",
@@ -66,7 +68,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_SiliconFlow",
@@ -76,7 +79,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Nebius",
@@ -85,7 +89,8 @@
       "provider_hint": "Nebius",
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_WandB",
@@ -95,7 +100,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "cached_input_price_per_m": 0.3,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     }
   ],
   "openrouter_provider_only": [

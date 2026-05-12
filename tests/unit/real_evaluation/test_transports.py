@@ -71,6 +71,8 @@ def _transport(session: _FakeSession) -> OpenAICompatStreamingTransport:
         model="test/model",
         base_url="https://example.test/v1",
         api_key_env="OPENROUTER_API_KEY",
+        stream_cancel_billing="stops",
+        stream_cancel_billing_by_provider={"Friendli": "stops"},
     )
     return OpenAICompatStreamingTransport(cfg, session)  # type: ignore[arg-type]
 
@@ -197,6 +199,7 @@ def test_openrouter_provider_filter_payload_preserves_auto_routing() -> None:
         api_key_env="OPENROUTER_API_KEY",
         input_price_per_m=0.1,
         output_price_per_m=1.0,
+        stream_cancel_billing="stops",
     )
     transport = OpenAICompatStreamingTransport(cfg, _FakeSession([]))  # type: ignore[arg-type]
 
@@ -218,6 +221,7 @@ def test_openrouter_provider_filter_payload_combines_with_sort_mode() -> None:
         api_key_env="OPENROUTER_API_KEY",
         input_price_per_m=0.1,
         output_price_per_m=1.0,
+        stream_cancel_billing="stops",
     )
     transport = OpenAICompatStreamingTransport(cfg, _FakeSession([]))  # type: ignore[arg-type]
 
@@ -241,6 +245,7 @@ def test_resolve_transport_config_parses_openrouter_provider_filters() -> None:
             "provider_ignore": "BadProvider",
             "input_price_per_m": 0.1,
             "output_price_per_m": 1.0,
+            "stream_cancel_billing": "stops",
         }
     )
 
@@ -258,10 +263,50 @@ def test_resolve_transport_config_parses_cached_input_price() -> None:
             "input_price_per_m": 0.1,
             "cached_input_price_per_m": 0.02,
             "output_price_per_m": 1.0,
+            "stream_cancel_billing": "stops",
         }
     )
 
     assert cfg.cached_input_price_per_m == 0.02
+
+
+def test_openrouter_requires_explicit_stream_cancel_billing() -> None:
+    with pytest.raises(ValueError, match="missing required stream_cancel_billing"):
+        resolve_transport_config(
+            {
+                "name": "OR_missing_cancel_mode",
+                "tier": "api",
+                "transport": "openrouter",
+                "model": "test/model",
+                "input_price_per_m": 0.1,
+                "output_price_per_m": 1.0,
+            }
+        )
+
+
+def test_openrouter_rejects_invalid_stream_cancel_billing() -> None:
+    with pytest.raises(ValueError, match="stream_cancel_billing must be"):
+        resolve_transport_config(
+            {
+                "name": "OR_bad_cancel_mode",
+                "tier": "api",
+                "transport": "openrouter",
+                "model": "test/model",
+                "input_price_per_m": 0.1,
+                "output_price_per_m": 1.0,
+                "stream_cancel_billing": "unknown",
+            }
+        )
+
+
+def test_non_openrouter_rejects_stream_cancel_billing_map() -> None:
+    with pytest.raises(ValueError, match="stream_cancel_billing_by_provider only applies"):
+        TransportConfig(
+            name="Chutes",
+            transport="chutes",
+            model="test/model",
+            stream_cancel_billing_by_provider={"Chutes": "stops"},
+        )
 
 
 def test_resolve_transport_config_honors_api_key_env_override() -> None:
@@ -292,6 +337,7 @@ def test_openrouter_api_provider_requires_positive_prices() -> None:
                 "model": "test/model",
                 "input_price_per_m": 0.0,
                 "output_price_per_m": 1.0,
+                "stream_cancel_billing": "stops",
             }
         )
 
@@ -325,6 +371,7 @@ def test_openrouter_subscription_provider_allows_zero_paper_price() -> None:
             "input_price_per_m": 0.0,
             "output_price_per_m": 0.0,
             "billing_mode": "subscription",
+            "stream_cancel_billing": "stops",
         }
     )
 
@@ -362,6 +409,7 @@ def test_openrouter_subscription_reports_physical_but_zero_paper_cost(monkeypatc
         base_url="https://example.test/v1",
         api_key_env="OPENROUTER_API_KEY",
         billing_mode="subscription",
+        stream_cancel_billing="stops",
     )
 
     result = OpenAICompatStreamingTransport(cfg, session).send(
@@ -378,19 +426,29 @@ def test_openrouter_subscription_reports_physical_but_zero_paper_cost(monkeypatc
 class _CancellableStreamResponse(_FakeResponse):
     """Streams chunks slowly so a cancel mid-flight is observable."""
 
-    def __init__(self, chunk_count: int = 10, chunk_sleep_sec: float = 0.02):
+    def __init__(
+        self,
+        chunk_count: int = 10,
+        chunk_sleep_sec: float = 0.02,
+        provider: str = "Friendli",
+    ):
         super().__init__(status_code=200)
         self._chunk_count = chunk_count
         self._chunk_sleep_sec = chunk_sleep_sec
+        self._provider = provider
         self.chunks_yielded = 0
 
     def iter_lines(self, decode_unicode: bool = True):
         # First chunk delivers a visible token so the transport sets ttft.
-        yield "data: " + json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+        yield "data: " + json.dumps(
+            {"provider": self._provider, "choices": [{"delta": {"content": "hello"}}]}
+        )
         self.chunks_yielded += 1
         for _ in range(self._chunk_count - 1):
             time.sleep(self._chunk_sleep_sec)
-            yield "data: " + json.dumps({"choices": [{"delta": {"content": "more"}}]})
+            yield "data: " + json.dumps(
+                {"provider": self._provider, "choices": [{"delta": {"content": "more"}}]}
+            )
             self.chunks_yielded += 1
         yield "data: [DONE]"
 
@@ -429,8 +487,155 @@ def test_cancel_event_closes_stream_mid_flight(monkeypatch) -> None:
     canceler.join(timeout=2.0)
     assert result.status == "canceled"
     assert result.error_message == "canceled_by_hedge_winner"
+    assert result.billed_cost_usd == 0.0
+    assert result.physical_cost_usd == 0.0
+    assert result.cost_source == "canceled_no_usage_no_charge"
     assert response.closed is True
     assert response.chunks_yielded < 20  # ended early
+
+
+def test_cancel_event_marks_continues_billing_provider_unmeasured(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _CancellableStreamResponse(
+        chunk_count=20,
+        chunk_sleep_sec=0.02,
+        provider="Minimax",
+    )
+    session = _FakeSession([response])
+    cfg = TransportConfig(
+        name="OR_Minimax",
+        transport="openrouter",
+        model="test/model",
+        provider_hint="Minimax",
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        input_price_per_m=0.3,
+        output_price_per_m=1.2,
+        stream_cancel_billing="continues",
+    )
+    transport = OpenAICompatStreamingTransport(cfg, session)  # type: ignore[arg-type]
+    cancel = threading.Event()
+    ttft = threading.Event()
+    ttft_info: dict[str, object] = {}
+
+    def trigger_cancel() -> None:
+        ttft.wait(timeout=1.0)
+        time.sleep(0.05)
+        cancel.set()
+
+    canceler = threading.Thread(target=trigger_cancel, daemon=True)
+    canceler.start()
+
+    result = transport.send(
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        ttft_event=ttft,
+        ttft_info=ttft_info,
+        cancel_event=cancel,
+    )
+
+    canceler.join(timeout=2.0)
+    assert result.status == "canceled"
+    assert result.billed_cost_usd == 0.0
+    assert result.cost_source == "canceled_no_usage_billing_continues_unmeasured"
+
+
+def test_unpinned_openrouter_cancel_uses_reported_provider_billing_mode(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _CancellableStreamResponse(
+        chunk_count=20,
+        chunk_sleep_sec=0.02,
+        provider="Friendli",
+    )
+    session = _FakeSession([response])
+    cfg = TransportConfig(
+        name="__or_auto__",
+        transport="openrouter",
+        model="test/model",
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        input_price_per_m=0.3,
+        output_price_per_m=1.2,
+        stream_cancel_billing="continues",
+        stream_cancel_billing_by_provider={
+            "Friendli": "stops",
+            "Minimax": "continues",
+        },
+    )
+    transport = OpenAICompatStreamingTransport(cfg, session)  # type: ignore[arg-type]
+    cancel = threading.Event()
+    ttft = threading.Event()
+
+    def trigger_cancel() -> None:
+        ttft.wait(timeout=1.0)
+        time.sleep(0.05)
+        cancel.set()
+
+    canceler = threading.Thread(target=trigger_cancel, daemon=True)
+    canceler.start()
+
+    result = transport.send(
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        ttft_event=ttft,
+        ttft_info={},
+        cancel_event=cancel,
+    )
+
+    canceler.join(timeout=2.0)
+    assert result.status == "canceled"
+    assert result.provider == "__or_auto__@Friendli"
+    assert result.cost_source == "canceled_no_usage_no_charge"
+
+
+def test_unpinned_openrouter_cancel_defaults_to_continues_when_provider_unmapped(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    response = _CancellableStreamResponse(
+        chunk_count=20,
+        chunk_sleep_sec=0.02,
+        provider="Unmapped",
+    )
+    session = _FakeSession([response])
+    cfg = TransportConfig(
+        name="__or_auto__",
+        transport="openrouter",
+        model="test/model",
+        base_url="https://example.test/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        input_price_per_m=0.3,
+        output_price_per_m=1.2,
+        stream_cancel_billing="continues",
+        stream_cancel_billing_by_provider={"Friendli": "stops"},
+    )
+    transport = OpenAICompatStreamingTransport(cfg, session)  # type: ignore[arg-type]
+    cancel = threading.Event()
+    ttft = threading.Event()
+
+    def trigger_cancel() -> None:
+        ttft.wait(timeout=1.0)
+        time.sleep(0.05)
+        cancel.set()
+
+    canceler = threading.Thread(target=trigger_cancel, daemon=True)
+    canceler.start()
+
+    result = transport.send(
+        prompt="x",
+        max_tokens=8,
+        timeout=5,
+        ttft_event=ttft,
+        ttft_info={},
+        cancel_event=cancel,
+    )
+
+    canceler.join(timeout=2.0)
+    assert result.status == "canceled"
+    assert result.provider == "__or_auto__@Unmapped"
+    assert result.cost_source == "canceled_no_usage_billing_continues_unmeasured"
 
 
 def test_cancel_event_not_set_completes_normally(monkeypatch) -> None:

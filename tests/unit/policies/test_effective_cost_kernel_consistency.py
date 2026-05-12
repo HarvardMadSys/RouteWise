@@ -7,16 +7,14 @@ import pytest
 from experiments.real_evaluation.inventory import ProviderSpec, ProviderState
 from experiments.real_evaluation.shadow_price import (
     concurrency_shadow_price as real_concurrency_shadow_price,
-)
-from experiments.real_evaluation.shadow_price import (
     quota_shadow_price as real_quota_shadow_price,
 )
 from experiments.real_evaluation.transports import TransportConfig
 from rwsim.policies.effective_cost_kernel import scarcity_price
 from rwsim.policies.routewise import (
     concurrency_shadow_price as sim_concurrency_shadow_price,
+    quota_shadow_price as sim_quota_shadow_price,
 )
-from rwsim.policies.routewise import quota_shadow_price as sim_quota_shadow_price
 from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
 from rwsim.world.distributions import Uniform
 from rwsim.world.providers import TieredProvider
@@ -111,7 +109,12 @@ def _real_concurrency_state(*, active: int, now: float) -> ProviderState:
 
 
 def _transport(name: str) -> TransportConfig:
-    return TransportConfig(name=name, transport="openrouter", model="x")
+    return TransportConfig(
+        name=name,
+        transport="openrouter",
+        model="x",
+        stream_cancel_billing="stops",
+    )
 
 
 def _dist() -> Uniform:

@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,11 @@ DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
 DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
 WARMUP_PROBE_PROMPT: str = "Write a one-sentence greeting."
+SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE: str = (
+    "FINAL REQUEST: Ignore all previous synthetic padding. Do not include analysis, "
+    "reasoning, markdown, labels, or <think> tags. Output only a fictional story "
+    "of about {output_tokens} tokens. Start the story with: Once upon a time"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,21 +101,31 @@ def load_trace_jsonl(
     time_compression: float = 1.0,
     trace_start_sec: float = 0.0,
     trace_end_sec: float = float("inf"),
+    synthesize_missing_prompts: bool = False,
+    synthetic_output_tokens: int | None = None,
 ) -> list[TraceRequest]:
     """Load an arrival-paced trace from a JSONL file.
 
     Recognized fields (first non-null wins):
-        arrival_time_sec : ``arrived_at``
+        arrival_time_sec : ``arrived_at`` | ``arrival_time_sec`` | ``timestamp``
         prompt           : ``prompt_text`` | ``prompt``
         prompt_tokens    : ``num_prefill_tokens`` | ``prompt_tokens``
-        max_tokens       : ``num_decode_tokens`` | ``max_tokens``
+        max_tokens       : ``num_decode_tokens`` | ``max_tokens`` | ``completion_tokens``
         prefix_id        : ``prefix_id`` | ``sharegpt_conversation_id`` |
-                           ``session_id`` (optional)
+                           ``session_id`` | ``user_id`` | ``user`` (optional)
 
     ``time_compression`` divides arrival times so a long trace can be
     replayed in less wall-clock time.
+
+    ``synthesize_missing_prompts`` exists for FreeInference-style traces that
+    preserve token counts and cache metadata but not request text. Synthetic
+    prompts are whitespace-token approximations; route-time cost still uses
+    the trace token counts.
     """
-    out: list[TraceRequest] = []
+    if synthetic_output_tokens is not None and synthetic_output_tokens <= 0:
+        raise ValueError("synthetic_output_tokens must be positive when set")
+
+    parsed: list[tuple[float, int, TraceRequest]] = []
     first_ts: float | None = None
     skipped_nonpositive_output_cap = 0
     trace_path = Path(path)
@@ -121,25 +137,31 @@ def load_trace_jsonl(
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{trace_path}:{line_num}: invalid JSON: {exc.msg}") from exc
-            arrived_raw = _first_present(rec, ("arrived_at", "arrival_time_sec"))
+            arrived_raw = _first_present(rec, ("arrived_at", "arrival_time_sec", "timestamp"))
             if arrived_raw is None:
                 raise ValueError(
                     f"{trace_path}:{line_num}: missing arrival timestamp "
-                    "(expected arrived_at or arrival_time_sec)"
+                    "(expected arrived_at, arrival_time_sec, or timestamp)"
                 )
-            arrived = _coerce_float(trace_path, line_num, "arrival timestamp", arrived_raw)
-            if first_ts is None:
-                first_ts = arrived
-            relative = (arrived - first_ts) / max(time_compression, 1e-6)
-            if relative < trace_start_sec:
+            arrived = _coerce_arrival_timestamp(
+                trace_path,
+                line_num,
+                arrived_raw,
+            )
+            first_ts = arrived if first_ts is None else min(first_ts, arrived)
+
+            status_code = _optional_int(rec.get("status_code"))
+            if status_code is not None and status_code >= 400:
                 continue
-            if relative > trace_end_sec:
-                break
-            max_tokens_raw = _first_present(rec, ("num_decode_tokens", "max_tokens"))
+
+            max_tokens_raw = _first_present(
+                rec,
+                ("num_decode_tokens", "max_tokens", "completion_tokens"),
+            )
             if max_tokens_raw is None:
                 raise ValueError(
                     f"{trace_path}:{line_num}: missing output token cap "
-                    "(expected num_decode_tokens or max_tokens)"
+                    "(expected num_decode_tokens, max_tokens, or completion_tokens)"
                 )
             max_tokens = _coerce_int(trace_path, line_num, "output token cap", max_tokens_raw)
             if max_tokens <= 0:
@@ -147,10 +169,12 @@ def load_trace_jsonl(
                 continue
             prompt = _first_present(rec, ("prompt_text", "prompt"))
             if not isinstance(prompt, str) or not prompt.strip():
-                raise ValueError(
-                    f"{trace_path}:{line_num}: missing non-empty prompt "
-                    "(expected prompt_text or prompt)"
-                )
+                if not synthesize_missing_prompts:
+                    raise ValueError(
+                        f"{trace_path}:{line_num}: missing non-empty prompt "
+                        "(expected prompt_text or prompt)"
+                    )
+                prompt = ""
             prompt_tokens_raw = _first_present(rec, ("num_prefill_tokens", "prompt_tokens"))
             if prompt_tokens_raw is None:
                 raise ValueError(
@@ -162,24 +186,46 @@ def load_trace_jsonl(
             )
             if prompt_tokens < 0:
                 raise ValueError(f"{trace_path}:{line_num}: prompt token count must be >= 0")
-            out.append(
-                TraceRequest(
-                    arrival_time_sec=relative,
-                    prompt=prompt,
+            if not prompt:
+                output_tokens = synthetic_output_tokens or max_tokens
+                prompt = _synthesize_prompt_text(
                     prompt_tokens=prompt_tokens,
-                    max_tokens=max_tokens,
-                    prefix_id=_prefix_id_from_record(rec),
-                    trace_cached_input_tokens=_trace_cached_input_tokens_from_record(rec),
+                    output_tokens=output_tokens,
+                )
+                max_tokens = output_tokens
+            parsed.append(
+                (
+                    arrived,
+                    line_num,
+                    TraceRequest(
+                        arrival_time_sec=0.0,
+                        prompt=prompt,
+                        prompt_tokens=prompt_tokens,
+                        max_tokens=max_tokens,
+                        prefix_id=_prefix_id_from_record(rec),
+                        trace_cached_input_tokens=_trace_cached_input_tokens_from_record(rec),
+                    ),
                 )
             )
-            if max_requests is not None and len(out) >= max_requests:
-                break
     if skipped_nonpositive_output_cap:
         logger.warning(
             "Skipped %d trace rows from %s because output token cap was <= 0",
             skipped_nonpositive_output_cap,
             trace_path,
         )
+
+    out: list[TraceRequest] = []
+    if first_ts is None:
+        return out
+    for arrived, _, request in sorted(parsed, key=lambda item: (item[0], item[1])):
+        relative = (arrived - first_ts) / max(time_compression, 1e-6)
+        if relative < trace_start_sec:
+            continue
+        if relative > trace_end_sec:
+            break
+        out.append(dataclasses.replace(request, arrival_time_sec=relative))
+        if max_requests is not None and len(out) >= max_requests:
+            break
     return out
 
 
@@ -196,11 +242,32 @@ def _first_present(rec: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 
 def _prefix_id_from_record(rec: dict[str, Any]) -> str | None:
-    value = _first_present(rec, ("prefix_id", "sharegpt_conversation_id", "session_id"))
+    value = _first_present(
+        rec,
+        ("prefix_id", "sharegpt_conversation_id", "session_id", "user_id", "user"),
+    )
     if value is None:
         return None
     prefix_id = str(value).strip()
     return prefix_id or None
+
+
+def _synthesize_prompt_text(*, prompt_tokens: int, output_tokens: int) -> str:
+    """Build a length-matched synthetic prompt for traces without text.
+
+    This is intentionally simple and dependency-free: one repeated whitespace
+    word roughly maps to one BPE-ish token for the providers we probe. The
+    final instruction is last so it dominates the synthetic padding.
+    """
+    instruction = SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE.format(output_tokens=output_tokens)
+    instruction_words = instruction.split()
+    filler_template = ["This", "background", "paragraph", "is", "irrelevant"]
+    filler_words: list[str] = []
+    target_filler_words = max(int(prompt_tokens) - len(instruction_words), 0)
+    while len(filler_words) < target_filler_words:
+        filler_words.extend(filler_template)
+    filler_words = filler_words[:target_filler_words]
+    return " ".join([*filler_words, *instruction_words]).strip()
 
 
 def _trace_cached_input_tokens_from_record(rec: dict[str, Any]) -> int | None:
@@ -219,11 +286,25 @@ def _trace_cached_input_tokens_from_record(rec: dict[str, Any]) -> int | None:
         return None
 
 
-def _coerce_float(path: Path, line_num: int, field: str, value: Any) -> float:
-    try:
+def _coerce_arrival_timestamp(path: Path, line_num: int, value: Any) -> float:
+    if isinstance(value, int | float):
         return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{path}:{line_num}: {field} must be numeric, got {value!r}") from exc
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{path}:{line_num}: arrival timestamp must be non-empty")
+    timestamp = value.strip()
+    try:
+        return float(timestamp)
+    except ValueError:
+        pass
+    if timestamp.endswith("Z"):
+        timestamp = f"{timestamp[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(timestamp).timestamp()
+    except ValueError as exc:
+        raise ValueError(
+            f"{path}:{line_num}: arrival timestamp must be numeric or ISO-8601, "
+            f"got {value!r}"
+        ) from exc
 
 
 def _coerce_int(path: Path, line_num: int, field: str, value: Any) -> int:
@@ -234,6 +315,18 @@ def _coerce_int(path: Path, line_num: int, field: str, value: Any) -> int:
     if not math.isfinite(as_float) or not as_float.is_integer():
         raise ValueError(f"{path}:{line_num}: {field} must be an integer, got {value!r}")
     return int(as_float)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not parsed.is_integer():
+        return None
+    return int(parsed)
 
 
 @dataclass
@@ -447,6 +540,10 @@ class RealExperimentRunner:
             sort_mode=sort_mode,
             provider_only=(self.inventory.openrouter_provider_only or base.provider_only),
             provider_ignore=(self.inventory.openrouter_provider_ignore or base.provider_ignore),
+            stream_cancel_billing="continues",
+            stream_cancel_billing_by_provider=dict(
+                self.inventory.openrouter_stream_cancel_billing_by_provider
+            ),
             extra_headers=dict(base.extra_headers),
         )
         from experiments.real_evaluation.transports import OpenAICompatStreamingTransport
@@ -1738,6 +1835,25 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--synthesize-missing-prompts",
+        action="store_true",
+        help=(
+            "For traces that contain token counts but no request text, build "
+            "an approximate-length synthetic prompt ending in a story-writing "
+            "instruction. Existing prompt_text/prompt fields are left unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--synthetic-output-tokens",
+        type=int,
+        default=None,
+        help=(
+            "When --synthesize-missing-prompts is used, override max_tokens "
+            "for synthesized rows. For example, use 256 for fixed-length "
+            "story-generation probes."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -1776,6 +1892,8 @@ def main(argv: list[str] | None = None) -> int:
         args.trace,
         max_requests=args.max_requests,
         trace_end_sec=trace_end_sec,
+        synthesize_missing_prompts=args.synthesize_missing_prompts,
+        synthetic_output_tokens=args.synthetic_output_tokens,
     )
     if not trace:
         logger.error("trace is empty; nothing to replay")

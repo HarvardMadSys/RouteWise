@@ -18,7 +18,8 @@
       "input_price_per_m": 0.2,
       "output_price_per_m": 1.18,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='akashml/fp8', uptime_1d=97.92%"
+      "notes": "OR endpoint tag='akashml/fp8', uptime_1d=97.92%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_AtlasCloud",
@@ -29,7 +30,8 @@
       "input_price_per_m": 0.295,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='atlas-cloud/fp8', uptime_1d=99.40%"
+      "notes": "OR endpoint tag='atlas-cloud/fp8', uptime_1d=99.40%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Baidu",
@@ -40,7 +42,8 @@
       "input_price_per_m": 0.27,
       "output_price_per_m": 1.08,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='baidu/fp8', uptime_1d=99.96%"
+      "notes": "OR endpoint tag='baidu/fp8', uptime_1d=99.96%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Chutes",
@@ -51,7 +54,8 @@
       "input_price_per_m": 0.15,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='chutes/fp8', uptime_1d=99.41%"
+      "notes": "OR endpoint tag='chutes/fp8', uptime_1d=99.41%",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_DeepInfra",
@@ -62,7 +66,8 @@
       "input_price_per_m": 0.15,
       "output_price_per_m": 1.15,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='deepinfra/fp8', uptime_1d=99.96%"
+      "notes": "OR endpoint tag='deepinfra/fp8', uptime_1d=99.96%",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Friendli",
@@ -73,7 +78,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='friendli', uptime_1d=99.11%"
+      "notes": "OR endpoint tag='friendli', uptime_1d=99.11%",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Inceptron",
@@ -84,7 +90,8 @@
       "input_price_per_m": 0.24,
       "output_price_per_m": 0.9,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='inceptron/fp8', uptime_1d=99.94%"
+      "notes": "OR endpoint tag='inceptron/fp8', uptime_1d=99.94%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Mara",
@@ -95,7 +102,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='mara', uptime_1d=100.00%"
+      "notes": "OR endpoint tag='mara', uptime_1d=100.00%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Minimax",
@@ -106,7 +114,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='minimax/fp8', uptime_1d=97.66%"
+      "notes": "OR endpoint tag='minimax/fp8', uptime_1d=97.66%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Nebius",
@@ -117,7 +126,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='nebius/fp4', uptime_1d=99.95%"
+      "notes": "OR endpoint tag='nebius/fp4', uptime_1d=99.95%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Novita",
@@ -128,7 +138,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='novita/fp8', uptime_1d=99.24%"
+      "notes": "OR endpoint tag='novita/fp8', uptime_1d=99.24%",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Parasail",
@@ -139,7 +150,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='parasail/fp8', uptime_1d=99.94%"
+      "notes": "OR endpoint tag='parasail/fp8', uptime_1d=99.94%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Phala",
@@ -150,7 +162,8 @@
       "input_price_per_m": 0.2,
       "output_price_per_m": 1.38,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='phala', uptime_1d=98.71%"
+      "notes": "OR endpoint tag='phala', uptime_1d=98.71%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_SambaNova",
@@ -161,7 +174,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='sambanova', uptime_1d=98.51%"
+      "notes": "OR endpoint tag='sambanova', uptime_1d=98.51%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_SiliconFlow",
@@ -172,7 +186,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='siliconflow/fp8', uptime_1d=99.93%"
+      "notes": "OR endpoint tag='siliconflow/fp8', uptime_1d=99.93%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Venice",
@@ -183,7 +198,8 @@
       "input_price_per_m": 0.34,
       "output_price_per_m": 1.19,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='venice', uptime_1d=98.72%"
+      "notes": "OR endpoint tag='venice', uptime_1d=98.72%",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_WandB",
@@ -194,7 +210,8 @@
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
       "billing_mode": "metered",
-      "notes": "OR endpoint tag='wandb/fp8', uptime_1d=97.18%"
+      "notes": "OR endpoint tag='wandb/fp8', uptime_1d=97.18%",
+      "stream_cancel_billing": "continues"
     }
   ]
 }

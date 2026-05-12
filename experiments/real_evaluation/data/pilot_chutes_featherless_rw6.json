@@ -39,7 +39,8 @@
       "provider_hint": "Chutes",
       "input_price_per_m": 0.118,
       "output_price_per_m": 0.99,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Inceptron",
@@ -48,7 +49,8 @@
       "provider_hint": "Inceptron",
       "input_price_per_m": 0.24,
       "output_price_per_m": 0.9,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_DeepInfra",
@@ -57,7 +59,8 @@
       "provider_hint": "DeepInfra",
       "input_price_per_m": 0.27,
       "output_price_per_m": 0.95,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_AtlasCloud",
@@ -66,7 +69,8 @@
       "provider_hint": "AtlasCloud",
       "input_price_per_m": 0.295,
       "output_price_per_m": 1.2,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Friendli",
@@ -75,7 +79,8 @@
       "provider_hint": "Friendli",
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_SambaNova",
@@ -84,7 +89,8 @@
       "provider_hint": "SambaNova",
       "input_price_per_m": 0.3,
       "output_price_per_m": 1.2,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     }
   ],
   "openrouter_provider_only": [

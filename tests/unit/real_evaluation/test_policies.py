@@ -44,6 +44,7 @@ def _api_spec(
             input_price_per_m=in_p,
             cached_input_price_per_m=cached_in_p,
             output_price_per_m=out_p,
+            stream_cancel_billing="stops",
         ),
     )
 

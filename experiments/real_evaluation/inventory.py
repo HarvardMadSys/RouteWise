@@ -78,6 +78,7 @@ class InventoryConfig:
     providers: list[ProviderSpec]
     openrouter_provider_only: tuple[str, ...] = ()
     openrouter_provider_ignore: tuple[str, ...] = ()
+    openrouter_stream_cancel_billing_by_provider: dict[str, str] = field(default_factory=dict)
     billing_duration_sec: float | None = None
 
 
@@ -139,12 +140,29 @@ def load_inventory(path: Path | str) -> InventoryConfig:
         providers=provider_specs,
         openrouter_provider_only=openrouter_provider_only,
         openrouter_provider_ignore=openrouter_provider_ignore,
+        openrouter_stream_cancel_billing_by_provider=(
+            _openrouter_stream_cancel_billing_by_provider(provider_specs)
+        ),
         billing_duration_sec=(
             float(raw["billing_duration_sec"])
             if raw.get("billing_duration_sec") is not None
             else None
         ),
     )
+
+
+def _openrouter_stream_cancel_billing_by_provider(
+    specs: list[ProviderSpec],
+) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for spec in specs:
+        cfg = spec.transport_cfg
+        if cfg.transport != "openrouter" or cfg.provider_hint is None:
+            continue
+        if cfg.stream_cancel_billing is None:
+            continue
+        out[cfg.provider_hint.strip().lower()] = cfg.stream_cancel_billing
+    return out
 
 
 def _provider_filter(value: object) -> tuple[str, ...]:

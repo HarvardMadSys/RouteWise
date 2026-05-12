@@ -40,6 +40,7 @@ MINIMAX_NATIVE_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minima
 OLLAMA_CLOUD_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com/v1")
 
 OPENROUTER_SORT_MODES: frozenset[str] = frozenset({"price", "throughput", "latency"})
+STREAM_CANCEL_BILLING_MODES: frozenset[str] = frozenset({"stops", "continues"})
 RATE_LIMIT_STATUS = 429
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,8 @@ class TransportConfig:
     cached_input_price_per_m: float | None = None
     output_price_per_m: float = 0.0
     billing_mode: str = "metered"
+    stream_cancel_billing: str | None = None
+    stream_cancel_billing_by_provider: dict[str, str] = field(default_factory=dict)
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -137,6 +140,39 @@ class TransportConfig:
         if (self.provider_only or self.provider_ignore) and self.transport != "openrouter":
             raise ValueError(
                 f"{self.name!r}: provider_only/provider_ignore only apply to openrouter transport"
+            )
+        if self.stream_cancel_billing is not None:
+            self.stream_cancel_billing = str(self.stream_cancel_billing).strip().lower()
+        raw_cancel_modes = self.stream_cancel_billing_by_provider or {}
+        self.stream_cancel_billing_by_provider = {
+            str(provider).strip().lower(): str(mode).strip().lower()
+            for provider, mode in raw_cancel_modes.items()
+            if str(provider).strip()
+        }
+        if self.transport == "openrouter":
+            if self.stream_cancel_billing not in STREAM_CANCEL_BILLING_MODES:
+                raise ValueError(
+                    f"{self.name!r}: openrouter providers must set stream_cancel_billing "
+                    "to 'stops' or 'continues'"
+                )
+            bad_modes = {
+                provider: mode
+                for provider, mode in self.stream_cancel_billing_by_provider.items()
+                if mode not in STREAM_CANCEL_BILLING_MODES
+            }
+            if bad_modes:
+                raise ValueError(
+                    f"{self.name!r}: stream_cancel_billing_by_provider values must be "
+                    f"'stops' or 'continues', got {bad_modes!r}"
+                )
+        elif self.stream_cancel_billing is not None:
+            raise ValueError(
+                f"{self.name!r}: stream_cancel_billing only applies to openrouter transport"
+            )
+        elif self.stream_cancel_billing_by_provider:
+            raise ValueError(
+                f"{self.name!r}: stream_cancel_billing_by_provider only applies to "
+                "openrouter transport"
             )
 
 
@@ -285,8 +321,9 @@ class OpenAICompatStreamingTransport(BaseTransport):
         ``status="canceled"`` result with whatever token counts arrived before
         the cancel. ``billed_cost_usd`` is best-effort: providers that emit
         ``usage`` only in the final SSE chunk will report 0 for canceled
-        requests, which is the right behaviour because we don't know what was
-        billed server-side until the provider's invoice closes."""
+        requests. OpenRouter cancellation billing is explicit provider metadata:
+        supported providers stop billing, while unsupported providers are marked
+        unmeasured rather than estimated."""
         headers = self._build_headers()
         payload = self._build_payload(prompt, max_tokens)
         url = f"{self._endpoint()}/chat/completions"
@@ -457,9 +494,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
             error_message = "no_tokens_received"
 
         billed, physical, cost_source = self._resolve_costs(
+            status=status,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             reported_cost_usd=reported_cost_usd,
+            reported_provider=reported_provider,
         )
 
         logical_provider = self.cfg.name
@@ -489,9 +528,11 @@ class OpenAICompatStreamingTransport(BaseTransport):
     def _resolve_costs(
         self,
         *,
+        status: str,
         prompt_tokens: int,
         completion_tokens: int,
         reported_cost_usd: float | None,
+        reported_provider: str | None = None,
     ) -> tuple[float, float, str]:
         """Return (paper billed cost, physical provider cost, source label)."""
         reported = (
@@ -499,22 +540,49 @@ class OpenAICompatStreamingTransport(BaseTransport):
             if reported_cost_usd is not None and reported_cost_usd >= 0.0
             else None
         )
+        cancel_billing = (
+            self._stream_cancel_billing_for(reported_provider) if status == "canceled" else None
+        )
 
         if self.cfg.billing_mode == "subscription":
             physical = float(reported) if reported is not None else 0.0
             source = "subscription_zero_marginal"
             if reported is not None:
                 source += "+reported_physical"
+            elif status == "canceled" and cancel_billing == "stops":
+                source += "+canceled_no_usage_no_charge"
+            elif status == "canceled" and cancel_billing == "continues":
+                source += "+canceled_no_usage_billing_continues_unmeasured"
             return 0.0, physical, source
 
         if reported is not None:
             return float(reported), float(reported), "reported"
+
+        if status == "canceled":
+            if cancel_billing == "stops":
+                return 0.0, 0.0, "canceled_no_usage_no_charge"
+            return 0.0, 0.0, "canceled_no_usage_billing_continues_unmeasured"
 
         if self.cfg.input_price_per_m > 0 or self.cfg.output_price_per_m > 0:
             estimated = self._estimate_cost(prompt_tokens, completion_tokens)
             return estimated, estimated, "estimated"
 
         return 0.0, 0.0, "missing"
+
+    def _stream_cancel_billing_for(self, reported_provider: str | None) -> str | None:
+        if self.cfg.transport != "openrouter":
+            return self.cfg.stream_cancel_billing
+        if reported_provider:
+            provider_key = reported_provider.strip().lower()
+            if provider_key in self.cfg.stream_cancel_billing_by_provider:
+                return self.cfg.stream_cancel_billing_by_provider[provider_key]
+        if self.cfg.provider_hint is not None:
+            return self.cfg.stream_cancel_billing
+        # Unpinned OpenRouter sentinel requests may route to any provider in
+        # the allowed pool. If the stream did not report a provider, or the
+        # provider is not present in inventory, do not claim cancellation saved
+        # money.
+        return "continues"
 
 
 def build_transport(cfg: TransportConfig, session: requests.Session) -> BaseTransport:
@@ -546,6 +614,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         cached_input_price_per_m: optional, USD per 1M cached input tokens
         output_price_per_m: optional, USD per 1M output tokens
         billing_mode      : metered (default) or subscription
+        stream_cancel_billing: OpenRouter only, ``stops`` or ``continues``
     """
     transport = provider_entry["transport"]
     model = provider_entry.get("model")
@@ -603,8 +672,24 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         cached_input_price_per_m=cached_input_price_per_m,
         output_price_per_m=output_price_per_m,
         billing_mode=str(provider_entry.get("billing_mode") or "metered"),
+        stream_cancel_billing=_stream_cancel_billing_field(provider_entry),
         extra_headers=extra_headers,
     )
+
+
+def _stream_cancel_billing_field(provider_entry: dict[str, Any]) -> str | None:
+    if provider_entry.get("transport") != "openrouter":
+        return None
+    name = str(provider_entry.get("name", "<unnamed>"))
+    value = provider_entry.get("stream_cancel_billing")
+    if value is None:
+        raise ValueError(f"{name}: missing required stream_cancel_billing")
+    cleaned = str(value).strip().lower()
+    if cleaned not in STREAM_CANCEL_BILLING_MODES:
+        raise ValueError(
+            f"{name}: stream_cancel_billing must be 'stops' or 'continues', got {value!r}"
+        )
+    return cleaned
 
 
 def _resolve_provider_prices(provider_entry: dict[str, Any]) -> tuple[float, float]:
