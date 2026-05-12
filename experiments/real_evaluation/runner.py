@@ -326,6 +326,53 @@ def _optional_int(value: Any) -> int | None:
     return int(parsed)
 
 
+def _inventory_has_quota_providers(inventory: InventoryConfig) -> bool:
+    """Return True if any provider in ``inventory`` rolls a quota window."""
+    for spec in inventory.providers:
+        if spec.tier == "quota":
+            return True
+        if spec.quota_requests is not None and spec.quota_window_sec is not None:
+            return True
+        if spec.quota_windows:
+            return True
+    return False
+
+
+def check_quota_clock_alignment(
+    inventory: InventoryConfig,
+    *,
+    speedup: float,
+    allow_mismatch: bool = False,
+) -> None:
+    """Block non-unit ``--speedup`` on quota-bearing inventories.
+
+    Real-eval quota windows roll on wall-clock (``time.time()``) because the
+    real subscription provider does the same. Replaying a trace at
+    ``speedup != 1.0`` keeps the wall-clock window length unchanged while
+    compressing the trace's logical day, which silently lets the policy
+    spend more or fewer free quota requests than the paper's
+    ``requests_per_day`` semantics would allow. The mismatch never raises an
+    HTTP error, so it is impossible to notice from the live logs alone.
+
+    Pass ``allow_mismatch=True`` (CLI ``--allow-quota-clock-mismatch``) to
+    knowingly run an ablation that breaks this alignment.
+    """
+    if allow_mismatch:
+        return
+    if not _inventory_has_quota_providers(inventory):
+        return
+    if math.isclose(speedup, 1.0, rel_tol=0.0, abs_tol=1e-9):
+        return
+    raise SystemExit(
+        "Inventory contains quota-bearing providers but --speedup is "
+        f"{speedup}. Quota windows roll on wall-clock; running real-eval "
+        "at a non-unit speedup silently breaks the paper's "
+        "requests-per-day subscription semantics. Re-run with "
+        "--speedup=1.0, or pass --allow-quota-clock-mismatch if you "
+        "really want this."
+    )
+
+
 @dataclass
 class _PreparedDispatch:
     """A routed request ready for physical execution."""
@@ -1653,6 +1700,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--speedup", type=float, default=1.0, help="Replay speedup factor.")
     parser.add_argument(
+        "--allow-quota-clock-mismatch",
+        action="store_true",
+        help=(
+            "Skip the startup check that blocks non-unit --speedup with "
+            "quota-bearing inventories. Quota windows roll on wall-clock; "
+            "running at speedup != 1 silently breaks the paper's "
+            "requests-per-day subscription semantics."
+        ),
+    )
+    parser.add_argument(
         "--duration-sec",
         type=float,
         default=float("inf"),
@@ -1789,6 +1846,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     inventory = load_inventory(args.inventory)
+    check_quota_clock_alignment(
+        inventory,
+        speedup=args.speedup,
+        allow_mismatch=args.allow_quota_clock_mismatch,
+    )
     if not args.policies:
         logger.error("at least one --policy is required")
         return 2

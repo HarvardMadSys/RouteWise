@@ -13,10 +13,13 @@ from unittest.mock import patch
 import pytest
 
 from experiments.real_evaluation.inventory import (
+    InventoryConfig,
+    ProviderSpec,
     ProviderState,
     load_inventory,
     subscription_fixed_cost_for_inventory,
 )
+from experiments.real_evaluation.transports import TransportConfig as _TransportConfig
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -27,6 +30,7 @@ from experiments.real_evaluation.runner import (
     WARMUP_PROBE_PROMPT,
     RealExperimentRunner,
     TraceRequest,
+    check_quota_clock_alignment,
     load_trace_jsonl,
 )
 from experiments.real_evaluation.transports import SingleRequestResult
@@ -98,6 +102,75 @@ def test_inventory_allows_scaled_subscription_quota_for_fixed_cost_accounting() 
         inventory,
         billing_duration_sec=3600,
     ) == pytest.approx((20.0 + 25.0) / (30 * 24))
+
+
+def _api_only_inventory() -> InventoryConfig:
+    """Minimal inventory with no quota- or concurrency-bearing providers."""
+    spec = ProviderSpec(
+        name="OR_x",
+        tier="api",
+        transport_cfg=_TransportConfig(
+            name="OR_x",
+            transport="openrouter",
+            model="x",
+            stream_cancel_billing="stops",
+        ),
+    )
+    return InventoryConfig(
+        model_family="test",
+        openrouter_model_id="test/model",
+        primary_slo_ms=2000.0,
+        slo_thresholds_ms=[1000.0, 2000.0],
+        providers=[spec],
+    )
+
+
+def _quota_inventory() -> InventoryConfig:
+    """Minimal inventory with one quota-bearing provider."""
+    spec = ProviderSpec(
+        name="Chutes_SQ",
+        tier="quota",
+        transport_cfg=_TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
+        quota_window_sec=86400.0,
+        quota_requests=5000,
+    )
+    return InventoryConfig(
+        model_family="test",
+        openrouter_model_id="test/model",
+        primary_slo_ms=2000.0,
+        slo_thresholds_ms=[1000.0, 2000.0],
+        providers=[spec],
+    )
+
+
+def test_check_quota_clock_alignment_passes_for_api_only_inventory_at_any_speedup() -> None:
+    inventory = _api_only_inventory()
+    # API-only providers do not roll a wall-clock window, so any speedup is
+    # safe regardless of the flag.
+    check_quota_clock_alignment(inventory, speedup=1.0, allow_mismatch=False)
+    check_quota_clock_alignment(inventory, speedup=3.0, allow_mismatch=False)
+
+
+def test_check_quota_clock_alignment_passes_for_quota_inventory_at_unit_speedup() -> None:
+    inventory = _quota_inventory()
+    check_quota_clock_alignment(inventory, speedup=1.0, allow_mismatch=False)
+
+
+def test_check_quota_clock_alignment_blocks_quota_inventory_at_non_unit_speedup() -> None:
+    """Quota windows roll on wall-clock. A non-unit speedup keeps the
+    wall-clock window length unchanged while compressing the trace's
+    logical day, silently breaking the paper's requests-per-day semantics
+    without raising any HTTP error."""
+    inventory = _quota_inventory()
+    with pytest.raises(SystemExit, match=r"--speedup is 3\.0"):
+        check_quota_clock_alignment(inventory, speedup=3.0, allow_mismatch=False)
+
+
+def test_check_quota_clock_alignment_escape_hatch_allows_explicit_mismatch() -> None:
+    inventory = _quota_inventory()
+    # ``--allow-quota-clock-mismatch`` opts in to the broken alignment for
+    # intentional ablations.
+    check_quota_clock_alignment(inventory, speedup=3.0, allow_mismatch=True)
 
 
 def test_inventory_openrouter_filter_limits_loaded_or_provider_pool(tmp_path) -> None:
