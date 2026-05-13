@@ -1269,6 +1269,38 @@ def test_prepare_dispatch_holds_concurrency_capacity_until_release() -> None:
     rec.close()
 
 
+def test_prepare_dispatch_reroutes_after_stale_concurrency_choice(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    req = TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8)
+
+    first = runner._prepare_dispatch(policy, req, req_index=0)
+    assert first is not None
+    assert first.decision.primary == "Featherless_SC"
+
+    original_route = policy.route
+    calls = 0
+
+    def stale_then_current(now, ctx):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return RoutingDecision(primary="Featherless_SC", notes="stale_concurrency_view")
+        return original_route(now, ctx)
+
+    monkeypatch.setattr(policy, "route", stale_then_current)
+
+    second = runner._prepare_dispatch(policy, req, req_index=1)
+
+    assert second is not None
+    assert calls >= 2
+    assert second.decision.primary != "Featherless_SC"
+
+    policy.release_capacity(first.decision.primary, first.primary_capacity_id, time.time())
+    policy.release_capacity(second.decision.primary, second.primary_capacity_id, time.time())
+    rec.close()
+
+
 def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
     monkeypatch,
 ) -> None:

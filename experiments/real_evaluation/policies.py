@@ -99,6 +99,14 @@ OR_SORT_SENTINEL_TO_MODE: dict[str, str] = {
 }
 
 
+class CapacityUnavailableError(RuntimeError):
+    """Raised when a provider cannot reserve capacity at dispatch time."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"Provider capacity unavailable: {provider}")
+        self.provider = provider
+
+
 @dataclass
 class RequestContext:
     """Per-request inputs the policy needs to make a routing decision."""
@@ -735,11 +743,13 @@ class BasePolicy:
         now: float,
         expected_service_sec: float,
     ) -> int | None:
-        """Record one dispatched request against quota / concurrency state."""
+        """Atomically reserve provider capacity for one dispatched request."""
         with self._lock:
             state = self.states.get(provider)
             if state is None:
                 return None
+            if not state.is_available(now):
+                raise CapacityUnavailableError(provider)
             if state.quota is not None:
                 state.quota.charge(now)
             if state.concurrency is not None:
@@ -1359,6 +1369,7 @@ def build_policy(
 
 
 __all__ = [
+    "CapacityUnavailableError",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
     "OR_SORT_COST_SENTINEL",

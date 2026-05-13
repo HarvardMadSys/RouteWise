@@ -47,6 +47,7 @@ from experiments.real_evaluation.inventory import (
     subscription_fixed_cost_for_inventory,
 )
 from experiments.real_evaluation.policies import (
+    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     BasePolicy,
@@ -1087,12 +1088,6 @@ class RealExperimentRunner:
             prefix_id=req.prefix_id,
             trace_cached_input_tokens=req.trace_cached_input_tokens,
         )
-        now = time.time()
-        decision = policy.route(now, ctx)
-        if decision.primary is None:
-            self._record_no_route(policy, req, req_index, decision, now)
-            return None
-
         prompt = req.prompt
         expected_service_sec = max(0.5, req.max_tokens / 40.0 if req.max_tokens else 5.0)
 
@@ -1102,7 +1097,43 @@ class RealExperimentRunner:
         if policy.use_hedge:
             hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
 
-        primary_capacity_id = policy.charge_capacity(decision.primary, now, expected_service_sec)
+        decision: RoutingDecision | None = None
+        primary_capacity_id: int | None = None
+        capacity_error: CapacityUnavailableError | None = None
+        route_attempts = max(1, len(policy.states) + 1)
+        for _ in range(route_attempts):
+            now = time.time()
+            decision = policy.route(now, ctx)
+            if decision.primary is None:
+                self._record_no_route(policy, req, req_index, decision, now)
+                return None
+            try:
+                primary_capacity_id = policy.charge_capacity(
+                    decision.primary,
+                    now,
+                    expected_service_sec,
+                )
+                break
+            except CapacityUnavailableError as exc:
+                capacity_error = exc
+        else:
+            self._record_no_route(
+                policy,
+                req,
+                req_index,
+                RoutingDecision(
+                    primary=None,
+                    notes=(
+                        f"capacity_unavailable:{capacity_error.provider}"
+                        if capacity_error is not None
+                        else "capacity_unavailable"
+                    ),
+                ),
+                time.time(),
+            )
+            return None
+
+        assert decision is not None
         primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
             decision.primary, ctx
         )
@@ -1188,11 +1219,15 @@ class RealExperimentRunner:
             if provider is None:
                 break
 
-            capacity_id = prepared.policy.charge_capacity(
-                provider,
-                time.time(),
-                prepared.expected_service_sec,
-            )
+            try:
+                capacity_id = prepared.policy.charge_capacity(
+                    provider,
+                    time.time(),
+                    prepared.expected_service_sec,
+                )
+            except CapacityUnavailableError:
+                excluded.add(provider)
+                continue
             try:
                 result = send_request(
                     send_fn=self._send_via_transport,
@@ -1297,6 +1332,14 @@ class RealExperimentRunner:
                     return None
 
                 backup = checkpoint_decision.backup
+                try:
+                    capacity_id = policy.charge_capacity(
+                        backup,
+                        checkpoint_ts,
+                        prepared.expected_service_sec,
+                    )
+                except CapacityUnavailableError:
+                    return None
                 prepared.backup = backup
                 prepared.hedge_delay_sec = elapsed_sec
                 decision.hedge = backup
@@ -1305,11 +1348,6 @@ class RealExperimentRunner:
                     prepared.backup_cached_input_tokens,
                     prepared.backup_routing_estimated_cost_usd,
                 ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
-                capacity_id = policy.charge_capacity(
-                    backup,
-                    checkpoint_ts,
-                    prepared.expected_service_sec,
-                )
                 with backup_capacity_lock:
                     backup_capacity_id = capacity_id
                 return backup

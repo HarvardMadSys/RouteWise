@@ -12,6 +12,7 @@ from experiments.real_evaluation.inventory import (
     ProviderState,
 )
 from experiments.real_evaluation.policies import (
+    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     UNPROFILED_LATENCY_PENALTY_MS,
@@ -270,6 +271,8 @@ def test_concurrency_capacity_holds_until_explicit_release() -> None:
 
     assert request_id is not None
     assert not policy.states["Featherless_SC"].is_available(now + 60.0)
+    with pytest.raises(CapacityUnavailableError):
+        policy.charge_capacity("Featherless_SC", now + 60.0, expected_service_sec=0.1)
     policy.release_capacity("Featherless_SC", request_id, now + 60.0)
     assert policy.states["Featherless_SC"].is_available(now + 60.0)
 
