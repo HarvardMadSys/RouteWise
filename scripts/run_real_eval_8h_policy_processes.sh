@@ -49,6 +49,7 @@ INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}
 SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
+KEY_SLOT_MAX="${KEY_SLOT_MAX:-20}"
 
 # chutes | minimax — which native subscription API keys joint-pool policies get
 if [[ -z "${QUOTA_PROVIDER:-}" ]]; then
@@ -110,7 +111,7 @@ if [[ -n "${OPENROUTER_API_KEYS:-}" ]]; then
   IFS=',' read -r -a OPENROUTER_KEYS <<< "$OPENROUTER_API_KEYS"
 else
   saw_numbered_openrouter_key=0
-  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for n in $(seq 1 "$KEY_SLOT_MAX"); do
     var="OPENROUTER_API_KEY_${n}"
     alt_var="OPENROUTER_API_KEY${n}"
     value="${!var:-${!alt_var:-}}"
@@ -133,7 +134,7 @@ FEATHERLESS_KEYS=()
 if [[ -n "${FEATHERLESS_API_KEYS:-}" ]]; then
   IFS=',' read -r -a FEATHERLESS_KEYS <<< "$FEATHERLESS_API_KEYS"
 else
-  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for n in $(seq 1 "$KEY_SLOT_MAX"); do
     var="FEATHERLESS_API_KEY_${n}"
     alt_var="FEATHERLESS_API_KEY${n}"
     value="${!var:-${!alt_var:-}}"
@@ -150,7 +151,7 @@ CHUTES_KEYS=()
 if [[ -n "${CHUTES_API_KEYS:-}" ]]; then
   IFS=',' read -r -a CHUTES_KEYS <<< "$CHUTES_API_KEYS"
 else
-  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for n in $(seq 1 "$KEY_SLOT_MAX"); do
     var="CHUTES_API_KEY_${n}"
     alt_var="CHUTES_API_KEY${n}"
     value="${!var:-${!alt_var:-}}"
@@ -167,7 +168,7 @@ MINIMAX_KEYS=()
 if [[ -n "${MINIMAX_API_KEYS:-}" ]]; then
   IFS=',' read -r -a MINIMAX_KEYS <<< "$MINIMAX_API_KEYS"
 else
-  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for n in $(seq 1 "$KEY_SLOT_MAX"); do
     var="MINIMAX_API_KEY_${n}"
     alt_var="MINIMAX_API_KEY${n}"
     value="${!var:-${!alt_var:-}}"
@@ -311,6 +312,7 @@ MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
 SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
 SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
 PREFIX_CACHE_ROUTING=$PREFIX_CACHE_ROUTING
+KEY_SLOT_MAX=$KEY_SLOT_MAX
 POLICY_LIST=${POLICIES[*]}
 OPENROUTER_KEY_COUNT=${#OPENROUTER_KEYS[@]}
 FEATHERLESS_KEY_COUNT=${#FEATHERLESS_KEYS[@]}
