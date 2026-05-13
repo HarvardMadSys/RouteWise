@@ -152,7 +152,12 @@ def infer_tier(tier: str, actual_provider: str) -> str:
     return tier or "unknown"
 
 
-def collect_policy(policy_dir: Path, slo_ms: float) -> PolicyStats | None:
+def collect_policy(
+    policy_dir: Path,
+    slo_ms: float,
+    provider_ttft: dict[str, list[float]] | None = None,
+    provider_failures: Counter[str] | None = None,
+) -> PolicyStats | None:
     """Parse one policy's ``requests.csv`` into aggregate stats.
 
     Returns ``None`` if the CSV is missing entirely (policy hasn't started
@@ -208,7 +213,18 @@ def collect_policy(policy_dir: Path, slo_ms: float) -> PolicyStats | None:
                 raw_provider = row.get("actual_provider") or "unknown"
                 tier = infer_tier(row.get("tier") or "unknown", raw_provider)
                 tier_counter[tier] += 1
-                provider_counter[normalize_provider(raw_provider)] += 1
+                norm_provider = normalize_provider(raw_provider)
+                provider_counter[norm_provider] += 1
+
+                # Accumulate cross-policy per-provider TTFT samples for
+                # the second table. Only successful, positive-TTFT rows
+                # contribute to the latency distribution; everything else
+                # increments the per-provider failure count.
+                if provider_ttft is not None:
+                    if status == "success" and e2e is not None and e2e > 0:
+                        provider_ttft.setdefault(norm_provider, []).append(e2e)
+                    elif provider_failures is not None:
+                        provider_failures[norm_provider] += 1
 
                 if row.get("hedge_triggered") == "1":
                     hedge_requests += 1
@@ -390,9 +406,19 @@ def render_snapshot(base_dir: Path) -> str:
     stats: list[PolicyStats] = []
     earliest_ts_global: float | None = None
     latest_ts_global: float | None = None
+    # Cross-policy per-provider TTFT samples. Aggregated across every
+    # policy so each provider's latency distribution is computed from
+    # the largest available sample size.
+    provider_ttft: dict[str, list[float]] = {}
+    provider_failures: Counter[str] = Counter()
     for pdir in policy_dirs:
         slo_ms = load_slo_ms(pdir, default_slo_ms)
-        s = collect_policy(pdir, slo_ms=slo_ms)
+        s = collect_policy(
+            pdir,
+            slo_ms=slo_ms,
+            provider_ttft=provider_ttft,
+            provider_failures=provider_failures,
+        )
         if s is None:
             stats.append(
                 PolicyStats(
@@ -506,8 +532,34 @@ def render_snapshot(base_dir: Path) -> str:
             ]
         )
 
-    table_text = "\n".join(header_lines) + "\n\n" + render_table(rows, headers)
+    provider_rows, provider_table_data = build_provider_table(
+        provider_ttft, provider_failures, slo_ms=default_slo_ms
+    )
+    provider_headers = [
+        "provider",
+        "reqs",
+        "fail",
+        "mean",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "SLO viol",
+    ]
+    provider_section = (
+        "\n\nper-provider TTFT (aggregated across all policies):\n"
+        + render_table(provider_rows, provider_headers)
+    )
+
+    policy_table_text = render_table(rows, headers)
+    header_text = "\n".join(header_lines)
+    table_text = header_text + "\n\n" + policy_table_text + provider_section
     return table_text, {
+        "_sections": {
+            "header": header_text,
+            "policy_table": policy_table_text,
+            "provider_table": provider_section.lstrip("\n"),
+        },
         "snapshot_ts": now,
         "snapshot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
         "output_dir": str(base_dir),
@@ -521,7 +573,75 @@ def render_snapshot(base_dir: Path) -> str:
         "slo_ms": default_slo_ms,
         "total_cost_usd": sum(s.total_cost_usd for s in stats),
         "policies": [_stats_to_dict(s) for s in stats],
+        "providers_ttft": provider_table_data,
     }
+
+
+def build_provider_table(
+    provider_ttft: dict[str, list[float]],
+    provider_failures: Counter[str],
+    slo_ms: float,
+) -> tuple[list[list[str]], list[dict]]:
+    """Build per-provider TTFT distribution rows.
+
+    Returns ``(rendered_rows, json_records)``. Sorted by sample count
+    descending so the providers with the most traffic appear first.
+    """
+    json_records: list[dict] = []
+    rendered: list[list[str]] = []
+    all_providers = set(provider_ttft) | set(provider_failures)
+    sortable = sorted(
+        all_providers,
+        key=lambda p: (
+            -len(provider_ttft.get(p, [])),
+            -provider_failures.get(p, 0),
+            p,
+        ),
+    )
+    for prov in sortable:
+        samples = sorted(provider_ttft.get(prov, []))
+        fail = provider_failures.get(prov, 0)
+        total = len(samples) + fail
+        if not samples:
+            mean_v = float("nan")
+            p50 = p90 = p95 = p99 = float("nan")
+            slo_v_pct = 100.0 if total else 0.0
+        else:
+            mean_v = statistics.fmean(samples)
+            p50 = percentile(samples, 50)
+            p90 = percentile(samples, 90)
+            p95 = percentile(samples, 95)
+            p99 = percentile(samples, 99)
+            over = sum(1 for v in samples if v > slo_ms) + fail
+            slo_v_pct = (over / total * 100.0) if total else 0.0
+        json_records.append(
+            {
+                "provider": prov,
+                "requests": total,
+                "successes": len(samples),
+                "failures": fail,
+                "ttft_mean_ms": None if math.isnan(mean_v) else mean_v,
+                "ttft_p50_ms": None if math.isnan(p50) else p50,
+                "ttft_p90_ms": None if math.isnan(p90) else p90,
+                "ttft_p95_ms": None if math.isnan(p95) else p95,
+                "ttft_p99_ms": None if math.isnan(p99) else p99,
+                "slo_violation_pct": slo_v_pct,
+            }
+        )
+        rendered.append(
+            [
+                prov,
+                str(total),
+                str(fail),
+                fmt_ms(mean_v),
+                fmt_ms(p50),
+                fmt_ms(p90),
+                fmt_ms(p95),
+                fmt_ms(p99),
+                fmt_pct(slo_v_pct),
+            ]
+        )
+    return rendered, json_records
 
 
 def _stats_to_dict(s: PolicyStats) -> dict:
@@ -543,8 +663,9 @@ def save_snapshot(base_dir: Path, label: str | None = None) -> Path:
     snap_dir.mkdir(parents=True, exist_ok=True)
 
     (snap_dir / "summary.txt").write_text(table_text + "\n")
+    json_data = {k: v for k, v in data.items() if not k.startswith("_")}
     with (snap_dir / "summary.json").open("w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(json_data, f, indent=2)
 
     policy_dirs = discover_policies(base_dir)
     for pdir in policy_dirs:
@@ -584,6 +705,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "<base_dir>/snapshots/ and print the path.",
     )
     parser.add_argument(
+        "--providers-only",
+        action="store_true",
+        help="Print only the per-provider TTFT distribution table, skipping "
+             "the per-policy summary.",
+    )
+    parser.add_argument(
+        "--policies-only",
+        action="store_true",
+        help="Print only the per-policy summary table, skipping the "
+             "per-provider TTFT distribution.",
+    )
+    parser.add_argument(
         "--snapshot-label",
         type=str,
         default=None,
@@ -599,22 +732,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {base} is not a directory", file=sys.stderr)
         return 2
 
+    if args.providers_only and args.policies_only:
+        print("error: --providers-only and --policies-only are mutually exclusive",
+              file=sys.stderr)
+        return 2
+
+    def render_for_display() -> str:
+        text, data = render_snapshot(base)
+        sections = data.get("_sections", {})
+        if args.providers_only:
+            return sections.get("header", "") + "\n\n" + sections.get("provider_table", "")
+        if args.policies_only:
+            return sections.get("header", "") + "\n\n" + sections.get("policy_table", "")
+        return text
+
     if args.snapshot:
         snap_dir = save_snapshot(base, label=args.snapshot_label)
-        table_text, _ = render_snapshot(base)
-        print(table_text)
+        print(render_for_display())
         print(f"\nsnapshot saved -> {snap_dir}")
         return 0
 
     if args.watch <= 0:
-        table_text, _ = render_snapshot(base)
-        print(table_text)
+        print(render_for_display())
         return 0
     try:
         while True:
             sys.stdout.write("\x1b[2J\x1b[H")
-            table_text, _ = render_snapshot(base)
-            sys.stdout.write(table_text)
+            sys.stdout.write(render_for_display())
             sys.stdout.write("\n")
             sys.stdout.flush()
             time.sleep(args.watch)
