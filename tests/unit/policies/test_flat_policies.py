@@ -188,14 +188,14 @@ def test_routewise_declares_in_flight_hedge_checkpoints():
     assert decision.hedge_checkpoints == tuple(sorted(decision.hedge_checkpoints))
 
 
-def test_routewise_uses_dense_100ms_hedge_checkpoints_for_2s_slo() -> None:
+def test_routewise_hedge_checkpoints_spaced_by_2_5_percent_of_slo() -> None:
     checkpoints = _hedge_checkpoints_for_slo(2000.0)
 
     assert checkpoints[0] == pytest.approx(0.5)
     assert checkpoints[-1] == pytest.approx(1.8)
-    assert len(checkpoints) == 14
+    assert len(checkpoints) == 27
     assert all(
-        right - left == pytest.approx(0.1)
+        right - left == pytest.approx(0.05)
         for left, right in zip(checkpoints, checkpoints[1:])
     )
 

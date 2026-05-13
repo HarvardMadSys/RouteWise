@@ -80,7 +80,7 @@ BODY_MEAN_MIN_SAMPLES: int = 5
 UNPROFILED_LATENCY_PENALTY_MS: float = 1e9
 _HEDGE_CHECKPOINT_START_FRACTION: float = 0.25
 _HEDGE_CHECKPOINT_END_FRACTION: float = 0.90
-_HEDGE_CHECKPOINT_INTERVAL_MS: float = 100.0
+_HEDGE_CHECKPOINT_INTERVAL_FRACTION: float = 0.025
 
 # Sentinel provider names used for OpenRouter's native routing modes. The
 # runner translates these into transport-level config when dispatching.
@@ -405,9 +405,12 @@ def select_safe_cheapest_backup(
 def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
     """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds."""
     slo_ms = max(0.0, float(slo_sec) * 1000.0)
+    interval_ms = slo_ms * _HEDGE_CHECKPOINT_INTERVAL_FRACTION
+    if interval_ms <= 0.0:
+        return ()
     start_ms = _ceil_to_interval_ms(
         slo_ms * _HEDGE_CHECKPOINT_START_FRACTION,
-        _HEDGE_CHECKPOINT_INTERVAL_MS,
+        interval_ms,
     )
     end_ms = slo_ms * _HEDGE_CHECKPOINT_END_FRACTION
     if start_ms > end_ms + LP_EPS:
@@ -417,7 +420,7 @@ def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
     current_ms = start_ms
     while current_ms <= end_ms + LP_EPS:
         checkpoints_ms.append(current_ms)
-        current_ms += _HEDGE_CHECKPOINT_INTERVAL_MS
+        current_ms += interval_ms
     return tuple(ms / 1000.0 for ms in checkpoints_ms)
 
 
