@@ -5,6 +5,14 @@ set -euo pipefail
 # policies get one Featherless account and one OpenRouter key each. Native
 # OpenRouter baselines share OPENROUTER_API_KEY_1 so they measure OR behavior
 # without consuming the per-policy key pool.
+#
+# Quota tier (Chutes vs MiniMax native) is selected by QUOTA_PROVIDER:
+#   chutes  (default) — inject CHUTES_API_KEY for joint-pool policies
+#   minimax           — inject MINIMAX_API_KEY for joint-pool policies (one key
+#                       is enough; multiple joint policies round-robin keys and
+#                       share quota if the key is the same account)
+# If QUOTA_PROVIDER is empty, it defaults from INVENTORY path (*pilot_minimax*
+# or *minimax_plus_direct* -> minimax, else chutes).
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -42,6 +50,22 @@ SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
 
+# chutes | minimax — which native subscription API keys joint-pool policies get
+if [[ -z "${QUOTA_PROVIDER:-}" ]]; then
+  case "${INVENTORY:-}" in
+    *pilot_minimax*|*minimax_plus_direct*)
+      QUOTA_PROVIDER=minimax
+      ;;
+    *)
+      QUOTA_PROVIDER=chutes
+      ;;
+  esac
+fi
+if [[ "$QUOTA_PROVIDER" != "chutes" && "$QUOTA_PROVIDER" != "minimax" ]]; then
+  echo "QUOTA_PROVIDER must be chutes or minimax, got: $QUOTA_PROVIDER" >&2
+  exit 2
+fi
+
 DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
@@ -68,8 +92,8 @@ requires_featherless_key() {
   esac
 }
 
-# Joint-pool policies that route to Chutes_SQ need a dedicated Chutes key
-# (subscription-tier direct API). OR-only baselines do not.
+# Joint-pool policies that use the inventory quota tier (Chutes_SQ or
+# MiniMax_Plus_SQ, etc.) need a dedicated native API key. OR-only baselines do not.
 requires_chutes_key() {
   case "$1" in
     or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
@@ -139,6 +163,23 @@ else
   fi
 fi
 
+MINIMAX_KEYS=()
+if [[ -n "${MINIMAX_API_KEYS:-}" ]]; then
+  IFS=',' read -r -a MINIMAX_KEYS <<< "$MINIMAX_API_KEYS"
+else
+  for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    var="MINIMAX_API_KEY_${n}"
+    alt_var="MINIMAX_API_KEY${n}"
+    value="${!var:-${!alt_var:-}}"
+    if [[ -n "$value" ]]; then
+      MINIMAX_KEYS+=("$value")
+    fi
+  done
+  if [[ "${#MINIMAX_KEYS[@]}" -eq 0 && -n "${MINIMAX_API_KEY:-}" ]]; then
+    MINIMAX_KEYS+=("$MINIMAX_API_KEY")
+  fi
+fi
+
 FEATHERLESS_POLICY_COUNT=0
 CHUTES_POLICY_COUNT=0
 OPENROUTER_DEDICATED_POLICY_COUNT=0
@@ -162,12 +203,22 @@ if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
   exit 2
 fi
 
-if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#CHUTES_KEYS[@]}" -lt "$CHUTES_POLICY_COUNT" ]]; then
-  # Not strictly an error: inventory may use openrouter transport for
-  # Chutes_SQ (no direct Chutes key needed). Warn so users notice when they
-  # ARE expecting direct Chutes; assignment cycles through available keys
-  # and policies past the cycle get an empty CHUTES_API_KEY.
-  echo "WARNING: $CHUTES_POLICY_COUNT joint policies; only ${#CHUTES_KEYS[@]} Chutes keys. OK if inventory routes Chutes via OpenRouter (transport=openrouter). Otherwise direct Chutes calls past key #${#CHUTES_KEYS[@]} will fail with missing CHUTES_API_KEY." >&2
+if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+  if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#MINIMAX_KEYS[@]}" -eq 0 ]]; then
+    echo "QUOTA_PROVIDER=minimax requires at least one of MINIMAX_API_KEY, MINIMAX_API_KEYS, or MINIMAX_API_KEY_1..N in $ENV_FILE" >&2
+    exit 2
+  fi
+  if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#MINIMAX_KEYS[@]}" -gt 0 && "${#MINIMAX_KEYS[@]}" -lt "$CHUTES_POLICY_COUNT" ]]; then
+    echo "WARNING: $CHUTES_POLICY_COUNT joint policies; only ${#MINIMAX_KEYS[@]} MiniMax key(s). Keys are assigned in round-robin. If all keys are the same account, every process shares one MiniMax Plus quota (4500 requests / 5h)." >&2
+  fi
+else
+  if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#CHUTES_KEYS[@]}" -lt "$CHUTES_POLICY_COUNT" ]]; then
+    # Not strictly an error: inventory may use openrouter transport for
+    # Chutes_SQ (no direct Chutes key needed). Warn so users notice when they
+    # ARE expecting direct Chutes; assignment cycles through available keys
+    # and policies past the cycle get an empty CHUTES_API_KEY.
+    echo "WARNING: $CHUTES_POLICY_COUNT joint policies; only ${#CHUTES_KEYS[@]} Chutes keys. OK if inventory routes Chutes via OpenRouter (transport=openrouter). Otherwise direct Chutes calls past key #${#CHUTES_KEYS[@]} will fail with missing CHUTES_API_KEY." >&2
+  fi
 fi
 
 OR_KEYS_REQUIRED=$OPENROUTER_DEDICATED_POLICY_COUNT
@@ -182,7 +233,7 @@ fi
 mkdir -p "$OUTPUT_BASE"
 printf '%s\n' "${POLICIES[@]}" > "$OUTPUT_BASE/policies.txt"
 ASSIGNMENTS_PATH="$OUTPUT_BASE/policy_key_assignments.tsv"
-printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tchutes_key_slot\tstart_delay_sec\n' > "$ASSIGNMENTS_PATH"
+printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot\tstart_delay_sec\n' > "$ASSIGNMENTS_PATH"
 
 # Stagger configuration. OR-only baselines never staggered (they use OR's
 # server-side routing and don't contend for our pinned providers). Other
@@ -195,7 +246,8 @@ PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
 if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   echo "prebuilding shared initial profile -> $INITIAL_PROFILE_PATH"
-  CHUTES_API_KEY="${CHUTES_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
+  if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+    CHUTES_API_KEY="" MINIMAX_API_KEY="${MINIMAX_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
     --inventory "$INVENTORY" \
     --output "$INITIAL_PROFILE_PATH" \
     --probes-per-provider "$WARMUP_PROBES" \
@@ -203,6 +255,16 @@ if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
     --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
     --timeout-sec "$TIMEOUT_SEC" \
     --max-cost-usd "$MAX_COST_USD"
+  else
+    CHUTES_API_KEY="${CHUTES_KEYS[0]:-}" MINIMAX_API_KEY="${MINIMAX_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
+    --inventory "$INVENTORY" \
+    --output "$INITIAL_PROFILE_PATH" \
+    --probes-per-provider "$WARMUP_PROBES" \
+    --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
+    --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
+    --timeout-sec "$TIMEOUT_SEC" \
+    --max-cost-usd "$MAX_COST_USD"
+  fi
   PROCESS_WARMUP_PROBES=0
   INITIAL_PROFILE_ARGS=(--initial-profile-path "$INITIAL_PROFILE_PATH")
 fi
@@ -229,6 +291,7 @@ fi
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
+QUOTA_PROVIDER=$QUOTA_PROVIDER
 MAX_COST_USD=$MAX_COST_USD
 TIMEOUT_SEC=$TIMEOUT_SEC
 SPEEDUP=$SPEEDUP
@@ -250,11 +313,13 @@ POLICY_LIST=${POLICIES[*]}
 OPENROUTER_KEY_COUNT=${#OPENROUTER_KEYS[@]}
 FEATHERLESS_KEY_COUNT=${#FEATHERLESS_KEYS[@]}
 FEATHERLESS_POLICY_COUNT=$FEATHERLESS_POLICY_COUNT
+CHUTES_KEY_COUNT=${#CHUTES_KEYS[@]}
+MINIMAX_KEY_COUNT=${#MINIMAX_KEYS[@]}
 EOF
 
 pids=()
 featherless_idx=0
-chutes_idx=0
+quota_native_idx=0
 dedicated_or_idx=1
 non_or_launch_idx=0
 if [[ "$HAS_NATIVE_OR_BASELINE" -eq 0 ]]; then
@@ -269,12 +334,23 @@ for i in "${!POLICIES[@]}"; do
     featherless_key_slot=$((featherless_idx + 1))
     featherless_idx=$((featherless_idx + 1))
   fi
-  chutes_key=""
-  chutes_key_slot=""
-  if requires_chutes_key "$policy" && [[ "${#CHUTES_KEYS[@]}" -gt 0 && "$chutes_idx" -lt "${#CHUTES_KEYS[@]}" ]]; then
-    chutes_key="${CHUTES_KEYS[$chutes_idx]}"
-    chutes_key_slot=$((chutes_idx + 1))
-    chutes_idx=$((chutes_idx + 1))
+  native_quota_key=""
+  native_quota_key_slot=""
+  if requires_chutes_key "$policy"; then
+    if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+      if [[ "${#MINIMAX_KEYS[@]}" -gt 0 ]]; then
+        nmk="${#MINIMAX_KEYS[@]}"
+        native_quota_key="${MINIMAX_KEYS[$((quota_native_idx % nmk))]}"
+        native_quota_key_slot=$(( (quota_native_idx % nmk) + 1 ))
+        quota_native_idx=$((quota_native_idx + 1))
+      fi
+    else
+      if [[ "${#CHUTES_KEYS[@]}" -gt 0 && "$quota_native_idx" -lt "${#CHUTES_KEYS[@]}" ]]; then
+        native_quota_key="${CHUTES_KEYS[$quota_native_idx]}"
+        native_quota_key_slot=$((quota_native_idx + 1))
+        quota_native_idx=$((quota_native_idx + 1))
+      fi
+    fi
   fi
   if is_native_or_baseline "$policy"; then
     openrouter_key="${OPENROUTER_KEYS[0]}"
@@ -287,7 +363,7 @@ for i in "${!POLICIES[@]}"; do
     start_delay=$((non_or_launch_idx * STAGGER_SEC))
     non_or_launch_idx=$((non_or_launch_idx + 1))
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$chutes_key_slot" "$start_delay" >> "$ASSIGNMENTS_PATH"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" >> "$ASSIGNMENTS_PATH"
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
   echo "launching $policy -> $out (start_delay=${start_delay}s)"
@@ -295,7 +371,14 @@ for i in "${!POLICIES[@]}"; do
     if [[ "$start_delay" -gt 0 ]]; then
       sleep "$start_delay"
     fi
-    CHUTES_API_KEY="$chutes_key" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
+    chutes_for_run=""
+    minimax_for_run=""
+    if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+      minimax_for_run="$native_quota_key"
+    else
+      chutes_for_run="$native_quota_key"
+    fi
+    CHUTES_API_KEY="$chutes_for_run" MINIMAX_API_KEY="$minimax_for_run" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
       --inventory "$INVENTORY" \
       --trace "$TRACE" \
       --policy "$policy" \
