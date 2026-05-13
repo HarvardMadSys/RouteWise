@@ -27,6 +27,7 @@ from experiments.real_evaluation.policies import (
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.runner import (
+    PROBE_FAILURE_FALLBACK_TTFT_MS,
     WARMUP_PROBE_PROMPT,
     RealExperimentRunner,
     TraceRequest,
@@ -755,6 +756,71 @@ def test_profile_probe_retries_provider_until_success(monkeypatch) -> None:
     state = runner.policies["budget_range_p75_hedge"].states[first_provider]
     assert state.profile.sample_count(time.time()) == 1
     assert state.profile.error_rate(time.time()) == 0.0
+    rec.close()
+
+
+def test_profile_probe_caps_retries_and_records_synthetic_sample(monkeypatch) -> None:
+    """When a provider keeps failing, the probe loop bounds retries and
+    records a synthetic high-latency sample so the policy profile reflects
+    the degraded state without spinning forever."""
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    bad_provider = runner.inventory.providers[0].name
+    calls: dict[str, int] = {}
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        assert prompt == WARMUP_PROBE_PROMPT
+        calls[provider] = calls.get(provider, 0) + 1
+        if provider == bad_provider:
+            return SingleRequestResult(
+                ttft_ms=-1.0,
+                e2e_ms=-1.0,
+                status="HTTP 429",
+                provider=provider,
+                http_status=429,
+                rate_limited=True,
+            )
+        now = time.time()
+        return SingleRequestResult(
+            ttft_ms=120.0,
+            e2e_ms=180.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            physical_cost_usd=0.001,
+            start_ts=now,
+            first_token_ts=now + 0.12,
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="warmup")
+
+    providers = [spec.name for spec in runner.inventory.providers]
+    assert calls[bad_provider] == 3, "probe should cap at DEFAULT_PROBE_MAX_ATTEMPTS=3"
+    assert sum(calls.values()) == (len(providers) - 1) + 3
+
+    state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    now = time.time()
+    assert state.profile.sample_count(now) == 1, (
+        "exhausted probe must record exactly one synthetic positive-TTFT sample"
+    )
+    assert state.profile.error_rate(now) == 0.0
+    mean = state.profile.mean_ms(now)
+    assert mean == PROBE_FAILURE_FALLBACK_TTFT_MS
+
+    for healthy_spec in runner.inventory.providers[1:]:
+        healthy_state = runner.policies["budget_range_p75_hedge"].states[healthy_spec.name]
+        assert healthy_state.profile.sample_count(now) == 1, (
+            "exhaustion on one provider must not abort the round"
+        )
     rec.close()
 
 

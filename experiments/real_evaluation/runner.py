@@ -70,6 +70,12 @@ DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
 DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
+# Cap probe retries so a rate-limiting / failing provider can't stall the
+# probe round. On exhaustion we synthesize a degraded but bounded latency
+# sample (see ``PROBE_FAILURE_FALLBACK_TTFT_MS``) so the LP still sees the
+# provider as "currently slow" rather than dropping it from the profile.
+DEFAULT_PROBE_MAX_ATTEMPTS: int = 3
+PROBE_FAILURE_FALLBACK_TTFT_MS: float = 10_000.0
 WARMUP_PROBE_PROMPT: str = "Write a one-sentence greeting."
 SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE: str = (
     "FINAL REQUEST: Ignore all previous synthetic padding. Do not include analysis, "
@@ -661,22 +667,26 @@ class RealExperimentRunner:
                     return
                 if spec.name in self._providers_missing_api_key:
                     continue
-                result = self._probe_provider_until_success(
+                result = self._probe_provider(
                     spec,
                     phase=phase,
                     round_idx=round_idx,
                     probes_per_provider=probes_per_provider,
                     retry_sleep_sec=sleep_sec,
                     stop_event=stop_event,
+                    max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
                 )
                 if result is None:
-                    # ``None`` either signals a hard stop (stop_event or
-                    # cost-exhausted) or a provider-level skip after a
-                    # missing-API-key error. The latter just continues to
-                    # the next provider; the former exits the whole loop.
+                    # ``None`` can mean: (a) hard stop (stop_event /
+                    # cost-exhausted), (b) provider-level skip after a
+                    # missing-API-key error, or (c) attempt budget
+                    # exhausted with a synthetic sample already recorded.
+                    # Only (a) should abort the round.
                     if spec.name in self._providers_missing_api_key:
                         continue
-                    return
+                    if self._probe_stop_requested(stop_event) or self._stop_event.is_set():
+                        return
+                    # Attempt-exhausted: continue with the next provider.
                 if sleep_sec > 0 and self._probe_sleep(sleep_sec, stop_event):
                     return
             if round_idx + 1 < probes_per_provider and round_interval_sec > 0:
@@ -690,7 +700,7 @@ class RealExperimentRunner:
                 if self._stop_event.wait(round_interval_sec):
                     return
 
-    def _probe_provider_until_success(
+    def _probe_provider(
         self,
         spec: ProviderSpec,
         *,
@@ -699,9 +709,25 @@ class RealExperimentRunner:
         probes_per_provider: int,
         retry_sleep_sec: float,
         stop_event: threading.Event | None,
+        max_attempts: int = DEFAULT_PROBE_MAX_ATTEMPTS,
     ) -> SingleRequestResult | None:
+        """Probe one provider with bounded retries.
+
+        Returns the successful ``SingleRequestResult`` if the probe succeeded
+        within ``max_attempts``. On exhaustion (rate-limit, timeout, etc.) the
+        provider is treated as currently degraded: we broadcast a synthetic
+        ``PROBE_FAILURE_FALLBACK_TTFT_MS`` sample to every policy profile so
+        the LP keeps a bounded, pessimistic estimate (rather than dropping
+        the provider entirely as the rolling window expires), and return
+        ``None`` for the round bookkeeping.
+
+        ``None`` still means "stop the round" only when paired with a hard
+        stop (``stop_event`` / cost-exhausted / missing-API-key). Failure
+        exhaustion does not stop the round — callers should keep probing
+        the remaining providers.
+        """
         attempt = 0
-        while True:
+        while attempt < max_attempts:
             if self._probe_stop_requested(stop_event):
                 return None
             if self._cost_exhausted("profile_maintenance"):
@@ -734,15 +760,18 @@ class RealExperimentRunner:
                         )
                     return None
                 logger.warning(
-                    "%s probe round %d/%d %s attempt %d raised %s; retrying",
+                    "%s probe round %d/%d %s attempt %d/%d raised %s",
                     phase,
                     round_idx + 1,
                     probes_per_provider,
                     spec.name,
                     attempt,
+                    max_attempts,
                     exc,
                 )
-                if retry_sleep_sec > 0 and self._probe_sleep(retry_sleep_sec, stop_event):
+                if attempt < max_attempts and retry_sleep_sec > 0 and self._probe_sleep(
+                    retry_sleep_sec, stop_event
+                ):
                     return None
                 continue
 
@@ -767,21 +796,64 @@ class RealExperimentRunner:
 
             logger.warning(
                 (
-                    "%s probe round %d/%d %s attempt %d failed: %s "
-                    "ttft=%.1fms billed=$%.5f physical=$%.5f; retrying"
+                    "%s probe round %d/%d %s attempt %d/%d failed: %s "
+                    "ttft=%.1fms billed=$%.5f physical=$%.5f"
                 ),
                 phase,
                 round_idx + 1,
                 probes_per_provider,
                 spec.name,
                 attempt,
+                max_attempts,
                 result.status,
                 result.ttft_ms,
                 result.billed_cost_usd,
                 self._single_physical_cost(result),
             )
-            if retry_sleep_sec > 0 and self._probe_sleep(retry_sleep_sec, stop_event):
+            if attempt < max_attempts and retry_sleep_sec > 0 and self._probe_sleep(
+                retry_sleep_sec, stop_event
+            ):
                 return None
+
+        # All attempts exhausted. Record a synthetic degraded-latency sample
+        # so the rolling profile reflects "this provider is currently bad"
+        # rather than going empty (which would make the LP either fall back
+        # to the unprofiled sentinel or stop considering this provider).
+        synthetic_ts = time.time()
+        self._broadcast_synthetic_probe_sample(
+            spec.name,
+            synthetic_ts,
+            ttft_ms=PROBE_FAILURE_FALLBACK_TTFT_MS,
+        )
+        logger.warning(
+            (
+                "%s probe round %d/%d %s exhausted %d attempts; recording "
+                "synthetic ttft=%.0fms sample and skipping"
+            ),
+            phase,
+            round_idx + 1,
+            probes_per_provider,
+            spec.name,
+            max_attempts,
+            PROBE_FAILURE_FALLBACK_TTFT_MS,
+        )
+        return None
+
+    def _broadcast_synthetic_probe_sample(
+        self,
+        provider: str,
+        ts: float,
+        *,
+        ttft_ms: float,
+    ) -> None:
+        """Feed a synthetic positive-TTFT sample into every policy's profile.
+
+        Unlike :meth:`_broadcast_sample`, this does not require a real
+        ``SingleRequestResult``; it writes a clamped success-shaped sample
+        used when probe retries are exhausted.
+        """
+        for policy in self.policies.values():
+            policy.add_sample(provider, ts, float(ttft_ms), None)
 
     def _account_profile_probe_attempt(
         self,
