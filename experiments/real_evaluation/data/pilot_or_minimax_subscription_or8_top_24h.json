@@ -18,14 +18,14 @@
       "provider_hint": "Minimax",
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
-      "quota_requests": 4500,
-      "quota_window_sec": 18000,
+      "quota_requests": 2143,
+      "quota_window_sec": 28800,
       "concurrency_limit": null,
       "subscription_plan": "minimax_subscription_plus",
       "billing_mode": "subscription",
-      "fixed_cost_usd_override": 0.5,
+      "fixed_cost_usd_override": 0.2381,
       "stream_cancel_billing": "continues",
-      "notes": "MiniMax Plus quota emulated through OpenRouter-pinned Minimax official provider. Paper accounting treats this tier as zero marginal cost with the real MiniMax Plus 4500 requests per 5h quota window and fixed cost 4500/180000*20=$0.50 per policy run; OpenRouter usage.cost remains recorded as physical cost."
+      "notes": "MiniMax Plus quota emulated through OpenRouter-pinned Minimax official provider. Paper accounting treats this tier as zero marginal cost with the 8h prorated Plus quota min(4500*8/5, 45000/21)=2143 requests per 8h window and fixed cost 2143/(45000*4)*20=$0.2381 per policy run; OpenRouter usage.cost remains recorded as physical cost."
     },
     {
       "name": "Featherless_SC",

@@ -116,15 +116,15 @@ def test_or_minimax_subscription_inventory_emulates_real_5h_quota_via_openrouter
     assert minimax.transport_cfg.transport == "openrouter"
     assert minimax.transport_cfg.provider_hint == "Minimax"
     assert minimax.billing_mode == "subscription"
-    assert minimax.quota_requests == 4500
-    assert minimax.quota_window_sec == 18000
+    assert minimax.quota_requests == 2143
+    assert minimax.quota_window_sec == 28800
     assert minimax.subscription_plan == "minimax_subscription_plus"
-    assert minimax.fixed_cost_usd_override == pytest.approx(4500.0 / 180000.0 * 20.0)
+    assert minimax.fixed_cost_usd_override == pytest.approx(0.2381)
     assert "OR_Minimax" not in specs
     assert subscription_fixed_cost_for_inventory(
         inventory,
         billing_duration_sec=inventory.billing_duration_sec or 0,
-    ) == pytest.approx((4500.0 / 180000.0 * 20.0) + (25.0 / (30.0 * 3.0)))
+    ) == pytest.approx(0.2381 + (25.0 / (30.0 * 3.0)))
 
 
 def _api_only_inventory() -> InventoryConfig:
