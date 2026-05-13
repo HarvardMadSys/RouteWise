@@ -55,7 +55,6 @@ from experiments.real_evaluation.policies import (
     RoutingDecision,
     build_policy,
     hedge_checkpoints_for_slo,
-    select_checkpoint_backup,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
@@ -1097,43 +1096,30 @@ class RealExperimentRunner:
         if policy.use_hedge:
             hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
 
-        decision: RoutingDecision | None = None
-        primary_capacity_id: int | None = None
-        capacity_error: CapacityUnavailableError | None = None
-        route_attempts = max(1, len(policy.states) + 1)
-        for _ in range(route_attempts):
-            now = time.time()
-            decision = policy.route(now, ctx)
-            if decision.primary is None:
-                self._record_no_route(policy, req, req_index, decision, now)
-                return None
-            try:
-                primary_capacity_id = policy.charge_capacity(
-                    decision.primary,
-                    now,
-                    expected_service_sec,
-                )
-                break
-            except CapacityUnavailableError as exc:
-                capacity_error = exc
-        else:
+        now = time.time()
+        try:
+            decision, primary_capacity_id = policy.route_and_charge_capacity(
+                now,
+                ctx,
+                expected_service_sec,
+            )
+        except CapacityUnavailableError as exc:
             self._record_no_route(
                 policy,
                 req,
                 req_index,
                 RoutingDecision(
                     primary=None,
-                    notes=(
-                        f"capacity_unavailable:{capacity_error.provider}"
-                        if capacity_error is not None
-                        else "capacity_unavailable"
-                    ),
+                    notes=f"capacity_unavailable:{exc.provider}",
                 ),
                 time.time(),
             )
             return None
 
-        assert decision is not None
+        if decision.primary is None:
+            self._record_no_route(policy, req, req_index, decision, now)
+            return None
+
         primary_cached, primary_estimated_cost = policy.routing_cache_diagnostics(
             decision.primary, ctx
         )
@@ -1207,27 +1193,15 @@ class RealExperimentRunner:
     ) -> tuple[str, SingleRequestResult, list[tuple[str, SingleRequestResult]]]:
         """Continue a request after one or more provider-local HTTP 429s."""
         while attempts and attempts[-1][1].rate_limited:
-            fallback_candidates = prepared.policy.rate_limit_fallback_candidates(
-                time.time(),
-                prepared.ctx,
+            provider, capacity_id = prepared.policy.fallback_candidate_and_charge_capacity(
+                now=time.time(),
+                ctx=prepared.ctx,
                 excluded=excluded,
-            )
-            provider = next(
-                (candidate for candidate in fallback_candidates if candidate not in excluded),
-                None,
+                expected_service_sec=prepared.expected_service_sec,
             )
             if provider is None:
                 break
 
-            try:
-                capacity_id = prepared.policy.charge_capacity(
-                    provider,
-                    time.time(),
-                    prepared.expected_service_sec,
-                )
-            except CapacityUnavailableError:
-                excluded.add(provider)
-                continue
             try:
                 result = send_request(
                     send_fn=self._send_via_transport,
@@ -1318,28 +1292,29 @@ class RealExperimentRunner:
                     for checkpoint in prepared.hedge_checkpoints_sec
                     if checkpoint > elapsed_sec + 1e-9
                 )
-                checkpoint_decision = select_checkpoint_backup(
-                    primary=decision.primary or "",
-                    states=policy.states,
-                    ctx=prepared.ctx,
-                    slo_sec=self.slo_sec,
-                    now=checkpoint_ts,
-                    elapsed_sec=elapsed_sec,
-                    future_checkpoints_sec=future_checkpoints,
-                    cost_fn=lambda state: policy.request_cost_for_state(state, prepared.ctx),
-                )
+                try:
+                    (
+                        checkpoint_decision,
+                        capacity_id,
+                    ) = policy.checkpoint_backup_and_charge_capacity(
+                        primary=decision.primary or "",
+                        ctx=prepared.ctx,
+                        slo_sec=self.slo_sec,
+                        now=checkpoint_ts,
+                        elapsed_sec=elapsed_sec,
+                        future_checkpoints_sec=future_checkpoints,
+                        expected_service_sec=prepared.expected_service_sec,
+                        cost_fn=lambda state: policy.request_cost_for_state(
+                            state,
+                            prepared.ctx,
+                        ),
+                    )
+                except CapacityUnavailableError:
+                    return None
                 if checkpoint_decision.backup is None:
                     return None
 
                 backup = checkpoint_decision.backup
-                try:
-                    capacity_id = policy.charge_capacity(
-                        backup,
-                        checkpoint_ts,
-                        prepared.expected_service_sec,
-                    )
-                except CapacityUnavailableError:
-                    return None
                 prepared.backup = backup
                 prepared.hedge_delay_sec = elapsed_sec
                 decision.hedge = backup

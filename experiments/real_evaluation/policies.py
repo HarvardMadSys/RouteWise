@@ -613,7 +613,7 @@ class BasePolicy:
         self.output_predictor: OutputTokenPredictor = (
             output_predictor if output_predictor is not None else BucketMeanOutputPredictor()
         )
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._next_capacity_request_id = 1
 
     def set_cost_envelope(self, envelope: tuple[float, float] | None) -> None:
@@ -758,6 +758,99 @@ class BasePolicy:
                 del expected_service_sec
                 return state.concurrency.admit(request_id=request_id, now=now)
             return None
+
+    def route_and_charge_capacity(
+        self,
+        now: float,
+        ctx: RequestContext,
+        expected_service_sec: float,
+    ) -> tuple[RoutingDecision, int | None]:
+        """Route and reserve primary capacity while holding the policy lock."""
+        capacity_error: CapacityUnavailableError | None = None
+        with self._lock:
+            route_attempts = max(1, len(self.states) + 1)
+            for _ in range(route_attempts):
+                decision = self.route(now, ctx)
+                if decision.primary is None:
+                    return decision, None
+                try:
+                    capacity_id = self.charge_capacity(
+                        decision.primary,
+                        now,
+                        expected_service_sec,
+                    )
+                    return decision, capacity_id
+                except CapacityUnavailableError as exc:
+                    capacity_error = exc
+            if capacity_error is not None:
+                raise capacity_error
+        return RoutingDecision(primary=None, notes="capacity_unavailable"), None
+
+    def fallback_candidate_and_charge_capacity(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+        expected_service_sec: float,
+    ) -> tuple[str | None, int | None]:
+        """Pick and reserve a 429 fallback candidate under one policy lock."""
+        with self._lock:
+            for _ in range(max(1, len(self.states))):
+                fallback_candidates = self.rate_limit_fallback_candidates(
+                    now,
+                    ctx,
+                    excluded=excluded,
+                )
+                provider = next(
+                    (candidate for candidate in fallback_candidates if candidate not in excluded),
+                    None,
+                )
+                if provider is None:
+                    return None, None
+                try:
+                    capacity_id = self.charge_capacity(
+                        provider,
+                        now,
+                        expected_service_sec,
+                    )
+                    return provider, capacity_id
+                except CapacityUnavailableError:
+                    excluded.add(provider)
+            return None, None
+
+    def checkpoint_backup_and_charge_capacity(
+        self,
+        *,
+        primary: str,
+        ctx: RequestContext,
+        slo_sec: float,
+        now: float,
+        elapsed_sec: float,
+        future_checkpoints_sec: tuple[float, ...],
+        expected_service_sec: float,
+        cost_fn: Callable[[ProviderState], float] | None = None,
+    ) -> tuple[CheckpointHedgeDecision, int | None]:
+        """Select and reserve checkpoint backup capacity under one policy lock."""
+        with self._lock:
+            checkpoint_decision = select_checkpoint_backup(
+                primary=primary,
+                states=self.states,
+                ctx=ctx,
+                slo_sec=slo_sec,
+                now=now,
+                elapsed_sec=elapsed_sec,
+                future_checkpoints_sec=future_checkpoints_sec,
+                cost_fn=cost_fn,
+            )
+            if checkpoint_decision.backup is None:
+                return checkpoint_decision, None
+            capacity_id = self.charge_capacity(
+                checkpoint_decision.backup,
+                now,
+                expected_service_sec,
+            )
+            return checkpoint_decision, capacity_id
 
     def release_capacity(
         self,

@@ -1060,16 +1060,30 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
         "experiments.real_evaluation.runner.hedge_checkpoints_for_slo",
         lambda slo_sec: (0.0,),
     )
+    checkpoint_decision_cls = __import__(
+        "experiments.real_evaluation.policies",
+        fromlist=["CheckpointHedgeDecision"],
+    ).CheckpointHedgeDecision
+
+    def checkpoint_and_charge(**kwargs):
+        capacity_id = policy.charge_capacity(
+            backup_name,
+            kwargs["now"],
+            kwargs["expected_service_sec"],
+        )
+        return (
+            checkpoint_decision_cls(
+                backup=backup_name,
+                elapsed_sec=kwargs["elapsed_sec"],
+                success_probability=0.99,
+            ),
+            capacity_id,
+        )
+
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.select_checkpoint_backup",
-        lambda **kwargs: __import__(
-            "experiments.real_evaluation.policies",
-            fromlist=["CheckpointHedgeDecision"],
-        ).CheckpointHedgeDecision(
-            backup=backup_name,
-            elapsed_sec=kwargs["elapsed_sec"],
-            success_probability=0.99,
-        ),
+        policy,
+        "checkpoint_backup_and_charge_capacity",
+        checkpoint_and_charge,
     )
 
     from experiments.real_evaluation.runner import TraceRequest
@@ -1114,16 +1128,30 @@ def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
         "experiments.real_evaluation.runner.hedge_checkpoints_for_slo",
         lambda slo_sec: (0.0,),
     )
+    checkpoint_decision_cls = __import__(
+        "experiments.real_evaluation.policies",
+        fromlist=["CheckpointHedgeDecision"],
+    ).CheckpointHedgeDecision
+
+    def checkpoint_and_charge(**kwargs):
+        capacity_id = policy.charge_capacity(
+            backup,
+            kwargs["now"],
+            kwargs["expected_service_sec"],
+        )
+        return (
+            checkpoint_decision_cls(
+                backup=backup,
+                elapsed_sec=kwargs["elapsed_sec"],
+                success_probability=0.99,
+            ),
+            capacity_id,
+        )
+
     monkeypatch.setattr(
-        "experiments.real_evaluation.runner.select_checkpoint_backup",
-        lambda **kwargs: __import__(
-            "experiments.real_evaluation.policies",
-            fromlist=["CheckpointHedgeDecision"],
-        ).CheckpointHedgeDecision(
-            backup=backup,
-            elapsed_sec=kwargs["elapsed_sec"],
-            success_probability=0.99,
-        ),
+        policy,
+        "checkpoint_backup_and_charge_capacity",
+        checkpoint_and_charge,
     )
 
     def fallback_candidates(
