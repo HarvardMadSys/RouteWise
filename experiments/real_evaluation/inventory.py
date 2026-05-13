@@ -48,6 +48,7 @@ class ProviderSpec:
     quota_windows: tuple[ProviderQuotaWindow, ...] = ()
     subscription_plan: str | None = None
     subscription_count: int = 1
+    fixed_cost_usd_override: float | None = None
     concurrency_limit: int | None = None
 
     @property
@@ -125,6 +126,11 @@ def load_inventory(path: Path | str) -> InventoryConfig:
                 quota_windows=quota_windows,
                 subscription_plan=str(plan_id) if plan_id is not None else None,
                 subscription_count=subscription_count,
+                fixed_cost_usd_override=(
+                    float(entry["fixed_cost_usd_override"])
+                    if entry.get("fixed_cost_usd_override") is not None
+                    else None
+                ),
                 concurrency_limit=(
                     int(entry["concurrency_limit"])
                     if entry.get("concurrency_limit") is not None
@@ -246,6 +252,13 @@ def subscription_fixed_cost_for_inventory(
     total = 0.0
     for spec in inventory.providers:
         if spec.billing_mode != "subscription" or spec.subscription_plan is None:
+            continue
+        if spec.fixed_cost_usd_override is not None:
+            if spec.fixed_cost_usd_override < 0.0:
+                raise ValueError(
+                    f"provider {spec.name!r}: fixed_cost_usd_override must be >= 0"
+                )
+            total += float(spec.fixed_cost_usd_override)
             continue
         plan = plans[str(spec.subscription_plan)]
         total += subscription_fixed_cost_usd(

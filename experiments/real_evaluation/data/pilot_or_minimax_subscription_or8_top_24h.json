@@ -2,7 +2,7 @@
   "model_family": "minimax-m2.5",
   "openrouter_model_id": "minimax/minimax-m2.5",
   "primary_slo_ms": 5000,
-  "billing_duration_sec": 86400,
+  "billing_duration_sec": 28800,
   "slo_thresholds_ms": [
     1000,
     2000,
@@ -18,13 +18,14 @@
       "provider_hint": "Minimax",
       "input_price_per_m": 0.0,
       "output_price_per_m": 0.0,
-      "quota_requests": 21600,
-      "quota_window_sec": 86400,
+      "quota_requests": 4500,
+      "quota_window_sec": 18000,
       "concurrency_limit": null,
       "subscription_plan": "minimax_subscription_plus",
       "billing_mode": "subscription",
+      "fixed_cost_usd_override": 0.5,
       "stream_cancel_billing": "continues",
-      "notes": "MiniMax Plus quota emulated through OpenRouter-pinned Minimax official provider. Paper accounting treats this tier as zero marginal cost with 21600 requests per 24h workload (4500/5h * 24h); OpenRouter usage.cost remains recorded as physical cost."
+      "notes": "MiniMax Plus quota emulated through OpenRouter-pinned Minimax official provider. Paper accounting treats this tier as zero marginal cost with the real MiniMax Plus 4500 requests per 5h quota window and fixed cost 4500/180000*20=$0.50 per policy run; OpenRouter usage.cost remains recorded as physical cost."
     },
     {
       "name": "Featherless_SC",
@@ -138,5 +139,5 @@
     "Nebius",
     "WandB"
   ],
-  "notes": "24h workload inventory for compressed real-eval replay. MiniMax Plus quota tier is enforced locally as 21600 requests per 24h workload and physically sent through OpenRouter's official Minimax provider to avoid consuming a shared native MiniMax subscription account. Fallback API pool keeps the eight OR providers from pilot_minimax_plus_direct_or8_top_24h, with AtlasCloud replacing OR_Minimax to avoid duplicate Minimax roles."
+  "notes": "24h workload inventory for compressed real-eval replay. Fixed-fee accounting uses the 8h compressed replay duration for non-overridden subscriptions. MiniMax Plus quota tier is enforced locally as the real 4500 requests per 5h window and physically sent through OpenRouter's official Minimax provider to avoid consuming a shared native MiniMax subscription account. Fallback API pool keeps the eight OR providers from pilot_minimax_plus_direct_or8_top_24h, with AtlasCloud replacing OR_Minimax to avoid duplicate Minimax roles."
 }

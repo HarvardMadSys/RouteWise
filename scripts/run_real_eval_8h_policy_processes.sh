@@ -241,6 +241,7 @@ printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot
 # so their concurrent bursts onto pinned providers are spread out per
 # Juncheng's recommendation.
 STAGGER_SEC="${STAGGER_SEC:-30}"
+STAGGER_ALL_POLICIES="${STAGGER_ALL_POLICIES:-0}"
 
 PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
@@ -298,6 +299,7 @@ SPEEDUP=$SPEEDUP
 SLO_MS=$SLO_MS
 DURATION_SEC=$DURATION_SEC
 STAGGER_SEC=$STAGGER_SEC
+STAGGER_ALL_POLICIES=$STAGGER_ALL_POLICIES
 WARMUP_PROBES=$WARMUP_PROBES
 PROCESS_WARMUP_PROBES=$PROCESS_WARMUP_PROBES
 SHARED_WARMUP_PROFILE=$SHARED_WARMUP_PROFILE
@@ -322,6 +324,7 @@ featherless_idx=0
 quota_native_idx=0
 dedicated_or_idx=1
 non_or_launch_idx=0
+all_policy_launch_idx=0
 if [[ "$HAS_NATIVE_OR_BASELINE" -eq 0 ]]; then
   dedicated_or_idx=0
 fi
@@ -352,16 +355,22 @@ for i in "${!POLICIES[@]}"; do
       fi
     fi
   fi
+  if [[ "$STAGGER_ALL_POLICIES" != "0" ]]; then
+    start_delay=$((all_policy_launch_idx * STAGGER_SEC))
+    all_policy_launch_idx=$((all_policy_launch_idx + 1))
+  elif is_native_or_baseline "$policy"; then
+    start_delay=0
+  else
+    start_delay=$((non_or_launch_idx * STAGGER_SEC))
+    non_or_launch_idx=$((non_or_launch_idx + 1))
+  fi
   if is_native_or_baseline "$policy"; then
     openrouter_key="${OPENROUTER_KEYS[0]}"
     openrouter_key_slot=1
-    start_delay=0
   else
     openrouter_key="${OPENROUTER_KEYS[$dedicated_or_idx]}"
     openrouter_key_slot=$((dedicated_or_idx + 1))
     dedicated_or_idx=$((dedicated_or_idx + 1))
-    start_delay=$((non_or_launch_idx * STAGGER_SEC))
-    non_or_launch_idx=$((non_or_launch_idx + 1))
   fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" >> "$ASSIGNMENTS_PATH"
   out="$OUTPUT_BASE/$policy"

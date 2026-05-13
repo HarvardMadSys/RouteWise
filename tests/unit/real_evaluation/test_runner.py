@@ -104,25 +104,27 @@ def test_inventory_allows_scaled_subscription_quota_for_fixed_cost_accounting() 
     ) == pytest.approx((20.0 + 25.0) / (30 * 24))
 
 
-def test_or_minimax_subscription_inventory_emulates_24h_quota_via_openrouter() -> None:
+def test_or_minimax_subscription_inventory_emulates_real_5h_quota_via_openrouter() -> None:
     inventory = load_inventory(
         "experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_top_24h.json"
     )
     specs = {spec.name: spec for spec in inventory.providers}
 
     minimax = specs["MiniMax_Plus_SQ"]
+    assert inventory.billing_duration_sec == 8 * 3600
     assert minimax.tier == "quota"
     assert minimax.transport_cfg.transport == "openrouter"
     assert minimax.transport_cfg.provider_hint == "Minimax"
     assert minimax.billing_mode == "subscription"
-    assert minimax.quota_requests == 21600
-    assert minimax.quota_window_sec == 86400
+    assert minimax.quota_requests == 4500
+    assert minimax.quota_window_sec == 18000
     assert minimax.subscription_plan == "minimax_subscription_plus"
+    assert minimax.fixed_cost_usd_override == pytest.approx(4500.0 / 180000.0 * 20.0)
     assert "OR_Minimax" not in specs
     assert subscription_fixed_cost_for_inventory(
         inventory,
         billing_duration_sec=inventory.billing_duration_sec or 0,
-    ) == pytest.approx((20.0 + 25.0) / 30.0)
+    ) == pytest.approx((4500.0 / 180000.0 * 20.0) + (25.0 / (30.0 * 3.0)))
 
 
 def _api_only_inventory() -> InventoryConfig:

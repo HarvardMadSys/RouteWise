@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from scripts.idle_compress_trace import compress_idle_gaps
+from scripts.idle_compress_trace import compress_idle_gaps, smooth_to_target_span
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -62,6 +62,40 @@ def test_compress_idle_gaps_sorts_input_by_arrived_at(tmp_path: Path) -> None:
     assert [row["arrived_at"] for row in written] == [0.0, 2.0, 7.0]
 
 
+def test_compress_idle_gaps_can_enforce_min_gap_after_capping(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "in.jsonl"
+    output = tmp_path / "out.jsonl"
+    rows = [
+        {"arrived_at": 0.0, "prompt_text": "a"},
+        {"arrived_at": 0.0, "prompt_text": "b"},
+        {"arrived_at": 0.2, "prompt_text": "c"},
+        {"arrived_at": 100.0, "prompt_text": "d"},
+    ]
+    _write_trace(source, rows)
+
+    stats = compress_idle_gaps(
+        source,
+        output,
+        cap_gap_sec=10.0,
+        min_gap_sec=1.0,
+    )
+
+    written = [json.loads(line) for line in output.read_text().splitlines()]
+    assert [row["prompt_text"] for row in written] == ["a", "b", "c", "d"]
+    # The burst shift is absorbed by the following idle gap, so the last
+    # request keeps its cap-compressed base timestamp instead of sliding by
+    # the full amount of the earlier burst expansion.
+    assert [row["arrived_at"] for row in written] == pytest.approx(
+        [0.0, 1.0, 2.0, 10.2]
+    )
+    assert stats["mode"] == "cap_idle_gaps"
+    assert stats["min_gap_sec"] == pytest.approx(1.0)
+    assert stats["min_gap_shifts"] == 2
+    assert stats["max_min_gap_shift_sec"] == pytest.approx(1.8)
+
+
 def test_compress_idle_gaps_preserves_full_record_payload(tmp_path: Path) -> None:
     """Every original field except arrived_at must be carried over unchanged."""
     source = tmp_path / "in.jsonl"
@@ -96,3 +130,41 @@ def test_compress_idle_gaps_rejects_nonpositive_cap(tmp_path: Path) -> None:
         compress_idle_gaps(source, output, cap_gap_sec=0.0)
     with pytest.raises(ValueError, match="cap_gap_sec"):
         compress_idle_gaps(source, output, cap_gap_sec=-1.0)
+    with pytest.raises(ValueError, match="min_gap_sec"):
+        compress_idle_gaps(source, output, cap_gap_sec=10.0, min_gap_sec=-0.1)
+
+
+def test_smooth_to_target_span_enforces_minimum_gap(tmp_path: Path) -> None:
+    source = tmp_path / "in.jsonl"
+    output = tmp_path / "out.jsonl"
+    rows = [
+        {"arrived_at": 0.0, "prompt_text": "a"},
+        {"arrived_at": 0.0, "prompt_text": "b"},
+        {"arrived_at": 10.0, "prompt_text": "c"},
+    ]
+    _write_trace(source, rows)
+
+    stats = smooth_to_target_span(
+        source,
+        output,
+        target_span_hours=10.0 / 3600.0,
+        min_gap_sec=1.0,
+    )
+
+    written = [json.loads(line) for line in output.read_text().splitlines()]
+    assert [row["prompt_text"] for row in written] == ["a", "b", "c"]
+    assert [row["arrived_at"] for row in written] == pytest.approx([0.0, 1.0, 10.0])
+    assert stats["mode"] == "smooth_target_span"
+    assert stats["min_observed_gap_sec"] == pytest.approx(1.0)
+    assert stats["compressed_span_sec"] == pytest.approx(10.0)
+
+
+def test_smooth_to_target_span_rejects_invalid_parameters(tmp_path: Path) -> None:
+    source = tmp_path / "in.jsonl"
+    output = tmp_path / "out.jsonl"
+    _write_trace(source, [{"arrived_at": 0.0}])
+
+    with pytest.raises(ValueError, match="target_span_hours"):
+        smooth_to_target_span(source, output, target_span_hours=0.0, min_gap_sec=0.1)
+    with pytest.raises(ValueError, match="min_gap_sec"):
+        smooth_to_target_span(source, output, target_span_hours=1.0, min_gap_sec=-0.1)
