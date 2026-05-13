@@ -72,6 +72,25 @@ plans:
     source: "User-provided MiniMax pricing screenshot, 2026-05-06"
     notes: "$50/mo; 15000 model requests / 5h; weekly allowance is 10x the 5-hour quota."
 
+  zai_glm_coding_max:
+    display_name: "Z.AI GLM Coding Max"
+    tier: quota
+    billing_mode: subscription
+    monthly_fee_usd: 160.0
+    transport: zai_coding
+    quota_windows:
+      - name: five_hour
+        quota_requests: 1600
+        quota_window_sec: 18000
+      - name: weekly_allowance
+        quota_requests: 8000
+        quota_window_sec: 604800
+    subscription_counts: [1, 2, 3, 4]
+    eligible_sections: [cost_layer_quota, end_to_end]
+    cost_claim_allowed: true
+    source: "Z.AI GLM Coding Plan docs and z.ai/subscribe product data, checked 2026-05-13"
+    notes: "Max plan: up to ~1600 prompts / 5h and ~8000 prompts / week. GLM-5.1 may consume quota at a higher multiplier during peak hours; real-eval treats one trace request as one prompt-equivalent."
+
   featherless_premium:
     display_name: "Featherless Premium"
     tier: concurrency

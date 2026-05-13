@@ -127,6 +127,60 @@ def test_or_minimax_subscription_inventory_emulates_real_5h_quota_via_openrouter
     ) == pytest.approx(0.2381 + (25.0 / (30.0 * 3.0)))
 
 
+def test_or_glm_subscription_inventory_emulates_coding_plan_via_openrouter() -> None:
+    inventory = load_inventory(
+        "experiments/real_evaluation/data/pilot_or_glm51_subscription_or8_top_24h.json"
+    )
+    specs = {spec.name: spec for spec in inventory.providers}
+
+    glm = specs["GLM_OR_SQ"]
+    assert inventory.billing_duration_sec == 8 * 3600
+    assert specs["Featherless_SC"].transport_cfg.model == "zai-org/GLM-5.1"
+    assert specs["Featherless_SC"].concurrency_limit == 1
+    assert glm.tier == "quota"
+    assert glm.transport_cfg.transport == "openrouter"
+    assert glm.transport_cfg.provider_hint == "Z.AI"
+    assert glm.transport_cfg.model == "z-ai/glm-5.1"
+    assert glm.billing_mode == "subscription"
+    assert glm.quota_requests == 2000
+    assert glm.quota_window_sec == 9 * 3600
+    assert glm.subscription_plan == "zai_glm_coding_max"
+    assert glm.quota_windows == ()
+    assert glm.fixed_cost_usd_override == pytest.approx(0.5)
+    assert "OR_ZAI" not in specs
+    assert subscription_fixed_cost_for_inventory(
+        inventory,
+        billing_duration_sec=inventory.billing_duration_sec or 0,
+    ) == pytest.approx(0.5 + (25.0 / (30.0 * 3.0)))
+
+
+def test_native_glm_subscription_inventory_uses_zai_key_for_quota() -> None:
+    inventory = load_inventory(
+        "experiments/real_evaluation/data/pilot_zai_glm51_subscription_or8_top_24h.json"
+    )
+    specs = {spec.name: spec for spec in inventory.providers}
+
+    glm = specs["GLM_ZAI_SQ"]
+    assert inventory.billing_duration_sec == 8 * 3600
+    assert specs["Featherless_SC"].transport_cfg.model == "zai-org/GLM-5.1"
+    assert specs["Featherless_SC"].concurrency_limit == 1
+    assert glm.tier == "quota"
+    assert glm.transport_cfg.transport == "zai_native"
+    assert glm.transport_cfg.api_key_env == "ZAI_API_KEY"
+    assert glm.transport_cfg.base_url == "https://api.z.ai/api/coding/paas/v4"
+    assert glm.transport_cfg.model == "glm-5.1"
+    assert glm.billing_mode == "subscription"
+    assert glm.quota_requests == 2000
+    assert glm.quota_window_sec == 9 * 3600
+    assert glm.subscription_plan == "zai_glm_coding_max"
+    assert glm.fixed_cost_usd_override == pytest.approx(0.5)
+    assert "Z.AI" not in inventory.openrouter_provider_only
+    assert subscription_fixed_cost_for_inventory(
+        inventory,
+        billing_duration_sec=inventory.billing_duration_sec or 0,
+    ) == pytest.approx(0.5 + (25.0 / (30.0 * 3.0)))
+
+
 def _api_only_inventory() -> InventoryConfig:
     """Minimal inventory with no quota- or concurrency-bearing providers."""
     spec = ProviderSpec(

@@ -11,6 +11,8 @@ set -euo pipefail
 #   minimax           — inject MINIMAX_API_KEY for joint-pool policies (one key
 #                       is enough; multiple joint policies round-robin keys and
 #                       share quota if the key is the same account)
+#   none              — do not inject a native quota key; use inventory/env as-is
+#                       (e.g. OpenRouter-emulated quota or ZAI_API_KEY)
 # If QUOTA_PROVIDER is empty, it defaults from INVENTORY path (*pilot_minimax*
 # or *minimax_plus_direct* -> minimax, else chutes).
 
@@ -27,6 +29,10 @@ fi
 
 TRACE="${TRACE:-data/real_eval/burstgpt_day2_h17_8h.jsonl}"
 INVENTORY="${INVENTORY:-experiments/real_evaluation/data/pilot_chutes_direct_or8_top_8h.json}"
+# Optional comma-separated overrides:
+#   POLICY_INVENTORY_MAP="greedy_cost=path_a.json,random=path_a.json,budget_range_p75_hedge=path_b.json"
+# Policies not listed here use INVENTORY.
+POLICY_INVENTORY_MAP="${POLICY_INVENTORY_MAP:-}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_direct_or8_top_${RUN_ID}}"
 MAX_COST_USD="${MAX_COST_USD:-20}"
@@ -62,14 +68,43 @@ if [[ -z "${QUOTA_PROVIDER:-}" ]]; then
       ;;
   esac
 fi
-if [[ "$QUOTA_PROVIDER" != "chutes" && "$QUOTA_PROVIDER" != "minimax" ]]; then
-  echo "QUOTA_PROVIDER must be chutes or minimax, got: $QUOTA_PROVIDER" >&2
+if [[ "$QUOTA_PROVIDER" != "chutes" && "$QUOTA_PROVIDER" != "minimax" && "$QUOTA_PROVIDER" != "none" ]]; then
+  echo "QUOTA_PROVIDER must be chutes, minimax, or none; got: $QUOTA_PROVIDER" >&2
   exit 2
 fi
 
 DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
+
+if [[ -n "$POLICY_INVENTORY_MAP" ]]; then
+  IFS=',' read -r -a _POLICY_INVENTORY_PAIRS <<< "$POLICY_INVENTORY_MAP"
+  for pair in "${_POLICY_INVENTORY_PAIRS[@]}"; do
+    policy_name="${pair%%=*}"
+    policy_inventory="${pair#*=}"
+    if [[ -z "$policy_name" || -z "$policy_inventory" || "$policy_name" == "$policy_inventory" ]]; then
+      echo "invalid POLICY_INVENTORY_MAP entry: $pair" >&2
+      exit 2
+    fi
+  done
+fi
+
+inventory_for_policy() {
+  local policy="$1"
+  local pair policy_name policy_inventory
+  if [[ -n "$POLICY_INVENTORY_MAP" ]]; then
+    IFS=',' read -r -a _POLICY_INVENTORY_PAIRS <<< "$POLICY_INVENTORY_MAP"
+    for pair in "${_POLICY_INVENTORY_PAIRS[@]}"; do
+      policy_name="${pair%%=*}"
+      policy_inventory="${pair#*=}"
+      if [[ "$policy_name" == "$policy" ]]; then
+        printf '%s' "$policy_inventory"
+        return 0
+      fi
+    done
+  fi
+  printf '%s' "$INVENTORY"
+}
 
 is_native_or_baseline() {
   case "$1" in
@@ -204,7 +239,9 @@ if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
   exit 2
 fi
 
-if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+if [[ "$QUOTA_PROVIDER" == "none" ]]; then
+  :
+elif [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
   if [[ "$CHUTES_POLICY_COUNT" -gt 0 && "${#MINIMAX_KEYS[@]}" -eq 0 ]]; then
     echo "QUOTA_PROVIDER=minimax requires at least one of MINIMAX_API_KEY, MINIMAX_API_KEYS, or MINIMAX_API_KEY_1..N in $ENV_FILE" >&2
     exit 2
@@ -234,7 +271,7 @@ fi
 mkdir -p "$OUTPUT_BASE"
 printf '%s\n' "${POLICIES[@]}" > "$OUTPUT_BASE/policies.txt"
 ASSIGNMENTS_PATH="$OUTPUT_BASE/policy_key_assignments.tsv"
-printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot\tstart_delay_sec\n' > "$ASSIGNMENTS_PATH"
+printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot\tstart_delay_sec\tinventory\n' > "$ASSIGNMENTS_PATH"
 
 # Stagger configuration. OR-only baselines never staggered (they use OR's
 # server-side routing and don't contend for our pinned providers). Other
@@ -248,25 +285,21 @@ PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
 if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   echo "prebuilding shared initial profile -> $INITIAL_PROFILE_PATH"
+  prebuild_chutes_key=""
+  prebuild_minimax_key=""
   if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
-    CHUTES_API_KEY="" MINIMAX_API_KEY="${MINIMAX_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
-    --inventory "$INVENTORY" \
-    --output "$INITIAL_PROFILE_PATH" \
-    --probes-per-provider "$WARMUP_PROBES" \
-    --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
-    --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
-    --timeout-sec "$TIMEOUT_SEC" \
-    --max-cost-usd "$MAX_COST_USD"
-  else
-    CHUTES_API_KEY="${CHUTES_KEYS[0]:-}" MINIMAX_API_KEY="${MINIMAX_KEYS[0]:-}" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
-    --inventory "$INVENTORY" \
-    --output "$INITIAL_PROFILE_PATH" \
-    --probes-per-provider "$WARMUP_PROBES" \
-    --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
-    --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
-    --timeout-sec "$TIMEOUT_SEC" \
-    --max-cost-usd "$MAX_COST_USD"
+    prebuild_minimax_key="${MINIMAX_KEYS[0]:-}"
+  elif [[ "$QUOTA_PROVIDER" == "chutes" ]]; then
+    prebuild_chutes_key="${CHUTES_KEYS[0]:-}"
   fi
+  CHUTES_API_KEY="$prebuild_chutes_key" MINIMAX_API_KEY="$prebuild_minimax_key" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/prebuild_profile.py \
+  --inventory "$INVENTORY" \
+  --output "$INITIAL_PROFILE_PATH" \
+  --probes-per-provider "$WARMUP_PROBES" \
+  --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
+  --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
+  --timeout-sec "$TIMEOUT_SEC" \
+  --max-cost-usd "$MAX_COST_USD"
   PROCESS_WARMUP_PROBES=0
   INITIAL_PROFILE_ARGS=(--initial-profile-path "$INITIAL_PROFILE_PATH")
 fi
@@ -293,6 +326,7 @@ fi
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
+POLICY_INVENTORY_MAP=$POLICY_INVENTORY_MAP
 QUOTA_PROVIDER=$QUOTA_PROVIDER
 MAX_COST_USD=$MAX_COST_USD
 TIMEOUT_SEC=$TIMEOUT_SEC
@@ -332,6 +366,7 @@ if [[ "$HAS_NATIVE_OR_BASELINE" -eq 0 ]]; then
 fi
 for i in "${!POLICIES[@]}"; do
   policy="${POLICIES[$i]}"
+  policy_inventory="$(inventory_for_policy "$policy")"
   featherless_key=""
   featherless_key_slot=""
   if requires_featherless_key "$policy"; then
@@ -374,7 +409,7 @@ for i in "${!POLICIES[@]}"; do
     openrouter_key_slot=$((dedicated_or_idx + 1))
     dedicated_or_idx=$((dedicated_or_idx + 1))
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" >> "$ASSIGNMENTS_PATH"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" "$policy_inventory" >> "$ASSIGNMENTS_PATH"
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
   echo "launching $policy -> $out (start_delay=${start_delay}s)"
@@ -386,11 +421,11 @@ for i in "${!POLICIES[@]}"; do
     minimax_for_run=""
     if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
       minimax_for_run="$native_quota_key"
-    else
+    elif [[ "$QUOTA_PROVIDER" == "chutes" ]]; then
       chutes_for_run="$native_quota_key"
     fi
     CHUTES_API_KEY="$chutes_for_run" MINIMAX_API_KEY="$minimax_for_run" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
-      --inventory "$INVENTORY" \
+      --inventory "$policy_inventory" \
       --trace "$TRACE" \
       --policy "$policy" \
       --output "$out" \

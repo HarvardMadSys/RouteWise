@@ -8,6 +8,7 @@ Supported backends:
     - chutes           : Chutes direct subscription
     - featherless      : Featherless concurrency subscription
     - minimax_native   : MiniMax native token plan endpoint
+    - zai_native       : Z.AI GLM Coding Plan OpenAI-compatible endpoint
     - ollama_cloud     : Ollama Cloud Pro subscription
 
 All transports return a common ``SingleRequestResult`` so the runner stays
@@ -37,6 +38,10 @@ if TYPE_CHECKING:
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MINIMAX_NATIVE_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+ZAI_NATIVE_BASE_URL = os.environ.get(
+    "ZAI_BASE_URL",
+    "https://api.z.ai/api/coding/paas/v4",
+)
 OLLAMA_CLOUD_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com/v1")
 
 OPENROUTER_SORT_MODES: frozenset[str] = frozenset({"price", "throughput", "latency"})
@@ -257,7 +262,8 @@ class BaseTransport:
 class OpenAICompatStreamingTransport(BaseTransport):
     """Streaming chat-completions transport for OpenAI-compatible endpoints.
 
-    Used by chutes, featherless, minimax_native, ollama_cloud, and openrouter.
+    Used by chutes, featherless, minimax_native, zai_native, ollama_cloud,
+    and openrouter.
     Provider-specific differences are handled via ``cfg.model``,
     ``cfg.provider_hint`` (openrouter only), ``cfg.sort_mode`` (openrouter only),
     and ``cfg.extra_headers``.
@@ -592,6 +598,7 @@ def build_transport(cfg: TransportConfig, session: requests.Session) -> BaseTran
         "chutes",
         "featherless",
         "minimax_native",
+        "zai_native",
         "ollama_cloud",
     ):
         return OpenAICompatStreamingTransport(cfg, session)
@@ -603,7 +610,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
 
     Recognized fields:
         name              : provider display name (required)
-        transport         : one of openrouter/chutes/featherless/minimax_native/ollama_cloud
+        transport         : one of openrouter/chutes/featherless/minimax_native/zai_native/ollama_cloud
         model             : provider-specific model id (or openrouter_model_id for OR)
         provider_hint     : optional OpenRouter sub-provider pin
         sort_mode         : optional OpenRouter ``sort`` (price/throughput/latency)
@@ -644,6 +651,11 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
     elif transport == "minimax_native":
         base_url = _ensure_v1_suffix(MINIMAX_NATIVE_BASE_URL)
         api_key_env = "MINIMAX_API_KEY"
+        extra_headers = {}
+    elif transport == "zai_native":
+        base_url = ZAI_NATIVE_BASE_URL.rstrip("/")
+        api_key_env = "ZAI_API_KEY"
+        model = model or "glm-5.1"
         extra_headers = {}
     elif transport == "ollama_cloud":
         base_url = _ensure_v1_suffix(OLLAMA_CLOUD_BASE_URL)

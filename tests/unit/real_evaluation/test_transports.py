@@ -326,6 +326,25 @@ def test_resolve_transport_config_honors_api_key_env_override() -> None:
     assert cfg.api_key_env == "FEATHERLESS_API_KEY_POLICY_0"
 
 
+def test_resolve_transport_config_supports_zai_native() -> None:
+    cfg = resolve_transport_config(
+        {
+            "name": "GLM_ZAI_SQ",
+            "tier": "quota",
+            "transport": "zai_native",
+            "model": "glm-5.1",
+            "input_price_per_m": 0.0,
+            "output_price_per_m": 0.0,
+            "billing_mode": "subscription",
+        }
+    )
+
+    assert cfg.transport == "zai_native"
+    assert cfg.base_url == "https://api.z.ai/api/coding/paas/v4"
+    assert cfg.api_key_env == "ZAI_API_KEY"
+    assert cfg.model == "glm-5.1"
+
+
 def test_openrouter_api_provider_requires_positive_prices() -> None:
     """OpenRouter/API providers must not silently fall back to zero cost."""
     with pytest.raises(ValueError, match="require positive input/output prices"):
