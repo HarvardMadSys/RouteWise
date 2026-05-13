@@ -14,7 +14,6 @@ distributions.
 from experiments.real_evaluation.executor import (
     HedgedResult,
     SendFn,
-    send_hedged_request,
     send_request,
 )
 from experiments.real_evaluation.inventory import (
@@ -125,6 +124,5 @@ __all__ = [
     "request_marginal_cost",
     "resolve_transport_config",
     "select_safe_cheapest_backup",
-    "send_hedged_request",
     "send_request",
 ]
