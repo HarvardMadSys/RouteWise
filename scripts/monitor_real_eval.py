@@ -28,7 +28,7 @@ import statistics
 import sys
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 # Matches the leading INFO line written by runner.py at startup, e.g.
@@ -71,6 +71,20 @@ class PolicyStats:
     rate_limited_429: int
     earliest_ts: float | None
     latest_ts: float | None
+    # ``{quota_provider_name: (used_in_current_window, total_limit)}``.
+    # Computed by counting per-policy dispatches against the inventory's
+    # ``quota_requests`` field. Empty when the inventory has no quota
+    # providers or hasn't been loaded yet.
+    quota_usage: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class QuotaSpec:
+    """Subset of an inventory provider entry needed for quota accounting."""
+
+    name: str
+    quota_requests: int
+    quota_window_sec: float
 
 
 def parse_run_plan(run_log: Path) -> tuple[int | None, float | None]:
@@ -157,6 +171,7 @@ def collect_policy(
     slo_ms: float,
     provider_ttft: dict[str, list[float]] | None = None,
     provider_failures: Counter[str] | None = None,
+    quota_specs: list[QuotaSpec] | None = None,
 ) -> PolicyStats | None:
     """Parse one policy's ``requests.csv`` into aggregate stats.
 
@@ -181,6 +196,9 @@ def collect_policy(
     rate_limited_429 = 0
     earliest_ts: float | None = None
     latest_ts: float | None = None
+    # Per-policy dispatch timestamps keyed by raw ``actual_provider``,
+    # used downstream to recompute the current quota-window usage.
+    dispatch_ts_by_provider: dict[str, list[float]] = {}
 
     try:
         with csv_path.open() as f:
@@ -215,6 +233,14 @@ def collect_policy(
                 tier_counter[tier] += 1
                 norm_provider = normalize_provider(raw_provider)
                 provider_counter[norm_provider] += 1
+                if ts is not None:
+                    # Quota accounting keys on the inventory provider name,
+                    # which matches the runner's ``charge_capacity`` key
+                    # (``decision.primary``). For direct-transport providers
+                    # ``actual_provider`` equals that name; OR-routed rows
+                    # like ``Chutes_SQ@Chutes`` strip back to ``Chutes_SQ``.
+                    quota_key = raw_provider.split("@", 1)[0] if "@" in raw_provider else raw_provider
+                    dispatch_ts_by_provider.setdefault(quota_key, []).append(ts)
 
                 # Accumulate cross-policy per-provider TTFT samples for
                 # the second table. Only successful, positive-TTFT rows
@@ -248,6 +274,15 @@ def collect_policy(
         else []
     )
 
+    quota_usage: dict[str, tuple[int, int]] = {}
+    if quota_specs:
+        quota_usage = compute_quota_usage(
+            quota_specs,
+            dispatch_ts_by_provider,
+            now=time.time(),
+            latest_activity_ts=latest_ts,
+        )
+
     return PolicyStats(
         policy=policy_dir.name,
         total_requests=total,
@@ -267,6 +302,7 @@ def collect_policy(
         rate_limited_429=rate_limited_429,
         earliest_ts=earliest_ts,
         latest_ts=latest_ts,
+        quota_usage=quota_usage,
     )
 
 
@@ -309,6 +345,23 @@ def fmt_provider_mix(mix: list[tuple[str, float]], max_entries: int = 3) -> str:
     return " ".join(parts)
 
 
+def fmt_quota_usage(quota_usage: dict[str, tuple[int, int]] | None) -> str:
+    """Render quota status as ``Provider:left/limit`` per quota provider.
+
+    ``left`` is shown (not ``used``) so the column makes the headroom
+    immediately obvious — a value of ``0/X`` means the policy will not
+    route there until the window rolls.
+    """
+    if not quota_usage:
+        return "-"
+    parts = []
+    for name in sorted(quota_usage):
+        used, limit = quota_usage[name]
+        left = max(limit - used, 0)
+        parts.append(f"{name}:{left}/{limit}")
+    return " ".join(parts)
+
+
 def render_table(rows: list[list[str]], headers: list[str]) -> str:
     """Plain-text aligned table. Avoids a pandas/rich dependency."""
     widths = [len(h) for h in headers]
@@ -323,6 +376,96 @@ def render_table(rows: list[list[str]], headers: list[str]) -> str:
     for row in rows:
         out_lines.append(sep.join(row[i].ljust(widths[i]) for i in range(len(headers))))
     return "\n".join(out_lines)
+
+
+def load_quota_specs(policy_dir: Path) -> tuple[Path | None, list[QuotaSpec]]:
+    """Read the inventory file referenced by this policy's ``args.json``.
+
+    Returns ``(inventory_path, [QuotaSpec, ...])`` covering only providers
+    with both ``quota_requests`` and ``quota_window_sec`` set. Returns
+    ``(None, [])`` when the args/inventory aren't readable yet.
+    """
+    args_path = policy_dir / "args.json"
+    if not args_path.exists():
+        return None, []
+    try:
+        with args_path.open() as f:
+            args = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None, []
+    inv_path_raw = args.get("inventory")
+    if not inv_path_raw or inv_path_raw == "None":
+        return None, []
+    # ``args.json`` records the inventory path as it was passed on the
+    # command line (typically repo-relative). Resolve it against the
+    # workspace root, but also try the snapshot directory in case a
+    # snapshot was archived without the inventory file copied alongside.
+    candidates = [Path(inv_path_raw), policy_dir.parent / inv_path_raw, policy_dir / inv_path_raw]
+    inv_path: Path | None = None
+    for cand in candidates:
+        if cand.is_file():
+            inv_path = cand
+            break
+    if inv_path is None:
+        return None, []
+    try:
+        with inv_path.open() as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return inv_path, []
+    out: list[QuotaSpec] = []
+    for entry in raw.get("providers", []):
+        qr = entry.get("quota_requests")
+        qw = entry.get("quota_window_sec")
+        if qr is None or qw is None:
+            continue
+        try:
+            out.append(
+                QuotaSpec(
+                    name=str(entry["name"]),
+                    quota_requests=int(qr),
+                    quota_window_sec=float(qw),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return inv_path, out
+
+
+def compute_quota_usage(
+    quota_specs: list[QuotaSpec],
+    dispatch_ts_by_provider: dict[str, list[float]],
+    now: float,
+    latest_activity_ts: float | None = None,
+) -> dict[str, tuple[int, int]]:
+    """Per-quota-provider ``(used_in_current_window, limit)`` view.
+
+    Counts dispatches that fall inside a trailing window of length
+    ``quota_window_sec`` ending at the reference time. For a *live* run we
+    use ``now`` as the reference; for a *finished* snapshot we use the
+    latest dispatch timestamp so the column shows the peak window load
+    rather than 0 (the window the policy would currently be allowed to
+    use again). The displayed ``used`` is always within ``[0, limit]`` for
+    a correctly-enforcing runner.
+    """
+    out: dict[str, tuple[int, int]] = {}
+    # Anchor the window to the latest observed activity when the run is no
+    # longer dispatching. Using ``now`` directly would silently drop all
+    # historical usage once a full ``quota_window_sec`` had elapsed since
+    # the last dispatch, even though that usage really did count against
+    # the policy's quota counter while the run was active.
+    reference_ts = now
+    if latest_activity_ts is not None and now - latest_activity_ts > 60.0:
+        reference_ts = latest_activity_ts
+    for spec in quota_specs:
+        timestamps = dispatch_ts_by_provider.get(spec.name, [])
+        if not timestamps:
+            out[spec.name] = (0, spec.quota_requests)
+            continue
+        cutoff = reference_ts - spec.quota_window_sec
+        used = sum(1 for ts in timestamps if ts > cutoff)
+        out[spec.name] = (used, spec.quota_requests)
+    return out
 
 
 def load_slo_ms(policy_dir: Path, fallback_slo_ms: float) -> float:
@@ -413,11 +556,13 @@ def render_snapshot(base_dir: Path) -> str:
     provider_failures: Counter[str] = Counter()
     for pdir in policy_dirs:
         slo_ms = load_slo_ms(pdir, default_slo_ms)
+        _, quota_specs = load_quota_specs(pdir)
         s = collect_policy(
             pdir,
             slo_ms=slo_ms,
             provider_ttft=provider_ttft,
             provider_failures=provider_failures,
+            quota_specs=quota_specs,
         )
         if s is None:
             stats.append(
@@ -440,6 +585,9 @@ def render_snapshot(base_dir: Path) -> str:
                     rate_limited_429=0,
                     earliest_ts=None,
                     latest_ts=None,
+                    quota_usage={
+                        spec.name: (0, spec.quota_requests) for spec in quota_specs
+                    },
                 )
             )
             continue
@@ -509,6 +657,7 @@ def render_snapshot(base_dir: Path) -> str:
         "hedge",
         "win",
         "429s",
+        "quota left",
     ]
     rows: list[list[str]] = []
     for s in stats:
@@ -529,6 +678,7 @@ def render_snapshot(base_dir: Path) -> str:
                 str(s.hedge_requests),
                 str(s.hedge_wins),
                 str(s.rate_limited_429),
+                fmt_quota_usage(s.quota_usage),
             ]
         )
 
@@ -650,6 +800,18 @@ def _stats_to_dict(s: PolicyStats) -> dict:
                 "latency_p95_ms", "latency_p99_ms"):
         if d[key] is not None and math.isnan(d[key]):
             d[key] = None
+    # ``asdict`` turns tuples into lists, but downstream JSON consumers
+    # benefit from named fields. Expand into ``{used, limit, left}`` per
+    # quota provider so summary.json is self-describing.
+    if s.quota_usage:
+        d["quota_usage"] = {
+            name: {
+                "used": used,
+                "limit": limit,
+                "left": max(limit - used, 0),
+            }
+            for name, (used, limit) in s.quota_usage.items()
+        }
     return d
 
 

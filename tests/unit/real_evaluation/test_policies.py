@@ -357,6 +357,49 @@ def test_greedy_cost_prefers_concurrency_before_quota_on_zero_cost_tie() -> None
     )
 
 
+def test_greedy_cost_stops_routing_to_quota_provider_after_exhaustion() -> None:
+    """Once a quota provider's per-window budget is fully consumed by this
+    policy's ``charge_capacity`` calls, ``route()`` must skip that provider
+    on every subsequent request until the window rolls. Regression coverage
+    for the monitor's ``quota left`` column: the displayed remaining count
+    must actually correspond to "no more dispatches allowed", not just a
+    diagnostic counter.
+    """
+    quota_size = 3
+    quota = ProviderSpec(
+        name="Chutes_SQ",
+        tier="quota",
+        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
+        quota_window_sec=3600,
+        quota_requests=quota_size,
+    )
+    api = _api_spec("OR_cheap", 0.05, 0.2)
+    policy = build_policy("greedy_cost", specs=[quota, api], slo_ms=2000.0)
+    ctx = RequestContext(10, 8)
+    now = 0.0
+
+    # The first ``quota_size`` requests must go to the zero-cost quota
+    # provider; in the same loop we drive the policy's quota counter via
+    # ``charge_capacity`` exactly the same way the live runner does.
+    for _ in range(quota_size):
+        assert policy.route(now, ctx).primary == "Chutes_SQ"
+        policy.charge_capacity("Chutes_SQ", now, expected_service_sec=0.1)
+
+    # Quota is now exhausted in this window: even though the policy still
+    # *prefers* zero-cost providers, ``is_available`` must reject Chutes
+    # and routing falls back to the API tier.
+    assert not policy.states["Chutes_SQ"].is_available(now)
+    for _ in range(5):
+        assert policy.route(now, ctx).primary == "OR_cheap"
+
+    # And it must not appear as a rate-limit fallback candidate either:
+    # exhausted-quota providers are no more routable as fallbacks than as
+    # primaries. (If this regresses, the runner would burn 429-retry budget
+    # on a provider it knows is locked out.)
+    fallbacks = policy.rate_limit_fallback_candidates(now, ctx, excluded=set())
+    assert "Chutes_SQ" not in fallbacks
+
+
 def test_random_policy_uses_only_available_providers() -> None:
     quota = ProviderSpec(
         name="Chutes_SQ",
