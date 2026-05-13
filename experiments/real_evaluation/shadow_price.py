@@ -38,11 +38,18 @@ def concurrency_shadow_price(
     L: float,
     alpha: float = 1.0,
 ) -> float:
-    """Constant price ``L`` for a concurrency-limited reusable-capacity provider."""
-    del now, alpha
+    """Zero shadow marginal cost for concurrency in real-eval.
+
+    The paper/simulator path uses ``constant_l`` (effective cost ``L``) so
+    subscription concurrency competes on the same dollar scale as metered
+    APIs. For live experiments we instead charge **0** here: the only gate is
+    slot availability via :meth:`ProviderState.is_available` / admit-release.
+    ``L``/``U``/``alpha`` are accepted for API compatibility but ignored.
+    """
+    del now, U, L, alpha
     if state.concurrency is None:
         return 0.0
-    return scarcity_price("constant_l", 0.0, L=L, U=U)
+    return 0.0
 
 
 def request_marginal_cost(
@@ -83,12 +90,14 @@ def effective_cost(
 ) -> float:
     """Paper-formula piecewise effective cost used by the joint router.
 
-    Matches :func:`rwsim.policies.routewise.effective_cost`:
+    Matches :func:`rwsim.policies.routewise.effective_cost` for **api** and
+    **quota** tiers. **Concurrency** differs in real-eval: see
+    :func:`concurrency_shadow_price` (zero shadow; simulator uses ``constant_l``).
 
     * ``S_A`` / ``tier="api"``: real API billing cost.
     * ``S_Q`` / ``tier="quota"``: quota opportunity cost ``psi(z)``.
-    * ``S_C`` / ``tier="concurrency"``: concurrency opportunity cost
-      ``lambda(u)``.
+    * ``S_C`` / ``tier="concurrency"``: **0** in real-eval (slot scarcity is
+      enforced only through availability; see :func:`concurrency_shadow_price`).
 
     Extra admission constraints on a provider still gate availability through
     :meth:`ProviderState.is_available`; they do not add another term to the

@@ -232,13 +232,13 @@ def test_quota_provider_effective_cost_is_paper_piecewise() -> None:
     q_sp = quota_shadow_price(state, now, U=1.0, L=0.001)
     c_sp = concurrency_shadow_price(state, now, U=1.0, L=0.001)
     assert q_sp > 0.0
-    assert c_sp > 0.0
+    assert c_sp == 0.0
     eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
     assert eff == q_sp
 
 
 def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
-    """A concurrency-tier provider uses only the concurrency shadow price."""
+    """A concurrency-tier provider uses zero real-eval concurrency shadow price."""
     spec = ProviderSpec(
         name="Featherless_SC",
         tier="concurrency",
@@ -252,7 +252,7 @@ def test_concurrency_provider_effective_cost_is_paper_piecewise() -> None:
 
     c_sp = concurrency_shadow_price(state, now, U=1.0, L=0.001)
     eff = effective_cost(state, request_cost_usd=0.0, now=now, U=1.0, L=0.001)
-    assert c_sp == pytest.approx(0.001)
+    assert c_sp == 0.0
     assert eff == c_sp
 
 

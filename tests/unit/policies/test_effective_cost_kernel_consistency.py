@@ -50,7 +50,9 @@ def test_concurrency_shadow_prices_match_kernel_across_layers(active: int, u: fl
     kernel_value = scarcity_price("constant_l", u, L=L, U=U)
 
     assert sim_concurrency_shadow_price(sim_provider, now, L=L, U=U) == kernel_value
-    assert real_concurrency_shadow_price(real_state, now, L=L, U=U) == kernel_value
+    # Real-eval intentionally uses zero concurrency shadow (availability-only);
+    # simulator still uses constant-L kernel curve.
+    assert real_concurrency_shadow_price(real_state, now, L=L, U=U) == 0.0
 
 
 def _sim_quota_provider(*, used: int) -> TieredProvider:
