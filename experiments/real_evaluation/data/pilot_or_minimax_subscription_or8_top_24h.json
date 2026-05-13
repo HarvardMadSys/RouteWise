@@ -1,0 +1,142 @@
+{
+  "model_family": "minimax-m2.5",
+  "openrouter_model_id": "minimax/minimax-m2.5",
+  "primary_slo_ms": 5000,
+  "billing_duration_sec": 86400,
+  "slo_thresholds_ms": [
+    1000,
+    2000,
+    3000,
+    5000
+  ],
+  "providers": [
+    {
+      "name": "MiniMax_Plus_SQ",
+      "tier": "quota",
+      "transport": "openrouter",
+      "model": "minimax/minimax-m2.5",
+      "provider_hint": "Minimax",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "quota_requests": 21600,
+      "quota_window_sec": 86400,
+      "concurrency_limit": null,
+      "subscription_plan": "minimax_subscription_plus",
+      "billing_mode": "subscription",
+      "stream_cancel_billing": "continues",
+      "notes": "MiniMax Plus quota emulated through OpenRouter-pinned Minimax official provider. Paper accounting treats this tier as zero marginal cost with 21600 requests per 24h workload (4500/5h * 24h); OpenRouter usage.cost remains recorded as physical cost."
+    },
+    {
+      "name": "Featherless_SC",
+      "tier": "concurrency",
+      "transport": "featherless",
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "api_key_env": "FEATHERLESS_API_KEY",
+      "input_price_per_m": 0.0,
+      "output_price_per_m": 0.0,
+      "concurrency_limit": 1,
+      "subscription_plan": "featherless_premium",
+      "billing_mode": "subscription",
+      "notes": "Per-process Featherless Premium, C=1 per account."
+    },
+    {
+      "name": "OR_Chutes",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Chutes",
+      "input_price_per_m": 0.15,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops",
+      "notes": "OpenRouter-pinned Chutes (metered API tier); input/output pricing $0.15/$1.20 per 1M tokens."
+    },
+    {
+      "name": "OR_DeepInfra",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "DeepInfra",
+      "input_price_per_m": 0.15,
+      "output_price_per_m": 1.15,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops",
+      "notes": "B-tier burst-scaling provider from high-concurrency benchmark."
+    },
+    {
+      "name": "OR_Novita",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Novita",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "cached_input_price_per_m": 0.03,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
+    },
+    {
+      "name": "OR_AtlasCloud",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "AtlasCloud",
+      "input_price_per_m": 0.295,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues",
+      "notes": "On-demand OpenRouter pin used instead of OR_Minimax so the Minimax physical provider is reserved for the quota tier."
+    },
+    {
+      "name": "OR_Phala",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Phala",
+      "input_price_per_m": 0.20,
+      "output_price_per_m": 1.38,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues",
+      "notes": "B-tier burst-scaling provider from high-concurrency benchmark."
+    },
+    {
+      "name": "OR_SiliconFlow",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "SiliconFlow",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "cached_input_price_per_m": 0.03,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
+    },
+    {
+      "name": "OR_Nebius",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "Nebius",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
+    },
+    {
+      "name": "OR_WandB",
+      "tier": "api",
+      "transport": "openrouter",
+      "provider_hint": "WandB",
+      "input_price_per_m": 0.3,
+      "output_price_per_m": 1.2,
+      "cached_input_price_per_m": 0.3,
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
+    }
+  ],
+  "openrouter_provider_only": [
+    "Minimax",
+    "Chutes",
+    "DeepInfra",
+    "Novita",
+    "AtlasCloud",
+    "Phala",
+    "SiliconFlow",
+    "Nebius",
+    "WandB"
+  ],
+  "notes": "24h workload inventory for compressed real-eval replay. MiniMax Plus quota tier is enforced locally as 21600 requests per 24h workload and physically sent through OpenRouter's official Minimax provider to avoid consuming a shared native MiniMax subscription account. Fallback API pool keeps the eight OR providers from pilot_minimax_plus_direct_or8_top_24h, with AtlasCloud replacing OR_Minimax to avoid duplicate Minimax roles."
+}

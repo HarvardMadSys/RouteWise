@@ -104,6 +104,27 @@ def test_inventory_allows_scaled_subscription_quota_for_fixed_cost_accounting() 
     ) == pytest.approx((20.0 + 25.0) / (30 * 24))
 
 
+def test_or_minimax_subscription_inventory_emulates_24h_quota_via_openrouter() -> None:
+    inventory = load_inventory(
+        "experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_top_24h.json"
+    )
+    specs = {spec.name: spec for spec in inventory.providers}
+
+    minimax = specs["MiniMax_Plus_SQ"]
+    assert minimax.tier == "quota"
+    assert minimax.transport_cfg.transport == "openrouter"
+    assert minimax.transport_cfg.provider_hint == "Minimax"
+    assert minimax.billing_mode == "subscription"
+    assert minimax.quota_requests == 21600
+    assert minimax.quota_window_sec == 86400
+    assert minimax.subscription_plan == "minimax_subscription_plus"
+    assert "OR_Minimax" not in specs
+    assert subscription_fixed_cost_for_inventory(
+        inventory,
+        billing_duration_sec=inventory.billing_duration_sec or 0,
+    ) == pytest.approx((20.0 + 25.0) / 30.0)
+
+
 def _api_only_inventory() -> InventoryConfig:
     """Minimal inventory with no quota- or concurrency-bearing providers."""
     spec = ProviderSpec(
