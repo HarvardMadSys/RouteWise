@@ -763,14 +763,24 @@ class RealExperimentRunner:
         phase: str,
         stop_event: threading.Event | None,
     ) -> None:
-        """Start-to-start cadence with skip-in-flight per provider."""
+        """Start-to-start cadence: every ``round_interval_sec`` fire one probe
+        at every provider, regardless of whether previous probes for that
+        provider have returned.
+
+        Probe-failure samples are silent in non-warmup phases (and a single
+        synthetic 10s sample in warmup), so there is no profile-pollution
+        downside to letting in-flight probes accumulate against a slow
+        provider — and a stuck probe that eventually succeeds is still a
+        useful TTFT observation.
+        """
         all_specs = list(self.inventory.providers)
         if not all_specs:
             return
-        in_flight: dict[str, Future[SingleRequestResult | None]] = {}
+        outstanding: list[Future[SingleRequestResult | None]] = []
         target_round_start = time.time()
-        max_workers = max(1, len(all_specs))
-        skipped_total = 0
+        # Size the pool generously so submits never queue: worst case every
+        # round dispatches against every provider while none have returned.
+        max_workers = max(1, len(all_specs) * probes_per_provider)
         submitted_total = 0
         with ThreadPoolExecutor(
             max_workers=max_workers,
@@ -781,31 +791,24 @@ class RealExperimentRunner:
                     break
                 if self._cost_exhausted("profile_maintenance"):
                     break
-                # Reap completed in-flight probes so their providers are
-                # eligible again this round.
-                for name in [n for n, fut in in_flight.items() if fut.done()]:
-                    in_flight.pop(name, None)
-                eligible: list[ProviderSpec] = []
-                skipped_this_round: list[str] = []
-                for spec in all_specs:
-                    if spec.name in self._providers_missing_api_key:
-                        continue
-                    if spec.name in in_flight:
-                        skipped_this_round.append(spec.name)
-                        continue
-                    eligible.append(spec)
-                if eligible:
-                    submitted_total += len(eligible)
-                    logger.info(
-                        "%s probe round %d/%d submit=%d skip_in_flight=%d",
-                        phase,
-                        round_idx + 1,
-                        probes_per_provider,
-                        len(eligible),
-                        len(skipped_this_round),
-                    )
-                    for spec in eligible:
-                        in_flight[spec.name] = pool.submit(
+                eligible = [
+                    spec
+                    for spec in all_specs
+                    if spec.name not in self._providers_missing_api_key
+                ]
+                if not eligible:
+                    break
+                submitted_total += len(eligible)
+                logger.info(
+                    "%s probe round %d/%d submit=%d",
+                    phase,
+                    round_idx + 1,
+                    probes_per_provider,
+                    len(eligible),
+                )
+                for spec in eligible:
+                    outstanding.append(
+                        pool.submit(
                             self._probe_provider,
                             spec,
                             phase=phase,
@@ -815,34 +818,24 @@ class RealExperimentRunner:
                             stop_event=stop_event,
                             max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
                         )
-                else:
-                    logger.info(
-                        "%s probe round %d/%d all %d providers still in flight; skipping",
-                        phase,
-                        round_idx + 1,
-                        probes_per_provider,
-                        len(skipped_this_round),
                     )
-                skipped_total += len(skipped_this_round)
-                # start-to-start cadence: schedule next round at fixed wall-clock
-                # offset, regardless of how long this round's submits took.
+                # start-to-start cadence: schedule next round at fixed
+                # wall-clock offset, regardless of submit overhead.
                 if round_idx + 1 < probes_per_provider:
                     target_round_start += round_interval_sec
                     sleep_for = target_round_start - time.time()
                     if sleep_for > 0 and self._probe_sleep(sleep_for, stop_event):
                         break
-            # Wait for outstanding probes to complete (or fail) before
-            # returning so the resulting profile reflects every dispatched
-            # probe. Don't honor stop here — the pool's daemon threads would
-            # never report back otherwise.
-            for fut in in_flight.values():
+            # Wait for outstanding probes so every dispatched sample makes it
+            # into the profile before this method returns. Don't honor stop
+            # here — daemon worker threads would otherwise never report back.
+            for fut in outstanding:
                 with contextlib.suppress(Exception):
                     fut.result()
         logger.info(
-            "%s cadenced warmup done: submitted=%d skipped_in_flight=%d",
+            "%s cadenced warmup done: submitted=%d",
             phase,
             submitted_total,
-            skipped_total,
         )
 
     def _probe_profile_round_parallel(

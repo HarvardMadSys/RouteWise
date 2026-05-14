@@ -826,11 +826,12 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     rec.close()
 
 
-def test_warmup_cadenced_start_to_start_and_skip_in_flight(monkeypatch) -> None:
-    """Multi-round warmup uses start-to-start cadence and skips providers
-    whose previous probe has not yet returned. Verifies the
-    ``probes_per_provider > 1 and round_interval_sec > 0`` path used by the
-    actual warmup pipeline (24 rounds at 5s)."""
+def test_warmup_cadenced_start_to_start_fires_every_round(monkeypatch) -> None:
+    """Multi-round warmup uses start-to-start cadence and fires a probe at
+    every provider on every tick, regardless of whether previous probes have
+    returned. Verifies the ``probes_per_provider > 1 and
+    round_interval_sec > 0`` path used by the actual warmup pipeline
+    (24 rounds at 5s)."""
     runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
     providers = list(runner.inventory.providers)
     slow_provider = providers[0].name
@@ -852,8 +853,9 @@ def test_warmup_cadenced_start_to_start_and_skip_in_flight(monkeypatch) -> None:
         with submit_lock:
             submit_ts[provider].append(time.time())
         if provider == slow_provider:
-            # Block until the test releases this probe; the slow provider
-            # is therefore in-flight when the next round ticks.
+            # Block until the test releases this probe; subsequent rounds
+            # must still fire new probes at this provider even though it has
+            # an in-flight probe.
             slow_release.wait(timeout=5.0)
         now = time.time()
         return SingleRequestResult(
@@ -878,9 +880,8 @@ def test_warmup_cadenced_start_to_start_and_skip_in_flight(monkeypatch) -> None:
         )
 
     worker = threading.Thread(target=run_probe)
-    started = time.time()
     worker.start()
-    # Let two rounds tick past while the slow provider stays blocked, then
+    # Let all 3 rounds tick past while the slow provider stays blocked, then
     # release it so the run can drain.
     time.sleep(0.35)
     slow_release.set()
@@ -902,17 +903,13 @@ def test_warmup_cadenced_start_to_start_and_skip_in_flight(monkeypatch) -> None:
             f"start-to-start cadence violated: gap={gap:.3f}s "
             f"(expected ~0.1s, tolerated 0.07-0.5s)"
         )
-    # Slow provider's probe stays in flight across rounds, so it only gets
-    # submitted once over the first 2 ticks; the 3rd tick may re-submit if
-    # release happened earlier than tick 3.
+    # Slow provider stays blocked across all 3 ticks but we still fire 3
+    # probes against it — they accumulate in-flight until release.
     slow_calls = submit_ts[slow_provider]
-    assert 1 <= len(slow_calls) <= 2, (
-        f"in-flight skip should limit slow provider submits, got {len(slow_calls)}"
+    assert len(slow_calls) == 3, (
+        f"every round should still fire a probe at the slow provider, "
+        f"got {len(slow_calls)}"
     )
-    # Whole run should be roughly probes_per_provider * round_interval_sec,
-    # not slowed down by the blocked provider.
-    elapsed = time.time() - started
-    assert elapsed < 1.5, f"cadenced warmup took {elapsed:.2f}s; expected ≤1.5s"
     rec.close()
 
 
