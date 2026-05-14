@@ -826,17 +826,33 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     rec.close()
 
 
-def test_warmup_cadenced_start_to_start_fires_every_round(monkeypatch) -> None:
-    """Multi-round warmup uses start-to-start cadence and fires a probe at
-    every provider on every tick, regardless of whether previous probes have
-    returned. Verifies the ``probes_per_provider > 1 and
-    round_interval_sec > 0`` path used by the actual warmup pipeline
-    (24 rounds at 5s)."""
+def test_warmup_cadenced_skips_concurrency_limited_provider_in_flight(
+    monkeypatch,
+) -> None:
+    """Multi-round cadenced warmup:
+
+    - Uses start-to-start cadence (fast provider sees 3 probes at ~0.1s gaps)
+    - Providers without ``concurrency_limit`` get a probe every round even
+      while a previous probe is still in flight (no real production traffic
+      can be displaced from a slot they don't have)
+    - Providers WITH ``concurrency_limit`` (Featherless_SC = 1) get
+      skip-in-flight, so our probe never occupies the only account slot
+      while real production traffic also needs it.
+    """
     runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
     providers = list(runner.inventory.providers)
-    slow_provider = providers[0].name
-    slow_release = threading.Event()
-
+    capped_in_flight = next(
+        p for p in providers if p.concurrency_limit is not None
+    ).name
+    uncapped_in_flight = next(
+        p for p in providers if p.concurrency_limit is None
+    ).name
+    fast_provider = next(
+        p
+        for p in providers
+        if p.name not in (capped_in_flight, uncapped_in_flight)
+    ).name
+    release = threading.Event()
     submit_ts: dict[str, list[float]] = {p.name: [] for p in providers}
     submit_lock = threading.Lock()
 
@@ -852,11 +868,8 @@ def test_warmup_cadenced_start_to_start_fires_every_round(monkeypatch) -> None:
         del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
         with submit_lock:
             submit_ts[provider].append(time.time())
-        if provider == slow_provider:
-            # Block until the test releases this probe; subsequent rounds
-            # must still fire new probes at this provider even though it has
-            # an in-flight probe.
-            slow_release.wait(timeout=5.0)
+        if provider in (capped_in_flight, uncapped_in_flight):
+            release.wait(timeout=5.0)
         now = time.time()
         return SingleRequestResult(
             ttft_ms=50.0,
@@ -881,34 +894,35 @@ def test_warmup_cadenced_start_to_start_fires_every_round(monkeypatch) -> None:
 
     worker = threading.Thread(target=run_probe)
     worker.start()
-    # Let all 3 rounds tick past while the slow provider stays blocked, then
-    # release it so the run can drain.
     time.sleep(0.35)
-    slow_release.set()
+    release.set()
     worker.join(timeout=10.0)
     assert not worker.is_alive(), "probe_profiles should return after release"
 
-    fast_provider = providers[1].name
     fast_calls = submit_ts[fast_provider]
-    # 3 rounds at 0.1s cadence: fast provider gets exactly 3 probes.
     assert len(fast_calls) == 3, (
-        f"fast provider should see 3 probes (one per round), got {len(fast_calls)}"
+        f"fast provider should see 3 probes (one per round), "
+        f"got {len(fast_calls)}"
     )
-    # Cadence is start-to-start: gaps should be ~round_interval, not 0.
     import itertools
 
     for prev, nxt in itertools.pairwise(fast_calls):
         gap = nxt - prev
         assert 0.07 <= gap <= 0.5, (
             f"start-to-start cadence violated: gap={gap:.3f}s "
-            f"(expected ~0.1s, tolerated 0.07-0.5s)"
+            f"(expected ~0.1s)"
         )
-    # Slow provider stays blocked across all 3 ticks but we still fire 3
-    # probes against it — they accumulate in-flight until release.
-    slow_calls = submit_ts[slow_provider]
-    assert len(slow_calls) == 3, (
-        f"every round should still fire a probe at the slow provider, "
-        f"got {len(slow_calls)}"
+    # Uncapped slow provider: probed every tick despite in-flight.
+    assert len(submit_ts[uncapped_in_flight]) == 3, (
+        f"uncapped slow provider should be probed every round, got "
+        f"{len(submit_ts[uncapped_in_flight])}"
+    )
+    # Capped slow provider: first probe submitted, subsequent rounds skip
+    # until the in-flight one returns. Worker releases after all 3 ticks,
+    # so we expect exactly 1 submit.
+    assert len(submit_ts[capped_in_flight]) == 1, (
+        f"capped slow provider should be skipped while in flight, got "
+        f"{len(submit_ts[capped_in_flight])}"
     )
     rec.close()
 

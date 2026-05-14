@@ -72,10 +72,9 @@ from experiments.real_evaluation.transports import (
 
 DEFAULT_TIMEOUT_SEC: int = 60
 # Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.
-# Each round fires probes against every provider concurrently; if a provider's
-# previous probe is still in flight when the next round ticks, that provider
-# is skipped for the round (no probe spam, at most one in-flight probe per
-# provider at any time).
+# Each round fires probes against every provider concurrently. Slow providers
+# may accumulate more than one in-flight probe across rounds; each transport
+# call is still bounded by the request timeout.
 DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 24
 DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 5.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
@@ -675,10 +674,9 @@ class RealExperimentRunner:
 
         ``round_interval_sec`` is **start-to-start** cadence: round ``N+1``
         begins ``round_interval_sec`` after round ``N`` started, regardless of
-        how long round ``N``'s probes take. If a provider's previous probe is
-        still in flight when the next round ticks, that provider is skipped
-        for the round (no probe spam; at most one in-flight probe per provider
-        at any time).
+        how long round ``N``'s probes take. The cadenced path fires a probe at
+        every provider each round, so slow providers may have multiple
+        in-flight probes.
 
         When ``round_interval_sec <= 0`` or ``probes_per_provider == 1`` the
         loop falls back to the simple synchronous path used by periodic /
@@ -763,25 +761,34 @@ class RealExperimentRunner:
         phase: str,
         stop_event: threading.Event | None,
     ) -> None:
-        """Start-to-start cadence: every ``round_interval_sec`` fire one probe
-        at every provider, regardless of whether previous probes for that
-        provider have returned.
+        """Start-to-start cadence: every ``round_interval_sec`` fire one
+        probe at every provider.
 
-        Probe-failure samples are silent in non-warmup phases (and a single
-        synthetic 10s sample in warmup), so there is no profile-pollution
-        downside to letting in-flight probes accumulate against a slow
-        provider — and a stuck probe that eventually succeeds is still a
+        A provider with ``concurrency_limit`` set (e.g. Featherless's
+        subscription tier, where the account holds only N concurrent slots)
+        gets skip-in-flight: if its previous probe is still cooking when
+        the next tick arrives, this round skips it. Otherwise our probe
+        would occupy the only slot and force real production traffic to
+        429 — which *does* poison the profile via ``error_samples``.
+
+        Providers without a concurrency cap (OpenRouter pinned endpoints,
+        native quota tiers) get a probe on every tick regardless of
+        in-flight state. Probe failures are silent in non-warmup phases, so
+        accumulating in-flight probes against a slow provider has no
+        profile-pollution downside and a late-returning probe is still a
         useful TTFT observation.
         """
         all_specs = list(self.inventory.providers)
         if not all_specs:
             return
+        in_flight: dict[str, Future[SingleRequestResult | None]] = {}
         outstanding: list[Future[SingleRequestResult | None]] = []
         target_round_start = time.time()
         # Size the pool generously so submits never queue: worst case every
         # round dispatches against every provider while none have returned.
         max_workers = max(1, len(all_specs) * probes_per_provider)
         submitted_total = 0
+        skipped_total = 0
         with ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix=f"real-eval-{phase}-cadenced",
@@ -791,24 +798,35 @@ class RealExperimentRunner:
                     break
                 if self._cost_exhausted("profile_maintenance"):
                     break
-                eligible = [
-                    spec
-                    for spec in all_specs
-                    if spec.name not in self._providers_missing_api_key
-                ]
-                if not eligible:
-                    break
-                submitted_total += len(eligible)
-                logger.info(
-                    "%s probe round %d/%d submit=%d",
-                    phase,
-                    round_idx + 1,
-                    probes_per_provider,
-                    len(eligible),
-                )
-                for spec in eligible:
-                    outstanding.append(
-                        pool.submit(
+                # Reap finished concurrency-limited slots so they're eligible
+                # again this round.
+                for name in [n for n, fut in in_flight.items() if fut.done()]:
+                    in_flight.pop(name, None)
+                eligible: list[ProviderSpec] = []
+                skipped_this_round = 0
+                for spec in all_specs:
+                    if spec.name in self._providers_missing_api_key:
+                        continue
+                    if (
+                        spec.concurrency_limit is not None
+                        and spec.name in in_flight
+                    ):
+                        skipped_this_round += 1
+                        continue
+                    eligible.append(spec)
+                skipped_total += skipped_this_round
+                if eligible:
+                    submitted_total += len(eligible)
+                    logger.info(
+                        "%s probe round %d/%d submit=%d skip_in_flight=%d",
+                        phase,
+                        round_idx + 1,
+                        probes_per_provider,
+                        len(eligible),
+                        skipped_this_round,
+                    )
+                    for spec in eligible:
+                        fut = pool.submit(
                             self._probe_provider,
                             spec,
                             phase=phase,
@@ -818,6 +836,17 @@ class RealExperimentRunner:
                             stop_event=stop_event,
                             max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
                         )
+                        outstanding.append(fut)
+                        if spec.concurrency_limit is not None:
+                            in_flight[spec.name] = fut
+                else:
+                    logger.info(
+                        "%s probe round %d/%d submit=0 skip_in_flight=%d "
+                        "(all eligible providers concurrency-locked)",
+                        phase,
+                        round_idx + 1,
+                        probes_per_provider,
+                        skipped_this_round,
                     )
                 # start-to-start cadence: schedule next round at fixed
                 # wall-clock offset, regardless of submit overhead.
@@ -826,16 +855,18 @@ class RealExperimentRunner:
                     sleep_for = target_round_start - time.time()
                     if sleep_for > 0 and self._probe_sleep(sleep_for, stop_event):
                         break
-            # Wait for outstanding probes so every dispatched sample makes it
-            # into the profile before this method returns. Don't honor stop
-            # here — daemon worker threads would otherwise never report back.
+            # Wait for outstanding probes so every dispatched sample makes
+            # it into the profile before this method returns. Don't honor
+            # stop here — daemon worker threads would otherwise never
+            # report back.
             for fut in outstanding:
                 with contextlib.suppress(Exception):
                     fut.result()
         logger.info(
-            "%s cadenced warmup done: submitted=%d",
+            "%s cadenced warmup done: submitted=%d skipped_in_flight=%d",
             phase,
             submitted_total,
+            skipped_total,
         )
 
     def _probe_profile_round_parallel(
