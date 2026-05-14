@@ -6,6 +6,7 @@ raw per-request logs into paper metrics and emits:
 
 * one single-panel cost vs. mean TTFT figure;
 * one single-panel cost vs. SLO-violation figure; and
+* one single-panel TTFT CDF figure; and
 * a LaTeX table-row fragment consumed by ``paper/sections/05-evaluation.tex``.
 
 Example:
@@ -37,6 +38,16 @@ from plots.style import apply_style
 ROUTEWISE_PREFIX = "budget_range_p"
 ROUTEWISE_HEDGE_SUFFIX = "_hedge"
 ROUTEWISE_COLOR = "#2f6f73"
+ROUTEWISE_FRONTIER_PLOT_ALPHA = 0.25
+DEFAULT_FIGURE_POLICIES = (
+    "budget_range_p25_hedge",
+    "greedy_cost",
+    "greedy_latency",
+    "or_auto",
+    "or_sort_cost",
+    "or_sort_latency",
+    "random",
+)
 BASELINE_ORDER = (
     "greedy_cost",
     "greedy_latency",
@@ -78,7 +89,7 @@ ROUTEWISE_LABEL_OFFSETS = {
 ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
     "slo_violation_rate": {
         0.0: (5, 8),
-        0.25: (5, 7),
+        0.25: (5, -14),
         0.5: (5, 7),
         0.75: (5, 8),
         1.0: (5, 8),
@@ -94,10 +105,10 @@ ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
 BASELINE_LABEL_OFFSET = (4, 3)
 BASELINE_LABEL_OFFSETS_BY_METRIC = {
     "slo_violation_rate": {
-        "greedy_cost": (6, -7),
+        "greedy_cost": (-6, -10),
         "greedy_latency": (6, -9),
         "or_auto": (6, 4),
-        "or_sort_cost": (6, -8),
+        "or_sort_cost": (8, -11),
         "or_sort_latency": (6, 5),
         "random": (6, 4),
     },
@@ -133,6 +144,26 @@ PROVIDER_MIX_COLORS = {
     "OR_Novita": "#e377c2",
     "OR_Phala": "#bcbd22",
     "OR_SiliconFlow": "#7f7f7f",
+}
+DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
+DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
+CDF_COLORS = {
+    "budget_range_p25_hedge": ROUTEWISE_COLOR,
+    "greedy_cost": POLICY_COLORS["greedy_cost"],
+    "greedy_latency": POLICY_COLORS["greedy_latency"],
+    "or_auto": POLICY_COLORS["or_auto"],
+    "or_sort_cost": POLICY_COLORS["or_sort_cost"],
+    "or_sort_latency": POLICY_COLORS["or_sort_latency"],
+    "random": POLICY_COLORS["random"],
+}
+CDF_LINESTYLES = {
+    "budget_range_p25_hedge": "solid",
+    "greedy_cost": (0, (3, 2)),
+    "greedy_latency": (0, (5, 1.6)),
+    "or_auto": (0, (1.5, 1.5)),
+    "or_sort_cost": (0, (5, 2)),
+    "or_sort_latency": (0, (3, 1.2, 1, 1.2)),
+    "random": (0, (1, 1.2)),
 }
 
 
@@ -228,6 +259,27 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional output path for a provider-mix stacked-bar PDF.",
+    )
+    parser.add_argument(
+        "--provider-latency-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a provider mean-TTFT bar PDF.",
+    )
+    parser.add_argument(
+        "--cdf-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a TTFT CDF PDF.",
+    )
+    parser.add_argument(
+        "--cdf-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy directory names to include in the TTFT CDF. "
+            "Defaults to representative RouteWise and OpenRouter policies."
+        ),
     )
     parser.add_argument(
         "--provider-diagnostics-table-out",
@@ -504,11 +556,11 @@ def policy_plot_label(policy: str) -> str:
     if alpha is not None:
         return f"RW $\\alpha={alpha:g}$+H"
     labels = {
-        "greedy_cost": "Greedy cost",
-        "greedy_latency": "Greedy lat.",
+        "greedy_cost": "Greedy-cost",
+        "greedy_latency": "Greedy-latency",
         "or_auto": "OR auto",
         "or_sort_cost": "OR price",
-        "or_sort_latency": "OR lat.",
+        "or_sort_latency": "OR latency",
         "random": "Random",
     }
     return labels.get(policy, policy.replace("_", " "))
@@ -534,7 +586,10 @@ def selected_policy_dirs(args: argparse.Namespace) -> list[Path]:
 def selected_provider_mix_dirs(args: argparse.Namespace) -> list[Path]:
     if args.provider_mix_policies:
         return [args.input_dir / policy for policy in args.provider_mix_policies]
-    return selected_policy_dirs(args)
+    policies = list(DEFAULT_PROVIDER_MIX_POLICIES)
+    if not args.include_random:
+        policies = [policy for policy in policies if policy != "random"]
+    return [args.input_dir / policy for policy in policies]
 
 
 def provider_mix_by_policy(
@@ -572,7 +627,7 @@ def plot_provider_mix(
             "xtick.labelsize": 6.5,
             "ytick.labelsize": 6.5,
             "legend.fontsize": 5.2,
-            "figure.figsize": (3.35, 2.2),
+            "figure.figsize": (3.35, 2.55),
             "savefig.pad_inches": 0.01,
         }
     )
@@ -581,7 +636,7 @@ def plot_provider_mix(
     policies = list(per_policy)
     y = list(range(len(policies)))
     left = [0.0] * len(policies)
-    fig, ax = plt.subplots(figsize=(3.35, 2.2), constrained_layout=False)
+    fig, ax = plt.subplots(figsize=(3.35, 2.55), constrained_layout=False)
     color_map = {
         provider: PROVIDER_MIX_COLORS.get(
             provider, PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)]
@@ -620,7 +675,7 @@ def plot_provider_mix(
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.28, right=0.99, bottom=0.16, top=0.79)
+    fig.subplots_adjust(left=0.34, right=0.99, bottom=0.16, top=0.79)
     fig.legend(
         handles,
         labels,
@@ -729,6 +784,164 @@ def write_provider_diagnostics_table(
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def plot_provider_latency(
+    diagnostics: list[ProviderDiagnostics],
+    output_path: Path,
+) -> None:
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 7.5,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "figure.figsize": (3.35, 2.2),
+            "savefig.pad_inches": 0.01,
+        }
+    )
+    items = [
+        item
+        for item in diagnostics
+        if item.n > 0 and not math.isnan(item.mean_ttft_ms)
+    ]
+    items = sorted(items, key=lambda item: item.mean_ttft_ms)
+    labels = [provider_mix_legend_label(item.provider) for item in items]
+    values = [item.mean_ttft_ms / 1000.0 for item in items]
+    colors = [
+        PROVIDER_MIX_COLORS.get(
+            item.provider,
+            PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
+        )
+        for idx, item in enumerate(items)
+    ]
+
+    fig, ax = plt.subplots(figsize=(3.35, 2.2), constrained_layout=False)
+    y = list(range(len(items)))
+    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.72)
+    ax.set_yticks(y, labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("Mean TTFT (s)")
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.subplots_adjust(left=0.29, right=0.99, bottom=0.16, top=0.97)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path)
+    plt.close(fig)
+
+
+def cdf_policy_label(policy: str) -> str:
+    alpha = parse_alpha(policy)
+    if alpha is not None:
+        hedge = "+H" if policy.endswith(ROUTEWISE_HEDGE_SUFFIX) else ""
+        return rf"RW $\alpha={alpha:g}${hedge}"
+    return PLOT_LABELS.get(policy, policy.replace("_", " "))
+
+
+def policy_ttft_samples(policy_dir: Path) -> list[float]:
+    samples: list[float] = []
+    for row in read_policy_rows(policy_dir):
+        raw = row.get("ttft_ms")
+        if raw in {"", None}:
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if math.isfinite(value) and value >= 0.0:
+            samples.append(value)
+    return sorted(samples)
+
+
+def selected_cdf_dirs(args: argparse.Namespace) -> list[Path]:
+    policies = list(args.cdf_policies or DEFAULT_CDF_POLICIES)
+    if not args.include_random:
+        policies = [policy for policy in policies if policy != "random"]
+    dirs = [args.input_dir / policy for policy in policies]
+    missing = [path.name for path in dirs if not (path / "requests.csv").exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"{args.input_dir}: missing CDF policy outputs: {missing}"
+        )
+    return dirs
+
+
+def plot_ttft_cdf(args: argparse.Namespace, output_path: Path) -> None:
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 7.5,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 5.4,
+            "figure.figsize": (3.35, 2.25),
+            "savefig.pad_inches": 0.01,
+        }
+    )
+    series: list[tuple[str, list[float]]] = []
+    p99_values: list[float] = []
+    p99_values_for_axis: list[float] = []
+    for policy_dir in selected_cdf_dirs(args):
+        samples = policy_ttft_samples(policy_dir)
+        if not samples:
+            continue
+        series.append((policy_dir.name, samples))
+        p99 = percentile(samples, 99.0)
+        p99_values.append(p99)
+        if policy_dir.name != "random":
+            p99_values_for_axis.append(p99)
+    if not series:
+        raise ValueError(f"{args.input_dir}: no valid TTFT samples for CDF")
+
+    fig, ax = plt.subplots(figsize=(3.35, 2.25), constrained_layout=False)
+    for policy, samples in series:
+        n = len(samples)
+        y = [(idx + 1) / n for idx in range(n)]
+        ax.step(
+            [value / 1000.0 for value in samples],
+            y,
+            where="post",
+            color=CDF_COLORS.get(policy, POLICY_COLORS.get(policy, "#555555")),
+            linestyle=CDF_LINESTYLES.get(policy, "solid"),
+            linewidth=1.25,
+            label=cdf_policy_label(policy),
+        )
+
+    slo_sec = args.slo_ms / 1000.0
+    ax.axvline(slo_sec, color="#444444", linewidth=0.8, linestyle=":")
+    ax.text(
+        slo_sec + 0.12,
+        0.08,
+        f"{slo_sec:g}s SLO",
+        color="#444444",
+        fontsize=5.8,
+        ha="left",
+        va="bottom",
+    )
+    axis_p99_values = p99_values_for_axis or p99_values
+    x_max = max(slo_sec * 4.0, max(axis_p99_values) / 1000.0 * 1.05)
+    ax.set_xlim(0.0, x_max)
+    ax.set_ylim(0.0, 1.01)
+    ax.set_xlabel("TTFT (s)")
+    ax.set_ylabel("CDF")
+    ax.grid(True, linewidth=0.35, alpha=0.35)
+    ax.legend(
+        frameon=False,
+        loc="lower right",
+        ncols=2,
+        handlelength=1.6,
+        columnspacing=0.7,
+        labelspacing=0.25,
+    )
+    fig.subplots_adjust(left=0.14, right=0.99, bottom=0.16, top=0.98)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path)
+    plt.close(fig)
 
 
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
@@ -875,22 +1088,26 @@ def plot_metric_frontier(
         }
     )
 
-    routewise = [s for s in summaries if s.alpha is not None]
+    routewise = [
+        s
+        for s in summaries
+        if s.alpha is not None
+        and math.isclose(s.alpha, ROUTEWISE_FRONTIER_PLOT_ALPHA)
+    ]
     baselines = [s for s in summaries if s.alpha is None]
     fig, ax = plt.subplots(figsize=(3.35, 2.25), constrained_layout=True)
 
-    if routewise:
-        has_hedging = any(s.policy.endswith(ROUTEWISE_HEDGE_SUFFIX) for s in routewise)
-        ax.plot(
-            [s.total_cost_usd for s in routewise],
-            [metric_value(s, attr) for s in routewise],
-            color=ROUTEWISE_COLOR,
-            marker="o",
-            linewidth=1.4,
-            markersize=4.2,
-            label="RouteWise + hedge" if has_hedging else "RouteWise",
-        )
     for summary in routewise:
+        ax.scatter(
+            summary.total_cost_usd,
+            metric_value(summary, attr),
+            marker="o",
+            s=30,
+            color=ROUTEWISE_COLOR,
+            edgecolor="white",
+            linewidth=0.5,
+            zorder=4,
+        )
         annotate(
             ax,
             summary,
@@ -974,14 +1191,21 @@ def main() -> int:
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)
     diagnostics: list[ProviderDiagnostics] | None = None
+    if args.cdf_out is not None:
+        plot_ttft_cdf(args, args.cdf_out)
+        print(f"wrote {args.cdf_out}")
     if args.provider_mix_out is not None:
         plot_provider_mix(args, providers, hint_to_name, args.provider_mix_out)
         print(f"wrote {args.provider_mix_out}")
     if (
         args.provider_diagnostics_table_out is not None
         or args.provider_summary_out is not None
+        or args.provider_latency_out is not None
     ):
         diagnostics = provider_diagnostics(args, providers, hint_to_name)
+    if args.provider_latency_out is not None and diagnostics is not None:
+        plot_provider_latency(diagnostics, args.provider_latency_out)
+        print(f"wrote {args.provider_latency_out}")
     if args.provider_diagnostics_table_out is not None and diagnostics is not None:
         write_provider_diagnostics_table(
             diagnostics,
