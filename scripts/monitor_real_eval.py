@@ -736,7 +736,7 @@ def load_run_env(base_dir: Path) -> dict[str, str]:
     return env
 
 
-def render_snapshot(base_dir: Path) -> str:
+def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
     now = time.time()
     run_env = load_run_env(base_dir)
     default_slo_ms = float(run_env.get("SLO_MS") or 3000.0)
@@ -746,7 +746,13 @@ def render_snapshot(base_dir: Path) -> str:
 
     policy_dirs = discover_policies(base_dir)
     if not policy_dirs:
-        return f"no policy subdirectories found under {base_dir}"
+        msg = f"no policy subdirectories found under {base_dir}"
+        return msg, {
+            "snapshot_ts": now,
+            "output_dir": str(base_dir),
+            "n_policies": 0,
+            "message": msg,
+        }
 
     trace_total: int | None = None
     trace_time_sec: float | None = None
