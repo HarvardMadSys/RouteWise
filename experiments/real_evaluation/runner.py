@@ -19,6 +19,7 @@ lines 1046-1600. Differences:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import json
 import logging
@@ -27,7 +28,7 @@ import sys
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -70,17 +71,26 @@ from experiments.real_evaluation.transports import (
 )
 
 DEFAULT_TIMEOUT_SEC: int = 60
-DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 5
-DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 180.0
+# Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.
+# Each round fires probes against every provider concurrently; if a provider's
+# previous probe is still in flight when the next round ticks, that provider
+# is skipped for the round (no probe spam, at most one in-flight probe per
+# provider at any time).
+DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 24
+DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 5.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
 DEFAULT_PROFILE_PROBE_PARALLELISM: int = 0
 DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
-# Cap probe retries so a rate-limiting / failing provider can't stall the
-# probe round. On exhaustion we synthesize a degraded but bounded latency
-# sample (see ``PROBE_FAILURE_FALLBACK_TTFT_MS``) so the LP still sees the
-# provider as "currently slow" rather than dropping it from the profile.
-DEFAULT_PROBE_MAX_ATTEMPTS: int = 3
+# Probes are exogenous observations: if a request fails we do not retry and
+# do not poison the latency profile. Real-request feedback (which is what the
+# routing policy actually cares about) keeps using the existing error-sample
+# path with ``RATE_LIMIT_ERROR_PENALTY_MS``.
+#
+# Warmup is the only exception: if a provider keeps failing during warmup we
+# inject one ``PROBE_FAILURE_FALLBACK_TTFT_MS`` sample so the LP can still
+# tentatively rank the provider instead of leaving it unprofiled forever.
+DEFAULT_PROBE_MAX_ATTEMPTS: int = 1
 PROBE_FAILURE_FALLBACK_TTFT_MS: float = 10_000.0
 WARMUP_PROBE_PROMPT: str = "Write a one-sentence greeting."
 SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE: str = (
@@ -663,17 +673,53 @@ class RealExperimentRunner:
     ) -> None:
         """Probe every provider and broadcast observations to all policies.
 
-        This is profile-maintenance infrastructure. It is intentionally shared
-        across policies so probe traffic does not multiply by policy count.
-        Transient provider failures are retried until the provider yields one
-        successful TTFT sample. Providers whose API key env var is unset in
-        this process get skipped on first encounter (with a one-time warning)
-        so e.g. OR-only baselines launched without CHUTES_API_KEY /
-        FEATHERLESS_API_KEY don't crash the prober — those policies never
-        dispatch real traffic to the skipped providers anyway.
+        ``round_interval_sec`` is **start-to-start** cadence: round ``N+1``
+        begins ``round_interval_sec`` after round ``N`` started, regardless of
+        how long round ``N``'s probes take. If a provider's previous probe is
+        still in flight when the next round ticks, that provider is skipped
+        for the round (no probe spam; at most one in-flight probe per provider
+        at any time).
+
+        When ``round_interval_sec <= 0`` or ``probes_per_provider == 1`` the
+        loop falls back to the simple synchronous path used by periodic /
+        single-shot calls.
+
+        Providers whose API key env var is unset in this process get skipped
+        on first encounter (with a one-time warning) so e.g. OR-only
+        baselines launched without CHUTES_API_KEY / FEATHERLESS_API_KEY don't
+        crash the prober — those policies never dispatch real traffic to the
+        skipped providers anyway.
         """
         if probes_per_provider <= 0:
             return
+        if probes_per_provider == 1 or round_interval_sec <= 0:
+            self._probe_profiles_synchronous(
+                probes_per_provider=probes_per_provider,
+                sleep_sec=sleep_sec,
+                round_interval_sec=round_interval_sec,
+                phase=phase,
+                stop_event=stop_event,
+                parallelism=parallelism,
+            )
+            return
+        self._probe_profiles_cadenced(
+            probes_per_provider=probes_per_provider,
+            sleep_sec=sleep_sec,
+            round_interval_sec=round_interval_sec,
+            phase=phase,
+            stop_event=stop_event,
+        )
+
+    def _probe_profiles_synchronous(
+        self,
+        *,
+        probes_per_provider: int,
+        sleep_sec: float,
+        round_interval_sec: float,
+        phase: str,
+        stop_event: threading.Event | None,
+        parallelism: int,
+    ) -> None:
         for round_idx in range(probes_per_provider):
             if self._probe_stop_requested(stop_event):
                 return
@@ -707,6 +753,97 @@ class RealExperimentRunner:
                 )
                 if self._probe_sleep(round_interval_sec, stop_event):
                     return
+
+    def _probe_profiles_cadenced(
+        self,
+        *,
+        probes_per_provider: int,
+        sleep_sec: float,
+        round_interval_sec: float,
+        phase: str,
+        stop_event: threading.Event | None,
+    ) -> None:
+        """Start-to-start cadence with skip-in-flight per provider."""
+        all_specs = list(self.inventory.providers)
+        if not all_specs:
+            return
+        in_flight: dict[str, Future[SingleRequestResult | None]] = {}
+        target_round_start = time.time()
+        max_workers = max(1, len(all_specs))
+        skipped_total = 0
+        submitted_total = 0
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=f"real-eval-{phase}-cadenced",
+        ) as pool:
+            for round_idx in range(probes_per_provider):
+                if self._probe_stop_requested(stop_event):
+                    break
+                if self._cost_exhausted("profile_maintenance"):
+                    break
+                # Reap completed in-flight probes so their providers are
+                # eligible again this round.
+                for name in [n for n, fut in in_flight.items() if fut.done()]:
+                    in_flight.pop(name, None)
+                eligible: list[ProviderSpec] = []
+                skipped_this_round: list[str] = []
+                for spec in all_specs:
+                    if spec.name in self._providers_missing_api_key:
+                        continue
+                    if spec.name in in_flight:
+                        skipped_this_round.append(spec.name)
+                        continue
+                    eligible.append(spec)
+                if eligible:
+                    submitted_total += len(eligible)
+                    logger.info(
+                        "%s probe round %d/%d submit=%d skip_in_flight=%d",
+                        phase,
+                        round_idx + 1,
+                        probes_per_provider,
+                        len(eligible),
+                        len(skipped_this_round),
+                    )
+                    for spec in eligible:
+                        in_flight[spec.name] = pool.submit(
+                            self._probe_provider,
+                            spec,
+                            phase=phase,
+                            round_idx=round_idx,
+                            probes_per_provider=probes_per_provider,
+                            retry_sleep_sec=sleep_sec,
+                            stop_event=stop_event,
+                            max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
+                        )
+                else:
+                    logger.info(
+                        "%s probe round %d/%d all %d providers still in flight; skipping",
+                        phase,
+                        round_idx + 1,
+                        probes_per_provider,
+                        len(skipped_this_round),
+                    )
+                skipped_total += len(skipped_this_round)
+                # start-to-start cadence: schedule next round at fixed wall-clock
+                # offset, regardless of how long this round's submits took.
+                if round_idx + 1 < probes_per_provider:
+                    target_round_start += round_interval_sec
+                    sleep_for = target_round_start - time.time()
+                    if sleep_for > 0 and self._probe_sleep(sleep_for, stop_event):
+                        break
+            # Wait for outstanding probes to complete (or fail) before
+            # returning so the resulting profile reflects every dispatched
+            # probe. Don't honor stop here — the pool's daemon threads would
+            # never report back otherwise.
+            for fut in in_flight.values():
+                with contextlib.suppress(Exception):
+                    fut.result()
+        logger.info(
+            "%s cadenced warmup done: submitted=%d skipped_in_flight=%d",
+            phase,
+            submitted_total,
+            skipped_total,
+        )
 
     def _probe_profile_round_parallel(
         self,
@@ -901,28 +1038,40 @@ class RealExperimentRunner:
             ):
                 return None
 
-        # All attempts exhausted. Record a synthetic degraded-latency sample
-        # so the rolling profile reflects "this provider is currently bad"
-        # rather than going empty (which would make the LP either fall back
-        # to the unprofiled sentinel or stop considering this provider).
-        synthetic_ts = time.time()
-        self._broadcast_synthetic_probe_sample(
-            spec.name,
-            synthetic_ts,
-            ttft_ms=PROBE_FAILURE_FALLBACK_TTFT_MS,
-        )
-        logger.warning(
-            (
-                "%s probe round %d/%d %s exhausted %d attempts; recording "
-                "synthetic ttft=%.0fms sample and skipping"
-            ),
-            phase,
-            round_idx + 1,
-            probes_per_provider,
-            spec.name,
-            max_attempts,
-            PROBE_FAILURE_FALLBACK_TTFT_MS,
-        )
+        # All attempts exhausted. Warmup is the only phase that injects a
+        # synthetic sample, so the LP can still tentatively rank a provider
+        # that failed during startup. Replay-time probes (periodic / shared
+        # sidecar) stay silent: probe failures must not poison the routing
+        # profile. Real-request 429s use the ``error_samples`` path with
+        # ``RATE_LIMIT_ERROR_PENALTY_MS`` instead.
+        if phase == "warmup":
+            synthetic_ts = time.time()
+            self._broadcast_synthetic_probe_sample(
+                spec.name,
+                synthetic_ts,
+                ttft_ms=PROBE_FAILURE_FALLBACK_TTFT_MS,
+            )
+            logger.warning(
+                (
+                    "warmup probe round %d/%d %s exhausted %d attempt(s); "
+                    "recording synthetic ttft=%.0fms sample"
+                ),
+                round_idx + 1,
+                probes_per_provider,
+                spec.name,
+                max_attempts,
+                PROBE_FAILURE_FALLBACK_TTFT_MS,
+            )
+        else:
+            logger.warning(
+                "%s probe round %d/%d %s exhausted %d attempt(s); not "
+                "recording a sample",
+                phase,
+                round_idx + 1,
+                probes_per_provider,
+                spec.name,
+                max_attempts,
+            )
         return None
 
     def _broadcast_synthetic_probe_sample(

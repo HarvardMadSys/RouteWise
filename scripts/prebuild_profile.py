@@ -15,6 +15,7 @@ from experiments.real_evaluation.runner import (
     DEFAULT_PROFILE_PROBE_PARALLELISM,
     DEFAULT_PROFILE_PROBE_SLEEP_SEC,
     DEFAULT_TIMEOUT_SEC,
+    DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
     DEFAULT_WARMUP_PROBES_PER_PROVIDER,
     RealExperimentRunner,
 )
@@ -40,7 +41,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PROFILE_PROBE_PARALLELISM,
         help="Max concurrent provider probes per round. Use 0 for all providers.",
     )
-    parser.add_argument("--round-interval-sec", type=float, default=0.0)
+    parser.add_argument(
+        "--round-interval-sec",
+        type=float,
+        default=DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
+        help=(
+            "Start-to-start cadence between probe rounds. With 24 rounds and "
+            "5s cadence the warmup runs ≈2 minutes total."
+        ),
+    )
     parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
     parser.add_argument("--profile-window-sec", type=float, default=15 * 60.0)
     parser.add_argument("--max-cost-usd", type=float, default=5.0)

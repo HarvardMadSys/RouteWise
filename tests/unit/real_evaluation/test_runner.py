@@ -758,63 +758,11 @@ def test_warmup_probes_providers_in_parallel(monkeypatch) -> None:
     rec.close()
 
 
-def test_profile_probe_retries_provider_until_success(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
-    first_provider = runner.inventory.providers[0].name
-    calls: dict[str, int] = {}
-
-    def fake_send_via_transport(
-        provider: str,
-        prompt: str,
-        max_tokens: int,
-        timeout: int,
-        ttft_event: threading.Event | None,
-        ttft_info: dict[str, Any] | None,
-        cancel_event: threading.Event | None = None,
-    ) -> SingleRequestResult:
-        del max_tokens, timeout, ttft_event, ttft_info, cancel_event
-        assert prompt == WARMUP_PROBE_PROMPT
-        calls[provider] = calls.get(provider, 0) + 1
-        if provider == first_provider and calls[provider] == 1:
-            return SingleRequestResult(
-                ttft_ms=-1.0,
-                e2e_ms=-1.0,
-                status="HTTP 429",
-                provider=provider,
-                http_status=429,
-                rate_limited=True,
-            )
-        now = time.time()
-        return SingleRequestResult(
-            ttft_ms=100.0,
-            e2e_ms=150.0,
-            status="success",
-            provider=provider,
-            billed_cost_usd=0.001,
-            physical_cost_usd=0.001,
-            start_ts=now,
-            first_token_ts=now + 0.1,
-        )
-
-    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
-
-    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="warmup")
-
-    providers = [spec.name for spec in runner.inventory.providers]
-    assert calls[first_provider] == 2
-    assert sum(calls.values()) == len(providers) + 1
-    assert runner._profile_probe_counts["warmup"] == len(providers) + 1
-
-    state = runner.policies["budget_range_p75_hedge"].states[first_provider]
-    assert state.profile.sample_count(time.time()) == 1
-    assert state.profile.error_rate(time.time()) == 0.0
-    rec.close()
-
-
-def test_profile_probe_caps_retries_and_records_synthetic_sample(monkeypatch) -> None:
-    """When a provider keeps failing, the probe loop bounds retries and
-    records a synthetic high-latency sample so the policy profile reflects
-    the degraded state without spinning forever."""
+def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None:
+    """Warmup probes never retry: a single failure records exactly one
+    synthetic high-latency sample so the LP can still tentatively rank the
+    provider on startup. Replay-time probes are handled separately (see
+    ``test_replay_probe_failure_does_not_record_any_sample``)."""
     runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
     bad_provider = runner.inventory.providers[0].name
     calls: dict[str, int] = {}
@@ -856,13 +804,15 @@ def test_profile_probe_caps_retries_and_records_synthetic_sample(monkeypatch) ->
     runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="warmup")
 
     providers = [spec.name for spec in runner.inventory.providers]
-    assert calls[bad_provider] == 3, "probe should cap at DEFAULT_PROBE_MAX_ATTEMPTS=3"
-    assert sum(calls.values()) == (len(providers) - 1) + 3
+    assert calls[bad_provider] == 1, (
+        "probe should not retry now that DEFAULT_PROBE_MAX_ATTEMPTS=1"
+    )
+    assert sum(calls.values()) == len(providers)
 
     state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
     now = time.time()
     assert state.profile.sample_count(now) == 1, (
-        "exhausted probe must record exactly one synthetic positive-TTFT sample"
+        "warmup failure must still inject one synthetic positive-TTFT sample"
     )
     assert state.profile.error_rate(now) == 0.0
     mean = state.profile.mean_ms(now)
@@ -871,8 +821,152 @@ def test_profile_probe_caps_retries_and_records_synthetic_sample(monkeypatch) ->
     for healthy_spec in runner.inventory.providers[1:]:
         healthy_state = runner.policies["budget_range_p75_hedge"].states[healthy_spec.name]
         assert healthy_state.profile.sample_count(now) == 1, (
-            "exhaustion on one provider must not abort the round"
+            "one provider's failure must not abort the warmup round"
         )
+    rec.close()
+
+
+def test_warmup_cadenced_start_to_start_and_skip_in_flight(monkeypatch) -> None:
+    """Multi-round warmup uses start-to-start cadence and skips providers
+    whose previous probe has not yet returned. Verifies the
+    ``probes_per_provider > 1 and round_interval_sec > 0`` path used by the
+    actual warmup pipeline (24 rounds at 5s)."""
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    providers = list(runner.inventory.providers)
+    slow_provider = providers[0].name
+    slow_release = threading.Event()
+
+    submit_ts: dict[str, list[float]] = {p.name: [] for p in providers}
+    submit_lock = threading.Lock()
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        with submit_lock:
+            submit_ts[provider].append(time.time())
+        if provider == slow_provider:
+            # Block until the test releases this probe; the slow provider
+            # is therefore in-flight when the next round ticks.
+            slow_release.wait(timeout=5.0)
+        now = time.time()
+        return SingleRequestResult(
+            ttft_ms=50.0,
+            e2e_ms=80.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            physical_cost_usd=0.001,
+            start_ts=now,
+            first_token_ts=now + 0.05,
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    def run_probe() -> None:
+        runner.probe_profiles(
+            probes_per_provider=3,
+            sleep_sec=0.0,
+            round_interval_sec=0.1,
+            phase="warmup",
+        )
+
+    worker = threading.Thread(target=run_probe)
+    started = time.time()
+    worker.start()
+    # Let two rounds tick past while the slow provider stays blocked, then
+    # release it so the run can drain.
+    time.sleep(0.35)
+    slow_release.set()
+    worker.join(timeout=10.0)
+    assert not worker.is_alive(), "probe_profiles should return after release"
+
+    fast_provider = providers[1].name
+    fast_calls = submit_ts[fast_provider]
+    # 3 rounds at 0.1s cadence: fast provider gets exactly 3 probes.
+    assert len(fast_calls) == 3, (
+        f"fast provider should see 3 probes (one per round), got {len(fast_calls)}"
+    )
+    # Cadence is start-to-start: gaps should be ~round_interval, not 0.
+    import itertools
+
+    for prev, nxt in itertools.pairwise(fast_calls):
+        gap = nxt - prev
+        assert 0.07 <= gap <= 0.5, (
+            f"start-to-start cadence violated: gap={gap:.3f}s "
+            f"(expected ~0.1s, tolerated 0.07-0.5s)"
+        )
+    # Slow provider's probe stays in flight across rounds, so it only gets
+    # submitted once over the first 2 ticks; the 3rd tick may re-submit if
+    # release happened earlier than tick 3.
+    slow_calls = submit_ts[slow_provider]
+    assert 1 <= len(slow_calls) <= 2, (
+        f"in-flight skip should limit slow provider submits, got {len(slow_calls)}"
+    )
+    # Whole run should be roughly probes_per_provider * round_interval_sec,
+    # not slowed down by the blocked provider.
+    elapsed = time.time() - started
+    assert elapsed < 1.5, f"cadenced warmup took {elapsed:.2f}s; expected ≤1.5s"
+    rec.close()
+
+
+def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
+    """Replay-time probe failures (periodic / shared sidecar) must not write
+    to the latency profile at all — neither a positive synthetic sample nor
+    an error sample. Real-request 429s remain the only way a provider gets
+    penalized (via the ``error_samples`` path with
+    ``RATE_LIMIT_ERROR_PENALTY_MS``)."""
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    bad_provider = runner.inventory.providers[0].name
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        if provider == bad_provider:
+            return SingleRequestResult(
+                ttft_ms=-1.0,
+                e2e_ms=-1.0,
+                status="HTTP 429",
+                provider=provider,
+                http_status=429,
+                rate_limited=True,
+            )
+        now = time.time()
+        return SingleRequestResult(
+            ttft_ms=120.0,
+            e2e_ms=180.0,
+            status="success",
+            provider=provider,
+            billed_cost_usd=0.001,
+            physical_cost_usd=0.001,
+            start_ts=now,
+            first_token_ts=now + 0.12,
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="periodic")
+
+    now = time.time()
+    bad_state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    assert bad_state.profile.sample_count(now) == 0, (
+        "non-warmup probe failure must not record a synthetic sample"
+    )
+    assert bad_state.profile.total_count(now) == 0, (
+        "non-warmup probe failure must not record an error sample either"
+    )
     rec.close()
 
 
