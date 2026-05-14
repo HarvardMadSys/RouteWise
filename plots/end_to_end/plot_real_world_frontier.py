@@ -777,8 +777,9 @@ def write_table_rows(
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     for s in summaries:
-        hedge_rate = (
-            f"{100.0 * s.hedge_rate:.2f}\\%"
+        hedge_stats = (
+            f"{100.0 * s.hedge_rate:.2f} / "
+            f"{100.0 * s.hedge_backup_win_rate:.2f}\\%"
             if s.policy.endswith(ROUTEWISE_HEDGE_SUFFIX)
             else "--"
         )
@@ -791,7 +792,7 @@ def write_table_rows(
             f"{s.ttft_p95_ms / 1000.0:.2f} & "
             f"{s.ttft_p99_ms / 1000.0:.2f} & "
             f"{100.0 * s.slo_violation_rate:.2f}\\% & "
-            f"{hedge_rate} \\\\"
+            f"{hedge_stats} \\\\"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
