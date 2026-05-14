@@ -31,13 +31,25 @@ from statistics import mean
 
 import matplotlib.pyplot as plt
 
-from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS
+from plots.end_to_end.frontier_plotting import (
+    CdfSeries,
+    DEFAULT_BASELINE_ORDER,
+    FrontierPoint,
+    MixRow,
+    MixSegment,
+    PROVIDER_COLOR_CYCLE,
+    PROVIDER_MIX_COLORS,
+    plot_mean_ttft_frontier,
+    plot_slo_frontier,
+    plot_stacked_mix,
+    plot_ttft_cdf as plot_common_ttft_cdf,
+    policy_plot_label as common_policy_plot_label,
+)
 from plots.style import apply_style
 
 
 ROUTEWISE_PREFIX = "budget_range_p"
 ROUTEWISE_HEDGE_SUFFIX = "_hedge"
-ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_FRONTIER_PLOT_ALPHA = 0.25
 DEFAULT_FIGURE_POLICIES = (
     "budget_range_p25_hedge",
@@ -48,13 +60,7 @@ DEFAULT_FIGURE_POLICIES = (
     "or_sort_latency",
     "random",
 )
-BASELINE_ORDER = (
-    "greedy_cost",
-    "greedy_latency",
-    "or_auto",
-    "or_sort_cost",
-    "or_sort_latency",
-)
+BASELINE_ORDER = DEFAULT_BASELINE_ORDER
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
     "greedy_latency": "Greedy-latency",
@@ -63,108 +69,8 @@ POLICY_LABELS = {
     "or_sort_cost": "OpenRouter sort=price",
     "or_sort_latency": "OpenRouter sort=latency",
 }
-PLOT_LABELS = {
-    "greedy_cost": "Greedy-cost",
-    "greedy_latency": "Greedy-latency",
-    "random": "Random",
-    "or_auto": "OR auto",
-    "or_sort_cost": "OR price",
-    "or_sort_latency": "OR latency",
-}
-POLICY_COLORS = {
-    "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#4c78a8"),
-    "greedy_latency": ROUTER_STRATEGY_COLORS.get("greedy_latency", "#f58518"),
-    "random": ROUTER_STRATEGY_COLORS.get("random", "#7f7f7f"),
-    "or_auto": ONLINE_POLICY_COLORS.get("openrouter_auto", "#b279a2"),
-    "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#e45756"),
-    "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#72b7b2"),
-}
-ROUTEWISE_LABEL_OFFSETS = {
-    0.0: (4, -8),
-    0.25: (4, 3),
-    0.5: (-8, 8),
-    0.75: (4, -7),
-    1.0: (4, 4),
-}
-ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
-    "slo_violation_rate": {
-        0.0: (5, 8),
-        0.25: (5, -14),
-        0.5: (5, 7),
-        0.75: (5, 8),
-        1.0: (5, 8),
-    },
-    "ttft_mean_ms": {
-        0.0: (5, -12),
-        0.25: (5, -14),
-        0.5: (5, -12),
-        0.75: (5, 7),
-        1.0: (5, 7),
-    },
-}
-BASELINE_LABEL_OFFSET = (4, 3)
-BASELINE_LABEL_OFFSETS_BY_METRIC = {
-    "slo_violation_rate": {
-        "greedy_cost": (-6, -10),
-        "greedy_latency": (6, -9),
-        "or_auto": (6, 4),
-        "or_sort_cost": (8, -11),
-        "or_sort_latency": (6, 5),
-        "random": (6, 4),
-    },
-    "ttft_mean_ms": {
-        "greedy_cost": (6, 5),
-        "greedy_latency": (6, -11),
-        "or_auto": (6, -4),
-        "or_sort_cost": (6, -10),
-        "or_sort_latency": (6, 5),
-        "random": (6, 4),
-    },
-}
-PROVIDER_COLOR_CYCLE = (
-    "#2ca02c",
-    "#9467bd",
-    "#1f77b4",
-    "#ff7f0e",
-    "#17becf",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#d62728",
-)
-PROVIDER_MIX_COLORS = {
-    "OR_DeepInfra": "#2b7bba",
-    "MiniMax_Plus_SQ": "#6b4c3b",
-    "Featherless_SC": "#59a14f",
-    "OR_AtlasCloud": "#f28e2b",
-    "OR_AkashML": "#17becf",
-    "OR_WandB": "#8e63b0",
-    "OR_Chutes": "#d62728",
-    "OR_Novita": "#e377c2",
-    "OR_Phala": "#bcbd22",
-    "OR_SiliconFlow": "#7f7f7f",
-}
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
-CDF_COLORS = {
-    "budget_range_p25_hedge": ROUTEWISE_COLOR,
-    "greedy_cost": POLICY_COLORS["greedy_cost"],
-    "greedy_latency": POLICY_COLORS["greedy_latency"],
-    "or_auto": POLICY_COLORS["or_auto"],
-    "or_sort_cost": POLICY_COLORS["or_sort_cost"],
-    "or_sort_latency": POLICY_COLORS["or_sort_latency"],
-    "random": POLICY_COLORS["random"],
-}
-CDF_LINESTYLES = {
-    "budget_range_p25_hedge": "solid",
-    "greedy_cost": (0, (3, 2)),
-    "greedy_latency": (0, (5, 1.6)),
-    "or_auto": (0, (1.5, 1.5)),
-    "or_sort_cost": (0, (5, 2)),
-    "or_sort_latency": (0, (3, 1.2, 1, 1.2)),
-    "random": (0, (1, 1.2)),
-}
 
 
 @dataclass(frozen=True)
@@ -553,17 +459,11 @@ def normalize_provider(
 
 def policy_plot_label(policy: str) -> str:
     alpha = parse_alpha(policy)
-    if alpha is not None:
-        return f"RW $\\alpha={alpha:g}$+H"
-    labels = {
-        "greedy_cost": "Greedy-cost",
-        "greedy_latency": "Greedy-latency",
-        "or_auto": "OR auto",
-        "or_sort_cost": "OR price",
-        "or_sort_latency": "OR latency",
-        "random": "Random",
-    }
-    return labels.get(policy, policy.replace("_", " "))
+    return common_policy_plot_label(
+        policy,
+        alpha=alpha,
+        hedging=policy.endswith(ROUTEWISE_HEDGE_SUFFIX),
+    )
 
 
 def read_policy_rows(policy_dir: Path) -> list[dict[str, str]]:
@@ -615,83 +515,38 @@ def provider_mix_by_policy(
 
 def plot_provider_mix(
     args: argparse.Namespace,
-    providers: dict[str, ProviderInfo],
+    _providers: dict[str, ProviderInfo],
     hint_to_name: dict[str, str],
     output_path: Path,
 ) -> None:
-    apply_style("paper")
-    plt.rcParams.update(
-        {
-            "font.size": 7.5,
-            "axes.labelsize": 8,
-            "xtick.labelsize": 6.5,
-            "ytick.labelsize": 6.5,
-            "legend.fontsize": 5.2,
-            "figure.figsize": (3.35, 2.55),
-            "savefig.pad_inches": 0.01,
-        }
-    )
     per_policy, total_counts = provider_mix_by_policy(args, hint_to_name)
     providers_to_plot = [provider for provider, _ in total_counts.most_common()]
-    policies = list(per_policy)
-    y = list(range(len(policies)))
-    left = [0.0] * len(policies)
-    fig, ax = plt.subplots(figsize=(3.35, 2.55), constrained_layout=False)
-    color_map = {
-        provider: PROVIDER_MIX_COLORS.get(
-            provider, PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)]
+    segments = [
+        MixSegment(
+            key=provider,
+            label=provider_mix_legend_label(provider),
+            color=PROVIDER_MIX_COLORS.get(
+                provider,
+                PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
+            ),
         )
         for idx, provider in enumerate(providers_to_plot)
-    }
-    handles = []
-    labels = []
-    for provider in providers_to_plot:
-        values: list[float] = []
-        for policy in policies:
-            counts = per_policy[policy]
-            total = sum(counts.values())
-            count = counts.get(provider, 0)
-            values.append((count / total * 100.0) if total else 0.0)
-        if not any(values):
-            continue
-        bar = ax.barh(
-            y,
-            values,
-            left=left,
-            height=0.72,
-            color=color_map[provider],
-            edgecolor="white",
-            linewidth=0.35,
-        )
-        handles.append(bar[0])
-        labels.append(provider_mix_legend_label(provider))
-        left = [old + value for old, value in zip(left, values)]
-    ax.set_xlim(0, 100)
-    ax.set_xlabel("Requests (%)")
-    ax.set_yticks(y, [policy_plot_label(policy) for policy in policies])
-    ax.invert_yaxis()
-    ax.grid(axis="x", color="#9a9a9a", alpha=0.24, linewidth=0.5)
-    ax.grid(axis="y", visible=False)
-    ax.set_axisbelow(True)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.34, right=0.99, bottom=0.16, top=0.79)
-    fig.legend(
-        handles,
-        labels,
-        frameon=False,
-        ncols=5,
-        loc="upper center",
-        bbox_to_anchor=(0.57, 0.985),
-        handlelength=0.9,
-        handletextpad=0.28,
-        columnspacing=0.65,
-        labelspacing=0.35,
-        borderaxespad=0.0,
+    ]
+    mix_rows: list[MixRow] = []
+    for policy, counts in per_policy.items():
+        total = sum(counts.values())
+        shares = {
+            provider: (counts.get(provider, 0) / total) if total else 0.0
+            for provider in providers_to_plot
+        }
+        mix_rows.append(MixRow(label=policy_plot_label(policy), shares=shares))
+    plot_stacked_mix(
+        mix_rows,
+        segments,
+        output_path,
+        legend_ncols=5,
+        legend_fontsize=5.2,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
-    plt.close(fig)
 
 
 def provider_diagnostics(
@@ -835,11 +690,7 @@ def plot_provider_latency(
 
 
 def cdf_policy_label(policy: str) -> str:
-    alpha = parse_alpha(policy)
-    if alpha is not None:
-        hedge = "+H" if policy.endswith(ROUTEWISE_HEDGE_SUFFIX) else ""
-        return rf"RW $\alpha={alpha:g}${hedge}"
-    return PLOT_LABELS.get(policy, policy.replace("_", " "))
+    return policy_plot_label(policy)
 
 
 def policy_ttft_samples(policy_dir: Path) -> list[float]:
@@ -871,77 +722,40 @@ def selected_cdf_dirs(args: argparse.Namespace) -> list[Path]:
 
 
 def plot_ttft_cdf(args: argparse.Namespace, output_path: Path) -> None:
-    apply_style("paper")
-    plt.rcParams.update(
-        {
-            "font.size": 7.5,
-            "axes.labelsize": 8,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
-            "legend.fontsize": 5.4,
-            "figure.figsize": (3.35, 2.25),
-            "savefig.pad_inches": 0.01,
-        }
-    )
-    series: list[tuple[str, list[float]]] = []
+    series: list[CdfSeries] = []
     p99_values: list[float] = []
     p99_values_for_axis: list[float] = []
     for policy_dir in selected_cdf_dirs(args):
         samples = policy_ttft_samples(policy_dir)
         if not samples:
             continue
-        series.append((policy_dir.name, samples))
+        policy = policy_dir.name
+        n = len(samples)
+        y = [(idx + 1) / n for idx in range(n)]
+        alpha = parse_alpha(policy)
         p99 = percentile(samples, 99.0)
         p99_values.append(p99)
-        if policy_dir.name != "random":
+        if policy != "random":
             p99_values_for_axis.append(p99)
+        series.append(
+            CdfSeries(
+                policy=policy,
+                label=cdf_policy_label(policy),
+                x_ms=samples,
+                y_values=y,
+                p99_ms=p99,
+                alpha=alpha,
+                include_in_axis=policy != "random",
+                drawstyle="steps-post",
+            )
+        )
     if not series:
         raise ValueError(f"{args.input_dir}: no valid TTFT samples for CDF")
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.25), constrained_layout=False)
-    for policy, samples in series:
-        n = len(samples)
-        y = [(idx + 1) / n for idx in range(n)]
-        ax.step(
-            [value / 1000.0 for value in samples],
-            y,
-            where="post",
-            color=CDF_COLORS.get(policy, POLICY_COLORS.get(policy, "#555555")),
-            linestyle=CDF_LINESTYLES.get(policy, "solid"),
-            linewidth=1.25,
-            label=cdf_policy_label(policy),
-        )
-
     slo_sec = args.slo_ms / 1000.0
-    ax.axvline(slo_sec, color="#444444", linewidth=0.8, linestyle=":")
-    ax.text(
-        slo_sec + 0.12,
-        0.08,
-        f"{slo_sec:g}s SLO",
-        color="#444444",
-        fontsize=5.8,
-        ha="left",
-        va="bottom",
-    )
     axis_p99_values = p99_values_for_axis or p99_values
     x_max = max(slo_sec * 4.0, max(axis_p99_values) / 1000.0 * 1.05)
-    ax.set_xlim(0.0, x_max)
-    ax.set_ylim(0.0, 1.01)
-    ax.set_xlabel("TTFT (s)")
-    ax.set_ylabel("CDF")
-    ax.grid(True, linewidth=0.35, alpha=0.35)
-    ax.legend(
-        frameon=False,
-        loc="lower right",
-        ncols=2,
-        handlelength=1.6,
-        columnspacing=0.7,
-        labelspacing=0.25,
-    )
-    fig.subplots_adjust(left=0.14, right=0.99, bottom=0.16, top=0.98)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
-    plt.close(fig)
+    plot_common_ttft_cdf(series, output_path, slo_sec=slo_sec, x_max_sec=x_max)
 
 
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
@@ -1010,60 +824,21 @@ def write_table_rows(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def metric_value(summary: PolicySummary, attr: str) -> float:
-    value = getattr(summary, attr)
-    if attr.endswith("_ms"):
-        return value / 1000.0
-    if attr.endswith("_rate"):
-        return value * 100.0
-    return value
-
-
-def annotate(
-    ax: plt.Axes,
-    summary: PolicySummary,
-    attr: str,
-    *,
-    color: str,
-    routewise_count: int,
-) -> None:
-    if summary.alpha is not None:
-        if routewise_count > 1:
-            return
-        label = (
-            "RouteWise\n" + rf"$\alpha={summary.alpha:g}$"
-            if routewise_count == 1
-            else f"{summary.alpha:g}"
+def frontier_points(summaries: list[PolicySummary]) -> list[FrontierPoint]:
+    return [
+        FrontierPoint(
+            policy=summary.policy,
+            label=policy_plot_label(summary.policy),
+            alpha=summary.alpha,
+            hedging=summary.policy.endswith(ROUTEWISE_HEDGE_SUFFIX),
+            total_cost_usd=summary.total_cost_usd,
+            mean_ttft_ms=summary.ttft_mean_ms,
+            slo_violation_rate=summary.slo_violation_rate,
+            p99_ms=summary.ttft_p99_ms,
+            hedge_rate=summary.hedge_rate,
         )
-    else:
-        label = PLOT_LABELS.get(summary.policy, summary.policy)
-    offset = BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
-        summary.policy,
-        BASELINE_LABEL_OFFSET,
-    )
-    if summary.alpha is not None:
-        metric_offsets = ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {})
-        offset = metric_offsets.get(summary.alpha, ROUTEWISE_LABEL_OFFSETS.get(summary.alpha, (4, 3)))
-    ax.annotate(
-        label,
-        xy=(summary.total_cost_usd, metric_value(summary, attr)),
-        xytext=offset,
-        textcoords="offset points",
-        fontsize=5.8,
-        color=color,
-        ha="right" if offset[0] < 0 else "left",
-        bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
-        clip_on=False,
-    )
-
-
-def pad_axes(ax: plt.Axes) -> None:
-    x_min, x_max = ax.get_xlim()
-    y_min, y_max = ax.get_ylim()
-    x_pad = max((x_max - x_min) * 0.08, 0.006)
-    y_pad = max((y_max - y_min) * 0.12, 0.2)
-    ax.set_xlim(x_min - x_pad, x_max + x_pad)
-    ax.set_ylim(max(0.0, y_min - y_pad), y_max + y_pad)
+        for summary in summaries
+    ]
 
 
 def plot_metric_frontier(
@@ -1075,75 +850,20 @@ def plot_metric_frontier(
     xlabel: str,
     title: str | None = None,
 ) -> None:
-    apply_style("paper")
-    plt.rcParams.update(
-        {
-            "font.size": 7.5,
-            "axes.labelsize": 8,
-            "axes.titlesize": 8,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
-            "legend.fontsize": 7,
-            "figure.figsize": (3.35, 2.25),
-        }
-    )
-
-    routewise = [
-        s
-        for s in summaries
-        if s.alpha is not None
-        and math.isclose(s.alpha, ROUTEWISE_FRONTIER_PLOT_ALPHA)
-    ]
-    baselines = [s for s in summaries if s.alpha is None]
-    fig, ax = plt.subplots(figsize=(3.35, 2.25), constrained_layout=True)
-
-    for summary in routewise:
-        ax.scatter(
-            summary.total_cost_usd,
-            metric_value(summary, attr),
-            marker="o",
-            s=30,
-            color=ROUTEWISE_COLOR,
-            edgecolor="white",
-            linewidth=0.5,
-            zorder=4,
-        )
-        annotate(
-            ax,
-            summary,
-            attr,
-            color=ROUTEWISE_COLOR,
-            routewise_count=len(routewise),
-        )
-    for summary in baselines:
-        color = POLICY_COLORS.get(summary.policy, "#555555")
-        ax.scatter(
-            summary.total_cost_usd,
-            metric_value(summary, attr),
-            marker="s",
-            s=24,
-            color=color,
-            edgecolor="white",
-            linewidth=0.5,
-            zorder=3,
-        )
-        annotate(
-            ax,
-            summary,
-            attr,
-            color=color,
-            routewise_count=len(routewise),
-        )
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
     if title:
-        ax.set_title(title)
-    ax.grid(True, linewidth=0.35, alpha=0.35)
-    pad_axes(ax)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+        raise ValueError("shared frontier plots do not support per-panel titles")
+    points = frontier_points(summaries)
+    kwargs = {
+        "xlabel": xlabel,
+        "routewise_alphas": (ROUTEWISE_FRONTIER_PLOT_ALPHA,),
+        "baseline_order": BASELINE_ORDER,
+    }
+    if attr == "ttft_mean_ms":
+        plot_mean_ttft_frontier(points, path, **kwargs)
+    elif attr == "slo_violation_rate":
+        plot_slo_frontier(points, path, **kwargs)
+    else:
+        raise ValueError(f"unsupported frontier metric: {attr}")
 
 
 def write_summary(summaries: list[PolicySummary], path: Path | None) -> None:
