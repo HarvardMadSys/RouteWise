@@ -1033,6 +1033,34 @@ def test_shared_profile_event_log_round_trip_and_dedupe(tmp_path) -> None:
     assert latest["Chutes_SQ"].ttft_ms == pytest.approx(456.0)
 
 
+def test_shared_profile_event_log_can_skip_seed_prefix(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    writer = SharedProfileEventLog(path)
+    reader = SharedProfileEventLog(path)
+
+    writer.append(
+        provider="Chutes_SQ",
+        ts=123.0,
+        ttft_ms=456.0,
+        error_type=None,
+        source="warmup",
+    )
+    seed_offset = writer.end_offset()
+    later = writer.append(
+        provider="Chutes_SQ",
+        ts=124.0,
+        ttft_ms=789.0,
+        error_type=None,
+        source="natural",
+    )
+
+    reader.set_read_offset(seed_offset)
+
+    events = reader.read_new()
+    assert [event.event_id for event in events] == [later.event_id]
+    assert events[0].ttft_ms == pytest.approx(789.0)
+
+
 def test_shared_profile_event_log_concurrent_append_and_tail(tmp_path) -> None:
     path = tmp_path / "shared_profile_events.jsonl"
     writer = SharedProfileEventLog(path)
@@ -1060,6 +1088,61 @@ def test_shared_profile_event_log_concurrent_append_and_tail(tmp_path) -> None:
 
     assert len(seen) == n_events
     assert writer.read_new() == []
+
+
+def test_initial_profile_seed_offset_prevents_shared_log_duplicate(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    event_log = SharedProfileEventLog(path)
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency"],
+        shared_profile_events_path=path,
+    )
+    provider = runner.inventory.providers[0].name
+    now = time.time()
+
+    event_log.append(
+        provider=provider,
+        ts=now - 2.0,
+        ttft_ms=111.0,
+        error_type=None,
+        source="warmup",
+    )
+    seed_offset = event_log.end_offset()
+    event_log.append(
+        provider=provider,
+        ts=now - 1.0,
+        ttft_ms=222.0,
+        error_type=None,
+        source="natural",
+    )
+    profile_path = tmp_path / "initial_profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "_meta": {"shared_profile_seed_offset": seed_offset},
+                "providers": {
+                    provider: {
+                        "samples": [{"ts": now - 2.0, "ttft_ms": 111.0}],
+                        "errors": [],
+                    }
+                },
+            }
+        )
+    )
+
+    runner.load_initial_profile(profile_path)
+    handle = runner._start_shared_profile_tailer_thread()
+    try:
+        deadline = time.time() + 2.0
+        state = runner.policies["greedy_latency"].states[provider]
+        while time.time() < deadline and state.profile.sample_count(time.time()) < 2:
+            time.sleep(0.02)
+        assert state.profile.sample_count(time.time()) == 2
+        assert state.profile.mean_ms(time.time()) == pytest.approx((111.0 + 222.0) / 2)
+    finally:
+        runner._stop_periodic_profile_probe_thread(handle)
+        rec.close()
 
 
 def test_shared_profile_feedback_updates_all_local_policies(tmp_path) -> None:

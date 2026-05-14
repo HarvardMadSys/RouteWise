@@ -22,6 +22,7 @@
       "concurrency_limit": null,
       "subscription_plan": "chutes",
       "billing_mode": "subscription",
+      "stream_cancel_billing": "continues",
       "notes": "Chutes_SQ via OpenRouter Chutes endpoint (NOT direct). Paper accounting still treats marginal=0 + fixed Chutes subscription. Physical request shares the policy's OR key, no separate Chutes key needed."
     },
     {
@@ -45,7 +46,8 @@
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
       "cached_input_price_per_m": 0.06,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_DeepInfra",
@@ -55,6 +57,7 @@
       "input_price_per_m": 0.15,
       "output_price_per_m": 1.15,
       "billing_mode": "metered",
+      "stream_cancel_billing": "stops",
       "notes": "B-tier burst-scaling provider from high-concurrency benchmark."
     },
     {
@@ -65,7 +68,8 @@
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "stops"
     },
     {
       "name": "OR_Minimax",
@@ -75,7 +79,8 @@
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Phala",
@@ -85,6 +90,7 @@
       "input_price_per_m": 0.20,
       "output_price_per_m": 1.38,
       "billing_mode": "metered",
+      "stream_cancel_billing": "continues",
       "notes": "B-tier burst-scaling provider from high-concurrency benchmark."
     },
     {
@@ -95,7 +101,8 @@
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
       "cached_input_price_per_m": 0.03,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_Nebius",
@@ -104,7 +111,8 @@
       "provider_hint": "Nebius",
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     },
     {
       "name": "OR_WandB",
@@ -114,7 +122,8 @@
       "input_price_per_m": 0.30,
       "output_price_per_m": 1.20,
       "cached_input_price_per_m": 0.30,
-      "billing_mode": "metered"
+      "billing_mode": "metered",
+      "stream_cancel_billing": "continues"
     }
   ],
   "openrouter_provider_only": [

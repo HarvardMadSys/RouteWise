@@ -249,8 +249,23 @@ for policy in "${POLICIES[@]}"; do
   fi
 done
 
-if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_POLICY_COUNT" ]]; then
-  echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
+# When the shared profile prober runs, reserve FEATHERLESS_KEYS[0] for it so
+# warmup + sidecar probes never compete with real-policy traffic for the
+# single concurrency slot on that account. Policies then draw from index 1
+# onward. With sidecar disabled, the prober only runs during one-shot warmup
+# (which completes before any policy starts), so sharing index 0 is safe.
+FEATHERLESS_POLICY_START_IDX=0
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
+  FEATHERLESS_POLICY_START_IDX=1
+fi
+FEATHERLESS_REQUIRED=$((FEATHERLESS_POLICY_COUNT + FEATHERLESS_POLICY_START_IDX))
+
+if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_REQUIRED" ]]; then
+  if [[ "$FEATHERLESS_POLICY_START_IDX" -gt 0 ]]; then
+    echo "expected at least $FEATHERLESS_REQUIRED Featherless keys ($FEATHERLESS_POLICY_COUNT joint policies + 1 dedicated to the shared profile prober) from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}. Set SHARED_PROFILE_PROBING=0 to share the first key between the prober and a policy." >&2
+  else
+    echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
+  fi
   exit 2
 fi
 
@@ -306,6 +321,13 @@ printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot
 STAGGER_SEC="${STAGGER_SEC:-30}"
 STAGGER_ALL_POLICIES="${STAGGER_ALL_POLICIES:-0}"
 
+PREBUILD_SHARED_PROFILE_ARGS=()
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
+  mkdir -p "$(dirname "$SHARED_PROFILE_EVENTS_PATH")"
+  : > "$SHARED_PROFILE_EVENTS_PATH"
+  PREBUILD_SHARED_PROFILE_ARGS=(--shared-profile-events "$SHARED_PROFILE_EVENTS_PATH")
+fi
+
 PROCESS_WARMUP_PROBES="$WARMUP_PROBES"
 INITIAL_PROFILE_ARGS=()
 if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
@@ -324,7 +346,8 @@ if [[ "$SHARED_WARMUP_PROFILE" != "0" && "$WARMUP_PROBES" -gt 0 ]]; then
   --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
   --round-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
   --timeout-sec "$TIMEOUT_SEC" \
-  --max-cost-usd "$MAX_COST_USD"
+  --max-cost-usd "$MAX_COST_USD" \
+  "${PREBUILD_SHARED_PROFILE_ARGS[@]}"
   PROCESS_WARMUP_PROBES=0
   INITIAL_PROFILE_ARGS=(--initial-profile-path "$INITIAL_PROFILE_PATH")
 fi
@@ -397,7 +420,7 @@ SHARED_PROFILE_ARGS=()
 profile_probe_pid=""
 if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   mkdir -p "$(dirname "$SHARED_PROFILE_EVENTS_PATH")"
-  : > "$SHARED_PROFILE_EVENTS_PATH"
+  touch "$SHARED_PROFILE_EVENTS_PATH"
   SHARED_PROFILE_ARGS=(
     --shared-profile-events "$SHARED_PROFILE_EVENTS_PATH"
     --shared-profile-poll-sec "$SHARED_PROFILE_POLL_SEC"
@@ -448,7 +471,7 @@ cleanup_children() {
 }
 trap cleanup_children INT TERM
 
-featherless_idx=0
+featherless_idx=$FEATHERLESS_POLICY_START_IDX
 quota_native_idx=0
 dedicated_or_idx=1
 non_or_launch_idx=0

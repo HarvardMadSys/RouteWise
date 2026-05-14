@@ -117,6 +117,29 @@ class SharedProfileEventLog:
         with self._process_lock:
             self._seen_event_ids.add(event_id)
 
+    def set_read_offset(self, offset: int) -> None:
+        """Start subsequent ``read_new`` calls from ``offset`` bytes.
+
+        This is used when a process loads the same warmup samples from
+        ``initial_profile.json`` that have also been seeded into the shared
+        event log. The process should skip exactly those seed events, but
+        still import any later sidecar/natural feedback events.
+        """
+        with self._process_lock:
+            self._offset = max(0, int(offset))
+
+    def end_offset(self) -> int:
+        """Return the current file size in bytes."""
+        if not self.path.exists():
+            return 0
+        with self._process_lock, self.path.open("r", encoding="utf-8") as fh:
+            fcntl.flock(fh, fcntl.LOCK_SH)
+            try:
+                fh.seek(0, 2)
+                return int(fh.tell())
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
     def read_new(self) -> list[SharedProfileEvent]:
         """Return events appended since the last read in this process."""
         if not self.path.exists():

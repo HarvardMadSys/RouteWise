@@ -19,6 +19,7 @@ from experiments.real_evaluation.runner import (
     DEFAULT_WARMUP_PROBES_PER_PROVIDER,
     RealExperimentRunner,
 )
+from experiments.real_evaluation.shared_profile import SharedProfileEventLog
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -53,6 +54,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
     parser.add_argument("--profile-window-sec", type=float, default=15 * 60.0)
     parser.add_argument("--max-cost-usd", type=float, default=5.0)
+    parser.add_argument(
+        "--shared-profile-events",
+        type=Path,
+        default=None,
+        help=(
+            "Also seed the shared profile JSONL event log with the warmup "
+            "samples exported to --output."
+        ),
+    )
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -91,6 +101,36 @@ def main(argv: list[str] | None = None) -> int:
                 parallelism=args.profile_probe_parallelism,
             )
             profile = runner.export_initial_profile()
+            shared_seed_count = 0
+            shared_seed_offset = None
+            if args.shared_profile_events is not None:
+                event_log = SharedProfileEventLog(args.shared_profile_events)
+                for provider, entry in profile.get("providers", {}).items():
+                    if not isinstance(entry, dict):
+                        continue
+                    for sample in entry.get("samples", []):
+                        if not isinstance(sample, dict):
+                            continue
+                        event_log.append(
+                            provider=str(provider),
+                            ts=float(sample["ts"]),
+                            ttft_ms=float(sample["ttft_ms"]),
+                            error_type=None,
+                            source="warmup",
+                        )
+                        shared_seed_count += 1
+                    for error in entry.get("errors", []):
+                        if not isinstance(error, dict):
+                            continue
+                        event_log.append(
+                            provider=str(provider),
+                            ts=float(error["ts"]),
+                            ttft_ms=-1.0,
+                            error_type=str(error.get("error_type") or "error"),
+                            source="warmup",
+                        )
+                        shared_seed_count += 1
+                shared_seed_offset = event_log.end_offset()
             profile["_meta"] = {
                 "inventory": str(args.inventory),
                 "probes_per_provider": args.probes_per_provider,
@@ -98,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
                 "profile_probe_cost_usd": round(runner._profile_probe_cost_usd, 8),
                 "profile_probe_counts": dict(runner._profile_probe_counts),
             }
+            if args.shared_profile_events is not None:
+                profile["_meta"]["shared_profile_events"] = str(args.shared_profile_events)
+                profile["_meta"]["shared_profile_seed_count"] = shared_seed_count
+                profile["_meta"]["shared_profile_seed_offset"] = shared_seed_offset
         finally:
             recorder.close()
 

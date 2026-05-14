@@ -1251,6 +1251,18 @@ class RealExperimentRunner:
             loaded_success,
             loaded_errors,
         )
+        meta = raw.get("_meta")
+        seed_offset = (
+            meta.get("shared_profile_seed_offset")
+            if isinstance(meta, dict)
+            else None
+        )
+        if self._shared_profile_log is not None and seed_offset is not None:
+            self._shared_profile_log.set_read_offset(int(seed_offset))
+            logger.info(
+                "shared profile event log starts after warmup seed offset=%d",
+                int(seed_offset),
+            )
 
     def validate_profile_bootstrap(
         self,
