@@ -129,7 +129,10 @@ PROVIDER_MIX_COLORS = {
     "OR_AtlasCloud": "#f28e2b",
     "OR_AkashML": "#17becf",
     "OR_WandB": "#8c564b",
-    "Other": "#bdbdbd",
+    "OR_Chutes": "#d62728",
+    "OR_Novita": "#e377c2",
+    "OR_Phala": "#bcbd22",
+    "OR_SiliconFlow": "#7f7f7f",
 }
 
 
@@ -471,7 +474,10 @@ def provider_mix_legend_label(provider: str) -> str:
         "OR_AtlasCloud": "Atlas",
         "OR_AkashML": "Akash",
         "OR_WandB": "W&B",
-        "Other": "Other",
+        "OR_Chutes": "Chutes",
+        "OR_Novita": "Novita",
+        "OR_Phala": "Phala",
+        "OR_SiliconFlow": "SFlow",
     }
     return labels.get(provider, provider_label(provider))
 
@@ -563,13 +569,13 @@ def plot_provider_mix(
             "axes.labelsize": 8,
             "xtick.labelsize": 6.5,
             "ytick.labelsize": 6.5,
-            "legend.fontsize": 5.7,
+            "legend.fontsize": 5.2,
             "figure.figsize": (3.35, 2.2),
             "savefig.pad_inches": 0.01,
         }
     )
     per_policy, total_counts = provider_mix_by_policy(args, hint_to_name)
-    top_providers = [provider for provider, _ in total_counts.most_common(6)]
+    providers_to_plot = [provider for provider, _ in total_counts.most_common()]
     policies = list(per_policy)
     y = list(range(len(policies)))
     left = [0.0] * len(policies)
@@ -578,21 +584,16 @@ def plot_provider_mix(
         provider: PROVIDER_MIX_COLORS.get(
             provider, PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)]
         )
-        for idx, provider in enumerate(top_providers + ["Other"])
+        for idx, provider in enumerate(providers_to_plot)
     }
     handles = []
     labels = []
-    for provider in top_providers + ["Other"]:
+    for provider in providers_to_plot:
         values: list[float] = []
         for policy in policies:
             counts = per_policy[policy]
             total = sum(counts.values())
-            if provider == "Other":
-                count = sum(
-                    value for key, value in counts.items() if key not in top_providers
-                )
-            else:
-                count = counts.get(provider, 0)
+            count = counts.get(provider, 0)
             values.append((count / total * 100.0) if total else 0.0)
         if not any(values):
             continue
@@ -622,12 +623,12 @@ def plot_provider_mix(
         handles,
         labels,
         frameon=False,
-        ncols=4,
+        ncols=5,
         loc="upper center",
         bbox_to_anchor=(0.57, 0.985),
         handlelength=0.9,
-        handletextpad=0.35,
-        columnspacing=0.8,
+        handletextpad=0.28,
+        columnspacing=0.65,
         labelspacing=0.35,
         borderaxespad=0.0,
     )
