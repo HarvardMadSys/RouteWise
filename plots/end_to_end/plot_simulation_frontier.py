@@ -343,10 +343,6 @@ def plot_frontier(rows: list[Row], output_path: Path) -> None:
         linewidths=1.1,
         label="Baselines",
     )
-    yv = lambda r: r.mean_ttft_ms / 1000.0
-    _annotate_alpha(ax, no_hedge, y_value=yv, offset=(3, 4))
-    _annotate_alpha(ax, hedged, y_value=yv, offset=(3, -10))
-    _annotate_baselines(ax, baselines, y_value=yv)
     ax.legend(frameon=False, fontsize=6, loc="upper right")
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("Mean TTFT (s)")
@@ -387,10 +383,6 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
         linewidths=1.1,
         label="Baselines",
     )
-    yv = lambda r: r.slo_violation_rate * 100.0
-    _annotate_alpha(ax, no_hedge, y_value=yv, offset=(3, 4))
-    _annotate_alpha(ax, hedged, y_value=yv, offset=(3, -10))
-    _annotate_baselines(ax, baselines, y_value=yv)
     ax.legend(frameon=False, fontsize=6, loc="upper right")
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("SLO violation (%)")
