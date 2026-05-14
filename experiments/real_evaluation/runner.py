@@ -794,10 +794,13 @@ class RealExperimentRunner:
                 )
                 return result
 
+            detail = (result.error_message or "").strip() or "(no error body)"
+            if len(detail) > 240:
+                detail = detail[:237] + "..."
             logger.warning(
                 (
                     "%s probe round %d/%d %s attempt %d/%d failed: %s "
-                    "ttft=%.1fms billed=$%.5f physical=$%.5f"
+                    "ttft=%.1fms billed=$%.5f physical=$%.5f detail=%r"
                 ),
                 phase,
                 round_idx + 1,
@@ -809,6 +812,7 @@ class RealExperimentRunner:
                 result.ttft_ms,
                 result.billed_cost_usd,
                 self._single_physical_cost(result),
+                detail,
             )
             if attempt < max_attempts and retry_sleep_sec > 0 and self._probe_sleep(
                 retry_sleep_sec, stop_event
