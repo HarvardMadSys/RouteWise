@@ -468,8 +468,8 @@ def provider_label(provider: str) -> str:
 
 def provider_mix_legend_label(provider: str) -> str:
     labels = {
-        "MiniMax_Plus_SQ": r"$S_Q$",
-        "Featherless_SC": r"$S_C$",
+        "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$",
+        "Featherless_SC": r"$\mathcal{P}_C$",
         "OR_DeepInfra": "DeepInfra",
         "OR_AtlasCloud": "Atlas",
         "OR_AkashML": "Akash",
