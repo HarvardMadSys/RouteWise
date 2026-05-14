@@ -58,6 +58,28 @@ TABLE_POLICIES = (
 )
 ROUTEWISE_LINE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = ROUTER_STRATEGY_COLORS.get("ablation_lp_hedging", "#ff7f0e")
+BASELINE_COLOR = "#6f7f80"
+COMPACT_FIGSIZE = (2.25, 1.65)
+
+
+def apply_compact_panel_style() -> None:
+    """Style for PDFs that will be placed three-across in a figure*."""
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 7,
+            "axes.labelsize": 8,
+            "axes.titlesize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 6.5,
+            "axes.linewidth": 0.8,
+            "grid.linewidth": 0.45,
+            "lines.linewidth": 1.35,
+            "lines.markersize": 4.5,
+            "savefig.pad_inches": 0.01,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -159,8 +181,8 @@ def annotate_points(ax, rows: list[Row], *, y_value) -> None:
 
 
 def plot_frontier(rows: list[Row], output_path: Path) -> None:
-    apply_style("paper")
-    fig, ax = plt.subplots(figsize=(3.3, 2.4))
+    apply_compact_panel_style()
+    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
     no_hedge = routewise_rows(rows, hedging=False)
     hedged = routewise_rows(rows, hedging=True)
     baselines = baseline_rows(rows)
@@ -179,18 +201,19 @@ def plot_frontier(rows: list[Row], output_path: Path) -> None:
         color=ROUTEWISE_HEDGE_COLOR,
         label="RW + hedge",
     )
-    for row in baselines:
-        ax.scatter(
-            row.total_cost_usd,
-            row.mean_ttft_ms / 1000.0,
-            marker="x",
-            s=55,
-            color=ROUTER_STRATEGY_COLORS.get(row.policy, "#555555"),
-        )
-    annotate_points(ax, baselines, y_value=lambda row: row.mean_ttft_ms / 1000.0)
+    ax.scatter(
+        [row.total_cost_usd for row in baselines],
+        [row.mean_ttft_ms / 1000.0 for row in baselines],
+        marker="x",
+        s=22,
+        color=BASELINE_COLOR,
+        linewidths=1.1,
+        label="Baselines",
+    )
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("Mean TTFT (s)")
-    ax.legend(frameon=False, fontsize=8)
+    ax.margins(x=0.07, y=0.12)
+    ax.legend(frameon=False, loc="upper right", handlelength=1.0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
@@ -198,8 +221,8 @@ def plot_frontier(rows: list[Row], output_path: Path) -> None:
 
 
 def plot_slo(rows: list[Row], output_path: Path) -> None:
-    apply_style("paper")
-    fig, ax = plt.subplots(figsize=(3.3, 2.4))
+    apply_compact_panel_style()
+    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
     no_hedge = routewise_rows(rows, hedging=False)
     hedged = routewise_rows(rows, hedging=True)
     baselines = baseline_rows(rows)
@@ -218,18 +241,19 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
         color=ROUTEWISE_HEDGE_COLOR,
         label="RW + hedge",
     )
-    for row in baselines:
-        ax.scatter(
-            row.total_cost_usd,
-            row.slo_violation_rate * 100.0,
-            marker="x",
-            s=55,
-            color=ROUTER_STRATEGY_COLORS.get(row.policy, "#555555"),
-        )
-    annotate_points(ax, baselines, y_value=lambda row: row.slo_violation_rate * 100.0)
+    ax.scatter(
+        [row.total_cost_usd for row in baselines],
+        [row.slo_violation_rate * 100.0 for row in baselines],
+        marker="x",
+        s=22,
+        color=BASELINE_COLOR,
+        linewidths=1.1,
+        label="Baselines",
+    )
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("SLO violation (%)")
-    ax.legend(frameon=False, fontsize=8)
+    ax.margins(x=0.07, y=0.12)
+    ax.legend(frameon=False, loc="upper right", handlelength=1.0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
@@ -237,12 +261,17 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
 
 
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
-    apply_style("paper")
+    apply_compact_panel_style()
     selected = routewise_rows(rows, hedging=False)
-    labels = [rf"$\alpha={row.alpha:g}$" for row in selected]
+    labels = [f"{row.alpha:g}" for row in selected]
     tiers = ("quota", "concurrency", "api")
+    tier_labels = {
+        "quota": r"$S_Q$ quota",
+        "concurrency": r"$S_C$ conc.",
+        "api": r"$S_A$ API",
+    }
 
-    fig, ax = plt.subplots(figsize=(3.3, 2.4))
+    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
     bottom = [0.0] * len(selected)
     for tier in tiers:
         values = [row.tier_mix.get(tier, 0.0) * 100.0 for row in selected]
@@ -251,14 +280,16 @@ def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
             values,
             bottom=bottom,
             color=TIER_COLORS.get(tier, "#777777"),
-            label=tier,
+            label=tier_labels.get(tier, tier),
             edgecolor="white",
             linewidth=0.5,
         )
         bottom = [old + value for old, value in zip(bottom, values)]
     ax.set_ylim(0, 100)
     ax.set_ylabel("Requests (%)")
-    ax.legend(frameon=False, fontsize=8, loc="upper right")
+    ax.set_xlabel(r"$\alpha$")
+    ax.tick_params(axis="x", pad=1)
+    ax.legend(frameon=False, fontsize=6, loc="lower right", handlelength=1.0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
