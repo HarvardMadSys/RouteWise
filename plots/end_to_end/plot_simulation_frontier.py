@@ -10,7 +10,6 @@ Example:
       --summary-csv outputs/simulation/end_to_end_rw8_minimax_q1_c1_slo3_20260514/summary.csv \
       --frontier-out ../paper/figures/stage3_e2e_cost_latency_frontier.pdf \
       --slo-out ../paper/figures/stage3_e2e_slo_cost_frontier.pdf \
-      --tier-out ../paper/figures/stage3_e2e_tier_mix.pdf \
       --table-out ../paper/tables/simulation_e2e_q1_c1_slo3_rows.tex \
       --summary-out ../paper/tables/simulation_e2e_q1_c1_slo3_summary.json
 """
@@ -43,6 +42,12 @@ BASELINE_ORDER = (
     "greedy_latency",
     "or_sort_latency",
 )
+PLOT_BASELINE_ORDER = (
+    "greedy_cost",
+    "or_sort_cost",
+    "greedy_latency",
+    "or_sort_latency",
+)
 TABLE_POLICIES = (
     "greedy_cost",
     "or_sort_cost",
@@ -59,20 +64,19 @@ TABLE_POLICIES = (
 ROUTEWISE_LINE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = ROUTER_STRATEGY_COLORS.get("ablation_lp_hedging", "#ff7f0e")
 BASELINE_COLOR = "#6f7f80"
-COMPACT_FIGSIZE = (2.25, 1.65)
+COLUMN_FIGSIZE = (3.25, 2.05)
 
 
-def apply_compact_panel_style() -> None:
-    """Style for PDFs that will be placed three-across in a figure*."""
+def apply_column_figure_style() -> None:
+    """Style for single-metric PDFs placed as one-column paper figures."""
     apply_style("paper")
     plt.rcParams.update(
         {
             "font.size": 7,
-            "axes.labelsize": 8,
+            "axes.labelsize": 8.5,
             "axes.titlesize": 8,
             "xtick.labelsize": 7,
             "ytick.labelsize": 7,
-            "legend.fontsize": 6.5,
             "axes.linewidth": 0.8,
             "grid.linewidth": 0.45,
             "lines.linewidth": 1.35,
@@ -103,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary-csv", type=Path, required=True)
     parser.add_argument("--frontier-out", type=Path, required=True)
     parser.add_argument("--slo-out", type=Path, required=True)
-    parser.add_argument("--tier-out", type=Path, required=True)
+    parser.add_argument("--tier-out", type=Path, default=None)
     parser.add_argument("--table-out", type=Path, required=True)
     parser.add_argument("--summary-out", type=Path, default=None)
     return parser.parse_args()
@@ -169,6 +173,11 @@ def baseline_rows(rows: list[Row]) -> list[Row]:
     return [by_policy[name] for name in BASELINE_ORDER if name in by_policy]
 
 
+def plot_baseline_rows(rows: list[Row]) -> list[Row]:
+    by_policy = {row.policy: row for row in rows}
+    return [by_policy[name] for name in PLOT_BASELINE_ORDER if name in by_policy]
+
+
 def annotate_points(ax, rows: list[Row], *, y_value) -> None:
     for row in rows:
         ax.annotate(
@@ -181,25 +190,23 @@ def annotate_points(ax, rows: list[Row], *, y_value) -> None:
 
 
 def plot_frontier(rows: list[Row], output_path: Path) -> None:
-    apply_compact_panel_style()
-    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
+    apply_column_figure_style()
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE)
     no_hedge = routewise_rows(rows, hedging=False)
     hedged = routewise_rows(rows, hedging=True)
-    baselines = baseline_rows(rows)
+    baselines = plot_baseline_rows(rows)
 
     ax.plot(
         [row.total_cost_usd for row in no_hedge],
         [row.mean_ttft_ms / 1000.0 for row in no_hedge],
         marker="o",
         color=ROUTEWISE_LINE_COLOR,
-        label="RW",
     )
     ax.plot(
         [row.total_cost_usd for row in hedged],
         [row.mean_ttft_ms / 1000.0 for row in hedged],
         marker="s",
         color=ROUTEWISE_HEDGE_COLOR,
-        label="RW + hedge",
     )
     ax.scatter(
         [row.total_cost_usd for row in baselines],
@@ -208,12 +215,10 @@ def plot_frontier(rows: list[Row], output_path: Path) -> None:
         s=22,
         color=BASELINE_COLOR,
         linewidths=1.1,
-        label="Baselines",
     )
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("Mean TTFT (s)")
     ax.margins(x=0.07, y=0.12)
-    ax.legend(frameon=False, loc="upper right", handlelength=1.0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
@@ -221,25 +226,23 @@ def plot_frontier(rows: list[Row], output_path: Path) -> None:
 
 
 def plot_slo(rows: list[Row], output_path: Path) -> None:
-    apply_compact_panel_style()
-    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
+    apply_column_figure_style()
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE)
     no_hedge = routewise_rows(rows, hedging=False)
     hedged = routewise_rows(rows, hedging=True)
-    baselines = baseline_rows(rows)
+    baselines = plot_baseline_rows(rows)
 
     ax.plot(
         [row.total_cost_usd for row in no_hedge],
         [row.slo_violation_rate * 100.0 for row in no_hedge],
         marker="o",
         color=ROUTEWISE_LINE_COLOR,
-        label="RW",
     )
     ax.plot(
         [row.total_cost_usd for row in hedged],
         [row.slo_violation_rate * 100.0 for row in hedged],
         marker="s",
         color=ROUTEWISE_HEDGE_COLOR,
-        label="RW + hedge",
     )
     ax.scatter(
         [row.total_cost_usd for row in baselines],
@@ -248,12 +251,10 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
         s=22,
         color=BASELINE_COLOR,
         linewidths=1.1,
-        label="Baselines",
     )
     ax.set_xlabel("Total cost ($)")
     ax.set_ylabel("SLO violation (%)")
     ax.margins(x=0.07, y=0.12)
-    ax.legend(frameon=False, loc="upper right", handlelength=1.0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
@@ -261,7 +262,7 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
 
 
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
-    apply_compact_panel_style()
+    apply_column_figure_style()
     selected = routewise_rows(rows, hedging=False)
     labels = [f"{row.alpha:g}" for row in selected]
     tiers = ("quota", "concurrency", "api")
@@ -271,7 +272,7 @@ def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
         "api": r"$S_A$ API",
     }
 
-    fig, ax = plt.subplots(figsize=COMPACT_FIGSIZE)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE)
     bottom = [0.0] * len(selected)
     for tier in tiers:
         values = [row.tier_mix.get(tier, 0.0) * 100.0 for row in selected]
@@ -327,7 +328,8 @@ def main() -> int:
     rows = load_rows(args.summary_csv)
     plot_frontier(rows, args.frontier_out)
     plot_slo(rows, args.slo_out)
-    plot_tier_mix(rows, args.tier_out)
+    if args.tier_out is not None:
+        plot_tier_mix(rows, args.tier_out)
     write_table(rows, args.table_out)
     write_summary(rows, args.summary_out)
     return 0
