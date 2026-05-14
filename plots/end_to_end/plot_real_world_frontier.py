@@ -185,6 +185,15 @@ def parse_args() -> argparse.Namespace:
         help="Include the random baseline in the paper table and figure.",
     )
     parser.add_argument(
+        "--policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy directory names to include. When set, the "
+            "output preserves this order."
+        ),
+    )
+    parser.add_argument(
         "--x-label",
         default="Amortized total cost ($)",
         help="X-axis label for generated frontier figures.",
@@ -313,15 +322,24 @@ def read_summary(policy_dir: Path, args: argparse.Namespace) -> PolicySummary:
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
     if not args.input_dir.exists():
         raise FileNotFoundError(args.input_dir)
+    selected = set(args.policies or [])
     summaries = []
     for policy_dir in sorted(path for path in args.input_dir.iterdir() if path.is_dir()):
         if not (policy_dir / "requests.csv").exists():
+            continue
+        if selected and policy_dir.name not in selected:
             continue
         if policy_dir.name == "random" and not args.include_random:
             continue
         summaries.append(read_summary(policy_dir, args))
     if not summaries:
         raise ValueError(f"{args.input_dir}: found no requests.csv files")
+    if args.policies:
+        by_policy = {summary.policy: summary for summary in summaries}
+        missing = [policy for policy in args.policies if policy not in by_policy]
+        if missing:
+            raise ValueError(f"{args.input_dir}: missing requested policies: {missing}")
+        return [by_policy[policy] for policy in args.policies]
     return sorted(summaries, key=sort_key)
 
 
@@ -367,12 +385,22 @@ def metric_value(summary: PolicySummary, attr: str) -> float:
     return value
 
 
-def annotate(ax: plt.Axes, summary: PolicySummary, attr: str, *, color: str) -> None:
-    label = (
-        rf"$\alpha={summary.alpha:g}$"
-        if summary.alpha is not None
-        else PLOT_LABELS.get(summary.policy, summary.policy)
-    )
+def annotate(
+    ax: plt.Axes,
+    summary: PolicySummary,
+    attr: str,
+    *,
+    color: str,
+    routewise_count: int,
+) -> None:
+    if summary.alpha is not None:
+        label = (
+            "RouteWise\n" + rf"$\alpha={summary.alpha:g}$"
+            if routewise_count == 1
+            else rf"$\alpha={summary.alpha:g}$"
+        )
+    else:
+        label = PLOT_LABELS.get(summary.policy, summary.policy)
     offset = BASELINE_LABEL_OFFSET
     if summary.alpha is not None:
         metric_offsets = ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {})
@@ -436,8 +464,14 @@ def plot_metric_frontier(
             markersize=4.2,
             label="RouteWise + hedge" if has_hedging else "RouteWise",
         )
-        for summary in routewise:
-            annotate(ax, summary, attr, color=ROUTEWISE_COLOR)
+    for summary in routewise:
+        annotate(
+            ax,
+            summary,
+            attr,
+            color=ROUTEWISE_COLOR,
+            routewise_count=len(routewise),
+        )
     for summary in baselines:
         color = POLICY_COLORS.get(summary.policy, "#555555")
         ax.scatter(
@@ -450,7 +484,13 @@ def plot_metric_frontier(
             linewidth=0.5,
             zorder=3,
         )
-        annotate(ax, summary, attr, color=color)
+        annotate(
+            ax,
+            summary,
+            attr,
+            color=color,
+            routewise_count=len(routewise),
+        )
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if title:
