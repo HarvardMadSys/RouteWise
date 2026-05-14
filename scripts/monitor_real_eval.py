@@ -76,6 +76,10 @@ class PolicyStats:
     # ``quota_requests`` field. Empty when the inventory has no quota
     # providers or hasn't been loaded yet.
     quota_usage: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # ``{concurrency_provider_name: ConcurrencyUsage}`` computed from
+    # completed request intervals in requests.csv. This is observed
+    # utilization, not a live in-flight counter.
+    concurrency_usage: dict[str, "ConcurrencyUsage"] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,24 @@ class QuotaSpec:
     name: str
     quota_requests: int
     quota_window_sec: float
+
+
+@dataclass(frozen=True)
+class ConcurrencySpec:
+    """Subset of an inventory provider entry needed for slot accounting."""
+
+    name: str
+    concurrency_limit: int
+
+
+@dataclass(frozen=True)
+class ConcurrencyUsage:
+    """Observed concurrency busy-time for one provider."""
+
+    busy_time_pct: float
+    peak_used: int
+    limit: int
+    requests: int
 
 
 def parse_run_plan(run_log: Path) -> tuple[int | None, float | None]:
@@ -166,12 +188,19 @@ def infer_tier(tier: str, actual_provider: str) -> str:
     return tier or "unknown"
 
 
+def capacity_provider_key(raw_provider: str) -> str:
+    """Return the inventory provider name used for capacity accounting."""
+    return raw_provider.split("@", 1)[0] if "@" in raw_provider else raw_provider
+
+
 def collect_policy(
     policy_dir: Path,
     slo_ms: float,
     provider_ttft: dict[str, list[float]] | None = None,
     provider_failures: Counter[str] | None = None,
     quota_specs: list[QuotaSpec] | None = None,
+    concurrency_specs: list[ConcurrencySpec] | None = None,
+    now: float | None = None,
 ) -> PolicyStats | None:
     """Parse one policy's ``requests.csv`` into aggregate stats.
 
@@ -199,6 +228,21 @@ def collect_policy(
     # Per-policy dispatch timestamps keyed by raw ``actual_provider``,
     # used downstream to recompute the current quota-window usage.
     dispatch_ts_by_provider: dict[str, list[float]] = {}
+    concurrency_names = {spec.name for spec in concurrency_specs or []}
+    concurrency_intervals: dict[str, list[tuple[float, float]]] = {}
+    observed_start_ts: float | None = None
+    observed_end_ts: float | None = None
+
+    def add_concurrency_interval(
+        provider: str | None,
+        start_ts: float | None,
+        end_ts: float | None,
+    ) -> None:
+        if not provider or provider not in concurrency_names:
+            return
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return
+        concurrency_intervals.setdefault(provider, []).append((start_ts, end_ts))
 
     try:
         with csv_path.open() as f:
@@ -209,9 +253,19 @@ def collect_policy(
                 if ts is not None:
                     earliest_ts = ts if earliest_ts is None else min(earliest_ts, ts)
                     latest_ts = ts if latest_ts is None else max(latest_ts, ts)
+                    observed_end_ts = ts if observed_end_ts is None else max(observed_end_ts, ts)
 
                 status = row.get("status", "")
                 e2e = safe_float(row.get(LATENCY_COL, ""))
+                e2e_ms = safe_float(row.get("e2e_ms", ""))
+                inferred_start_ts = None
+                if ts is not None and e2e_ms is not None and e2e_ms > 0:
+                    inferred_start_ts = ts - (e2e_ms / 1000.0)
+                    observed_start_ts = (
+                        inferred_start_ts
+                        if observed_start_ts is None
+                        else min(observed_start_ts, inferred_start_ts)
+                    )
                 # Failed/canceled requests count as SLO violations even if
                 # they don't contribute a latency sample to percentiles.
                 if status == "success":
@@ -239,8 +293,41 @@ def collect_policy(
                     # (``decision.primary``). For direct-transport providers
                     # ``actual_provider`` equals that name; OR-routed rows
                     # like ``Chutes_SQ@Chutes`` strip back to ``Chutes_SQ``.
-                    quota_key = raw_provider.split("@", 1)[0] if "@" in raw_provider else raw_provider
+                    quota_key = capacity_provider_key(raw_provider)
                     dispatch_ts_by_provider.setdefault(quota_key, []).append(ts)
+
+                # Estimate concurrency occupancy from completed request
+                # intervals. Newer CSVs record provider-local start times;
+                # older rows fall back to ``ts - e2e_ms``. Hedges can occupy
+                # both primary and backup slots, so count both when present.
+                primary_key = capacity_provider_key(row.get("primary_provider") or "")
+                backup_key = capacity_provider_key(row.get("backup_provider") or "")
+                actual_key = capacity_provider_key(raw_provider)
+                primary_start_ts = safe_float(row.get("primary_start_ts", ""))
+                backup_start_ts = safe_float(row.get("backup_start_ts", ""))
+                backup_dispatch_ts = safe_float(row.get("backup_dispatch_ts", ""))
+                primary_start_ts = primary_start_ts if primary_start_ts is not None else inferred_start_ts
+                backup_start_ts = (
+                    backup_start_ts
+                    if backup_start_ts is not None
+                    else backup_dispatch_ts
+                )
+                if primary_start_ts is not None:
+                    observed_start_ts = (
+                        primary_start_ts
+                        if observed_start_ts is None
+                        else min(observed_start_ts, primary_start_ts)
+                    )
+                if backup_start_ts is not None:
+                    observed_start_ts = (
+                        backup_start_ts
+                        if observed_start_ts is None
+                        else min(observed_start_ts, backup_start_ts)
+                    )
+                add_concurrency_interval(primary_key, primary_start_ts, ts)
+                add_concurrency_interval(backup_key, backup_start_ts, ts)
+                if actual_key not in {primary_key, backup_key}:
+                    add_concurrency_interval(actual_key, primary_start_ts or inferred_start_ts, ts)
 
                 # Accumulate cross-policy per-provider TTFT samples for
                 # the second table. Only successful, positive-TTFT rows
@@ -282,6 +369,18 @@ def collect_policy(
             now=time.time(),
             latest_activity_ts=latest_ts,
         )
+    concurrency_usage: dict[str, ConcurrencyUsage] = {}
+    if concurrency_specs:
+        reference_end_ts = observed_end_ts
+        now_ts = time.time() if now is None else now
+        if observed_end_ts is not None and now_ts - observed_end_ts <= 60.0:
+            reference_end_ts = now_ts
+        concurrency_usage = compute_concurrency_usage(
+            concurrency_specs,
+            concurrency_intervals,
+            window_start=observed_start_ts,
+            window_end=reference_end_ts,
+        )
 
     return PolicyStats(
         policy=policy_dir.name,
@@ -303,6 +402,7 @@ def collect_policy(
         earliest_ts=earliest_ts,
         latest_ts=latest_ts,
         quota_usage=quota_usage,
+        concurrency_usage=concurrency_usage,
     )
 
 
@@ -362,6 +462,27 @@ def fmt_quota_usage(quota_usage: dict[str, tuple[int, int]] | None) -> str:
     return " ".join(parts)
 
 
+def fmt_concurrency_usage(
+    concurrency_usage: dict[str, ConcurrencyUsage] | None,
+) -> str:
+    """Render observed concurrency busy-time.
+
+    Format: ``Provider:busy%``. ``busy`` is the percent of the policy's
+    observed experiment time where at least one slot from that provider was
+    occupied. The monitor intentionally does not print a reconstructed
+    peak-overlap value here: ``requests.csv`` is written after capacity
+    release, so deriving exact lease overlap from completed rows can
+    overstate true concurrency for hedged requests.
+    """
+    if not concurrency_usage:
+        return "-"
+    parts = []
+    for name in sorted(concurrency_usage):
+        usage = concurrency_usage[name]
+        parts.append(f"{name}:{usage.busy_time_pct:.0f}%")
+    return " ".join(parts)
+
+
 def render_table(rows: list[list[str]], headers: list[str]) -> str:
     """Plain-text aligned table. Avoids a pandas/rich dependency."""
     widths = [len(h) for h in headers]
@@ -378,24 +499,25 @@ def render_table(rows: list[list[str]], headers: list[str]) -> str:
     return "\n".join(out_lines)
 
 
-def load_quota_specs(policy_dir: Path) -> tuple[Path | None, list[QuotaSpec]]:
+def load_inventory_specs(
+    policy_dir: Path,
+) -> tuple[Path | None, list[QuotaSpec], list[ConcurrencySpec]]:
     """Read the inventory file referenced by this policy's ``args.json``.
 
-    Returns ``(inventory_path, [QuotaSpec, ...])`` covering only providers
-    with both ``quota_requests`` and ``quota_window_sec`` set. Returns
-    ``(None, [])`` when the args/inventory aren't readable yet.
+    Returns ``(inventory_path, quota_specs, concurrency_specs)``. Returns
+    ``(None, [], [])`` when the args/inventory aren't readable yet.
     """
     args_path = policy_dir / "args.json"
     if not args_path.exists():
-        return None, []
+        return None, [], []
     try:
         with args_path.open() as f:
             args = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return None, []
+        return None, [], []
     inv_path_raw = args.get("inventory")
     if not inv_path_raw or inv_path_raw == "None":
-        return None, []
+        return None, [], []
     # ``args.json`` records the inventory path as it was passed on the
     # command line (typically repo-relative). Resolve it against the
     # workspace root, but also try the snapshot directory in case a
@@ -407,29 +529,46 @@ def load_quota_specs(policy_dir: Path) -> tuple[Path | None, list[QuotaSpec]]:
             inv_path = cand
             break
     if inv_path is None:
-        return None, []
+        return None, [], []
     try:
         with inv_path.open() as f:
             raw = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return inv_path, []
-    out: list[QuotaSpec] = []
+        return inv_path, [], []
+    quota_specs: list[QuotaSpec] = []
+    concurrency_specs: list[ConcurrencySpec] = []
     for entry in raw.get("providers", []):
         qr = entry.get("quota_requests")
         qw = entry.get("quota_window_sec")
-        if qr is None or qw is None:
-            continue
-        try:
-            out.append(
-                QuotaSpec(
-                    name=str(entry["name"]),
-                    quota_requests=int(qr),
-                    quota_window_sec=float(qw),
+        if qr is not None and qw is not None:
+            try:
+                quota_specs.append(
+                    QuotaSpec(
+                        name=str(entry["name"]),
+                        quota_requests=int(qr),
+                        quota_window_sec=float(qw),
+                    )
                 )
-            )
-        except (KeyError, TypeError, ValueError):
-            continue
-    return inv_path, out
+            except (KeyError, TypeError, ValueError):
+                pass
+        limit = entry.get("concurrency_limit")
+        if limit is not None:
+            try:
+                concurrency_specs.append(
+                    ConcurrencySpec(
+                        name=str(entry["name"]),
+                        concurrency_limit=int(limit),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                pass
+    return inv_path, quota_specs, concurrency_specs
+
+
+def load_quota_specs(policy_dir: Path) -> tuple[Path | None, list[QuotaSpec]]:
+    """Backward-compatible helper for callers that only need quota specs."""
+    inv_path, quota_specs, _ = load_inventory_specs(policy_dir)
+    return inv_path, quota_specs
 
 
 def compute_quota_usage(
@@ -466,6 +605,77 @@ def compute_quota_usage(
         used = sum(1 for ts in timestamps if ts > cutoff)
         out[spec.name] = (used, spec.quota_requests)
     return out
+
+
+def compute_concurrency_usage(
+    concurrency_specs: list[ConcurrencySpec],
+    intervals_by_provider: dict[str, list[tuple[float, float]]],
+    *,
+    window_start: float | None,
+    window_end: float | None,
+) -> dict[str, ConcurrencyUsage]:
+    """Compute observed concurrency busy-time from completed intervals."""
+    out: dict[str, ConcurrencyUsage] = {}
+    span = (
+        max(float(window_end) - float(window_start), 0.0)
+        if window_start is not None and window_end is not None
+        else 0.0
+    )
+    for spec in concurrency_specs:
+        limit = max(int(spec.concurrency_limit), 0)
+        intervals = [
+            (max(start, window_start), min(end, window_end))
+            for start, end in intervals_by_provider.get(spec.name, [])
+            if window_start is not None
+            and window_end is not None
+            and end > start
+            and end > window_start
+            and start < window_end
+        ]
+        busy_sec = union_interval_duration(intervals)
+        busy_pct = (busy_sec / span * 100.0) if span > 0 else 0.0
+        out[spec.name] = ConcurrencyUsage(
+            busy_time_pct=busy_pct,
+            peak_used=peak_concurrency(intervals),
+            limit=limit,
+            requests=len(intervals),
+        )
+    return out
+
+
+def union_interval_duration(intervals: list[tuple[float, float]]) -> float:
+    """Return total wall time covered by at least one interval."""
+    valid = sorted((start, end) for start, end in intervals if end > start)
+    if not valid:
+        return 0.0
+    total = 0.0
+    current_start, current_end = valid[0]
+    for start, end in valid[1:]:
+        if start <= current_end:
+            current_end = max(current_end, end)
+            continue
+        total += current_end - current_start
+        current_start, current_end = start, end
+    total += current_end - current_start
+    return total
+
+
+def peak_concurrency(intervals: list[tuple[float, float]]) -> int:
+    """Return max overlap count for half-open intervals [start, end)."""
+    events: list[tuple[float, int]] = []
+    for start, end in intervals:
+        if end <= start:
+            continue
+        events.append((start, 1))
+        events.append((end, -1))
+    current = 0
+    peak = 0
+    # End events sort before start events at the same timestamp, so adjacent
+    # intervals do not count as overlapping.
+    for _, delta in sorted(events, key=lambda item: (item[0], item[1])):
+        current += delta
+        peak = max(peak, current)
+    return peak
 
 
 def load_slo_ms(policy_dir: Path, fallback_slo_ms: float) -> float:
@@ -527,6 +737,7 @@ def load_run_env(base_dir: Path) -> dict[str, str]:
 
 
 def render_snapshot(base_dir: Path) -> str:
+    now = time.time()
     run_env = load_run_env(base_dir)
     default_slo_ms = float(run_env.get("SLO_MS") or 3000.0)
     duration_cap_sec = (
@@ -556,13 +767,15 @@ def render_snapshot(base_dir: Path) -> str:
     provider_failures: Counter[str] = Counter()
     for pdir in policy_dirs:
         slo_ms = load_slo_ms(pdir, default_slo_ms)
-        _, quota_specs = load_quota_specs(pdir)
+        _, quota_specs, concurrency_specs = load_inventory_specs(pdir)
         s = collect_policy(
             pdir,
             slo_ms=slo_ms,
             provider_ttft=provider_ttft,
             provider_failures=provider_failures,
             quota_specs=quota_specs,
+            concurrency_specs=concurrency_specs,
+            now=now,
         )
         if s is None:
             stats.append(
@@ -588,6 +801,15 @@ def render_snapshot(base_dir: Path) -> str:
                     quota_usage={
                         spec.name: (0, spec.quota_requests) for spec in quota_specs
                     },
+                    concurrency_usage={
+                        spec.name: ConcurrencyUsage(
+                            busy_time_pct=0.0,
+                            peak_used=0,
+                            limit=spec.concurrency_limit,
+                            requests=0,
+                        )
+                        for spec in concurrency_specs
+                    },
                 )
             )
             continue
@@ -605,7 +827,6 @@ def render_snapshot(base_dir: Path) -> str:
                 else max(latest_ts_global, s.latest_ts)
             )
 
-    now = time.time()
     elapsed_sec = (now - earliest_ts_global) if earliest_ts_global else 0.0
 
     total_completed = sum(s.total_requests for s in stats)
@@ -658,6 +879,7 @@ def render_snapshot(base_dir: Path) -> str:
         "win",
         "429s",
         "quota left",
+        "conc busy",
     ]
     rows: list[list[str]] = []
     for s in stats:
@@ -679,6 +901,7 @@ def render_snapshot(base_dir: Path) -> str:
                 str(s.hedge_wins),
                 str(s.rate_limited_429),
                 fmt_quota_usage(s.quota_usage),
+                fmt_concurrency_usage(s.concurrency_usage),
             ]
         )
 
