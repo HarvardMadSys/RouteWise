@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -46,10 +47,10 @@ from experiments.real_evaluation.inventory import (
     subscription_fixed_cost_for_inventory,
 )
 from experiments.real_evaluation.policies import (
-    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     BasePolicy,
+    CapacityUnavailableError,
     RequestContext,
     RoutingDecision,
     build_policy,
@@ -57,6 +58,10 @@ from experiments.real_evaluation.policies import (
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
+from experiments.real_evaluation.shared_profile import (
+    SharedProfileEvent,
+    SharedProfileEventLog,
+)
 from experiments.real_evaluation.transports import (
     BaseTransport,
     SingleRequestResult,
@@ -68,6 +73,7 @@ DEFAULT_TIMEOUT_SEC: int = 60
 DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 5
 DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
+DEFAULT_PROFILE_PROBE_PARALLELISM: int = 0
 DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
 # Cap probe retries so a rate-limiting / failing provider can't stall the
@@ -431,6 +437,8 @@ class RealExperimentRunner:
         timeout_sec: int = DEFAULT_TIMEOUT_SEC,
         profile_window_sec: float = 15 * 60.0,
         prefix_cache_routing: bool = False,
+        shared_profile_events_path: Path | None = None,
+        shared_profile_poll_sec: float = 1.0,
     ) -> None:
         self.inventory = inventory
         self.slo_ms = slo_ms if slo_ms is not None else inventory.primary_slo_ms
@@ -450,6 +458,12 @@ class RealExperimentRunner:
             for name in policy_names
         }
         self.prefix_cache_routing = bool(prefix_cache_routing)
+        self._shared_profile_log = (
+            SharedProfileEventLog(shared_profile_events_path)
+            if shared_profile_events_path is not None
+            else None
+        )
+        self._shared_profile_poll_sec = max(0.1, float(shared_profile_poll_sec))
 
         self._spec_by_name: dict[str, ProviderSpec] = {
             spec.name: spec for spec in inventory.providers
@@ -645,6 +659,7 @@ class RealExperimentRunner:
         round_interval_sec: float = 0.0,
         phase: str = "periodic",
         stop_event: threading.Event | None = None,
+        parallelism: int = DEFAULT_PROFILE_PROBE_PARALLELISM,
     ) -> None:
         """Probe every provider and broadcast observations to all policies.
 
@@ -660,35 +675,28 @@ class RealExperimentRunner:
         if probes_per_provider <= 0:
             return
         for round_idx in range(probes_per_provider):
-            for spec in self.inventory.providers:
-                if self._probe_stop_requested(stop_event):
-                    return
-                if self._cost_exhausted("profile_maintenance"):
-                    return
-                if spec.name in self._providers_missing_api_key:
-                    continue
-                result = self._probe_provider(
-                    spec,
-                    phase=phase,
-                    round_idx=round_idx,
-                    probes_per_provider=probes_per_provider,
-                    retry_sleep_sec=sleep_sec,
-                    stop_event=stop_event,
-                    max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
-                )
-                if result is None:
-                    # ``None`` can mean: (a) hard stop (stop_event /
-                    # cost-exhausted), (b) provider-level skip after a
-                    # missing-API-key error, or (c) attempt budget
-                    # exhausted with a synthetic sample already recorded.
-                    # Only (a) should abort the round.
-                    if spec.name in self._providers_missing_api_key:
-                        continue
-                    if self._probe_stop_requested(stop_event) or self._stop_event.is_set():
-                        return
-                    # Attempt-exhausted: continue with the next provider.
-                if sleep_sec > 0 and self._probe_sleep(sleep_sec, stop_event):
-                    return
+            if self._probe_stop_requested(stop_event):
+                return
+            if self._cost_exhausted("profile_maintenance"):
+                return
+            specs = [
+                spec
+                for spec in self.inventory.providers
+                if spec.name not in self._providers_missing_api_key
+            ]
+            if not specs:
+                return
+            self._probe_profile_round_parallel(
+                specs,
+                round_idx=round_idx,
+                probes_per_provider=probes_per_provider,
+                retry_sleep_sec=sleep_sec,
+                phase=phase,
+                stop_event=stop_event,
+                parallelism=parallelism,
+            )
+            if self._probe_stop_requested(stop_event) or self._stop_event.is_set():
+                return
             if round_idx + 1 < probes_per_provider and round_interval_sec > 0:
                 logger.info(
                     "%s probe round %d/%d complete; sleeping %.1fs",
@@ -697,8 +705,82 @@ class RealExperimentRunner:
                     probes_per_provider,
                     round_interval_sec,
                 )
-                if self._stop_event.wait(round_interval_sec):
+                if self._probe_sleep(round_interval_sec, stop_event):
                     return
+
+    def _probe_profile_round_parallel(
+        self,
+        specs: list[ProviderSpec],
+        *,
+        round_idx: int,
+        probes_per_provider: int,
+        retry_sleep_sec: float,
+        phase: str,
+        stop_event: threading.Event | None,
+        parallelism: int = DEFAULT_PROFILE_PROBE_PARALLELISM,
+    ) -> None:
+        max_workers = len(specs) if parallelism <= 0 else min(parallelism, len(specs))
+        if max_workers <= 1:
+            for spec in specs:
+                if self._probe_stop_requested(stop_event):
+                    return
+                if self._cost_exhausted("profile_maintenance"):
+                    return
+                if spec.name in self._providers_missing_api_key:
+                    continue
+                self._probe_provider(
+                    spec,
+                    phase=phase,
+                    round_idx=round_idx,
+                    probes_per_provider=probes_per_provider,
+                    retry_sleep_sec=retry_sleep_sec,
+                    stop_event=stop_event,
+                    max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
+                )
+            return
+
+        logger.info(
+            "%s probe round %d/%d starting with parallelism=%d providers=%d",
+            phase,
+            round_idx + 1,
+            probes_per_provider,
+            max_workers,
+            len(specs),
+        )
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=f"real-eval-{phase}-probe",
+        ) as pool:
+            futures = {
+                pool.submit(
+                    self._probe_provider,
+                    spec,
+                    phase=phase,
+                    round_idx=round_idx,
+                    probes_per_provider=probes_per_provider,
+                    retry_sleep_sec=retry_sleep_sec,
+                    stop_event=stop_event,
+                    max_attempts=DEFAULT_PROBE_MAX_ATTEMPTS,
+                ): spec
+                for spec in specs
+            }
+            for future in as_completed(futures):
+                if self._probe_stop_requested(stop_event):
+                    for pending in futures:
+                        pending.cancel()
+                    return
+                try:
+                    future.result()
+                except Exception:
+                    spec = futures[future]
+                    logger.warning(
+                        "%s probe round %d/%d %s worker failed",
+                        phase,
+                        round_idx + 1,
+                        probes_per_provider,
+                        spec.name,
+                        exc_info=True,
+                    )
 
     def _probe_provider(
         self,
@@ -856,6 +938,14 @@ class RealExperimentRunner:
         ``SingleRequestResult``; it writes a clamped success-shaped sample
         used when probe retries are exhausted.
         """
+        if self._publish_shared_profile_sample(
+            provider,
+            ts,
+            float(ttft_ms),
+            None,
+            source="probe_synthetic",
+        ):
+            return
         for policy in self.policies.values():
             policy.add_sample(provider, ts, float(ttft_ms), None)
 
@@ -893,6 +983,7 @@ class RealExperimentRunner:
         probes_per_provider: int = DEFAULT_WARMUP_PROBES_PER_PROVIDER,
         sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
         round_interval_sec: float = DEFAULT_WARMUP_PROBE_INTERVAL_SEC,
+        parallelism: int = DEFAULT_PROFILE_PROBE_PARALLELISM,
     ) -> None:
         """Seed all policy-local latency profiles before replay."""
         self.probe_profiles(
@@ -900,6 +991,7 @@ class RealExperimentRunner:
             sleep_sec=sleep_sec,
             round_interval_sec=round_interval_sec,
             phase="warmup",
+            parallelism=parallelism,
         )
 
     def export_initial_profile(self) -> dict[str, Any]:
@@ -1041,6 +1133,7 @@ class RealExperimentRunner:
         if not trace:
             logger.warning("replay called with empty trace")
             return
+        shared_profile_handle = self._start_shared_profile_tailer_thread()
         probe_handle = self._start_periodic_profile_probe_thread(
             interval_sec=periodic_probe_interval_sec,
             sleep_sec=periodic_probe_sleep_sec,
@@ -1049,6 +1142,37 @@ class RealExperimentRunner:
             self._replay_parallel_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
         finally:
             self._stop_periodic_profile_probe_thread(probe_handle)
+            self._stop_periodic_profile_probe_thread(shared_profile_handle)
+
+    def _start_shared_profile_tailer_thread(self) -> _PeriodicProbeHandle | None:
+        if self._shared_profile_log is None:
+            return None
+
+        stop_event = threading.Event()
+
+        def _drain_once() -> None:
+            for event in self._shared_profile_log.read_new():
+                self._apply_shared_profile_event(event)
+
+        def _loop() -> None:
+            logger.info(
+                "shared profile tailing enabled: path=%s poll=%.2fs",
+                self._shared_profile_log.path,
+                self._shared_profile_poll_sec,
+            )
+            while not stop_event.is_set():
+                _drain_once()
+                if stop_event.wait(self._shared_profile_poll_sec):
+                    return
+
+        _drain_once()
+        thread = threading.Thread(
+            target=_loop,
+            name="real-eval-shared-profile-tailer",
+            daemon=True,
+        )
+        thread.start()
+        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
 
     def _start_periodic_profile_probe_thread(
         self,
@@ -1503,18 +1627,90 @@ class RealExperimentRunner:
     # Profile + capacity feedback.
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _profile_sample_ts(
+        result: SingleRequestResult,
+        *,
+        fallback_ts: float | None = None,
+    ) -> float:
+        if result.status == "success" and result.first_token_ts is not None:
+            return float(result.first_token_ts)
+        if result.start_ts:
+            return float(result.start_ts)
+        if fallback_ts is not None:
+            return float(fallback_ts)
+        return time.time()
+
+    def _apply_shared_profile_event(self, event: SharedProfileEvent) -> None:
+        for policy in self.policies.values():
+            policy.add_sample(
+                event.provider,
+                event.ts,
+                event.ttft_ms,
+                event.error_type,
+            )
+
+    def _publish_shared_profile_sample(
+        self,
+        provider: str,
+        ts: float,
+        ttft_ms: float,
+        error_type: str | None,
+        *,
+        source: str,
+        policy: str | None = None,
+    ) -> bool:
+        if self._shared_profile_log is None:
+            return False
+        try:
+            event = self._shared_profile_log.append(
+                provider=provider,
+                ts=ts,
+                ttft_ms=ttft_ms,
+                error_type=error_type,
+                source=source,
+                policy=policy,
+            )
+        except Exception as exc:
+            logger.warning("failed to publish shared profile sample: %s", exc)
+            return False
+        # Apply immediately in this process and mark the event as already
+        # consumed by ``append`` so the tailer does not duplicate the local
+        # write.
+        self._apply_shared_profile_event(event)
+        return True
+
     def _broadcast_sample(self, provider: str, ts: float, result: SingleRequestResult) -> None:
         error_type = None if result.status == "success" else result.status
         ttft_ms = result.ttft_ms if result.status == "success" else -1.0
+        sample_ts = self._profile_sample_ts(result, fallback_ts=ts)
+        if self._publish_shared_profile_sample(
+            provider,
+            sample_ts,
+            ttft_ms,
+            error_type,
+            source="probe",
+        ):
+            return
         for policy in self.policies.values():
-            policy.add_sample(provider, ts, ttft_ms, error_type)
+            policy.add_sample(provider, sample_ts, ttft_ms, error_type)
 
     def _feed_back_single(
         self, policy: BasePolicy, provider: str, result: SingleRequestResult
     ) -> None:
         error_type = None if result.status == "success" else result.status
         ttft_ms = result.ttft_ms if result.status == "success" else -1.0
-        policy.add_sample(provider, result.start_ts or time.time(), ttft_ms, error_type)
+        sample_ts = self._profile_sample_ts(result)
+        if self._publish_shared_profile_sample(
+            provider,
+            sample_ts,
+            ttft_ms,
+            error_type,
+            source="natural",
+            policy=policy.name,
+        ):
+            return
+        policy.add_sample(provider, sample_ts, ttft_ms, error_type)
 
     def _feed_back_hedged(self, policy: BasePolicy, hedged: HedgedResult) -> None:
         primary_provider = hedged.primary_result.provider.split("@")[0]
@@ -1801,6 +1997,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--shared-profile-events",
+        type=Path,
+        default=None,
+        help=(
+            "Append/read latency samples from a cross-process JSONL event log. "
+            "When set, natural request feedback and probe samples are shared "
+            "with other policy processes using the same path."
+        ),
+    )
+    parser.add_argument(
+        "--shared-profile-poll-sec",
+        type=float,
+        default=1.0,
+        help="Polling interval for --shared-profile-events.",
+    )
+    parser.add_argument(
         "--profile-probe-sleep-sec",
         type=float,
         default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
@@ -1968,6 +2180,8 @@ def main(argv: list[str] | None = None) -> int:
         timeout_sec=args.timeout_sec,
         profile_window_sec=args.profile_window_sec,
         prefix_cache_routing=args.prefix_cache_routing,
+        shared_profile_events_path=args.shared_profile_events,
+        shared_profile_poll_sec=args.shared_profile_poll_sec,
     )
 
     cost_envelope = workload_cost_envelope(

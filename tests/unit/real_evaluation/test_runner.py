@@ -19,7 +19,6 @@ from experiments.real_evaluation.inventory import (
     load_inventory,
     subscription_fixed_cost_for_inventory,
 )
-from experiments.real_evaluation.transports import TransportConfig as _TransportConfig
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -34,7 +33,11 @@ from experiments.real_evaluation.runner import (
     check_quota_clock_alignment,
     load_trace_jsonl,
 )
-from experiments.real_evaluation.transports import SingleRequestResult
+from experiments.real_evaluation.shared_profile import SharedProfileEventLog
+from experiments.real_evaluation.transports import (
+    SingleRequestResult,
+    TransportConfig as _TransportConfig,
+)
 
 _INVENTORY_PATH = "experiments/real_evaluation/data/joint_minimax_m25_online.json"
 
@@ -43,6 +46,7 @@ def _build_runner(
     policy_names: list[str] | None = None,
     *,
     prefix_cache_routing: bool = False,
+    shared_profile_events_path=None,
 ) -> tuple[RealExperimentRunner, Recorder]:
     inventory = load_inventory(_INVENTORY_PATH)
     rec = Recorder(tempfile.mkdtemp())
@@ -52,6 +56,8 @@ def _build_runner(
         recorder=rec,
         slo_ms=inventory.primary_slo_ms,
         prefix_cache_routing=prefix_cache_routing,
+        shared_profile_events_path=shared_profile_events_path,
+        shared_profile_poll_sec=0.01,
     )
     return runner, rec
 
@@ -674,7 +680,7 @@ def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
     rec.close()
 
 
-def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
+def test_warmup_probes_all_providers_each_round(monkeypatch) -> None:
     runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
     seen: list[str] = []
 
@@ -702,7 +708,53 @@ def test_warmup_probes_round_robin_by_provider(monkeypatch) -> None:
     runner.warmup(probes_per_provider=2, sleep_sec=0.0, round_interval_sec=0.0)
 
     providers = [spec.name for spec in runner.inventory.providers]
-    assert seen == providers + providers
+    assert sorted(seen) == sorted(providers + providers)
+    rec.close()
+
+
+def test_warmup_probes_providers_in_parallel(monkeypatch) -> None:
+    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    providers = [spec.name for spec in runner.inventory.providers]
+    barrier = threading.Barrier(len(providers))
+    lock = threading.Lock()
+    active = 0
+    peak_active = 0
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del provider, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        assert prompt == WARMUP_PROBE_PROMPT
+        nonlocal active, peak_active
+        with lock:
+            active += 1
+            peak_active = max(peak_active, active)
+        try:
+            barrier.wait(timeout=5.0)
+            now = time.time()
+            return SingleRequestResult(
+                ttft_ms=100.0,
+                e2e_ms=150.0,
+                status="success",
+                provider="probe",
+                start_ts=now,
+                first_token_ts=now + 0.1,
+            )
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+
+    runner.warmup(probes_per_provider=1, sleep_sec=0.0, round_interval_sec=0.0)
+
+    assert peak_active == len(providers)
     rec.close()
 
 
@@ -853,6 +905,92 @@ def test_initial_profile_loads_into_all_policy_profiles(tmp_path) -> None:
             assert state.profile.error_rate(time.time()) > 0
 
     rec.close()
+
+
+def test_shared_profile_event_log_round_trip_and_dedupe(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    writer = SharedProfileEventLog(path)
+    reader = SharedProfileEventLog(path)
+
+    event = writer.append(
+        provider="Chutes_SQ",
+        ts=123.0,
+        ttft_ms=456.0,
+        error_type=None,
+        source="natural",
+        policy="greedy_latency",
+    )
+
+    assert writer.read_new() == []
+    assert [e.event_id for e in reader.read_new()] == [event.event_id]
+    assert reader.read_new() == []
+    latest = reader.recent_last_event_by_provider(now=124.0, window_sec=15.0)
+    assert latest["Chutes_SQ"].ttft_ms == pytest.approx(456.0)
+
+
+def test_shared_profile_feedback_updates_all_local_policies(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    provider = runner.inventory.providers[0].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+    first_token_ts = now + 0.321
+
+    runner._feed_back_single(
+        policy,
+        provider,
+        SingleRequestResult(
+            ttft_ms=321.0,
+            e2e_ms=500.0,
+            status="success",
+            provider=provider,
+            start_ts=now,
+            first_token_ts=first_token_ts,
+        ),
+    )
+
+    for local_policy in runner.policies.values():
+        state = local_policy.states[provider]
+        assert state.profile.sample_count(time.time()) == 1
+        assert state.profile.mean_ms(time.time()) == pytest.approx(321.0)
+    latest = SharedProfileEventLog(path).recent_last_event_by_provider(
+        now=first_token_ts + 1.0,
+        window_sec=15.0,
+    )
+    assert latest[provider].ts == pytest.approx(first_token_ts)
+    assert path.exists()
+    rec.close()
+
+
+def test_shared_profile_tailer_imports_external_events(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency"],
+        shared_profile_events_path=path,
+    )
+    provider = runner.inventory.providers[0].name
+    external = SharedProfileEventLog(path)
+    external.append(
+        provider=provider,
+        ts=time.time(),
+        ttft_ms=654.0,
+        error_type=None,
+        source="probe",
+    )
+
+    handle = runner._start_shared_profile_tailer_thread()
+    try:
+        deadline = time.time() + 2.0
+        state = runner.policies["greedy_latency"].states[provider]
+        while time.time() < deadline and state.profile.sample_count(time.time()) == 0:
+            time.sleep(0.02)
+        assert state.profile.mean_ms(time.time()) == pytest.approx(654.0)
+    finally:
+        runner._stop_periodic_profile_probe_thread(handle)
+        rec.close()
 
 
 def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:

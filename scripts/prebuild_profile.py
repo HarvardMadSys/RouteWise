@@ -12,6 +12,7 @@ from pathlib import Path
 from experiments.real_evaluation.inventory import load_inventory
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.runner import (
+    DEFAULT_PROFILE_PROBE_PARALLELISM,
     DEFAULT_PROFILE_PROBE_SLEEP_SEC,
     DEFAULT_TIMEOUT_SEC,
     DEFAULT_WARMUP_PROBES_PER_PROVIDER,
@@ -32,6 +33,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--profile-probe-sleep-sec",
         type=float,
         default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+    )
+    parser.add_argument(
+        "--profile-probe-parallelism",
+        type=int,
+        default=DEFAULT_PROFILE_PROBE_PARALLELISM,
+        help="Max concurrent provider probes per round. Use 0 for all providers.",
     )
     parser.add_argument("--round-interval-sec", type=float, default=0.0)
     parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
@@ -72,11 +79,13 @@ def main(argv: list[str] | None = None) -> int:
                 sleep_sec=args.profile_probe_sleep_sec,
                 round_interval_sec=args.round_interval_sec,
                 phase="warmup",
+                parallelism=args.profile_probe_parallelism,
             )
             profile = runner.export_initial_profile()
             profile["_meta"] = {
                 "inventory": str(args.inventory),
                 "probes_per_provider": args.probes_per_provider,
+                "profile_probe_parallelism": args.profile_probe_parallelism,
                 "profile_probe_cost_usd": round(runner._profile_probe_cost_usd, 8),
                 "profile_probe_counts": dict(runner._profile_probe_counts),
             }

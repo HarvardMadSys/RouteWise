@@ -52,6 +52,15 @@ PERIODIC_PROBE_INTERVAL_SEC="${PERIODIC_PROBE_INTERVAL_SEC:-180}"
 MIN_PROFILE_SUCCESS_SAMPLES="${MIN_PROFILE_SUCCESS_SAMPLES:-5}"
 SHARED_WARMUP_PROFILE="${SHARED_WARMUP_PROFILE:-1}"
 INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}"
+# Real-eval runs launch one process per policy, so profile maintenance must
+# be shared across processes by default. The sidecar below probes only when a
+# provider has no natural request feedback in the idle window.
+SHARED_PROFILE_PROBING="${SHARED_PROFILE_PROBING:-1}"
+SHARED_PROFILE_EVENTS_PATH="${SHARED_PROFILE_EVENTS_PATH:-$OUTPUT_BASE/shared_profile_events.jsonl}"
+SHARED_PROFILE_POLL_SEC="${SHARED_PROFILE_POLL_SEC:-1}"
+SHARED_PROFILE_PROBE_INTERVAL_SEC="${SHARED_PROFILE_PROBE_INTERVAL_SEC:-5}"
+SHARED_PROFILE_IDLE_SEC="${SHARED_PROFILE_IDLE_SEC:-5}"
+SHARED_PROFILE_MAX_PROBES_PER_TICK="${SHARED_PROFILE_MAX_PROBES_PER_TICK:-0}"
 SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
@@ -326,6 +335,11 @@ if [[ -n "$DURATION_SEC" ]]; then
   EXTRA_RUNNER_ARGS+=(--duration-sec "$DURATION_SEC")
 fi
 
+PROCESS_PERIODIC_PROBE_INTERVAL_SEC="$PERIODIC_PROBE_INTERVAL_SEC"
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
+  PROCESS_PERIODIC_PROBE_INTERVAL_SEC=0
+fi
+
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
@@ -345,6 +359,13 @@ INITIAL_PROFILE_PATH=$INITIAL_PROFILE_PATH
 WARMUP_PROBE_INTERVAL_SEC=$WARMUP_PROBE_INTERVAL_SEC
 PROFILE_PROBE_SLEEP_SEC=$PROFILE_PROBE_SLEEP_SEC
 PERIODIC_PROBE_INTERVAL_SEC=$PERIODIC_PROBE_INTERVAL_SEC
+PROCESS_PERIODIC_PROBE_INTERVAL_SEC=$PROCESS_PERIODIC_PROBE_INTERVAL_SEC
+SHARED_PROFILE_PROBING=$SHARED_PROFILE_PROBING
+SHARED_PROFILE_EVENTS_PATH=$SHARED_PROFILE_EVENTS_PATH
+SHARED_PROFILE_POLL_SEC=$SHARED_PROFILE_POLL_SEC
+SHARED_PROFILE_PROBE_INTERVAL_SEC=$SHARED_PROFILE_PROBE_INTERVAL_SEC
+SHARED_PROFILE_IDLE_SEC=$SHARED_PROFILE_IDLE_SEC
+SHARED_PROFILE_MAX_PROBES_PER_TICK=$SHARED_PROFILE_MAX_PROBES_PER_TICK
 MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
 SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
 SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
@@ -358,7 +379,61 @@ CHUTES_KEY_COUNT=${#CHUTES_KEYS[@]}
 MINIMAX_KEY_COUNT=${#MINIMAX_KEYS[@]}
 EOF
 
+SHARED_PROFILE_ARGS=()
+profile_probe_pid=""
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
+  mkdir -p "$(dirname "$SHARED_PROFILE_EVENTS_PATH")"
+  : > "$SHARED_PROFILE_EVENTS_PATH"
+  SHARED_PROFILE_ARGS=(
+    --shared-profile-events "$SHARED_PROFILE_EVENTS_PATH"
+    --shared-profile-poll-sec "$SHARED_PROFILE_POLL_SEC"
+  )
+  prebuild_chutes_key=""
+  prebuild_minimax_key=""
+  if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
+    prebuild_minimax_key="${MINIMAX_KEYS[0]:-}"
+  elif [[ "$QUOTA_PROVIDER" == "chutes" ]]; then
+    prebuild_chutes_key="${CHUTES_KEYS[0]:-}"
+  fi
+  echo "launching shared profile prober -> $OUTPUT_BASE/shared_profile_probe.log"
+  CHUTES_API_KEY="$prebuild_chutes_key" MINIMAX_API_KEY="$prebuild_minimax_key" FEATHERLESS_API_KEY="${FEATHERLESS_KEYS[0]:-}" OPENROUTER_API_KEY="${OPENROUTER_KEYS[0]}" uv run python scripts/shared_profile_probe.py \
+    --inventory "$INVENTORY" \
+    --shared-profile-events "$SHARED_PROFILE_EVENTS_PATH" \
+    --interval-sec "$SHARED_PROFILE_PROBE_INTERVAL_SEC" \
+    --idle-threshold-sec "$SHARED_PROFILE_IDLE_SEC" \
+    --max-probes-per-tick "$SHARED_PROFILE_MAX_PROBES_PER_TICK" \
+    --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
+    --timeout-sec "$TIMEOUT_SEC" \
+    --max-cost-usd "$MAX_COST_USD" \
+    > "$OUTPUT_BASE/shared_profile_probe.log" 2>&1 &
+  profile_probe_pid="$!"
+  sleep 2
+  if ! kill -0 "$profile_probe_pid" 2>/dev/null; then
+    echo "ERROR: shared profile prober died on startup; see $OUTPUT_BASE/shared_profile_probe.log" >&2
+    tail -n 20 "$OUTPUT_BASE/shared_profile_probe.log" >&2 || true
+    exit 1
+  fi
+fi
+
 pids=()
+cleanup_children() {
+  local code=$?
+  if [[ -n "${profile_probe_pid:-}" ]]; then
+    kill "$profile_probe_pid" 2>/dev/null || true
+  fi
+  for pid in "${pids[@]:-}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  if [[ -n "${profile_probe_pid:-}" ]]; then
+    wait "$profile_probe_pid" 2>/dev/null || true
+  fi
+  for pid in "${pids[@]:-}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+  exit "$code"
+}
+trap cleanup_children INT TERM
+
 featherless_idx=0
 quota_native_idx=0
 dedicated_or_idx=1
@@ -442,11 +517,12 @@ for i in "${!POLICIES[@]}"; do
       --timeout-sec "$TIMEOUT_SEC" \
       --warmup-probes "$PROCESS_WARMUP_PROBES" \
       "${INITIAL_PROFILE_ARGS[@]}" \
+      "${SHARED_PROFILE_ARGS[@]}" \
       "${TRACE_ARGS[@]}" \
       "${EXTRA_RUNNER_ARGS[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
-      --periodic-probe-interval-sec "$PERIODIC_PROBE_INTERVAL_SEC" \
+      --periodic-probe-interval-sec "$PROCESS_PERIODIC_PROBE_INTERVAL_SEC" \
       --min-profile-success-samples "$MIN_PROFILE_SUCCESS_SAMPLES" \
       > "$out/run.log" 2>&1
   ) &
@@ -459,6 +535,12 @@ for pid in "${pids[@]}"; do
     failed=1
   fi
 done
+trap - INT TERM
+
+if [[ -n "$profile_probe_pid" ]]; then
+  kill "$profile_probe_pid" 2>/dev/null || true
+  wait "$profile_probe_pid" 2>/dev/null || true
+fi
 
 if [[ "$failed" -ne 0 ]]; then
   echo "one or more policy processes failed; inspect $OUTPUT_BASE/*/run.log" >&2
