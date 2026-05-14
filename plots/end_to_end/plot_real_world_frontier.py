@@ -124,11 +124,11 @@ PROVIDER_COLOR_CYCLE = (
 )
 PROVIDER_MIX_COLORS = {
     "OR_DeepInfra": "#2b7bba",
-    "MiniMax_Plus_SQ": "#7b61b3",
+    "MiniMax_Plus_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
     "OR_AtlasCloud": "#f28e2b",
     "OR_AkashML": "#17becf",
-    "OR_WandB": "#8c564b",
+    "OR_WandB": "#8e63b0",
     "OR_Chutes": "#d62728",
     "OR_Novita": "#e377c2",
     "OR_Phala": "#bcbd22",
