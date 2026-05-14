@@ -14,6 +14,11 @@ snapshot table with the key health metrics the user wants while a long
 Designed to be safe to run repeatedly against a live output dir; it only
 reads the CSVs and never writes back. Use ``--watch N`` to refresh every
 N seconds (Ctrl+C to stop).
+
+Pass ``--profiles`` to additionally render the shared latency-profile event
+log (warmup/probe/natural samples) so runs can inspect the provider latencies
+the policies know about, including providers that were probed but not selected
+for real trace requests.
 """
 
 from __future__ import annotations
@@ -107,6 +112,24 @@ class ConcurrencyUsage:
     peak_used: int
     limit: int
     requests: int
+
+
+@dataclass
+class ProfileProviderStats:
+    """Aggregated shared-profile events for one provider."""
+
+    provider: str
+    successes: int
+    failures: int
+    latency_mean_ms: float
+    latency_p50_ms: float
+    latency_p90_ms: float
+    latency_p95_ms: float
+    latency_p99_ms: float
+    slo_violation_pct: float
+    source_counts: dict[str, int]
+    last_ts: float | None
+    last_source: str | None
 
 
 def parse_run_plan(run_log: Path) -> tuple[int | None, float | None]:
@@ -483,6 +506,17 @@ def fmt_concurrency_usage(
     return " ".join(parts)
 
 
+def fmt_counts(counts: dict[str, int], max_entries: int = 3) -> str:
+    """Compact ``key:n`` rendering. Sorted by count, descending."""
+    if not counts:
+        return "-"
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    parts = [f"{k}:{v}" for k, v in items[:max_entries]]
+    if len(items) > max_entries:
+        parts.append(f"+{len(items) - max_entries}")
+    return " ".join(parts)
+
+
 def render_table(rows: list[list[str]], headers: list[str]) -> str:
     """Plain-text aligned table. Avoids a pandas/rich dependency."""
     widths = [len(h) for h in headers]
@@ -736,6 +770,187 @@ def load_run_env(base_dir: Path) -> dict[str, str]:
     return env
 
 
+def build_profile_events_table(
+    base_dir: Path,
+    *,
+    slo_ms: float,
+    now: float,
+) -> tuple[str, list[dict]]:
+    """Build a table from ``shared_profile_events.jsonl``.
+
+    Unlike the per-provider request table, this reflects the shared latency
+    evidence available to routing policies: warmup samples, sidecar probes,
+    and natural request feedback. It is therefore useful when a provider is
+    probed but never selected for real trace traffic.
+    """
+    path = base_dir / "shared_profile_events.jsonl"
+    headers = [
+        "provider",
+        "events",
+        "fail",
+        "mean",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "SLO viol",
+        "sources",
+        "last",
+    ]
+    if not path.exists():
+        return (
+            "profile TTFT (shared warmup/probe/natural events):\n"
+            f"no shared profile event log found at {path}",
+            [],
+        )
+
+    samples_by_provider: dict[str, list[float]] = {}
+    failures_by_provider: Counter[str] = Counter()
+    sources_by_provider: dict[str, Counter[str]] = {}
+    last_ts_by_provider: dict[str, float] = {}
+    last_source_by_provider: dict[str, str] = {}
+
+    try:
+        with path.open() as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                provider = str(event.get("provider") or "unknown")
+                source = str(event.get("source") or "unknown")
+                sources_by_provider.setdefault(provider, Counter())[source] += 1
+
+                ts = safe_float(str(event.get("ts", "")))
+                if ts is not None and ts >= last_ts_by_provider.get(provider, -math.inf):
+                    last_ts_by_provider[provider] = ts
+                    last_source_by_provider[provider] = source
+
+                error_type = event.get("error_type")
+                ttft_ms = safe_float(str(event.get("ttft_ms", "")))
+                if error_type not in (None, "") or ttft_ms is None or ttft_ms <= 0:
+                    failures_by_provider[provider] += 1
+                    continue
+                samples_by_provider.setdefault(provider, []).append(ttft_ms)
+    except OSError as exc:
+        return (
+            "profile TTFT (shared warmup/probe/natural events):\n"
+            f"could not read {path}: {exc}",
+            [],
+        )
+
+    records: list[ProfileProviderStats] = []
+    all_providers = set(samples_by_provider) | set(failures_by_provider) | set(sources_by_provider)
+    for provider in sorted(all_providers):
+        samples = sorted(samples_by_provider.get(provider, []))
+        failures = failures_by_provider.get(provider, 0)
+        total = len(samples) + failures
+        if samples:
+            mean_v = statistics.fmean(samples)
+            p50 = percentile(samples, 50)
+            p90 = percentile(samples, 90)
+            p95 = percentile(samples, 95)
+            p99 = percentile(samples, 99)
+            slo_violations = sum(1 for v in samples if v > slo_ms) + failures
+            slo_v_pct = (slo_violations / total * 100.0) if total else 0.0
+        else:
+            mean_v = p50 = p90 = p95 = p99 = float("nan")
+            slo_v_pct = 100.0 if total else 0.0
+        records.append(
+            ProfileProviderStats(
+                provider=provider,
+                successes=len(samples),
+                failures=failures,
+                latency_mean_ms=mean_v,
+                latency_p50_ms=p50,
+                latency_p90_ms=p90,
+                latency_p95_ms=p95,
+                latency_p99_ms=p99,
+                slo_violation_pct=slo_v_pct,
+                source_counts=dict(sources_by_provider.get(provider, Counter())),
+                last_ts=last_ts_by_provider.get(provider),
+                last_source=last_source_by_provider.get(provider),
+            )
+        )
+
+    records.sort(
+        key=lambda record: (
+            -(record.successes + record.failures),
+            record.provider,
+        )
+    )
+
+    rows: list[list[str]] = []
+    json_records: list[dict] = []
+    for record in records:
+        total = record.successes + record.failures
+        age = (
+            f"{max(now - record.last_ts, 0.0):.0f}s:{record.last_source}"
+            if record.last_ts is not None
+            else "-"
+        )
+        rows.append(
+            [
+                record.provider,
+                str(total),
+                str(record.failures),
+                fmt_ms(record.latency_mean_ms),
+                fmt_ms(record.latency_p50_ms),
+                fmt_ms(record.latency_p90_ms),
+                fmt_ms(record.latency_p95_ms),
+                fmt_ms(record.latency_p99_ms),
+                fmt_pct(record.slo_violation_pct),
+                fmt_counts(record.source_counts),
+                age,
+            ]
+        )
+        json_records.append(
+            {
+                "provider": record.provider,
+                "events": total,
+                "successes": record.successes,
+                "failures": record.failures,
+                "ttft_mean_ms": (
+                    None
+                    if math.isnan(record.latency_mean_ms)
+                    else record.latency_mean_ms
+                ),
+                "ttft_p50_ms": (
+                    None
+                    if math.isnan(record.latency_p50_ms)
+                    else record.latency_p50_ms
+                ),
+                "ttft_p90_ms": (
+                    None
+                    if math.isnan(record.latency_p90_ms)
+                    else record.latency_p90_ms
+                ),
+                "ttft_p95_ms": (
+                    None
+                    if math.isnan(record.latency_p95_ms)
+                    else record.latency_p95_ms
+                ),
+                "ttft_p99_ms": (
+                    None
+                    if math.isnan(record.latency_p99_ms)
+                    else record.latency_p99_ms
+                ),
+                "slo_violation_pct": record.slo_violation_pct,
+                "source_counts": record.source_counts,
+                "last_ts": record.last_ts,
+                "last_source": record.last_source,
+            }
+        )
+
+    table = (
+        "profile TTFT (shared warmup/probe/natural events):\n"
+        + render_table(rows, headers)
+    )
+    return table, json_records
+
+
 def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
     now = time.time()
     run_env = load_run_env(base_dir)
@@ -929,6 +1144,11 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         "\n\nper-provider TTFT (aggregated across all policies):\n"
         + render_table(provider_rows, provider_headers)
     )
+    profile_section, profile_table_data = build_profile_events_table(
+        base_dir,
+        slo_ms=default_slo_ms,
+        now=now,
+    )
 
     policy_table_text = render_table(rows, headers)
     header_text = "\n".join(header_lines)
@@ -938,6 +1158,7 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
             "header": header_text,
             "policy_table": policy_table_text,
             "provider_table": provider_section.lstrip("\n"),
+            "profile_table": profile_section,
         },
         "snapshot_ts": now,
         "snapshot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
@@ -953,6 +1174,7 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         "total_cost_usd": sum(s.total_cost_usd for s in stats),
         "policies": [_stats_to_dict(s) for s in stats],
         "providers_ttft": provider_table_data,
+        "profile_events": profile_table_data,
     }
 
 
@@ -1108,6 +1330,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "per-provider TTFT distribution.",
     )
     parser.add_argument(
+        "--profiles",
+        action="store_true",
+        help="Also print the shared profile event table "
+             "(warmup/probe/natural latency samples).",
+    )
+    parser.add_argument(
+        "--profiles-only",
+        action="store_true",
+        help="Print only the shared profile event table, skipping request "
+             "summaries.",
+    )
+    parser.add_argument(
         "--snapshot-label",
         type=str,
         default=None,
@@ -1123,18 +1357,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {base} is not a directory", file=sys.stderr)
         return 2
 
-    if args.providers_only and args.policies_only:
-        print("error: --providers-only and --policies-only are mutually exclusive",
+    exclusive = [args.providers_only, args.policies_only, args.profiles_only]
+    if sum(bool(v) for v in exclusive) > 1:
+        print("error: --providers-only, --policies-only, and --profiles-only are mutually exclusive",
               file=sys.stderr)
         return 2
 
     def render_for_display() -> str:
         text, data = render_snapshot(base)
         sections = data.get("_sections", {})
+        if args.profiles_only:
+            return sections.get("header", "") + "\n\n" + sections.get("profile_table", "")
         if args.providers_only:
             return sections.get("header", "") + "\n\n" + sections.get("provider_table", "")
         if args.policies_only:
             return sections.get("header", "") + "\n\n" + sections.get("policy_table", "")
+        if args.profiles:
+            return text + "\n\n" + sections.get("profile_table", "")
         return text
 
     if args.snapshot:
