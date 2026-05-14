@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch the 8h real-eval plan as one OS process per policy. Joint-pool
-# policies get one Featherless account and one OpenRouter key each. Native
-# OpenRouter baselines share OPENROUTER_API_KEY_1 so they measure OR behavior
-# without consuming the per-policy key pool.
+# Launch the 8h real-eval plan as one OS process per policy. By default every
+# process uses OPENROUTER_API_KEY_1 so provider failures and billing state are
+# comparable across policies. Set OPENROUTER_KEY_MODE=per_policy to opt into
+# the older one-OpenRouter-key-per-joint-policy layout for rate-limit stress
+# tests.
 #
 # Quota tier (Chutes vs MiniMax native) is selected by QUOTA_PROVIDER:
 #   chutes  (default) — inject CHUTES_API_KEY for joint-pool policies
@@ -65,6 +66,11 @@ SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
 KEY_SLOT_MAX="${KEY_SLOT_MAX:-20}"
+OPENROUTER_KEY_MODE="${OPENROUTER_KEY_MODE:-single}"
+if [[ "$OPENROUTER_KEY_MODE" != "single" && "$OPENROUTER_KEY_MODE" != "per_policy" ]]; then
+  echo "OPENROUTER_KEY_MODE must be single or per_policy; got: $OPENROUTER_KEY_MODE" >&2
+  exit 2
+fi
 
 # chutes | minimax — which native subscription API keys joint-pool policies get
 if [[ -z "${QUOTA_PROVIDER:-}" ]]; then
@@ -268,16 +274,23 @@ else
   fi
 fi
 
-OR_KEYS_REQUIRED=$OPENROUTER_DEDICATED_POLICY_COUNT
-if [[ "$HAS_NATIVE_OR_BASELINE" -eq 1 ]]; then
-  OR_KEYS_REQUIRED=$((OR_KEYS_REQUIRED + 1))
+OR_KEYS_REQUIRED=1
+if [[ "$OPENROUTER_KEY_MODE" == "per_policy" ]]; then
+  OR_KEYS_REQUIRED=$OPENROUTER_DEDICATED_POLICY_COUNT
+  if [[ "$HAS_NATIVE_OR_BASELINE" -eq 1 ]]; then
+    OR_KEYS_REQUIRED=$((OR_KEYS_REQUIRED + 1))
+  fi
 fi
 if [[ "${#OPENROUTER_KEYS[@]}" -lt "$OR_KEYS_REQUIRED" ]]; then
-  # Allow running with fewer keys than the "ideal" 1-per-non-native-policy
-  # layout. Keys are round-robin-assigned below, so concurrent policies will
-  # share OR per-key rate limits and may see extra 429s. The 429-fallback /
-  # probe-cap logic handles this, so we only warn rather than abort.
-  echo "WARNING: $OR_KEYS_REQUIRED OpenRouter keys recommended (key1 for native OR baselines + one per non-native policy); got ${#OPENROUTER_KEYS[@]}. Concurrent policies will share keys and may hit shared OR rate limits." >&2
+  if [[ "$OPENROUTER_KEY_MODE" == "per_policy" ]]; then
+    # Allow running with fewer keys than the "ideal" 1-per-non-native-policy
+    # layout. Keys are round-robin-assigned below, so concurrent policies will
+    # share OR per-key rate limits and may see extra 429s.
+    echo "WARNING: $OR_KEYS_REQUIRED OpenRouter keys recommended (key1 for native OR baselines + one per non-native policy); got ${#OPENROUTER_KEYS[@]}. Concurrent policies will share keys and may hit shared OR rate limits." >&2
+  else
+    echo "ERROR: OPENROUTER_KEY_MODE=single requires OPENROUTER_API_KEY_1, OPENROUTER_API_KEY1, OPENROUTER_API_KEYS, or OPENROUTER_API_KEY" >&2
+    exit 2
+  fi
 fi
 
 mkdir -p "$OUTPUT_BASE"
@@ -371,6 +384,7 @@ SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
 SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
 PREFIX_CACHE_ROUTING=$PREFIX_CACHE_ROUTING
 KEY_SLOT_MAX=$KEY_SLOT_MAX
+OPENROUTER_KEY_MODE=$OPENROUTER_KEY_MODE
 POLICY_LIST=${POLICIES[*]}
 OPENROUTER_KEY_COUNT=${#OPENROUTER_KEYS[@]}
 FEATHERLESS_KEY_COUNT=${#FEATHERLESS_KEYS[@]}
@@ -479,7 +493,10 @@ for i in "${!POLICIES[@]}"; do
     start_delay=$((non_or_launch_idx * STAGGER_SEC))
     non_or_launch_idx=$((non_or_launch_idx + 1))
   fi
-  if is_native_or_baseline "$policy"; then
+  if [[ "$OPENROUTER_KEY_MODE" == "single" ]]; then
+    openrouter_key="${OPENROUTER_KEYS[0]}"
+    openrouter_key_slot=1
+  elif is_native_or_baseline "$policy"; then
     openrouter_key="${OPENROUTER_KEYS[0]}"
     openrouter_key_slot=1
   else

@@ -23,7 +23,7 @@
       "subscription_plan": "chutes",
       "billing_mode": "subscription",
       "stream_cancel_billing": "continues",
-      "notes": "Chutes_SQ via OpenRouter Chutes endpoint as backup when direct Chutes API quota is exhausted. Paper accounting still treats marginal=0 + fixed Chutes subscription. Each policy uses its own OPENROUTER_API_KEY (the shell script assigns one OR key per process); no separate Chutes key needed."
+      "notes": "Chutes_SQ via OpenRouter Chutes endpoint as backup when direct Chutes API quota is exhausted. Paper accounting still treats marginal=0 + fixed Chutes subscription. The launcher uses OPENROUTER_API_KEY_1 for all policies by default; set OPENROUTER_KEY_MODE=per_policy only for explicit multi-key rate-limit stress tests. No separate Chutes key needed."
     },
     {
       "name": "Featherless_SC",
@@ -137,5 +137,5 @@
     "Nebius",
     "WandB"
   ],
-  "notes": "24h pilot - backup inventory when direct Chutes quota is exhausted. Chutes_SQ routes via OpenRouter (transport=openrouter, provider_hint=Chutes); each policy uses its own dedicated OPENROUTER_API_KEY assigned by the runner script. Real Chutes subscription window (5000/24h) is preserved 1:1 in inventory.quota config. Other 8 OR providers unchanged from pilot_chutes_direct_or8_top_24h.json."
+  "notes": "24h pilot - backup inventory when direct Chutes quota is exhausted. Chutes_SQ routes via OpenRouter (transport=openrouter, provider_hint=Chutes); the launcher uses OPENROUTER_API_KEY_1 for all policies by default and only uses per-policy OpenRouter keys when OPENROUTER_KEY_MODE=per_policy is explicitly set. Real Chutes subscription window (5000/24h) is preserved 1:1 in inventory.quota config. Other 8 OR providers unchanged from pilot_chutes_direct_or8_top_24h.json."
 }
