@@ -151,6 +151,7 @@ class PolicySummary:
     ttft_mean_ms: float
     ttft_p50_ms: float
     ttft_p90_ms: float
+    ttft_p95_ms: float
     ttft_p99_ms: float
     e2e_mean_ms: float
     e2e_p99_ms: float
@@ -271,11 +272,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fixed-cost-non-or",
         type=float,
-        default=0.0,
+        default=None,
         help=(
-            "Fixed cost added to non-OpenRouter policies. The paper default is "
-            "0 because the real-world table reports logged replay charges; pass "
-            "an amortized value to include fixed subscription fees."
+            "Fixed cost added to non-OpenRouter policies. By default the script "
+            "adds the MiniMax fixed-cost override plus a Featherless monthly fee "
+            "prorated to --billing-duration-sec. Pass 0 for billed replay charges only."
         ),
     )
     parser.add_argument(
@@ -294,7 +295,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default="Replay cost ($)",
+        default="Total cost ($)",
         help="X-axis label for generated frontier figures.",
     )
     return parser.parse_args()
@@ -406,6 +407,7 @@ def read_summary(policy_dir: Path, args: argparse.Namespace) -> PolicySummary:
         ttft_mean_ms=mean(ttft) if ttft else float("nan"),
         ttft_p50_ms=percentile(ttft, 50.0),
         ttft_p90_ms=percentile(ttft, 90.0),
+        ttft_p95_ms=percentile(ttft, 95.0),
         ttft_p99_ms=percentile(ttft, 99.0),
         e2e_mean_ms=mean(e2e) if e2e else float("nan"),
         e2e_p99_ms=percentile(e2e, 99.0),
@@ -775,13 +777,21 @@ def write_table_rows(
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     for s in summaries:
+        hedge_rate = (
+            f"{100.0 * s.hedge_rate:.2f}\\%"
+            if s.policy.endswith(ROUTEWISE_HEDGE_SUFFIX)
+            else "--"
+        )
         lines.append(
             f"{s.label} & "
             f"{s.total_cost_usd:.3f} & "
             f"{s.ttft_mean_ms / 1000.0:.2f} & "
+            f"{s.ttft_p50_ms / 1000.0:.2f} & "
+            f"{s.ttft_p90_ms / 1000.0:.2f} & "
+            f"{s.ttft_p95_ms / 1000.0:.2f} & "
             f"{s.ttft_p99_ms / 1000.0:.2f} & "
             f"{100.0 * s.slo_violation_rate:.2f}\\% & "
-            f"{100.0 * s.success_rate:.2f}\\% \\\\"
+            f"{hedge_rate} \\\\"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
