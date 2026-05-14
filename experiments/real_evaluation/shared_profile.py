@@ -10,11 +10,25 @@ from __future__ import annotations
 
 import fcntl
 import json
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_PROCESS_LOCKS_GUARD = threading.Lock()
+_PROCESS_LOCKS: dict[Path, threading.RLock] = {}
+
+
+def _process_lock_for(path: Path) -> threading.RLock:
+    key = path.resolve()
+    with _PROCESS_LOCKS_GUARD:
+        lock = _PROCESS_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PROCESS_LOCKS[key] = lock
+        return lock
 
 
 @dataclass(frozen=True)
@@ -60,6 +74,7 @@ class SharedProfileEventLog:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
+        self._process_lock = _process_lock_for(self.path)
         self._offset = 0
         self._seen_event_ids: set[str] = set()
 
@@ -84,22 +99,23 @@ class SharedProfileEventLog:
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(event.to_dict(), sort_keys=True, separators=(",", ":")) + "\n"
-        with self.path.open("a+", encoding="utf-8") as fh:
+        with self._process_lock, self.path.open("a+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             try:
                 fh.write(line)
                 fh.flush()
                 # Mark the event as consumed by this log instance before
-                # releasing the file lock. Otherwise this process's tailer can
-                # read the just-appended line and double-apply it before the
-                # writer marks it seen.
+                # releasing the file lock. Otherwise this process's tailer
+                # can read the just-appended line and double-apply it before
+                # the writer marks it seen.
                 self._seen_event_ids.add(event.event_id)
             finally:
                 fcntl.flock(fh, fcntl.LOCK_UN)
         return event
 
     def mark_seen(self, event_id: str) -> None:
-        self._seen_event_ids.add(event_id)
+        with self._process_lock:
+            self._seen_event_ids.add(event_id)
 
     def read_new(self) -> list[SharedProfileEvent]:
         """Return events appended since the last read in this process."""
@@ -107,7 +123,7 @@ class SharedProfileEventLog:
             return []
 
         events: list[SharedProfileEvent] = []
-        with self.path.open("r", encoding="utf-8") as fh:
+        with self._process_lock, self.path.open("r", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_SH)
             try:
                 end = self.path.stat().st_size
@@ -140,7 +156,7 @@ class SharedProfileEventLog:
         current = time.time() if now is None else float(now)
         cutoff = current - float(window_sec)
         latest: dict[str, SharedProfileEvent] = {}
-        with self.path.open("r", encoding="utf-8") as fh:
+        with self._process_lock, self.path.open("r", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_SH)
             try:
                 for line in fh:

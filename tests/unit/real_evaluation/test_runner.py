@@ -928,6 +928,35 @@ def test_shared_profile_event_log_round_trip_and_dedupe(tmp_path) -> None:
     assert latest["Chutes_SQ"].ttft_ms == pytest.approx(456.0)
 
 
+def test_shared_profile_event_log_concurrent_append_and_tail(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    writer = SharedProfileEventLog(path)
+    reader = SharedProfileEventLog(path)
+    n_events = 100
+
+    def append_events() -> None:
+        for idx in range(n_events):
+            writer.append(
+                provider="OR_Test",
+                ts=float(idx),
+                ttft_ms=100.0 + idx,
+                error_type=None,
+                source="natural",
+            )
+
+    thread = threading.Thread(target=append_events)
+    thread.start()
+    seen: set[str] = set()
+    while thread.is_alive():
+        seen.update(event.event_id for event in reader.read_new())
+        time.sleep(0.001)
+    thread.join(timeout=5.0)
+    seen.update(event.event_id for event in reader.read_new())
+
+    assert len(seen) == n_events
+    assert writer.read_new() == []
+
+
 def test_shared_profile_feedback_updates_all_local_policies(tmp_path) -> None:
     path = tmp_path / "shared_profile_events.jsonl"
     runner, rec = _build_runner(
