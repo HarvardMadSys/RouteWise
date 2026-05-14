@@ -39,19 +39,17 @@ def test_quota_shadow_prices_match_kernel_across_layers(used: int, z: float) -> 
 
 
 @pytest.mark.parametrize(
-    ("active", "u"),
-    [(0, 0.0), (1, 0.25), (2, 0.5), (3, 0.75), (4, 1.0)],
+    "active",
+    [0, 1, 2, 3, 4],
 )
-def test_concurrency_shadow_prices_match_kernel_across_layers(active: int, u: float) -> None:
+def test_concurrency_shadow_prices_match_kernel_across_layers(active: int) -> None:
     now = 10.0
     sim_provider = _sim_concurrency_provider(active=active, now=now)
     real_state = _real_concurrency_state(active=active, now=now)
 
-    kernel_value = scarcity_price("constant_l", u, L=L, U=U)
-
-    assert sim_concurrency_shadow_price(sim_provider, now, L=L, U=U) == kernel_value
-    # Real-eval intentionally uses zero concurrency shadow (availability-only);
-    # simulator still uses constant-L kernel curve.
+    # Concurrency is availability-only in both simulator and real-eval; the
+    # reusable slot has no marginal shadow price once admission succeeds.
+    assert sim_concurrency_shadow_price(sim_provider, now, L=L, U=U) == 0.0
     assert real_concurrency_shadow_price(real_state, now, L=L, U=U) == 0.0
 
 

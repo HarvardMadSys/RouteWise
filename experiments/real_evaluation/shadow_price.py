@@ -38,13 +38,11 @@ def concurrency_shadow_price(
     L: float,
     alpha: float = 1.0,
 ) -> float:
-    """Zero shadow marginal cost for concurrency in real-eval.
+    """Zero shadow marginal cost for reusable concurrency capacity.
 
-    The paper/simulator path uses ``constant_l`` (effective cost ``L``) so
-    subscription concurrency competes on the same dollar scale as metered
-    APIs. For live experiments we instead charge **0** here: the only gate is
-    slot availability via :meth:`ProviderState.is_available` / admit-release.
-    ``L``/``U``/``alpha`` are accepted for API compatibility but ignored.
+    The only gate is slot availability via :meth:`ProviderState.is_available`
+    / admit-release. ``L``/``U``/``alpha`` are accepted for API compatibility
+    with the simulator path but ignored.
     """
     del now, U, L, alpha
     if state.concurrency is None:
@@ -90,9 +88,8 @@ def effective_cost(
 ) -> float:
     """Paper-formula piecewise effective cost used by the joint router.
 
-    Matches :func:`rwsim.policies.routewise.effective_cost` for **api** and
-    **quota** tiers. **Concurrency** differs in real-eval: see
-    :func:`concurrency_shadow_price` (zero shadow; simulator uses ``constant_l``).
+    Matches :func:`rwsim.policies.routewise.effective_cost` across **api**,
+    **quota**, and **concurrency** tiers.
 
     * ``S_A`` / ``tier="api"``: real API billing cost.
     * ``S_Q`` / ``tier="quota"``: quota opportunity cost ``psi(z)``.

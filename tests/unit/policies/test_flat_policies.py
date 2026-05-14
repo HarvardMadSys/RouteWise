@@ -481,7 +481,7 @@ def test_routewise_fixed_cost_envelope_keeps_quota_price_request_independent():
     assert short_decision.metadata["c_eff"]["api"] < long_decision.metadata["c_eff"]["api"]
 
 
-def test_routewise_concurrency_shadow_price_is_constant_l():
+def test_routewise_concurrency_shadow_price_is_zero():
     provider = TieredProvider(
         name="concurrency",
         cost_per_token=0.0,
@@ -496,7 +496,7 @@ def test_routewise_concurrency_shadow_price_is_constant_l():
     provider.concurrency.admit(2, 0.0, 60.0)
     loaded_price = concurrency_shadow_price(provider, 1.0, U=1e-2, L=1e-4)
 
-    assert empty_price == loaded_price == pytest.approx(1e-4)
+    assert empty_price == loaded_price == pytest.approx(0.0)
 
 
 def test_routewise_prefers_quota_for_high_value_request_with_fixed_envelope():

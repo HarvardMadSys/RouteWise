@@ -256,6 +256,16 @@ def parse_args() -> argparse.Namespace:
         default="Total cost ($)",
         help="X-axis label for generated frontier figures.",
     )
+    parser.add_argument(
+        "--routewise-plot-alphas",
+        nargs="+",
+        type=float,
+        default=(ROUTEWISE_FRONTIER_PLOT_ALPHA,),
+        help=(
+            "RouteWise alpha values to include in cost-frontier figures. "
+            "Defaults to the fixed production operating point."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -848,6 +858,7 @@ def plot_metric_frontier(
     attr: str,
     ylabel: str,
     xlabel: str,
+    routewise_alphas: tuple[float, ...],
     title: str | None = None,
 ) -> None:
     if title:
@@ -855,7 +866,7 @@ def plot_metric_frontier(
     points = frontier_points(summaries)
     kwargs = {
         "xlabel": xlabel,
-        "routewise_alphas": (ROUTEWISE_FRONTIER_PLOT_ALPHA,),
+        "routewise_alphas": routewise_alphas,
         "baseline_order": BASELINE_ORDER,
     }
     if attr == "ttft_mean_ms":
@@ -900,6 +911,7 @@ def main() -> int:
         attr="ttft_mean_ms",
         ylabel="Mean TTFT (s)",
         xlabel=args.x_label,
+        routewise_alphas=tuple(args.routewise_plot_alphas),
     )
     plot_metric_frontier(
         summaries,
@@ -907,6 +919,7 @@ def main() -> int:
         attr="slo_violation_rate",
         ylabel="SLO violations (%)",
         xlabel=args.x_label,
+        routewise_alphas=tuple(args.routewise_plot_alphas),
     )
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)

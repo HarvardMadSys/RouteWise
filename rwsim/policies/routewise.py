@@ -392,13 +392,13 @@ def concurrency_shadow_price(
     L: float,
     alpha: float = 1.0,
 ) -> float:
-    """Constant reusable-capacity price used by RouteWise effective cost."""
-    del now, alpha
+    """Zero marginal shadow price for reusable concurrency capacity."""
+    del now, U, L, alpha
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.concurrency is None:
         return 0.0
-    return scarcity_price("constant_l", 0.0, L=L, U=U)
+    return 0.0
 
 
 def effective_cost(
