@@ -264,8 +264,11 @@ if [[ "$HAS_NATIVE_OR_BASELINE" -eq 1 ]]; then
   OR_KEYS_REQUIRED=$((OR_KEYS_REQUIRED + 1))
 fi
 if [[ "${#OPENROUTER_KEYS[@]}" -lt "$OR_KEYS_REQUIRED" ]]; then
-  echo "expected at least $OR_KEYS_REQUIRED OpenRouter keys: key1 for native OR baselines plus one key per non-native policy; got ${#OPENROUTER_KEYS[@]}" >&2
-  exit 2
+  # Allow running with fewer keys than the "ideal" 1-per-non-native-policy
+  # layout. Keys are round-robin-assigned below, so concurrent policies will
+  # share OR per-key rate limits and may see extra 429s. The 429-fallback /
+  # probe-cap logic handles this, so we only warn rather than abort.
+  echo "WARNING: $OR_KEYS_REQUIRED OpenRouter keys recommended (key1 for native OR baselines + one per non-native policy); got ${#OPENROUTER_KEYS[@]}. Concurrent policies will share keys and may hit shared OR rate limits." >&2
 fi
 
 mkdir -p "$OUTPUT_BASE"
@@ -405,8 +408,13 @@ for i in "${!POLICIES[@]}"; do
     openrouter_key="${OPENROUTER_KEYS[0]}"
     openrouter_key_slot=1
   else
-    openrouter_key="${OPENROUTER_KEYS[$dedicated_or_idx]}"
-    openrouter_key_slot=$((dedicated_or_idx + 1))
+    # Round-robin into the available key pool so the script works with any
+    # number of keys (1 .. N). When #keys < #non-native policies the assigned
+    # key is shared with another concurrent policy.
+    or_pool_size="${#OPENROUTER_KEYS[@]}"
+    or_idx=$((dedicated_or_idx % or_pool_size))
+    openrouter_key="${OPENROUTER_KEYS[$or_idx]}"
+    openrouter_key_slot=$((or_idx + 1))
     dedicated_or_idx=$((dedicated_or_idx + 1))
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" "$policy_inventory" >> "$ASSIGNMENTS_PATH"
