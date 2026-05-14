@@ -1001,6 +1001,13 @@ class GreedyCostPolicy(_GreedyBase):
     perishable concurrency capacity before bankable quota before metered API:
     ``S_C`` -> ``S_Q`` -> ``S_A``. This mirrors the simulator's
     paper-facing ``greedy_cost`` baseline.
+
+    Tie-break is purely cost-driven: ``(cost, tier_rank, spec.name)``.
+    Latency is intentionally NOT consulted here — ``greedy_cost`` must not
+    benefit from latency information that should be the territory of
+    ``greedy_latency`` / ``budget_range_*`` policies. When two providers
+    have identical cost and tier, the alphabetically-first ``spec.name``
+    wins (deterministic and independent of profile state).
     """
 
     name = "greedy_cost"
@@ -1011,16 +1018,10 @@ class GreedyCostPolicy(_GreedyBase):
         scored = []
         for state in candidates:
             cost = self.request_cost_for_state(state, ctx)
-            latency, _ = _body_latency_proxy_ms(
-                state,
-                now,
-                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-            )
             scored.append(
                 (
                     cost,
                     _GREEDY_COST_TIER_RANK.get(state.spec.tier, _UNKNOWN_TIER_RANK),
-                    latency if latency is not None else float("inf"),
                     state.spec.name,
                     state,
                 )

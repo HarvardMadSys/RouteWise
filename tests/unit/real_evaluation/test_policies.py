@@ -357,6 +357,36 @@ def test_greedy_cost_prefers_concurrency_before_quota_on_zero_cost_tie() -> None
     )
 
 
+def test_greedy_cost_tiebreaks_alphabetically_and_ignores_latency() -> None:
+    """When two providers have identical price + tier, ``greedy_cost`` must
+    pick by ``spec.name`` (alphabetical), NOT by rolling latency. The cost
+    baseline should not benefit from latency information — that's the
+    territory of ``greedy_latency`` and ``budget_range_*``.
+
+    Setup: identical 0.15/1.15 prices, same api tier. We feed the
+    alphabetically-later provider a clearly faster latency profile and the
+    alphabetically-earlier provider a clearly slower one. ``greedy_cost``
+    must still pick the alphabetically-earlier one (i.e. ignore latency).
+    """
+    fast_later = _api_spec("OR_zeta", 0.15, 1.15)
+    slow_earlier = _api_spec("OR_alpha", 0.15, 1.15)
+    policy = build_policy(
+        "greedy_cost",
+        specs=[fast_later, slow_earlier],
+        slo_ms=2000.0,
+    )
+    now = 0.0
+    # Alphabetically-later provider gets the better profile (10ms TTFT).
+    policy.add_sample("OR_zeta", now, 10.0, None)
+    # Alphabetically-earlier provider gets the worse profile (2000ms TTFT).
+    policy.add_sample("OR_alpha", now, 2000.0, None)
+    decision = policy.route(now, RequestContext(10, 8))
+    assert decision.primary == "OR_alpha", (
+        f"greedy_cost must tie-break by spec.name alphabetical, not by "
+        f"rolling latency. Got primary={decision.primary}"
+    )
+
+
 def test_greedy_cost_stops_routing_to_quota_provider_after_exhaustion() -> None:
     """Once a quota provider's per-window budget is fully consumed by this
     policy's ``charge_capacity`` calls, ``route()`` must skip that provider
