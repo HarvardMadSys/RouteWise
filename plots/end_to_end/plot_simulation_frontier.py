@@ -28,16 +28,16 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from plots.palettes import ROUTER_STRATEGY_COLORS, TIER_COLORS
+from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS, TIER_COLORS
 from plots.style import apply_style
 
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
-    "or_sort_cost": "API price-sort",
+    "or_sort_cost": "OR price",
     "random": "Random",
     "greedy_latency": "Greedy-latency",
-    "or_sort_latency": "API latency-sort",
+    "or_sort_latency": "OR latency",
 }
 BASELINE_ORDER = (
     "greedy_cost",
@@ -48,9 +48,10 @@ BASELINE_ORDER = (
 )
 PLOT_BASELINE_ORDER = (
     "greedy_cost",
-    "or_sort_cost",
     "greedy_latency",
+    "or_sort_cost",
     "or_sort_latency",
+    "random",
 )
 TABLE_POLICIES = (
     "greedy_cost",
@@ -61,17 +62,63 @@ TABLE_POLICIES = (
 )
 ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75)
 CDF_POLICIES = (
+    "ablation_lp_hedging_p25",
     "greedy_cost",
-    "ablation_lp_only_p50",
-    "ablation_lp_hedging_p50",
-    "ablation_lp_hedging_p75",
     "greedy_latency",
+    "or_sort_cost",
+    "or_sort_latency",
+    "random",
 )
-COLUMN_FIGSIZE_TALL = (3.25, 2.25)
+PLOT_LABELS = {
+    "greedy_cost": "Greedy-cost",
+    "greedy_latency": "Greedy-latency",
+    "random": "Random",
+    "or_sort_cost": "OR price",
+    "or_sort_latency": "OR latency",
+}
+POLICY_COLORS = {
+    "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
+    "greedy_latency": ROUTER_STRATEGY_COLORS.get("greedy_latency", "#2ca02c"),
+    "random": ROUTER_STRATEGY_COLORS.get("random", "#7f7f7f"),
+    "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#17becf"),
+    "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#e377c2"),
+}
+BASELINE_LABEL_OFFSETS_BY_METRIC = {
+    "slo_violation_rate": {
+        "greedy_cost": (-6, -10),
+        "greedy_latency": (6, -9),
+        "or_sort_cost": (8, -11),
+        "or_sort_latency": (6, 5),
+        "random": (6, 4),
+    },
+    "mean_ttft_ms": {
+        "greedy_cost": (6, 5),
+        "greedy_latency": (6, -11),
+        "or_sort_cost": (6, -10),
+        "or_sort_latency": (6, 5),
+        "random": (6, 4),
+    },
+}
+CDF_COLORS = {
+    "ablation_lp_hedging_p25": "#2f6f73",
+    "greedy_cost": POLICY_COLORS["greedy_cost"],
+    "greedy_latency": POLICY_COLORS["greedy_latency"],
+    "or_sort_cost": POLICY_COLORS["or_sort_cost"],
+    "or_sort_latency": POLICY_COLORS["or_sort_latency"],
+    "random": POLICY_COLORS["random"],
+}
+CDF_LINESTYLES = {
+    "ablation_lp_hedging_p25": "solid",
+    "greedy_cost": (0, (3, 2)),
+    "greedy_latency": (0, (5, 1.6)),
+    "or_sort_cost": (0, (5, 2)),
+    "or_sort_latency": (0, (3, 1.2, 1, 1.2)),
+    "random": (0, (1, 1.2)),
+}
+COLUMN_FIGSIZE_TALL = (3.35, 2.25)
 ROUTEWISE_LINE_COLOR = "#2f6f73"
-ROUTEWISE_HEDGE_COLOR = ROUTER_STRATEGY_COLORS.get("ablation_lp_hedging", "#ff7f0e")
-BASELINE_COLOR = "#6f7f80"
-COLUMN_FIGSIZE = (3.25, 2.05)
+ROUTEWISE_HEDGE_COLOR = "#f28e2b"
+COLUMN_FIGSIZE = (3.35, 2.25)
 
 
 def apply_column_figure_style() -> None:
@@ -79,16 +126,13 @@ def apply_column_figure_style() -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 7,
-            "axes.labelsize": 8.5,
+            "font.size": 7.5,
+            "axes.labelsize": 8,
             "axes.titlesize": 8,
             "xtick.labelsize": 7,
             "ytick.labelsize": 7,
-            "axes.linewidth": 0.8,
-            "grid.linewidth": 0.45,
-            "lines.linewidth": 1.35,
-            "lines.markersize": 4.5,
-            "savefig.pad_inches": 0.01,
+            "legend.fontsize": 5.8,
+            "figure.figsize": COLUMN_FIGSIZE,
         }
     )
 
@@ -298,140 +342,163 @@ def _annotate_alpha(ax, rows: list[Row], *, y_value, fontsize: float = 5.5,
         )
 
 
-BASELINE_SHORT = {
-    "Greedy-latency / API latency-sort": "Greedy-lat. / API lat.-sort",
-}
+def _metric_value(row: Row, attr: str) -> float:
+    value = getattr(row, attr)
+    if attr.endswith("_ms"):
+        return value / 1000.0
+    if attr.endswith("_rate"):
+        return value * 100.0
+    return value
 
 
-def _annotate_baselines(ax, rows: list[Row], *, y_value, fontsize: float = 5.5) -> None:
-    for x, y, label in _deduplicate_rows(rows, y_value=y_value):
-        label = BASELINE_SHORT.get(label, label)
-        ax.annotate(
-            label, (x, y),
-            xytext=(-3, -8), textcoords="offset points",
-            fontsize=fontsize, color=BASELINE_COLOR, ha="right",
+def _annotate_baseline(ax, row: Row, attr: str) -> None:
+    offset = BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(row.policy, (4, 3))
+    ax.annotate(
+        PLOT_LABELS.get(row.policy, row.label),
+        (row.total_cost_usd, _metric_value(row, attr)),
+        xytext=offset,
+        textcoords="offset points",
+        fontsize=5.8,
+        color=POLICY_COLORS.get(row.policy, "#555555"),
+        ha="right" if offset[0] < 0 else "left",
+        bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
+        clip_on=False,
+    )
+
+
+def _pad_axes(ax: plt.Axes) -> None:
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    x_pad = max((x_max - x_min) * 0.08, 0.006)
+    y_pad = max((y_max - y_min) * 0.12, 0.2)
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(max(0.0, y_min - y_pad), y_max + y_pad)
+
+
+def _plot_metric_frontier(
+    rows: list[Row],
+    output_path: Path,
+    *,
+    attr: str,
+    ylabel: str,
+) -> None:
+    apply_column_figure_style()
+    no_hedge = routewise_rows(rows, hedging=False)
+    hedged = routewise_rows(rows, hedging=True)
+    baselines = plot_baseline_rows(rows)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=True)
+
+    if no_hedge:
+        ax.plot(
+            [row.total_cost_usd for row in no_hedge],
+            [_metric_value(row, attr) for row in no_hedge],
+            color=ROUTEWISE_LINE_COLOR,
+            marker="o",
+            linewidth=1.4,
+            markersize=4.2,
+            label="RouteWise",
         )
+    if hedged:
+        ax.plot(
+            [row.total_cost_usd for row in hedged],
+            [_metric_value(row, attr) for row in hedged],
+            color=ROUTEWISE_HEDGE_COLOR,
+            marker="s",
+            linewidth=1.4,
+            markersize=4.2,
+            label="RouteWise + hedge",
+        )
+    for row in baselines:
+        color = POLICY_COLORS.get(row.policy, "#555555")
+        ax.scatter(
+            row.total_cost_usd,
+            _metric_value(row, attr),
+            marker="s",
+            s=24,
+            color=color,
+            edgecolor="white",
+            linewidth=0.5,
+            zorder=3,
+        )
+        _annotate_baseline(ax, row, attr)
+
+    ax.set_xlabel("Total cost ($)")
+    ax.set_ylabel(ylabel)
+    ax.grid(True, linewidth=0.35, alpha=0.35)
+    ax.legend(frameon=False, fontsize=5.8, loc="upper left")
+    _pad_axes(ax)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_frontier(rows: list[Row], output_path: Path) -> None:
-    apply_column_figure_style()
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE)
-    no_hedge = routewise_rows(rows, hedging=False)
-    hedged = routewise_rows(rows, hedging=True)
-    baselines = plot_baseline_rows(rows)
-
-    ax.plot(
-        [row.total_cost_usd for row in no_hedge],
-        [row.mean_ttft_ms / 1000.0 for row in no_hedge],
-        marker="o",
-        color=ROUTEWISE_LINE_COLOR,
-        label="RouteWise",
+    _plot_metric_frontier(
+        rows,
+        output_path,
+        attr="mean_ttft_ms",
+        ylabel="Mean TTFT (s)",
     )
-    ax.plot(
-        [row.total_cost_usd for row in hedged],
-        [row.mean_ttft_ms / 1000.0 for row in hedged],
-        marker="s",
-        color=ROUTEWISE_HEDGE_COLOR,
-        label="RouteWise + hedge",
-    )
-    ax.scatter(
-        [row.total_cost_usd for row in baselines],
-        [row.mean_ttft_ms / 1000.0 for row in baselines],
-        marker="x",
-        s=22,
-        color=BASELINE_COLOR,
-        linewidths=1.1,
-        label="Baselines",
-    )
-    ax.legend(frameon=False, fontsize=6, loc="upper right")
-    ax.set_xlabel("Total cost ($)")
-    ax.set_ylabel("Mean TTFT (s)")
-    ax.margins(x=0.10, y=0.15)
-    fig.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
-    plt.close(fig)
 
 
 def plot_slo(rows: list[Row], output_path: Path) -> None:
-    apply_column_figure_style()
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE)
-    no_hedge = routewise_rows(rows, hedging=False)
-    hedged = routewise_rows(rows, hedging=True)
-    baselines = plot_baseline_rows(rows)
-
-    ax.plot(
-        [row.total_cost_usd for row in no_hedge],
-        [row.slo_violation_rate * 100.0 for row in no_hedge],
-        marker="o",
-        color=ROUTEWISE_LINE_COLOR,
-        label="RouteWise",
+    _plot_metric_frontier(
+        rows,
+        output_path,
+        attr="slo_violation_rate",
+        ylabel="SLO violations (%)",
     )
-    ax.plot(
-        [row.total_cost_usd for row in hedged],
-        [row.slo_violation_rate * 100.0 for row in hedged],
-        marker="s",
-        color=ROUTEWISE_HEDGE_COLOR,
-        label="RouteWise + hedge",
-    )
-    ax.scatter(
-        [row.total_cost_usd for row in baselines],
-        [row.slo_violation_rate * 100.0 for row in baselines],
-        marker="x",
-        s=22,
-        color=BASELINE_COLOR,
-        linewidths=1.1,
-        label="Baselines",
-    )
-    ax.legend(frameon=False, fontsize=6, loc="upper right")
-    ax.set_xlabel("Total cost ($)")
-    ax.set_ylabel("SLO violation (%)")
-    ax.margins(x=0.10, y=0.15)
-    fig.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
-    plt.close(fig)
 
 
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
     apply_column_figure_style()
     selected = routewise_rows(rows, hedging=False)
-    labels = [f"{row.alpha:g}" for row in selected]
+    labels = [rf"RW $\alpha={row.alpha:g}$" for row in selected]
     tiers = ("quota", "concurrency", "api")
     tier_labels = {
-        "quota": r"$\mathcal{P}_Q$ quota",
-        "concurrency": r"$\mathcal{P}_C$ conc.",
-        "api": r"$\mathcal{P}_O$ API",
+        "quota": r"$\mathcal{P}_Q$",
+        "concurrency": r"$\mathcal{P}_C$",
+        "api": r"$\mathcal{P}_O$",
     }
 
-    fig, ax = plt.subplots(figsize=(3.25, 2.25))
-    bottom = [0.0] * len(selected)
+    fig, ax = plt.subplots(figsize=(3.35, 2.55), constrained_layout=False)
+    y = list(range(len(selected)))
+    left = [0.0] * len(selected)
     for tier in tiers:
         values = [row.tier_mix.get(tier, 0.0) * 100.0 for row in selected]
-        ax.bar(
-            labels,
+        ax.barh(
+            y,
             values,
-            bottom=bottom,
+            left=left,
+            height=0.72,
             color=TIER_COLORS.get(tier, "#777777"),
             label=tier_labels.get(tier, tier),
             edgecolor="white",
-            linewidth=0.5,
+            linewidth=0.35,
         )
-        bottom = [old + value for old, value in zip(bottom, values)]
-    ax.set_ylim(0, 100)
-    ax.set_ylabel("Requests (%)")
-    ax.set_xlabel(r"$\alpha$")
-    ax.tick_params(axis="x", pad=1)
-    ax.legend(
+        left = [old + value for old, value in zip(left, values)]
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("Requests (%)")
+    ax.set_yticks(y, labels)
+    ax.invert_yaxis()
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.24, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.subplots_adjust(left=0.34, right=0.99, bottom=0.16, top=0.79)
+    fig.legend(
         frameon=False,
-        fontsize=6.5,
+        fontsize=5.8,
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.18),
+        bbox_to_anchor=(0.57, 0.985),
         ncols=3,
         handlelength=0.9,
-        columnspacing=0.9,
+        handletextpad=0.28,
+        columnspacing=0.65,
+        labelspacing=0.35,
+        borderaxespad=0.0,
     )
-    fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
@@ -439,7 +506,7 @@ def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
 
 def plot_hedging_p99(rows: list[Row], output_path: Path) -> None:
     apply_column_figure_style()
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE_TALL)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE_TALL, constrained_layout=True)
     no_hedge = {row.alpha: row for row in routewise_rows(rows, hedging=False)}
     hedged = {row.alpha: row for row in routewise_rows(rows, hedging=True)}
     alphas = [alpha for alpha in ROUTEWISE_TABLE_ALPHAS if alpha in no_hedge and alpha in hedged]
@@ -465,10 +532,11 @@ def plot_hedging_p99(rows: list[Row], output_path: Path) -> None:
     ax.set_xlabel(r"$\alpha$")
     ax.set_ylabel("P99 TTFT (s)")
     ax.set_ylim(0, max(no_hedge[alpha].p99_ms for alpha in alphas) / 1000.0 * 1.18)
-    ax.legend(frameon=False, fontsize=6.5, loc="upper right")
-    fig.tight_layout()
+    ax.grid(axis="y", linewidth=0.35, alpha=0.35)
+    ax.grid(axis="x", visible=False)
+    ax.legend(frameon=False, fontsize=5.8, loc="upper right")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
+    fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -479,28 +547,21 @@ def plot_ttft_cdf(
 ) -> None:
     apply_column_figure_style()
     by_policy = {row.policy: row for row in rows}
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE_TALL)
-    x_ms = [200.0 * ((30_000.0 / 200.0) ** (idx / 179.0)) for idx in range(180)]
-    colors = {
-        "greedy_cost": BASELINE_COLOR,
-        "greedy_latency": "#3a8f4f",
-        "ablation_lp_only_p50": ROUTEWISE_LINE_COLOR,
-        "ablation_lp_hedging_p50": ROUTEWISE_HEDGE_COLOR,
-        "ablation_lp_hedging_p75": "#c95a17",
-    }
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE_TALL, constrained_layout=False)
+    p99_values = [
+        by_policy[policy].p99_ms
+        for policy in CDF_POLICIES
+        if policy in by_policy and policy != "random"
+    ]
+    x_max_sec = max(12.0, (max(p99_values) / 1000.0 * 1.05) if p99_values else 12.0)
+    x_ms = [x_max_sec * 1000.0 * idx / 299.0 for idx in range(300)]
     labels = {
+        "ablation_lp_hedging_p25": r"RW $\alpha=0.25$+H",
         "greedy_cost": "Greedy-cost",
         "greedy_latency": "Greedy-latency",
-        "ablation_lp_only_p50": r"RW $\alpha=0.5$",
-        "ablation_lp_hedging_p50": r"RW $\alpha=0.5$ + hedge",
-        "ablation_lp_hedging_p75": r"RW $\alpha=0.75$ + hedge",
-    }
-    styles = {
-        "greedy_cost": (0, (3, 2)),
-        "greedy_latency": (0, (1.5, 1.5)),
-        "ablation_lp_only_p50": "solid",
-        "ablation_lp_hedging_p50": "solid",
-        "ablation_lp_hedging_p75": "solid",
+        "or_sort_cost": "OR price",
+        "or_sort_latency": "OR latency",
+        "random": "Random",
     }
     for policy in CDF_POLICIES:
         histogram = histograms.get(policy)
@@ -510,18 +571,35 @@ def plot_ttft_cdf(
         ax.plot(
             [value / 1000.0 for value in x_ms],
             y,
-            color=colors.get(policy, "#555555"),
-            linestyle=styles.get(policy, "solid"),
+            color=CDF_COLORS.get(policy, "#555555"),
+            linestyle=CDF_LINESTYLES.get(policy, "solid"),
+            linewidth=1.25,
             label=labels.get(policy, by_policy[policy].label),
         )
-    ax.axvline(3.0, color="#444444", linewidth=0.8, linestyle=":", label="3s SLO")
-    ax.set_xscale("log")
-    ax.set_xlim(0.2, 30.0)
+    ax.axvline(3.0, color="#444444", linewidth=0.8, linestyle=":")
+    ax.text(
+        3.12,
+        0.08,
+        "3s SLO",
+        color="#444444",
+        fontsize=5.8,
+        ha="left",
+        va="bottom",
+    )
+    ax.set_xlim(0.0, x_max_sec)
     ax.set_ylim(0.0, 1.01)
     ax.set_xlabel("TTFT (s)")
     ax.set_ylabel("CDF")
-    ax.legend(frameon=False, fontsize=5.8, loc="lower right")
-    fig.tight_layout()
+    ax.grid(True, linewidth=0.35, alpha=0.35)
+    ax.legend(
+        frameon=False,
+        loc="lower right",
+        ncols=2,
+        handlelength=1.6,
+        columnspacing=0.7,
+        labelspacing=0.25,
+    )
+    fig.subplots_adjust(left=0.14, right=0.99, bottom=0.16, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
