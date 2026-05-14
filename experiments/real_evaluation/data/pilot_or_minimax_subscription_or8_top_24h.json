@@ -107,14 +107,15 @@
       "stream_cancel_billing": "continues"
     },
     {
-      "name": "OR_Nebius",
+      "name": "OR_AkashML",
       "tier": "api",
       "transport": "openrouter",
-      "provider_hint": "Nebius",
-      "input_price_per_m": 0.3,
-      "output_price_per_m": 1.2,
+      "provider_hint": "AkashML",
+      "input_price_per_m": 0.15,
+      "output_price_per_m": 1.15,
       "billing_mode": "metered",
-      "stream_cancel_billing": "continues"
+      "stream_cancel_billing": "continues",
+      "notes": "OpenRouter-pinned AkashML; replaces Nebius after OpenRouter removed the Nebius endpoint for MiniMax-M2.5. Endpoint pricing checked 2026-05-14."
     },
     {
       "name": "OR_WandB",
@@ -136,8 +137,8 @@
     "AtlasCloud",
     "Phala",
     "SiliconFlow",
-    "Nebius",
+    "AkashML",
     "WandB"
   ],
-  "notes": "24h workload inventory for compressed real-eval replay. Fixed-fee accounting uses the 8h compressed replay duration for non-overridden subscriptions. MiniMax Plus quota tier is enforced locally as the real 4500 requests per 5h window and physically sent through OpenRouter's official Minimax provider to avoid consuming a shared native MiniMax subscription account. Fallback API pool keeps the eight OR providers from pilot_minimax_plus_direct_or8_top_24h, with AtlasCloud replacing OR_Minimax to avoid duplicate Minimax roles."
+  "notes": "24h workload inventory for compressed real-eval replay. Fixed-fee accounting uses the 8h compressed replay duration for non-overridden subscriptions. MiniMax Plus quota tier is enforced locally as the real 4500 requests per 5h window and physically sent through OpenRouter's official Minimax provider to avoid consuming a shared native MiniMax subscription account. Fallback API pool keeps eight OpenRouter API providers; AtlasCloud replaces OR_Minimax to avoid duplicate Minimax roles, and AkashML replaces Nebius after OpenRouter removed the Nebius endpoint for MiniMax-M2.5."
 }
