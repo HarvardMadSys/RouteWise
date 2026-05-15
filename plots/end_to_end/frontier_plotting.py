@@ -28,6 +28,7 @@ BASE_FONT_SIZE = 8.9
 LABEL_FONT_SIZE = 9.4
 TICK_FONT_SIZE = 8.3
 ANNOTATION_FONT_SIZE = 7.3
+ROUTEWISE_ANNOTATION_FONT_SIZE = 8.6
 LEGEND_FONT_SIZE = 7.0
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
@@ -92,11 +93,11 @@ ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
         1.0: (5, 21),
     },
     "mean_ttft_ms": {
-        0.0: (5, 28),
-        0.25: (5, 5),
-        0.5: (5, -12),
-        0.75: (5, 7),
-        1.0: (5, 21),
+        0.0: (8, 10),
+        0.25: (4, -24),
+        0.5: (10, 14),
+        0.75: (-8, -16),
+        1.0: (10, 0),
     },
 }
 CDF_LINESTYLES = {
@@ -318,13 +319,16 @@ def _annotate_routewise(
         point.alpha,
         (5, -14),
     )
-    x_min, x_max = ax.get_xlim()
-    if point.total_cost_usd > (x_min + x_max) / 2.0:
-        offset = (-abs(offset[0]), abs(offset[1]))
-        ha = "right"
+    if attr == "mean_ttft_ms":
+        ha = "right" if offset[0] < 0 else "left"
     else:
-        offset = (abs(offset[0]), -abs(offset[1]))
-        ha = "left"
+        x_min, x_max = ax.get_xlim()
+        if point.total_cost_usd > (x_min + x_max) / 2.0:
+            offset = (-abs(offset[0]), offset[1])
+            ha = "right"
+        else:
+            offset = (abs(offset[0]), offset[1])
+            ha = "left"
     ax.annotate(
         rf"$\alpha={point.alpha:g}$"
         if routewise_count > 1
@@ -332,7 +336,7 @@ def _annotate_routewise(
         xy=(point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
-        fontsize=ANNOTATION_FONT_SIZE,
+        fontsize=ROUTEWISE_ANNOTATION_FONT_SIZE,
         color=ROUTEWISE_COLOR,
         ha=ha,
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
