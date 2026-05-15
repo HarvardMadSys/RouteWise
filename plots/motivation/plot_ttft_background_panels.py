@@ -119,17 +119,6 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
         box.set_alpha(0.75)
 
     p95 = [float(np.percentile(v, 95)) for v in values]
-    ax.plot(
-        np.arange(1, len(values) + 1),
-        p95,
-        color="#dc2626",
-        marker="D",
-        markersize=2.6,
-        linewidth=0.95,
-        label="P95",
-        zorder=3,
-    )
-
     ax.set_xticks(np.arange(1, len(compact_labels) + 1))
     ax.set_xticklabels(compact_labels)
     ax.set_xlabel("Prompt length (K)", labelpad=0.8)
@@ -138,7 +127,6 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
     ax.set_yticks([0, 10, 20])
     ax.grid(axis="y", linestyle="--")
     ax.grid(axis="x", visible=False)
-    ax.legend(loc="upper right", frameon=False, handlelength=1.2, borderaxespad=0.1)
     ax.text(0.02, 0.98, "(b)", transform=ax.transAxes, va="top", fontsize=9.0, fontweight="bold")
     return summary
 
