@@ -24,11 +24,11 @@ if TYPE_CHECKING:
 COLUMN_FIGSIZE = (3.35, 2.25)
 SLO_BAR_FIGSIZE = COLUMN_FIGSIZE
 MIX_FIGSIZE = (3.35, 2.55)
-BASE_FONT_SIZE = 8.4
-LABEL_FONT_SIZE = 8.8
-TICK_FONT_SIZE = 7.8
-ANNOTATION_FONT_SIZE = 6.6
-LEGEND_FONT_SIZE = 6.4
+BASE_FONT_SIZE = 8.9
+LABEL_FONT_SIZE = 9.4
+TICK_FONT_SIZE = 8.3
+ANNOTATION_FONT_SIZE = 7.3
+LEGEND_FONT_SIZE = 7.0
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -79,7 +79,7 @@ BASELINE_LABEL_OFFSETS_BY_METRIC = {
         "greedy_latency": (0, -12),
         "or_auto": (6, -12),
         "or_sort_cost": (6, -10),
-        "or_sort_latency": (8, -15),
+        "or_sort_latency": (-6, 7),
         "random": (6, 4),
     },
 }
