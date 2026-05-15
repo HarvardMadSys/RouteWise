@@ -63,17 +63,17 @@ POLICY_LABELS = {
 }
 BASELINE_ORDER = (
     "greedy_cost",
-    "or_sort_cost",
-    "random",
     "greedy_latency",
+    "or_sort_cost",
     "or_sort_latency",
+    "random",
 )
 TABLE_POLICIES = (
     "greedy_cost",
-    "or_sort_cost",
-    "random",
     "greedy_latency",
+    "or_sort_cost",
     "or_sort_latency",
+    "random",
 )
 ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75)
 ROUTEWISE_FRONTIER_POLICY = "ablation_lp_hedging_p25"
@@ -98,6 +98,7 @@ PROVIDER_MIX_POLICIES = (
     "greedy_latency",
     "or_sort_cost",
     "or_sort_latency",
+    "random",
 )
 
 
@@ -396,8 +397,11 @@ def plot_frontier(
     baseline_policies: list[str] | None = None,
     routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
 ) -> None:
+    mean_baselines = [
+        policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
+    ]
     plot_mean_ttft_frontier(
-        selected_frontier_points(rows, baseline_policies, routewise_policy),
+        selected_frontier_points(rows, mean_baselines, routewise_policy),
         output_path,
     )
 
