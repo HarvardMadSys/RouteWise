@@ -94,7 +94,7 @@ def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, 
         columnspacing=0.8,
         borderaxespad=0.0,
     )
-    ax.text(0.02, 0.98, "(a)", transform=ax.transAxes, va="top", fontsize=9.0, fontweight="bold")
+    ax.text(0.5, 1.06, "(a)", transform=ax.transAxes, ha="center", fontsize=9.0, fontweight="bold", clip_on=False)
     return summary
 
 
@@ -127,7 +127,7 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
     ax.set_yticks([0, 10, 20])
     ax.grid(axis="y", linestyle="--")
     ax.grid(axis="x", visible=False)
-    ax.text(0.02, 0.98, "(b)", transform=ax.transAxes, va="top", fontsize=9.0, fontweight="bold")
+    ax.text(0.5, 1.06, "(b)", transform=ax.transAxes, ha="center", fontsize=9.0, fontweight="bold", clip_on=False)
     return summary
 
 
