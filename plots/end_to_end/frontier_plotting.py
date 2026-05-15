@@ -36,8 +36,8 @@ DEFAULT_BASELINE_ORDER = (
     "greedy_cost",
     "greedy_latency",
     "or_auto",
-    "or_sort_cost",
     "or_sort_latency",
+    "or_sort_cost",
     "random",
 )
 POLICY_PLOT_LABELS = {
