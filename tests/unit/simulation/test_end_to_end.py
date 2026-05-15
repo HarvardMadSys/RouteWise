@@ -17,6 +17,7 @@ def test_end_to_end_scenarios_match_section_contract():
         "end_to_end_rw3",
         "end_to_end_3sa_cost_tiers",
         "end_to_end_rw8",
+        "end_to_end_or8_1h_effmean",
     )
 
 
@@ -184,6 +185,8 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
         "greedy_cost",
         "greedy_latency",
         "random",
+        "or_sort_cost",
+        "or_sort_latency",
         "ablation_lp_only_p0",
         "ablation_lp_only_p75",
         "ablation_lp_hedging_p0",

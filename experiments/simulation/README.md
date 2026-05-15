@@ -1,11 +1,7 @@
 # Simulation Experiment
 
-Paper-facing simulator harness. Source of truth for experiment structure is
-the Notion page **RouteWise → Evaluation → Simulation** (last synced
-2026-05-04). This README mirrors that page; if the two diverge, Notion wins
-and this file should be re-synced.
-
-The high-level mental model lives in [`docs/EXPERIMENT_LAYOUT.md`](../../docs/EXPERIMENT_LAYOUT.md).
+Paper-facing simulator harness. This README documents the experiment structure
+implemented by the artifact CLI.
 
 ## Common setup
 
@@ -129,8 +125,7 @@ HTTP `429` rates belong to live real-evaluation runs, not simulator runs.
 
 ## Code layout
 
-The implementation follows the Notion structure one-file-per-section
-(see [`docs/SIMULATION_SECTION_REFACTOR.md`](../../docs/SIMULATION_SECTION_REFACTOR.md)):
+The implementation follows a one-file-per-section structure:
 
 ```text
 experiments/simulation/

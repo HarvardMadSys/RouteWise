@@ -6,11 +6,9 @@ with isolated state. Each request/policy decision is dispatched in a daemon
 thread; per-policy profiles and capacity state are updated by feedback after
 each completion.
 
-Migrated from
-``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
-lines 1046-1600. Differences:
+Implementation notes:
 
-- Per-policy CSV via :class:`Recorder` (not the old inline writer)
+- Per-policy CSV via :class:`Recorder`
 - Hedge dispatch uses checkpoint-time probability re-evaluation.
 - Sentinel handling for OpenRouter native modes is centralized here
 - ``--max-cost-usd`` guardrail per policy and globally

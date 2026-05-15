@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,8 +30,10 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_LOG = Path(
-    "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/"
-    "phase5_minimax_m25_24h/run_20260412_045326/evaluation_log.csv"
+    os.environ.get(
+        "ROUTEWISE_MINIMAX_M25_SOURCE_LOG",
+        REPO_ROOT / "artifacts" / "private" / "minimax_m25_evaluation_log.csv",
+    )
 )
 PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"
 OUT_NPZ = PROFILE_DIR / "minimax_m25_openrouter_24h.npz"
@@ -185,11 +188,11 @@ def build_metadata(
     return {
         "schema_version": "1.0",
         "artifact": OUT_NPZ.name,
-        "source_log": str(source),
+        "source_log": source.name,
         "source_run_label": "phase5_minimax_m25_24h",
         "source_note": (
-            "Directory name says 24h, but run_stats.observed_duration_hours is "
-            "the actual CSV coverage."
+            "The full source path is omitted to keep metadata environment-independent. "
+            "The run_stats.observed_duration_hours field records the actual CSV coverage."
         ),
         "model": "minimax_m25",
         "model_family": "minimax-m2.5",
@@ -202,7 +205,7 @@ def build_metadata(
             "source": (
                 "https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints"
             ),
-            "captured_from": str(endpoints_json) if endpoints_json else None,
+            "captured_from": endpoints_json.name if endpoints_json else None,
             "unit": "USD per 1M tokens",
             "note": "Provider prices can change; refresh before paper numbers.",
         },

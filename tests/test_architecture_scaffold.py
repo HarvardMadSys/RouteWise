@@ -49,6 +49,8 @@ class ArchitectureScaffoldTest(unittest.TestCase):
                 "greedy_cost",
                 "greedy_latency",
                 "random",
+                "or_sort_cost",
+                "or_sort_latency",
                 "ablation_lp_only",
                 "ablation_lp_hedging",
                 "routewise",

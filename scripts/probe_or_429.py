@@ -55,7 +55,7 @@ def send_one(key_index: int, key: str, provider_hint: str) -> ProbeResult:
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/HarvardSys/hybridInference",
+        "HTTP-Referer": "https://example.org/routewise-artifact",
         "X-Title": "RouteWise OR 429 probe",
     }
     payload = {

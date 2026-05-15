@@ -14,7 +14,7 @@ Supported backends:
 All transports return a common ``SingleRequestResult`` so the runner stays
 transport-agnostic.
 
-Migrated from ``NSDI2027_RouteWise/experiment/strategies/joint_online_transport.py``.
+Migrated from the legacy real-evaluation transport scripts.
 The OpenRouter ``sort_mode`` parameter is a first-class field (replaces the
 old ``__sort_latency__`` sentinel string the runner used to monkeypatch).
 """
@@ -635,7 +635,7 @@ def resolve_transport_config(provider_entry: dict[str, Any]) -> TransportConfig:
         api_key_env = "OPENROUTER_API_KEY"
         model = model or provider_entry.get("openrouter_model_id") or "minimax/minimax-m2.5"
         extra_headers = {
-            "HTTP-Referer": "https://github.com/HarvardSys/hybridInference",
+            "HTTP-Referer": "https://example.org/routewise-artifact",
             "X-Title": "RouteWise real online evaluation",
         }
     elif transport == "chutes":

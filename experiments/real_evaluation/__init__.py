@@ -1,8 +1,7 @@
 """Real online experiment harness.
 
-Migrated from the old NSDI2027_RouteWise/experiment scripts. Provides
-transport-agnostic streaming chat-completion dispatch, hedged execution,
-adapter policies, and a trace-replay runner for evaluating routing
+Provides transport-agnostic streaming chat-completion dispatch, hedged
+execution, adapter policies, and a trace-replay runner for evaluating routing
 strategies against live provider APIs.
 
 This package is the real-world counterpart to ``rwsim`` (the simulator).

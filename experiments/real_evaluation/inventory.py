@@ -3,11 +3,9 @@
 Defines the static specs (read from inventory JSON) and the dynamic state
 (rolling latency profile, quota, concurrency) that policies operate over.
 
-Migrated from
-``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
-lines 97-298. Real experiments share quota capacity primitives with
-``rwsim.world`` while keeping empirical rolling profiles and live-run
-concurrency state local to this package.
+Real experiments share quota capacity primitives with ``rwsim.world`` while
+keeping empirical rolling profiles and live-run concurrency state local to this
+package.
 """
 
 from __future__ import annotations

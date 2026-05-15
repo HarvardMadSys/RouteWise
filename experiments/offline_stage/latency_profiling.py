@@ -167,7 +167,7 @@ async def send_request(session, provider, input_len, output_len, request_id):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/HarvardSys/hybridInference",
+        "HTTP-Referer": "https://example.org/routewise-artifact",
         "X-Title": "Latency Profiling",
     }
 

@@ -64,7 +64,7 @@ def request_marginal_cost(
     if spec.tier != "api":
         return 0.0
     # TODO(routewise-cache): route-time API cost should account for predicted
-    # prefix-cache hits. Per Juncheng's May notes, keep latency profiles
+    # prefix-cache hits. Keep latency profiles
     # unchanged for now and discount only the cached input-token component:
     # (prompt_tokens - cached_tokens) * input_price
     # + cached_tokens * cache_hit_input_price

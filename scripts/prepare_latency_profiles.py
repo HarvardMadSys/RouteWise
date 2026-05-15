@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -22,8 +23,10 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_LOG = Path(
-    "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/"
-    "phase5_qwen3_7d_clean/run_20260410_171625/evaluation_log.csv"
+    os.environ.get(
+        "ROUTEWISE_QWEN3_SOURCE_LOG",
+        REPO_ROOT / "artifacts" / "private" / "qwen3_evaluation_log.csv",
+    )
 )
 PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"
 OUT_NPZ = PROFILE_DIR / "qwen3_24h.npz"
@@ -104,7 +107,8 @@ def build_metadata(
         }
     return {
         "schema_version": "1.0",
-        "source_log": str(source),
+        "source_log": source.name,
+        "source_note": "Full source path omitted to keep metadata environment-independent.",
         "model": "qwen3_235b",
         "tier": "S_A",
         "subsample_seed": subsample_seed,

@@ -20,6 +20,8 @@ The old `rwsim/strategies/` layer and stage directories under
 - `greedy_cost`
 - `greedy_latency`
 - `random`
+- `or_sort_cost`
+- `or_sort_latency`
 - `ablation_lp_only`
 - `ablation_lp_hedging`
 - `routewise`
@@ -29,8 +31,11 @@ The old `rwsim/strategies/` layer and stage directories under
 From the repository root:
 
 ```bash
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
+python -m pip install pytest
 ```
 
 Prepare trace workload data when needed:
@@ -71,8 +76,8 @@ Golden comparison remains available for full regression runs:
 python tests/golden_capture.py --mode compare
 ```
 
-## Documentation
+## Reproducibility Notes
 
-- `docs/RWSIM_REFACTOR_PLAN.md`
-- `docs/EXPERIMENT_LAYOUT.md`
-- `docs/REPRODUCIBILITY.md`
+The main artifact entrypoints are this README, the simulator CLI, and
+`experiments/simulation/README.md`. Generated artifacts should be written under
+`outputs/`.

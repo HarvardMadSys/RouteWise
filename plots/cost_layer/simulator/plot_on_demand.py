@@ -501,9 +501,10 @@ def write_cost_table(
 ) -> None:
     """Emit per-scenario cost table (CSV) accompanying the cost bar chart.
 
-    Juncheng's metric list calls for "cost (bar AND table)". The bar chart
-    shows the magnitude visually; this table is for paper text/appendix
-    citation and lets the cost claim survive without re-reading the figure.
+    The paper metric set includes cost as both a bar chart and a table. The
+    bar chart shows the magnitude visually; this table is for paper
+    text/appendix citation and lets the cost claim survive without re-reading
+    the figure.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"cost_layer_on_demand_{SCENARIO_SLUGS[scenario]}_cost_table.csv"
@@ -548,10 +549,10 @@ def write_latency_percentile_table(
     *,
     scenario: str,
 ) -> None:
-    """Emit per-scenario latency percentile table covering Juncheng's full set.
+    """Emit per-scenario latency percentile table covering the paper metric set.
 
-    Captures mean / P10 / P25 / P50 / P75 / P90 / P99. Juncheng explicitly
-    asked us to gather the wider percentile range, not just headline P50/P99.
+    Captures mean / P10 / P25 / P50 / P75 / P90 / P99 so the artifact contains
+    the wider percentile range, not just headline P50/P99.
 
     SLO violation rate is intentionally NOT included here. The cost layer is
     a controlled experiment over cost only — latency is held identical across
@@ -596,10 +597,9 @@ def write_latency_percentile_table(
 def make_on_demand_plots(input_dir: Path, output_dir: Path) -> None:
     """Generate all cost-layer on-demand simulator figures and tables.
 
-    Per Juncheng's Notion metric list, every scenario emits all four
-    artifacts: cost (bar + table), provider fraction (stacked bar),
-    TTFT distribution (CDF), and latency percentile table covering
-    mean / P10 / P25 / P50 / P75 / P90 / P99. Final paper figure
+    Every scenario emits all four artifacts: cost (bar + table), provider
+    fraction (stacked bar), TTFT distribution (CDF), and latency percentile
+    table covering mean / P10 / P25 / P50 / P75 / P90 / P99. Final paper figure
     selection is editorial and happens later.
     """
     apply_on_demand_style()

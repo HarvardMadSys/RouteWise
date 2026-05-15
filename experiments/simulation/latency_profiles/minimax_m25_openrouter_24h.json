@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "artifact": "minimax_m25_openrouter_24h.npz",
-  "source_log": "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/phase5_minimax_m25_24h/run_20260412_045326/evaluation_log.csv",
+  "source_log": "evaluation_log.csv",
   "source_run_label": "phase5_minimax_m25_24h",
-  "source_note": "Directory name says 24h, but run_stats.observed_duration_hours is the actual CSV coverage.",
+  "source_note": "The full source path is omitted to keep metadata environment-independent. The run_stats.observed_duration_hours field records the actual CSV coverage.",
   "model": "minimax_m25",
   "model_family": "minimax-m2.5",
   "tier": "S_A",
@@ -21,7 +21,7 @@
   },
   "price_snapshot": {
     "source": "https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints",
-    "captured_from": "/tmp/openrouter_minimax_m25_endpoints.json",
+    "captured_from": "openrouter_minimax_m25_endpoints.json",
     "unit": "USD per 1M tokens",
     "note": "Provider prices can change; refresh before paper numbers."
   },

@@ -316,8 +316,7 @@ printf 'policy\topenrouter_key_slot\tfeatherless_key_slot\tquota_native_key_slot
 # Stagger configuration. OR-only baselines never staggered (they use OR's
 # server-side routing and don't contend for our pinned providers). Other
 # policies (joint-pool / RouteWise / random / greedy) start STAGGER_SEC apart
-# so their concurrent bursts onto pinned providers are spread out per
-# Juncheng's recommendation.
+# so their concurrent bursts onto pinned providers are spread out.
 STAGGER_SEC="${STAGGER_SEC:-30}"
 STAGGER_ALL_POLICIES="${STAGGER_ALL_POLICIES:-0}"
 
