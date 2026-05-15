@@ -35,6 +35,7 @@ from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    BoxSeries,
     CdfSeries,
     FrontierPoint,
     MixRow,
@@ -42,6 +43,7 @@ from plots.end_to_end.frontier_plotting import (
     plot_mean_ttft_frontier,
     plot_slo_frontier,
     plot_stacked_mix,
+    plot_ttft_boxplot as plot_common_ttft_boxplot,
     plot_ttft_cdf as plot_common_ttft_cdf,
     policy_plot_label as common_policy_plot_label,
 )
@@ -182,6 +184,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional output path for a TTFT CDF PDF.",
+    )
+    parser.add_argument(
+        "--boxplot-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a per-policy TTFT distribution boxplot PDF.",
     )
     parser.add_argument(
         "--cdf-policies",
@@ -891,6 +899,33 @@ def plot_ttft_cdf(
     plot_common_ttft_cdf(series, output_path, slo_sec=slo_sec, x_max_sec=x_max)
 
 
+def plot_ttft_boxplot(
+    args: argparse.Namespace,
+    output_path: Path,
+    cost_by_policy: dict[str, float] | None = None,
+) -> None:
+    series: list[BoxSeries] = []
+    for policy_dir in selected_cdf_dirs(args):
+        samples = policy_ttft_samples(policy_dir)
+        if not samples:
+            continue
+        policy = policy_dir.name
+        alpha = parse_alpha(policy)
+        series.append(
+            BoxSeries(
+                policy=policy,
+                label=cdf_policy_label(policy),
+                samples_ms=samples,
+                alpha=alpha,
+                total_cost_usd=(cost_by_policy or {}).get(policy),
+            )
+        )
+    if not series:
+        raise ValueError(f"{args.input_dir}: no valid TTFT samples for boxplot")
+    slo_sec = args.slo_ms / 1000.0
+    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
+
+
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
     if not args.input_dir.exists():
         raise FileNotFoundError(args.input_dir)
@@ -1051,6 +1086,13 @@ def main() -> int:
             {summary.policy: summary.total_cost_usd for summary in summaries},
         )
         print(f"wrote {args.cdf_out}")
+    if args.boxplot_out is not None:
+        plot_ttft_boxplot(
+            args,
+            args.boxplot_out,
+            {summary.policy: summary.total_cost_usd for summary in summaries},
+        )
+        print(f"wrote {args.boxplot_out}")
     if args.provider_mix_out is not None:
         plot_provider_mix(args, providers, hint_to_name, args.provider_mix_out)
         print(f"wrote {args.provider_mix_out}")

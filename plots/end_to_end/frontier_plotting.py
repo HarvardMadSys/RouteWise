@@ -171,6 +171,15 @@ class CdfSeries:
 
 
 @dataclass(frozen=True)
+class BoxSeries:
+    policy: str
+    label: str
+    samples_ms: Sequence[float]
+    alpha: float | None = None
+    total_cost_usd: float | None = None
+
+
+@dataclass(frozen=True)
 class MixSegment:
     key: str
     label: str
@@ -683,6 +692,118 @@ def plot_ttft_cdf(
     fig.subplots_adjust(left=0.15, right=0.99, bottom=0.17, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
+    plt.close(fig)
+
+
+def _series_percentile(sorted_values: Sequence[float], pct: float) -> float:
+    if not sorted_values:
+        return float("nan")
+    pos = (len(sorted_values) - 1) * pct / 100.0
+    lo = math.floor(pos)
+    hi = math.ceil(pos)
+    if lo == hi:
+        return sorted_values[int(pos)]
+    return sorted_values[lo] * (hi - pos) + sorted_values[hi] * (pos - lo)
+
+
+def plot_ttft_boxplot(
+    series: Sequence[BoxSeries],
+    output_path: Path,
+    *,
+    slo_sec: float = 3.0,
+    x_max_sec: float | None = None,
+) -> None:
+    if not series:
+        raise ValueError("no boxplot series to plot")
+    apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
+    plt.rcParams.update({"figure.figsize": (3.35, 2.55)})
+
+    sorted_samples_sec: list[list[float]] = []
+    p99_sec: list[float] = []
+    for item in series:
+        sorted_ms = sorted(item.samples_ms)
+        sorted_samples_sec.append([value / 1000.0 for value in sorted_ms])
+        p99_sec.append(_series_percentile(sorted_ms, 99.0) / 1000.0)
+
+    if x_max_sec is None:
+        valid_p99 = [value for value in p99_sec if not math.isnan(value)]
+        tail = max(valid_p99) if valid_p99 else slo_sec * 4.0
+        x_max_sec = max(slo_sec * 1.6, tail * 1.08)
+
+    fig, ax = plt.subplots(figsize=(3.35, 2.55), constrained_layout=False)
+    box = ax.boxplot(
+        sorted_samples_sec,
+        vert=False,
+        patch_artist=True,
+        showfliers=False,
+        whis=(5, 95),
+        widths=0.6,
+        medianprops={"color": "#222222", "linewidth": 1.0},
+        whiskerprops={"color": "#555555", "linewidth": 0.8},
+        capprops={"color": "#555555", "linewidth": 0.8},
+        boxprops={"edgecolor": "#555555", "linewidth": 0.8},
+    )
+    for patch, item in zip(box["boxes"], series, strict=True):
+        patch.set_facecolor(policy_color(item.policy, alpha=item.alpha))
+        patch.set_alpha(0.78)
+
+    rightmost_p99 = -math.inf
+    rightmost_idx = None
+    for idx, p99 in enumerate(p99_sec, start=1):
+        if math.isnan(p99):
+            continue
+        capped = min(p99, x_max_sec)
+        ax.plot(
+            capped,
+            idx,
+            marker="d",
+            markersize=4.2,
+            markerfacecolor="#222222",
+            markeredgecolor="#222222",
+            linestyle="none",
+            zorder=5,
+        )
+        if capped > rightmost_p99:
+            rightmost_p99 = capped
+            rightmost_idx = idx
+
+    if rightmost_idx is not None:
+        ax.annotate(
+            "P99",
+            xy=(rightmost_p99, rightmost_idx),
+            xytext=(4, -8),
+            textcoords="offset points",
+            fontsize=ANNOTATION_FONT_SIZE,
+            color="#222222",
+            ha="left",
+            va="top",
+        )
+
+    ax.axvline(slo_sec, color="#444444", linestyle=":", linewidth=0.8)
+    ax.text(
+        slo_sec + 0.08,
+        len(series) + 0.45,
+        f"{slo_sec:g}s SLO",
+        color="#444444",
+        fontsize=ANNOTATION_FONT_SIZE,
+        ha="left",
+        va="bottom",
+    )
+
+    labels = [item.label for item in series]
+    ax.set_yticks(range(1, len(labels) + 1), labels)
+    ax.invert_yaxis()
+    ax.set_xlim(0.0, x_max_sec)
+    ax.set_xlabel("TTFT (s)")
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.18, top=0.98)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
 
 
