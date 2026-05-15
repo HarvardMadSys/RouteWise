@@ -289,17 +289,28 @@ def plot_ttft_share_cdf(
         model_df = df.loc[df[group_col] == group]
         shares = np.sort(model_df["ttft_share"].clip(lower=0, upper=1).to_numpy()) * 100.0
         cdf = np.arange(1, len(shares) + 1) / len(shares) * 100.0
+        color = colors[idx % len(colors)]
         ax.step(
             shares,
             cdf,
             where="post",
-            color=colors[idx % len(colors)],
+            color=color,
             linewidth=1.35,
             label=group,
         )
+        median_share = float(np.median(shares))
+        ax.scatter(
+            [median_share],
+            [50],
+            s=13,
+            color=color,
+            edgecolors="white",
+            linewidths=0.45,
+            zorder=4,
+        )
 
-    ax.axvline(80, color="#b91c1c", linewidth=0.85, linestyle="--", alpha=0.85)
-    ax.text(81.0, 4.5, "80%", color="#b91c1c", fontsize=6.2, va="bottom")
+    ax.axhline(50, color="#64748b", linewidth=0.8, linestyle="--", alpha=0.75)
+    ax.text(2.0, 52.0, "50% request fraction", color="#475569", fontsize=6.2, va="bottom")
 
     ax.set_xlim(0, 101.5)
     ax.set_ylim(0, 100)
@@ -355,8 +366,6 @@ def plot_ttft_share_boxplot(
         patch.set_edgecolor(color)
         patch.set_linewidth(0.9)
 
-    ax.axvline(80, color="#b91c1c", linewidth=0.85, linestyle="--", alpha=0.85)
-    ax.text(81.0, 0.58, "80%", color="#b91c1c", fontsize=6.2, va="bottom")
     ax.set_xlim(0, 101.5)
     ax.set_xticks([0, 20, 40, 60, 80, 100])
     ax.set_xlabel("TTFT share of duration (%)", labelpad=1.5)
