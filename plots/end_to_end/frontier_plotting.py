@@ -115,6 +115,7 @@ PROVIDER_COLOR_CYCLE = (
 PROVIDER_MIX_COLORS = {
     "OR_DeepInfra": "#2b7bba",
     "MiniMax_Plus_SQ": "#6b4c3b",
+    "GLM_OR_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
     "OR_AtlasCloud": "#f28e2b",
     "OR_AkashML": "#17becf",
@@ -288,8 +289,6 @@ def _annotate_routewise(
     *,
     routewise_count: int,
 ) -> None:
-    if routewise_count > 1:
-        return
     offset = ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
         point.alpha,
         (5, -14),
@@ -302,7 +301,9 @@ def _annotate_routewise(
         offset = (abs(offset[0]), -abs(offset[1]))
         ha = "left"
     ax.annotate(
-        f"RouteWise-{point.alpha:g}",
+        rf"$\alpha={point.alpha:g}$"
+        if routewise_count > 1
+        else f"RouteWise-{point.alpha:g}",
         xy=(point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",

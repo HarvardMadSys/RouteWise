@@ -258,7 +258,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default="Total cost ($)",
+        default="Normalized cost",
         help="X-axis label for generated frontier figures.",
     )
     parser.add_argument(
@@ -422,8 +422,9 @@ def inventory_path_for_run(input_dir: Path) -> Path:
 
 def provider_label(provider: str) -> str:
     labels = {
-        "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$ MiniMax",
-        "Featherless_SC": r"$\mathcal{P}_C$ Featherless",
+        "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$",
+        "GLM_OR_SQ": r"$\mathcal{P}_Q$",
+        "Featherless_SC": r"$\mathcal{P}_C$",
     }
     if provider in labels:
         return labels[provider]
@@ -435,6 +436,7 @@ def provider_label(provider: str) -> str:
 def provider_mix_legend_label(provider: str) -> str:
     labels = {
         "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$",
+        "GLM_OR_SQ": r"$\mathcal{P}_Q$",
         "Featherless_SC": r"$\mathcal{P}_C$",
         "OR_DeepInfra": "DeepInfra",
         "OR_AtlasCloud": "Atlas",
