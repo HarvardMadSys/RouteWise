@@ -26,19 +26,19 @@ DEFAULT_OUTPUT_DIR = WORKSPACE_DIR / "paper" / "figures"
 def apply_style() -> None:
     plt.rcParams.update(
         {
-            "font.size": 8.4,
-            "axes.labelsize": 8.6,
-            "xtick.labelsize": 6.7,
-            "ytick.labelsize": 7.2,
-            "legend.fontsize": 6.8,
+            "font.size": 8.8,
+            "axes.labelsize": 9.0,
+            "xtick.labelsize": 7.0,
+            "ytick.labelsize": 7.3,
+            "legend.fontsize": 7.0,
             "figure.dpi": 150,
             "savefig.dpi": 300,
             "savefig.bbox": "tight",
             "savefig.pad_inches": 0.015,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
+            "axes.spines.top": True,
+            "axes.spines.right": True,
             "axes.grid": True,
-            "grid.alpha": 0.28,
+            "grid.alpha": 0.6,
             "grid.linewidth": 0.45,
         }
     )
@@ -46,7 +46,7 @@ def apply_style() -> None:
 
 def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, Any]:
     df, summary, groups = load_provider_series(DEFAULT_PROVIDER_SERIES, output_input_ratio)
-    colors = ["#0072B2", "#D55E00", "#009E73"]
+    colors = ["#6FA8DC", "#E69138", "#4CA259"]
     compact_labels = {
         "GPT-5.4": "GPT",
         "Claude Opus 4.7": "Claude",
@@ -63,7 +63,7 @@ def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, 
             cdf,
             where="post",
             color=color,
-            linewidth=1.05,
+            linewidth=1.25,
             label=compact_labels.get(group, group),
         )
         ax.scatter(
@@ -76,7 +76,7 @@ def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, 
             zorder=4,
         )
 
-    ax.axhline(50, color="#64748b", linewidth=0.65, linestyle="--", alpha=0.75)
+    ax.axhline(50, color="#888888", linewidth=0.8, linestyle="--", alpha=0.9)
     ax.text(4.0, 53.5, "50%", color="#475569", fontsize=7.0, va="bottom")
     ax.set_xlim(0, 101.5)
     ax.set_ylim(0, 100)
@@ -84,13 +84,13 @@ def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, 
     ax.set_yticks([0, 50, 100])
     ax.set_xlabel("TTFT share (%)", labelpad=0.8)
     ax.set_ylabel("CDF (%)", labelpad=0.8)
-    ax.grid(True, which="major", linestyle="--")
+    ax.grid(True, which="major", linestyle=":", linewidth=0.45, alpha=0.6)
     ax.legend(
         loc="lower center",
         bbox_to_anchor=(0.5, 1.2),
         ncol=3,
         frameon=False,
-        handlelength=1.15,
+        handlelength=1.25,
         columnspacing=0.8,
         borderaxespad=0.0,
     )
@@ -109,14 +109,14 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
         widths=0.52,
         patch_artist=True,
         showfliers=False,
-        medianprops={"color": "#0f172a", "linewidth": 1.05},
-        boxprops={"edgecolor": "#0f766e", "linewidth": 0.75},
-        whiskerprops={"color": "#0f766e", "linewidth": 0.75},
-        capprops={"color": "#0f766e", "linewidth": 0.75},
+        medianprops={"color": "#0f172a", "linewidth": 1.2},
+        boxprops={"edgecolor": "#4CA259", "linewidth": 0.95},
+        whiskerprops={"color": "#4CA259", "linewidth": 0.95},
+        capprops={"color": "#4CA259", "linewidth": 0.95},
     )
     for box in bp["boxes"]:
-        box.set_facecolor("#ccfbf1")
-        box.set_alpha(0.75)
+        box.set_facecolor("#D9EAD3")
+        box.set_alpha(0.85)
 
     p95 = [float(np.percentile(v, 95)) for v in values]
     ax.set_xticks(np.arange(1, len(compact_labels) + 1))
@@ -125,7 +125,7 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
     ax.set_ylabel("TTFT (s)", labelpad=0.8)
     ax.set_ylim(0, max(25.0, max(p95) * 1.12))
     ax.set_yticks([0, 10, 20])
-    ax.grid(axis="y", linestyle="--")
+    ax.grid(axis="y", linestyle=":", linewidth=0.45, alpha=0.6)
     ax.grid(axis="x", visible=False)
     ax.text(0.5, 1.06, "(b)", transform=ax.transAxes, ha="center", fontsize=9.0, fontweight="bold", clip_on=False)
     return summary
