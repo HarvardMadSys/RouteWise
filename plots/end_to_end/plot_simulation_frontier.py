@@ -12,6 +12,8 @@ Example:
       --frontier-out ../paper/figures/stage3_e2e_cost_latency_frontier.pdf \
       --slo-out ../paper/figures/stage3_e2e_slo_cost_frontier.pdf \
       --tier-out ../paper/figures/stage3_e2e_tier_mix.pdf \
+      --provider-latency-out ../paper/figures/stage3_e2e_provider_latency.pdf \
+      --provider-mix-out ../paper/figures/stage3_e2e_provider_mix.pdf \
       --p99-bar-out ../paper/figures/stage3_e2e_hedging_p99.pdf \
       --cdf-out ../paper/figures/stage3_e2e_ttft_cdf.pdf \
       --table-out ../paper/tables/simulation_e2e_q1_c1_slo3_rows.tex \
@@ -23,11 +25,21 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from dataclasses import asdict, dataclass
+import math
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
+from experiments.simulation.latency_profiles import load_empirical_distribution
+from experiments.simulation.provider_profiles import load_provider_pool
 from plots.end_to_end.frontier_plotting import (
+    MIX_FIGSIZE,
+    PROVIDER_COLOR_CYCLE,
+    PROVIDER_MIX_COLORS,
     TIER_MIX_SEGMENTS,
+    BoxSeries,
     CdfSeries,
     FrontierPoint,
     MixRow,
@@ -36,9 +48,11 @@ from plots.end_to_end.frontier_plotting import (
     plot_mean_ttft_frontier,
     plot_slo_frontier,
     plot_stacked_mix,
+    plot_ttft_boxplot as plot_common_ttft_boxplot,
     plot_ttft_cdf as plot_common_ttft_cdf,
     policy_plot_label,
 )
+from plots.style import apply_style
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
@@ -71,23 +85,48 @@ CDF_POLICIES = (
     "or_sort_latency",
     "random",
 )
+BOXPLOT_POLICIES = (
+    "ablation_lp_hedging_p25",
+    "greedy_cost",
+    "greedy_latency",
+    "or_sort_cost",
+    "or_sort_latency",
+)
+PROVIDER_MIX_POLICIES = (
+    "ablation_lp_hedging_p25",
+    "greedy_cost",
+    "greedy_latency",
+    "or_sort_cost",
+    "or_sort_latency",
+)
 
 
 @dataclass(frozen=True)
 class Row:
+    scenario: str
     policy: str
     label: str
     alpha: float | None
     hedging: bool
+    provider_mix: dict[str, float]
     total_cost_usd: float
     mean_ttft_ms: float
     p50_ms: float
     p90_ms: float
     p95_ms: float
     p99_ms: float
+    slo_ms: float
     slo_violation_rate: float
     hedge_rate: float
     tier_mix: dict[str, float]
+    real_world_pool: str | None
+    api_provider_names: tuple[str, ...]
+    api_latency_provider_names: tuple[str, ...]
+    latency_profile: str | None
+    quota_latency_profile_provider: str | None
+    concurrency_latency_profile_provider: str | None
+    subscription_plan: str | None
+    concurrency_plan: str | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,8 +136,61 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frontier-out", type=Path, required=True)
     parser.add_argument("--slo-out", type=Path, required=True)
     parser.add_argument("--tier-out", type=Path, default=None)
+    parser.add_argument(
+        "--provider-latency-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a configured provider mean-TTFT bar PDF.",
+    )
+    parser.add_argument(
+        "--provider-mix-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a provider-mix stacked-bar PDF.",
+    )
+    parser.add_argument(
+        "--provider-mix-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy names to include in the provider-mix figure. "
+            "Defaults to representative policies excluding random."
+        ),
+    )
     parser.add_argument("--p99-bar-out", type=Path, default=None)
     parser.add_argument("--cdf-out", type=Path, default=None)
+    parser.add_argument(
+        "--boxplot-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a per-policy TTFT percentile boxplot PDF.",
+    )
+    parser.add_argument(
+        "--boxplot-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy names to include in the TTFT boxplot. "
+            "Defaults to representative policies excluding random."
+        ),
+    )
+    parser.add_argument(
+        "--frontier-baselines",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact baseline policy names to include in cost-frontier "
+            "figures. Defaults to all simulator baselines."
+        ),
+    )
+    parser.add_argument(
+        "--routewise-frontier-policy",
+        default=ROUTEWISE_FRONTIER_POLICY,
+        help=(
+            "RouteWise policy to show in compact frontier figures. "
+            "Defaults to the paper's BurstGPT+ShareGPT operating point."
+        ),
+    )
     parser.add_argument("--table-out", type=Path, required=True)
     parser.add_argument("--summary-out", type=Path, default=None)
     return parser.parse_args()
@@ -130,6 +222,24 @@ def load_histograms(path: Path | None) -> dict[str, dict[str, object]]:
         return {}
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {item["policy"]: item["histogram"] for item in payload}
+
+
+def parse_json_object(raw: str | None) -> dict[str, float]:
+    if raw in {None, ""}:
+        return {}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        return {}
+    return {str(key): float(value) for key, value in payload.items()}
+
+
+def parse_json_list(raw: str | None) -> tuple[str, ...]:
+    if raw in {None, ""}:
+        return ()
+    payload = json.loads(raw)
+    if not isinstance(payload, list):
+        return ()
+    return tuple(str(item) for item in payload)
 
 
 def histogram_quantile(histogram: dict[str, object] | None, q: float) -> float:
@@ -205,19 +315,36 @@ def load_rows(
             )
             rows.append(
                 Row(
+                    scenario=raw["scenario"],
                     policy=policy,
                     label=row_label(policy, alpha, hedging),
                     alpha=alpha,
                     hedging=hedging,
+                    provider_mix=parse_json_object(raw.get("provider_mix")),
                     total_cost_usd=float(raw["total_cost_usd"]),
                     mean_ttft_ms=float(raw["mean_ttft_ms"]),
                     p50_ms=float(raw["p50_ms"]),
                     p90_ms=float(raw["p90_ms"]),
                     p95_ms=p95_ms,
                     p99_ms=float(raw["p99_ms"]),
+                    slo_ms=float(raw.get("slo_ms") or 3000.0),
                     slo_violation_rate=float(raw["slo_violation_rate"]),
                     hedge_rate=float(raw["hedge_rate"]),
                     tier_mix=json.loads(tier_mix_raw),
+                    real_world_pool=raw.get("real_world_pool") or None,
+                    api_provider_names=parse_json_list(raw.get("api_provider_names")),
+                    api_latency_provider_names=parse_json_list(
+                        raw.get("api_latency_provider_names")
+                    ),
+                    latency_profile=raw.get("latency_profile") or None,
+                    quota_latency_profile_provider=(
+                        raw.get("quota_latency_profile_provider") or None
+                    ),
+                    concurrency_latency_profile_provider=(
+                        raw.get("concurrency_latency_profile_provider") or None
+                    ),
+                    subscription_plan=raw.get("subscription_plan") or None,
+                    concurrency_plan=raw.get("concurrency_plan") or None,
                 )
             )
     return rows
@@ -249,20 +376,42 @@ def frontier_points(rows: list[Row]) -> list[FrontierPoint]:
     ]
 
 
-def selected_frontier_points(rows: list[Row]) -> list[FrontierPoint]:
+def selected_frontier_points(
+    rows: list[Row],
+    baseline_policies: list[str] | None = None,
+    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+) -> list[FrontierPoint]:
+    baselines = set(baseline_policies or BASELINE_ORDER)
     return [
         point
         for point in frontier_points(rows)
-        if point.alpha is None or point.policy == ROUTEWISE_FRONTIER_POLICY
+        if (point.alpha is None and point.policy in baselines)
+        or point.policy == routewise_policy
     ]
 
 
-def plot_frontier(rows: list[Row], output_path: Path) -> None:
-    plot_mean_ttft_frontier(selected_frontier_points(rows), output_path)
+def plot_frontier(
+    rows: list[Row],
+    output_path: Path,
+    baseline_policies: list[str] | None = None,
+    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+) -> None:
+    plot_mean_ttft_frontier(
+        selected_frontier_points(rows, baseline_policies, routewise_policy),
+        output_path,
+    )
 
 
-def plot_slo(rows: list[Row], output_path: Path) -> None:
-    plot_slo_frontier(selected_frontier_points(rows), output_path)
+def plot_slo(
+    rows: list[Row],
+    output_path: Path,
+    baseline_policies: list[str] | None = None,
+    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+) -> None:
+    plot_slo_frontier(
+        selected_frontier_points(rows, baseline_policies, routewise_policy),
+        output_path,
+    )
 
 
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
@@ -278,6 +427,193 @@ def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
     ]
     segments = [MixSegment(key, label, color) for key, label, color in TIER_MIX_SEGMENTS]
     plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3)
+
+
+def provider_label(provider: str) -> str:
+    if provider.endswith("_quota"):
+        return r"$\mathcal{P}_Q$"
+    if provider.endswith("_concurrency"):
+        return r"$\mathcal{P}_C$"
+    if provider.startswith("api_"):
+        return provider.removeprefix("api_").replace("_", " ")
+    return provider.replace("_", " ")
+
+
+def provider_color(provider: str, idx: int) -> str:
+    if provider.endswith("_quota"):
+        return PROVIDER_MIX_COLORS.get("MiniMax_Plus_SQ", "#6b4c3b")
+    if provider.endswith("_concurrency"):
+        return PROVIDER_MIX_COLORS.get("Featherless_SC", "#59a14f")
+    color_key = (
+        f"OR_{provider.removeprefix('api_')}"
+        if provider.startswith("api_")
+        else provider
+    )
+    return PROVIDER_MIX_COLORS.get(
+        color_key,
+        PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
+    )
+
+
+def provider_tier(provider: str) -> str:
+    if provider.endswith("_quota"):
+        return "quota"
+    if provider.endswith("_concurrency"):
+        return "concurrency"
+    return "api"
+
+
+def provider_sort_key(provider: str, totals: Counter[str]) -> tuple[int, float, str]:
+    tier_order = {"quota": 0, "concurrency": 1, "api": 2}
+    return (tier_order.get(provider_tier(provider), 9), -totals[provider], provider)
+
+
+def provider_mix_policy_rows(
+    rows: list[Row],
+    requested_policies: list[str] | None,
+) -> list[Row]:
+    by_policy = {row.policy: row for row in rows}
+    policies = requested_policies or list(PROVIDER_MIX_POLICIES)
+    missing = [policy for policy in policies if policy not in by_policy]
+    if requested_policies is not None and missing:
+        raise ValueError(f"missing provider-mix policies: {missing}")
+    selected = [by_policy[policy] for policy in policies if policy in by_policy]
+    if not selected:
+        raise ValueError("no rows available for provider-mix plot")
+    return selected
+
+
+def plot_provider_mix(
+    rows: list[Row],
+    output_path: Path,
+    requested_policies: list[str] | None = None,
+) -> None:
+    selected = provider_mix_policy_rows(rows, requested_policies)
+    totals: Counter[str] = Counter()
+    for row in selected:
+        for provider, share in row.provider_mix.items():
+            if share > 0.0:
+                totals[provider] += share
+
+    providers = sorted(totals, key=lambda provider: provider_sort_key(provider, totals))
+    segments = [
+        MixSegment(
+            key=provider,
+            label=provider_label(provider),
+            color=provider_color(provider, idx),
+        )
+        for idx, provider in enumerate(providers)
+    ]
+    mix_rows = [
+        MixRow(
+            label=policy_plot_label(row.policy, alpha=row.alpha, hedging=row.hedging),
+            shares={provider: row.provider_mix.get(provider, 0.0) for provider in providers},
+        )
+        for row in selected
+    ]
+    plot_stacked_mix(
+        mix_rows,
+        segments,
+        output_path,
+        legend_ncols=5,
+        legend_fontsize=11.0,
+        font_size=10.8,
+        label_fontsize=11.5,
+        tick_fontsize=9.8,
+        margins=(0.43, 0.98, 0.18, 0.94),
+        show_legend=False,
+        x_max=102.0,
+    )
+
+
+def provider_latency_means(row: Row) -> dict[str, float]:
+    latencies: dict[str, float] = {}
+    if row.real_world_pool:
+        pool = load_provider_pool(row.real_world_pool)
+        pool_by_name = pool.by_name()
+        for provider, latency_provider in zip(
+            row.api_provider_names,
+            row.api_latency_provider_names,
+            strict=False,
+        ):
+            entry = pool_by_name.get(latency_provider)
+            if entry is not None:
+                latencies[provider] = entry.ttft_dist.mean()
+
+    if row.latency_profile and row.quota_latency_profile_provider and row.subscription_plan:
+        dist = load_empirical_distribution(
+            row.latency_profile,
+            row.quota_latency_profile_provider,
+        )
+        latencies[f"{row.subscription_plan}_quota"] = dist.mean()
+
+    if (
+        row.latency_profile
+        and row.concurrency_latency_profile_provider
+        and row.concurrency_plan
+    ):
+        dist = load_empirical_distribution(
+            row.latency_profile,
+            row.concurrency_latency_profile_provider,
+        )
+        latencies[f"{row.concurrency_plan}_concurrency"] = dist.mean()
+
+    return latencies
+
+
+def plot_provider_latency(
+    rows: list[Row],
+    output_path: Path,
+    requested_policies: list[str] | None = None,
+) -> None:
+    selected = provider_mix_policy_rows(rows, requested_policies)
+    totals: Counter[str] = Counter()
+    for row in selected:
+        for provider, share in row.provider_mix.items():
+            if share > 0.0:
+                totals[provider] += share
+
+    means = provider_latency_means(selected[0])
+    items = [
+        (provider, mean_ms)
+        for provider, mean_ms in means.items()
+        if provider in totals and math.isfinite(mean_ms)
+    ]
+    if not items:
+        raise ValueError("no provider latency means available for selected provider mix")
+    items = sorted(items, key=lambda item: item[1])
+
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 7.5,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "figure.figsize": MIX_FIGSIZE,
+            "savefig.pad_inches": 0.01,
+        }
+    )
+    labels = [provider_label(provider) for provider, _ in items]
+    values = [mean_ms / 1000.0 for _, mean_ms in items]
+    colors = [provider_color(provider, idx) for idx, (provider, _) in enumerate(items)]
+
+    fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
+    y = list(range(len(items)))
+    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.72)
+    ax.set_yticks(y, labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("Mean TTFT (s)")
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.subplots_adjust(left=0.29, right=0.99, bottom=0.16, top=0.97)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
+    plt.close(fig)
 
 
 def plot_hedging_p99(rows: list[Row], output_path: Path) -> None:
@@ -327,6 +663,60 @@ def plot_ttft_cdf(
     plot_common_ttft_cdf(series, output_path, slo_sec=3.0, x_max_sec=x_max_sec)
 
 
+def histogram_samples(histogram: dict[str, object]) -> list[float]:
+    edges = [float(value) for value in histogram["bin_edges_ms"]]
+    counts = [int(value) for value in histogram["counts"]]
+    min_ms = float(histogram["min_ms"])
+    max_ms = float(histogram["max_ms"])
+    samples: list[float] = []
+    for idx, count in enumerate(counts):
+        if count <= 0:
+            continue
+        if idx == 0:
+            value = min_ms
+        elif idx == len(counts) - 1:
+            value = max_ms
+        else:
+            value = 0.5 * (edges[idx - 1] + edges[idx])
+        samples.extend([value] * count)
+    return samples
+
+
+def plot_ttft_boxplot(
+    rows: list[Row],
+    histograms: dict[str, dict[str, object]],
+    output_path: Path,
+    requested_policies: list[str] | None = None,
+) -> None:
+    by_policy = {row.policy: row for row in rows}
+    policies = requested_policies or list(BOXPLOT_POLICIES)
+    missing = [policy for policy in policies if policy not in by_policy]
+    if requested_policies is not None and missing:
+        raise ValueError(f"missing boxplot policies: {missing}")
+    series: list[BoxSeries] = []
+    for policy in policies:
+        row = by_policy.get(policy)
+        histogram = histograms.get(policy)
+        if row is None or histogram is None:
+            continue
+        samples = histogram_samples(histogram)
+        if not samples:
+            continue
+        series.append(
+            BoxSeries(
+                policy=policy,
+                label=cdf_label(row),
+                samples_ms=samples,
+                alpha=row.alpha,
+                total_cost_usd=row.total_cost_usd,
+            )
+        )
+    if not series:
+        raise ValueError("no histogram-backed series available for boxplot")
+    slo_sec = rows[0].slo_ms / 1000.0 if rows else 3.0
+    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
+
+
 def write_table(rows: list[Row], output_path: Path) -> None:
     by_policy = {row.policy: row for row in rows}
     lines: list[str] = []
@@ -372,24 +762,71 @@ def write_summary(rows: list[Row], output_path: Path | None) -> None:
     if output_path is None:
         return
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = [asdict(row) for row in rows]
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    summary_fields = (
+        "policy",
+        "label",
+        "alpha",
+        "hedging",
+        "total_cost_usd",
+        "mean_ttft_ms",
+        "p50_ms",
+        "p90_ms",
+        "p95_ms",
+        "p99_ms",
+        "slo_violation_rate",
+        "hedge_rate",
+        "tier_mix",
+    )
+    payload = [
+        {field: getattr(row, field) for field in summary_fields}
+        for row in rows
+    ]
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def main() -> int:
     args = parse_args()
     histograms = load_histograms(args.histograms_json)
     rows = load_rows(args.summary_csv, histograms)
-    plot_frontier(rows, args.frontier_out)
-    plot_slo(rows, args.slo_out)
+    plot_frontier(
+        rows,
+        args.frontier_out,
+        args.frontier_baselines,
+        args.routewise_frontier_policy,
+    )
+    plot_slo(
+        rows,
+        args.slo_out,
+        args.frontier_baselines,
+        args.routewise_frontier_policy,
+    )
     if args.tier_out is not None:
         plot_tier_mix(rows, args.tier_out)
+    if args.provider_latency_out is not None:
+        plot_provider_latency(
+            rows,
+            args.provider_latency_out,
+            args.provider_mix_policies,
+        )
+    if args.provider_mix_out is not None:
+        plot_provider_mix(
+            rows,
+            args.provider_mix_out,
+            args.provider_mix_policies,
+        )
     if args.p99_bar_out is not None:
         plot_hedging_p99(rows, args.p99_bar_out)
     if args.cdf_out is not None:
         if not histograms:
             raise SystemExit("--cdf-out requires --histograms-json")
         plot_ttft_cdf(rows, histograms, args.cdf_out)
+    if args.boxplot_out is not None:
+        if not histograms:
+            raise SystemExit("--boxplot-out requires --histograms-json")
+        plot_ttft_boxplot(rows, histograms, args.boxplot_out, args.boxplot_policies)
     write_table(rows, args.table_out)
     write_summary(rows, args.summary_out)
     return 0
