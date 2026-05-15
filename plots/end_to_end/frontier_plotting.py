@@ -743,15 +743,15 @@ def plot_ttft_boxplot(
     plt.rcParams.update({"figure.figsize": COLUMN_FIGSIZE})
 
     sorted_samples_sec: list[list[float]] = []
-    p99_sec: list[float] = []
+    p95_sec: list[float] = []
     for item in series:
         sorted_ms = sorted(item.samples_ms)
         sorted_samples_sec.append([value / 1000.0 for value in sorted_ms])
-        p99_sec.append(_series_percentile(sorted_ms, 99.0) / 1000.0)
+        p95_sec.append(_series_percentile(sorted_ms, 95.0) / 1000.0)
 
     if x_max_sec is None:
-        valid_p99 = [value for value in p99_sec if not math.isnan(value)]
-        tail = max(valid_p99) if valid_p99 else slo_sec * 4.0
+        valid_p95 = [value for value in p95_sec if not math.isnan(value)]
+        tail = max(valid_p95) if valid_p95 else slo_sec * 1.6
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
     fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
@@ -770,38 +770,6 @@ def plot_ttft_boxplot(
     for patch, item in zip(box["boxes"], series, strict=True):
         patch.set_facecolor(policy_color(item.policy, alpha=item.alpha))
         patch.set_alpha(0.78)
-
-    rightmost_p99 = -math.inf
-    rightmost_idx = None
-    for idx, p99 in enumerate(p99_sec, start=1):
-        if math.isnan(p99):
-            continue
-        capped = min(p99, x_max_sec)
-        ax.plot(
-            capped,
-            idx,
-            marker="d",
-            markersize=4.2,
-            markerfacecolor="#222222",
-            markeredgecolor="#222222",
-            linestyle="none",
-            zorder=5,
-        )
-        if capped > rightmost_p99:
-            rightmost_p99 = capped
-            rightmost_idx = idx
-
-    if rightmost_idx is not None:
-        ax.annotate(
-            "P99",
-            xy=(rightmost_p99, rightmost_idx),
-            xytext=(4, -8),
-            textcoords="offset points",
-            fontsize=ANNOTATION_FONT_SIZE,
-            color="#222222",
-            ha="left",
-            va="top",
-        )
 
     ax.axvline(slo_sec, color="#444444", linestyle=":", linewidth=0.8)
     ax.text(
