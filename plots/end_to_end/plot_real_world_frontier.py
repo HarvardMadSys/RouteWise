@@ -736,7 +736,7 @@ def provider_latency_samples(
     return [
         (
             provider,
-            f"{provider_mix_legend_label(provider)}\n(n={len(samples_by_provider[provider])})",
+            provider_mix_legend_label(provider),
             samples_by_provider[provider],
         )
         for provider in ordered
