@@ -324,7 +324,17 @@ def _annotate_routewise(
     *,
     routewise_count: int,
     label_offsets: Mapping[float, tuple[int, int]] | None = None,
+    label_texts: Mapping[float, str | None] | None = None,
+    label_alignments: Mapping[float, str] | None = None,
 ) -> None:
+    label_text = (label_texts or {}).get(
+        point.alpha,
+        rf"$\alpha={point.alpha:g}$"
+        if routewise_count > 1
+        else f"RouteWise-{point.alpha:g}",
+    )
+    if label_text is None:
+        return
     offset = (label_offsets or {}).get(
         point.alpha,
         ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
@@ -342,10 +352,9 @@ def _annotate_routewise(
         else:
             offset = (abs(offset[0]), offset[1])
             ha = "left"
+    ha = (label_alignments or {}).get(point.alpha, ha)
     ax.annotate(
-        rf"$\alpha={point.alpha:g}$"
-        if routewise_count > 1
-        else f"RouteWise-{point.alpha:g}",
+        label_text,
         xy=(point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
@@ -450,7 +459,10 @@ def plot_metric_frontier(
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
+    routewise_label_texts: Mapping[float, str | None] | None = None,
+    routewise_label_alignments: Mapping[float, str] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
+    baseline_marker_sizes: Mapping[str, float] | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -497,7 +509,7 @@ def plot_metric_frontier(
             point.total_cost_usd,
             metric_value(point, attr),
             marker=policy_marker(point.policy),
-            s=24,
+            s=(baseline_marker_sizes or {}).get(point.policy, 24),
             color=policy_color(point.policy),
             edgecolor="white",
             linewidth=0.5,
@@ -516,6 +528,8 @@ def plot_metric_frontier(
             attr,
             routewise_count=routewise_count,
             label_offsets=routewise_label_offsets,
+            label_texts=routewise_label_texts,
+            label_alignments=routewise_label_alignments,
         )
 
     ax.set_xlabel(xlabel)

@@ -97,19 +97,28 @@ PROVIDER_MIX_POLICIES = (
     "random",
 )
 # alpha=0.75, alpha=1 and greedy_latency land on the exact same (cost, TTFT)
-# point, so their three labels are fanned out (up-left / right / down) instead
-# of stacked. alpha=0/0.25/0.5 are kept off the steep and gentle frontier
-# segments.
+# point. Keep the overlapping RouteWise labels merged and make the latency
+# baseline marker visible under the RouteWise point.
 FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS = {
-    0.0: (8, -20),
-    0.25: (-10, 16),
-    0.5: (-10, 14),
-    0.75: (5, 20),
+    0.0: (8, 10),
+    0.25: (5, 18),
+    0.5: (10, 15),
+    0.75: (7, 16),
     1.0: (12, -1),
 }
+FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_TEXTS = {
+    0.75: r"$\alpha=0.75,1$",
+    1.0: None,
+}
+FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_ALIGNMENTS = {
+    0.5: "center",
+}
 FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
-    "greedy_cost": (8, -10),
-    "greedy_latency": (0, -15),
+    "greedy_cost": (8, 16),
+    "greedy_latency": (-12, -9),
+}
+FREEINFERENCE_MEAN_TTFT_BASELINE_MARKER_SIZES = {
+    "greedy_latency": 64,
 }
 
 
@@ -417,7 +426,12 @@ def plot_frontier(
     if "freeinference" in output_path.name:
         kwargs = {
             "routewise_label_offsets": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
+            "routewise_label_texts": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_TEXTS,
+            "routewise_label_alignments": (
+                FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_ALIGNMENTS
+            ),
             "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+            "baseline_marker_sizes": FREEINFERENCE_MEAN_TTFT_BASELINE_MARKER_SIZES,
         }
     plot_mean_ttft_frontier(
         selected_frontier_points(rows, mean_baselines, routewise_policies),
