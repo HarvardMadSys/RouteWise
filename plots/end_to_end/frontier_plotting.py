@@ -580,8 +580,22 @@ def plot_stacked_mix(
     *,
     legend_ncols: int,
     legend_fontsize: float = 5.8,
+    font_size: float = BASE_FONT_SIZE,
+    label_fontsize: float = LABEL_FONT_SIZE,
+    tick_fontsize: float = TICK_FONT_SIZE,
+    margins: tuple[float, float, float, float] = (0.34, 0.99, 0.16, 0.79),
+    show_legend: bool = True,
+    x_max: float = 100.0,
 ) -> None:
     apply_column_figure_style(legend_fontsize=legend_fontsize)
+    plt.rcParams.update(
+        {
+            "font.size": font_size,
+            "axes.labelsize": label_fontsize,
+            "xtick.labelsize": tick_fontsize,
+            "ytick.labelsize": tick_fontsize,
+        }
+    )
     fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
     y = list(range(len(rows)))
     left = [0.0] * len(rows)
@@ -603,7 +617,8 @@ def plot_stacked_mix(
         handles.append(bar[0])
         labels.append(segment.label)
         left = [old + value for old, value in zip(left, values, strict=True)]
-    ax.set_xlim(0, 100)
+    ax.set_xlim(0, x_max)
+    ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Requests (%)")
     ax.set_yticks(y, [row.label for row in rows])
     ax.invert_yaxis()
@@ -612,20 +627,26 @@ def plot_stacked_mix(
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.34, right=0.99, bottom=0.16, top=0.79)
-    fig.legend(
-        handles,
-        labels,
-        frameon=False,
-        ncols=legend_ncols,
-        loc="upper center",
-        bbox_to_anchor=(0.57, 0.985),
-        handlelength=0.9,
-        handletextpad=0.28,
-        columnspacing=0.65,
-        labelspacing=0.35,
-        borderaxespad=0.0,
+    fig.subplots_adjust(
+        left=margins[0],
+        right=margins[1],
+        bottom=margins[2],
+        top=margins[3],
     )
+    if show_legend:
+        fig.legend(
+            handles,
+            labels,
+            frameon=False,
+            ncols=legend_ncols,
+            loc="upper center",
+            bbox_to_anchor=(0.57, 0.985),
+            handlelength=0.9,
+            handletextpad=0.28,
+            columnspacing=0.65,
+            labelspacing=0.35,
+            borderaxespad=0.0,
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)

@@ -587,7 +587,13 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=6.4,
+        legend_fontsize=11.0,
+        font_size=14.0,
+        label_fontsize=15.0,
+        tick_fontsize=12.5,
+        margins=(0.50, 0.96, 0.22, 0.93),
+        show_legend=False,
+        x_max=104.0,
     )
 
 
@@ -779,10 +785,10 @@ def plot_provider_latency_boxplot(
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 8.4,
-            "axes.labelsize": 8.8,
-            "xtick.labelsize": 7.8,
-            "ytick.labelsize": 7.0,
+            "font.size": 14.0,
+            "axes.labelsize": 15.0,
+            "xtick.labelsize": 13.0,
+            "ytick.labelsize": 13.0,
             "figure.figsize": MIX_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
@@ -820,7 +826,7 @@ def plot_provider_latency_boxplot(
         0.65,
         f"{args.slo_ms / 1000.0:g}s SLO",
         color="#444444",
-        fontsize=6.6,
+        fontsize=11.0,
         ha="left",
         va="bottom",
     )
@@ -834,7 +840,7 @@ def plot_provider_latency_boxplot(
     ax.spines["right"].set_visible(False)
     p95_values = [percentile(values, 95.0) for values in samples if values]
     ax.set_xlim(0, max(args.slo_ms / 1000.0 * 1.6, max(p95_values) * 1.08))
-    fig.subplots_adjust(left=0.31, right=0.99, bottom=0.16, top=0.79)
+    fig.subplots_adjust(left=0.39, right=0.94, bottom=0.22, top=0.93)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
