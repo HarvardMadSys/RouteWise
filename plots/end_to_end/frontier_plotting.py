@@ -647,7 +647,7 @@ def plot_ttft_cdf(
     ax.axvline(slo_sec, color="#444444", linewidth=0.8, linestyle=":")
     ax.text(
         slo_sec + 0.12,
-        0.92,
+        0.86,
         f"{slo_sec:g}s SLO",
         color="#444444",
         fontsize=ANNOTATION_FONT_SIZE,
