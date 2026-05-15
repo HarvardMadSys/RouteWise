@@ -96,6 +96,21 @@ PROVIDER_MIX_POLICIES = (
     "greedy_latency",
     "random",
 )
+# alpha=0.75, alpha=1 and greedy_latency land on the exact same (cost, TTFT)
+# point, so their three labels are fanned out (up-left / right / down) instead
+# of stacked. alpha=0/0.25/0.5 are kept off the steep and gentle frontier
+# segments.
+FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS = {
+    0.0: (8, -20),
+    0.25: (-10, 16),
+    0.5: (-10, 14),
+    0.75: (5, 20),
+    1.0: (12, -1),
+}
+FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
+    "greedy_cost": (8, -10),
+    "greedy_latency": (0, -15),
+}
 
 
 @dataclass(frozen=True)
@@ -398,9 +413,16 @@ def plot_frontier(
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
+    kwargs = {}
+    if "freeinference" in output_path.name:
+        kwargs = {
+            "routewise_label_offsets": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
+            "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+        }
     plot_mean_ttft_frontier(
         selected_frontier_points(rows, mean_baselines, routewise_policies),
         output_path,
+        **kwargs,
     )
 
 

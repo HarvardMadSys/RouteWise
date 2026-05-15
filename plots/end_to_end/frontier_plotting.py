@@ -290,10 +290,19 @@ def _normalized_points(points: Sequence[FrontierPoint]) -> list[FrontierPoint]:
     return [replace(point, total_cost_usd=point.total_cost_usd / baseline) for point in points]
 
 
-def _annotate_baseline(ax: plt.Axes, point: FrontierPoint, attr: str) -> None:
-    offset = BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
+def _annotate_baseline(
+    ax: plt.Axes,
+    point: FrontierPoint,
+    attr: str,
+    *,
+    label_offsets: Mapping[str, tuple[int, int]] | None = None,
+) -> None:
+    offset = (label_offsets or {}).get(
         point.policy,
-        BASELINE_LABEL_OFFSET,
+        BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
+            point.policy,
+            BASELINE_LABEL_OFFSET,
+        ),
     )
     ax.annotate(
         POLICY_PLOT_LABELS.get(point.policy, point.label),
@@ -314,10 +323,14 @@ def _annotate_routewise(
     attr: str,
     *,
     routewise_count: int,
+    label_offsets: Mapping[float, tuple[int, int]] | None = None,
 ) -> None:
-    offset = ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
+    offset = (label_offsets or {}).get(
         point.alpha,
-        (5, -14),
+        ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
+            point.alpha,
+            (5, -14),
+        ),
     )
     if attr == "mean_ttft_ms":
         ha = "right" if offset[0] < 0 else "left"
@@ -436,6 +449,8 @@ def plot_metric_frontier(
     xlabel: str = "Normalized cost",
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
+    routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
+    baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -488,9 +503,20 @@ def plot_metric_frontier(
             linewidth=0.5,
             zorder=3,
         )
-        _annotate_baseline(ax, point, attr)
+        _annotate_baseline(
+            ax,
+            point,
+            attr,
+            label_offsets=baseline_label_offsets,
+        )
     for point in [*routewise_no_hedge, *routewise_hedged]:
-        _annotate_routewise(ax, point, attr, routewise_count=routewise_count)
+        _annotate_routewise(
+            ax,
+            point,
+            attr,
+            routewise_count=routewise_count,
+            label_offsets=routewise_label_offsets,
+        )
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
