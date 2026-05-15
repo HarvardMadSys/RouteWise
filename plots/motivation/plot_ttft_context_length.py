@@ -107,18 +107,11 @@ def plot_boxplot(values: list[np.ndarray], labels: list[str], output_dir: Path, 
         whis=(5, 95),
         widths=0.52,
         patch_artist=True,
-        showfliers=True,
+        showfliers=False,
         medianprops={"color": "#0f172a", "linewidth": 1.5},
         boxprops={"edgecolor": "#0f766e", "linewidth": 1.0},
         whiskerprops={"color": "#0f766e", "linewidth": 1.0},
         capprops={"color": "#0f766e", "linewidth": 1.0},
-        flierprops={
-            "marker": "o",
-            "markerfacecolor": "#14b8a6",
-            "markeredgecolor": "none",
-            "markersize": 2.4,
-            "alpha": 0.35,
-        },
     )
     for box in bp["boxes"]:
         box.set_facecolor("#ccfbf1")
@@ -140,7 +133,7 @@ def plot_boxplot(values: list[np.ndarray], labels: list[str], output_dir: Path, 
     ax.set_xticklabels(labels)
     ax.set_xlabel("Prompt length (tokens)")
     ax.set_ylabel("TTFT (s)")
-    ax.set_ylim(0, max(25.0, max(float(np.max(v)) for v in values) * 1.08))
+    ax.set_ylim(0, max(25.0, max(p95) * 1.12))
     ax.grid(axis="y", linestyle="--")
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper right", frameon=False)
