@@ -26,7 +26,6 @@ import matplotlib.pyplot as plt
 
 from plots.style import apply_style
 
-
 POLICIES = (
     "greedy_cost",
     "or_sort_cost",
@@ -47,17 +46,17 @@ POLICIES = (
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
-    "or_sort_cost": "API price-sort",
-    "or_sort_latency": "API latency-sort",
+    "or_sort_cost": "OR-price",
+    "or_sort_latency": "OR-latency",
     "greedy_latency": "Greedy-latency",
     "random": "Random",
     "ablation_lp_only_p0": r"\sysname{} ($\alpha=0$)",
-    "ablation_lp_only_p25": r"\sysname{} ($\alpha=0.25$)",
+    "ablation_lp_only_p25": "RouteWise-0.25",
     "ablation_lp_only_p50": r"\sysname{} ($\alpha=0.5$)",
     "ablation_lp_only_p75": r"\sysname{} ($\alpha=0.75$)",
     "ablation_lp_only_p100": r"\sysname{} ($\alpha=1$)",
     "ablation_lp_hedging_p0": r"\sysname{} ($\alpha=0$ + hedge)",
-    "ablation_lp_hedging_p25": r"\sysname{} ($\alpha=0.25$ + hedge)",
+    "ablation_lp_hedging_p25": "RouteWise-0.25 + hedge",
     "ablation_lp_hedging_p50": r"\sysname{} ($\alpha=0.5$ + hedge)",
     "ablation_lp_hedging_p75": r"\sysname{} ($\alpha=0.75$ + hedge)",
     "ablation_lp_hedging_p100": r"\sysname{} ($\alpha=1$ + hedge)",

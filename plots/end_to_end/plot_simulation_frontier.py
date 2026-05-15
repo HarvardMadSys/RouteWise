@@ -27,11 +27,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from plots.end_to_end.frontier_plotting import (
+    TIER_MIX_SEGMENTS,
     CdfSeries,
     FrontierPoint,
     MixRow,
     MixSegment,
-    TIER_MIX_SEGMENTS,
     plot_hedging_p99 as plot_common_hedging_p99,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
@@ -40,13 +40,12 @@ from plots.end_to_end.frontier_plotting import (
     policy_plot_label,
 )
 
-
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
-    "or_sort_cost": "OR price",
+    "or_sort_cost": "OR-price",
     "random": "Random",
     "greedy_latency": "Greedy-latency",
-    "or_sort_latency": "OR latency",
+    "or_sort_latency": "OR-latency",
 }
 BASELINE_ORDER = (
     "greedy_cost",
@@ -121,6 +120,8 @@ def row_label(policy: str, alpha: float | None, hedging: bool) -> str:
     if alpha is None:
         return policy.replace("_", r"\_")
     suffix = " + hedge" if hedging else ""
+    if alpha == 0.25:
+        return f"RouteWise-{alpha:g}{suffix}"
     return rf"\sysname{{}} ($\alpha={alpha:g}${suffix})"
 
 
@@ -223,11 +224,7 @@ def load_rows(
 
 
 def routewise_rows(rows: list[Row], *, hedging: bool) -> list[Row]:
-    selected = [
-        row
-        for row in rows
-        if row.alpha is not None and row.hedging is hedging
-    ]
+    selected = [row for row in rows if row.alpha is not None and row.hedging is hedging]
     return sorted(selected, key=lambda row: row.alpha or 0.0)
 
 
@@ -271,7 +268,12 @@ def plot_slo(rows: list[Row], output_path: Path) -> None:
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
     selected = routewise_rows(rows, hedging=False)
     mix_rows = [
-        MixRow(label=rf"RW $\alpha={row.alpha:g}$", shares=row.tier_mix)
+        MixRow(
+            label="RouteWise-0.25"
+            if row.alpha == 0.25
+            else rf"RW $\alpha={row.alpha:g}$",
+            shares=row.tier_mix,
+        )
         for row in selected
     ]
     segments = [MixSegment(key, label, color) for key, label, color in TIER_MIX_SEGMENTS]
@@ -318,6 +320,7 @@ def plot_ttft_cdf(
                 y_values=y,
                 p99_ms=row.p99_ms,
                 alpha=row.alpha,
+                total_cost_usd=row.total_cost_usd,
                 include_in_axis=policy != "random",
             )
         )

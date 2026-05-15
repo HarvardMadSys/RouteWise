@@ -8,18 +8,27 @@ native output into the normalized data classes below, then calls these helpers.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Mapping, Sequence
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 
 from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS, TIER_COLORS
 from plots.style import apply_style
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
 
 COLUMN_FIGSIZE = (3.35, 2.25)
+SLO_BAR_FIGSIZE = (3.35, 2.45)
 MIX_FIGSIZE = (3.35, 2.55)
+BASE_FONT_SIZE = 8.4
+LABEL_FONT_SIZE = 8.8
+TICK_FONT_SIZE = 7.8
+ANNOTATION_FONT_SIZE = 6.6
+LEGEND_FONT_SIZE = 6.4
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -35,9 +44,9 @@ POLICY_PLOT_LABELS = {
     "greedy_cost": "Greedy-cost",
     "greedy_latency": "Greedy-latency",
     "random": "Random",
-    "or_auto": "OR auto",
-    "or_sort_cost": "OR price",
-    "or_sort_latency": "OR latency",
+    "or_auto": "OR-auto",
+    "or_sort_cost": "OR-price",
+    "or_sort_latency": "OR-latency",
 }
 POLICY_COLORS = {
     "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
@@ -59,7 +68,7 @@ BASELINE_LABEL_OFFSETS_BY_METRIC = {
     },
     "mean_ttft_ms": {
         "greedy_cost": (6, 5),
-        "greedy_latency": (6, -11),
+        "greedy_latency": (-6, -11),
         "or_auto": (6, -12),
         "or_sort_cost": (6, -10),
         "or_sort_latency": (6, 5),
@@ -147,6 +156,7 @@ class CdfSeries:
     y_values: Sequence[float]
     p99_ms: float
     alpha: float | None = None
+    total_cost_usd: float | None = None
     include_in_axis: bool = True
     drawstyle: str = "default"
 
@@ -164,16 +174,16 @@ class MixRow:
     shares: Mapping[str, float]
 
 
-def apply_column_figure_style(*, legend_fontsize: float = 5.8) -> None:
+def apply_column_figure_style(*, legend_fontsize: float = LEGEND_FONT_SIZE) -> None:
     """Style for single-panel PDFs that LaTeX arranges into figure groups."""
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 7.5,
-            "axes.labelsize": 8,
-            "axes.titlesize": 8,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
+            "font.size": BASE_FONT_SIZE,
+            "axes.labelsize": LABEL_FONT_SIZE,
+            "axes.titlesize": LABEL_FONT_SIZE,
+            "xtick.labelsize": TICK_FONT_SIZE,
+            "ytick.labelsize": TICK_FONT_SIZE,
             "legend.fontsize": legend_fontsize,
             "figure.figsize": COLUMN_FIGSIZE,
             "savefig.pad_inches": 0.01,
@@ -188,8 +198,7 @@ def policy_plot_label(
     hedging: bool = False,
 ) -> str:
     if alpha is not None:
-        hedge = "+H" if hedging else ""
-        return rf"RW $\alpha={alpha:g}${hedge}"
+        return f"RouteWise-{alpha:g}"
     return POLICY_PLOT_LABELS.get(policy, policy.replace("_", " "))
 
 
@@ -245,6 +254,15 @@ def baseline_points(
     return [by_policy[policy] for policy in order if policy in by_policy]
 
 
+def _normalized_points(points: Sequence[FrontierPoint]) -> list[FrontierPoint]:
+    if not points:
+        return []
+    baseline = min(point.total_cost_usd for point in points)
+    if baseline <= 0:
+        return list(points)
+    return [replace(point, total_cost_usd=point.total_cost_usd / baseline) for point in points]
+
+
 def _annotate_baseline(ax: plt.Axes, point: FrontierPoint, attr: str) -> None:
     offset = BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
         point.policy,
@@ -255,7 +273,7 @@ def _annotate_baseline(ax: plt.Axes, point: FrontierPoint, attr: str) -> None:
         (point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
-        fontsize=5.8,
+        fontsize=ANNOTATION_FONT_SIZE,
         color=policy_color(point.policy),
         ha="right" if offset[0] < 0 else "left",
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
@@ -284,11 +302,11 @@ def _annotate_routewise(
         offset = (abs(offset[0]), -abs(offset[1]))
         ha = "left"
     ax.annotate(
-        "RouteWise\n" + rf"$\alpha={point.alpha:g}$",
+        f"RouteWise-{point.alpha:g}",
         xy=(point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
-        fontsize=5.8,
+        fontsize=ANNOTATION_FONT_SIZE,
         color=ROUTEWISE_COLOR,
         ha=ha,
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
@@ -330,13 +348,56 @@ def _plot_routewise_group(
         )
 
 
+def _ordered_slo_bar_points(
+    points: Sequence[FrontierPoint],
+    *,
+    routewise_alphas: Sequence[float] | None = None,
+    baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
+) -> list[FrontierPoint]:
+    selected = [
+        *routewise_points(points, hedging=False, alphas=routewise_alphas),
+        *routewise_points(points, hedging=True, alphas=routewise_alphas),
+        *baseline_points(points, order=baseline_order),
+    ]
+    return sorted(
+        selected,
+        key=lambda point: (metric_value(point, "slo_violation_rate"), point.total_cost_usd),
+    )
+
+
+def _short_slo_bar_label(point: FrontierPoint) -> str:
+    if point.alpha is None:
+        return POLICY_PLOT_LABELS.get(point.policy, point.label)
+    return f"RouteWise-{point.alpha:g}"
+
+
+def _normalized_cost_label(value: float, baseline: float) -> str:
+    if baseline <= 0:
+        return _cost_label(value)
+    return f"{value / baseline:.2f}x"
+
+
+def _cost_label(value: float) -> str:
+    if value >= 100.0:
+        return rf"\${value:.0f}"
+    if value >= 10.0:
+        return rf"\${value:.1f}"
+    return rf"\${value:.2f}"
+
+
+def _slo_bar_color(point: FrontierPoint) -> str:
+    if point.alpha is not None:
+        return ROUTEWISE_HEDGE_COLOR if point.hedging else ROUTEWISE_COLOR
+    return policy_color(point.policy)
+
+
 def plot_metric_frontier(
     points: Sequence[FrontierPoint],
     output_path: Path,
     *,
     attr: str,
     ylabel: str,
-    xlabel: str = "Total cost ($)",
+    xlabel: str = "Normalized cost",
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
 ) -> None:
@@ -351,8 +412,15 @@ def plot_metric_frontier(
         hedging=True,
         alphas=routewise_alphas,
     )
-    routewise_count = len(routewise_no_hedge) + len(routewise_hedged)
     baselines = baseline_points(points, order=baseline_order)
+    plotted_points = [*routewise_no_hedge, *routewise_hedged, *baselines]
+    normalized = _normalized_points(plotted_points)
+    split_no_hedge = len(routewise_no_hedge)
+    split_hedged = split_no_hedge + len(routewise_hedged)
+    routewise_no_hedge = normalized[:split_no_hedge]
+    routewise_hedged = normalized[split_no_hedge:split_hedged]
+    baselines = normalized[split_hedged:]
+    routewise_count = len(routewise_no_hedge) + len(routewise_hedged)
 
     fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=True)
     _plot_routewise_group(
@@ -397,6 +465,68 @@ def plot_metric_frontier(
     plt.close(fig)
 
 
+def plot_slo_bar(
+    points: Sequence[FrontierPoint],
+    output_path: Path,
+    *,
+    routewise_alphas: Sequence[float] | None = None,
+    baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+) -> None:
+    apply_column_figure_style()
+    rows = _ordered_slo_bar_points(
+        points,
+        routewise_alphas=routewise_alphas,
+        baseline_order=baseline_order,
+    )
+    if not rows:
+        raise ValueError("no points to plot")
+
+    labels = [_short_slo_bar_label(point) for point in rows]
+    slo_values = [metric_value(point, "slo_violation_rate") for point in rows]
+    costs = [point.total_cost_usd for point in rows]
+    cost_baseline = min(costs)
+    y = list(range(len(rows)))
+    max_slo = max(slo_values)
+    text_pad = max(max_slo * 0.025, 0.12)
+
+    fig, ax = plt.subplots(figsize=SLO_BAR_FIGSIZE, constrained_layout=False)
+    ax.barh(
+        y,
+        slo_values,
+        height=0.66,
+        color=[_slo_bar_color(point) for point in rows],
+        edgecolor="white",
+        linewidth=0.45,
+    )
+    for row_idx, (slo_value, cost) in enumerate(zip(slo_values, costs, strict=True)):
+        ax.text(
+            slo_value + text_pad,
+            row_idx,
+            f"{slo_value:.1f}%  {_normalized_cost_label(cost, cost_baseline)}",
+            va="center",
+            ha="left",
+            fontsize=ANNOTATION_FONT_SIZE,
+            color="#333333",
+        )
+
+    ax.set_xlabel("SLO violations (%)")
+    ax.set_yticks(y, labels)
+    ax.invert_yaxis()
+    ax.grid(axis="x", linewidth=0.35, alpha=0.35)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    label_room = max(max_slo * 0.38, 2.0)
+    ax.set_xlim(0.0, max_slo + label_room)
+    fig.subplots_adjust(left=0.33, right=0.99, bottom=0.16, top=0.98)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_mean_ttft_frontier(
     points: Sequence[FrontierPoint],
     output_path: Path,
@@ -416,13 +546,7 @@ def plot_slo_frontier(
     output_path: Path,
     **kwargs,
 ) -> None:
-    plot_metric_frontier(
-        points,
-        output_path,
-        attr="slo_violation_rate",
-        ylabel="SLO violations (%)",
-        **kwargs,
-    )
+    plot_slo_bar(points, output_path, **kwargs)
 
 
 def plot_stacked_mix(
@@ -454,7 +578,7 @@ def plot_stacked_mix(
         )
         handles.append(bar[0])
         labels.append(segment.label)
-        left = [old + value for old, value in zip(left, values)]
+        left = [old + value for old, value in zip(left, values, strict=True)]
     ax.set_xlim(0, 100)
     ax.set_xlabel("Requests (%)")
     ax.set_yticks(y, [row.label for row in rows])
@@ -483,6 +607,12 @@ def plot_stacked_mix(
     plt.close(fig)
 
 
+def _cdf_legend_label(item: CdfSeries, cost_baseline: float | None) -> str:
+    if item.total_cost_usd is None or cost_baseline is None:
+        return item.label
+    return f"{item.label} ({_normalized_cost_label(item.total_cost_usd, cost_baseline)})"
+
+
 def plot_ttft_cdf(
     series: Sequence[CdfSeries],
     output_path: Path,
@@ -492,12 +622,17 @@ def plot_ttft_cdf(
 ) -> None:
     if not series:
         raise ValueError("no CDF series to plot")
-    apply_column_figure_style(legend_fontsize=5.4)
+    apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
     axis_p99 = [item.p99_ms for item in series if item.include_in_axis]
     if x_max_sec is None:
         axis_values = axis_p99 or [item.p99_ms for item in series]
         x_max_sec = max(slo_sec * 4.0, max(axis_values) / 1000.0 * 1.05)
-
+    costs = [
+        item.total_cost_usd
+        for item in series
+        if item.total_cost_usd is not None and item.total_cost_usd > 0
+    ]
+    cost_baseline = min(costs) if costs else None
     fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
     for item in series:
         ax.plot(
@@ -506,18 +641,18 @@ def plot_ttft_cdf(
             color=cdf_color(item.policy, alpha=item.alpha),
             linestyle=cdf_linestyle(item.policy, alpha=item.alpha),
             linewidth=1.25,
-            label=item.label,
+            label=_cdf_legend_label(item, cost_baseline),
             drawstyle=item.drawstyle,
         )
     ax.axvline(slo_sec, color="#444444", linewidth=0.8, linestyle=":")
     ax.text(
         slo_sec + 0.12,
-        0.08,
+        0.92,
         f"{slo_sec:g}s SLO",
         color="#444444",
-        fontsize=5.8,
+        fontsize=ANNOTATION_FONT_SIZE,
         ha="left",
-        va="bottom",
+        va="top",
     )
     ax.set_xlim(0.0, x_max_sec)
     ax.set_ylim(0.0, 1.01)
@@ -527,12 +662,12 @@ def plot_ttft_cdf(
     ax.legend(
         frameon=False,
         loc="lower right",
-        ncols=2,
+        ncols=1,
         handlelength=1.6,
         columnspacing=0.7,
         labelspacing=0.25,
     )
-    fig.subplots_adjust(left=0.14, right=0.99, bottom=0.16, top=0.98)
+    fig.subplots_adjust(left=0.15, right=0.99, bottom=0.17, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
@@ -555,9 +690,7 @@ def plot_hedging_p99(
         for point in routewise_points(points, hedging=True)
         if point.p99_ms is not None
     }
-    selected_alphas = [
-        alpha for alpha in alphas if alpha in no_hedge and alpha in hedged
-    ]
+    selected_alphas = [alpha for alpha in alphas if alpha in no_hedge and alpha in hedged]
     if not selected_alphas:
         raise ValueError("no matching hedged/non-hedged RouteWise P99 points")
     labels = [f"{alpha:g}" for alpha in selected_alphas]

@@ -32,13 +32,13 @@ from statistics import mean
 import matplotlib.pyplot as plt
 
 from plots.end_to_end.frontier_plotting import (
-    CdfSeries,
     DEFAULT_BASELINE_ORDER,
+    PROVIDER_COLOR_CYCLE,
+    PROVIDER_MIX_COLORS,
+    CdfSeries,
     FrontierPoint,
     MixRow,
     MixSegment,
-    PROVIDER_COLOR_CYCLE,
-    PROVIDER_MIX_COLORS,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
     plot_stacked_mix,
@@ -46,7 +46,6 @@ from plots.end_to_end.frontier_plotting import (
     policy_plot_label as common_policy_plot_label,
 )
 from plots.style import apply_style
-
 
 ROUTEWISE_PREFIX = "budget_range_p"
 ROUTEWISE_HEDGE_SUFFIX = "_hedge"
@@ -65,9 +64,9 @@ POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
     "greedy_latency": "Greedy-latency",
     "random": "Random",
-    "or_auto": "OpenRouter auto",
-    "or_sort_cost": "OpenRouter sort=price",
-    "or_sort_latency": "OpenRouter sort=latency",
+    "or_auto": "OR-auto",
+    "or_sort_cost": "OR-price",
+    "or_sort_latency": "OR-latency",
 }
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
@@ -173,6 +172,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional output path for a provider mean-TTFT bar PDF.",
     )
     parser.add_argument(
+        "--provider-latency-boxplot-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a provider TTFT distribution boxplot PDF.",
+    )
+    parser.add_argument(
         "--cdf-out",
         type=Path,
         default=None,
@@ -253,7 +258,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default="Total cost ($)",
+        default="Normalized cost",
         help="X-axis label for generated frontier figures.",
     )
     parser.add_argument(
@@ -302,6 +307,8 @@ def parse_alpha(policy: str) -> float | None:
 def table_label(policy: str, alpha: float | None) -> str:
     if alpha is not None:
         hedge_suffix = " + hedge" if policy.endswith(ROUTEWISE_HEDGE_SUFFIX) else ""
+        if alpha == 0.25:
+            return f"RouteWise-{alpha:g}{hedge_suffix}"
         return rf"\sysname{{}} ($\alpha={alpha:g}${hedge_suffix})"
     return POLICY_LABELS.get(policy, policy.replace("_", r"\_"))
 
@@ -311,11 +318,7 @@ def fixed_cost_for_policy(policy: str, args: argparse.Namespace) -> float:
         return 0.0
     if args.fixed_cost_non_or is not None:
         return args.fixed_cost_non_or
-    featherless = (
-        args.featherless_monthly_cost_usd
-        * (args.billing_duration_sec / 86400.0)
-        / 30.0
-    )
+    featherless = args.featherless_monthly_cost_usd * (args.billing_duration_sec / 86400.0) / 30.0
     return args.minimax_fixed_cost_usd + featherless
 
 
@@ -335,11 +338,7 @@ def read_summary(policy_dir: Path, args: argparse.Namespace) -> PolicySummary:
         and float(row["ttft_ms"]) >= 0.0
     ]
     ttft = [float(row["ttft_ms"]) for row in successes]
-    e2e = [
-        float(row["e2e_ms"])
-        for row in successes
-        if row.get("e2e_ms") not in {"", None}
-    ]
+    e2e = [float(row["e2e_ms"]) for row in successes if row.get("e2e_ms") not in {"", None}]
 
     billed_cost = sum(float(row.get("billed_cost_usd") or 0.0) for row in rows)
     physical_cost = sum(float(row.get("physical_cost_usd") or 0.0) for row in rows)
@@ -349,10 +348,7 @@ def read_summary(policy_dir: Path, args: argparse.Namespace) -> PolicySummary:
         1
         for row in rows
         if row.get("status") != "success"
-        or (
-            row.get("ttft_ms") not in {"", None}
-            and float(row["ttft_ms"]) > args.slo_ms
-        )
+        or (row.get("ttft_ms") not in {"", None} and float(row["ttft_ms"]) > args.slo_ms)
     )
     hedge_count = sum(1 for row in rows if truthy(row.get("hedge_triggered")))
     backup_wins = sum(1 for row in rows if row.get("hedge_winner") == "backup")
@@ -523,14 +519,27 @@ def provider_mix_by_policy(
     return per_policy, total_counts
 
 
+def provider_mix_sort_key(
+    provider: str,
+    total_counts: Counter[str],
+    providers: dict[str, ProviderInfo],
+) -> tuple[int, int, str]:
+    tier_order = {"quota": 0, "concurrency": 1, "api": 2}
+    tier = providers.get(provider).tier if provider in providers else "api"
+    return (tier_order.get(tier, 9), -total_counts[provider], provider)
+
+
 def plot_provider_mix(
     args: argparse.Namespace,
-    _providers: dict[str, ProviderInfo],
+    providers: dict[str, ProviderInfo],
     hint_to_name: dict[str, str],
     output_path: Path,
 ) -> None:
     per_policy, total_counts = provider_mix_by_policy(args, hint_to_name)
-    providers_to_plot = [provider for provider, _ in total_counts.most_common()]
+    providers_to_plot = sorted(
+        total_counts,
+        key=lambda provider: provider_mix_sort_key(provider, total_counts, providers),
+    )
     segments = [
         MixSegment(
             key=provider,
@@ -555,7 +564,7 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=5.2,
+        legend_fontsize=6.4,
     )
 
 
@@ -591,9 +600,7 @@ def provider_diagnostics(
                 share=(counts.get(provider, 0) / total) if total else 0.0,
                 mean_ttft_ms=mean(ttft) if ttft else float("nan"),
                 input_price_per_m=info.input_price_per_m if info else None,
-                cached_input_price_per_m=(
-                    info.cached_input_price_per_m if info else None
-                ),
+                cached_input_price_per_m=(info.cached_input_price_per_m if info else None),
                 output_price_per_m=info.output_price_per_m if info else None,
                 fixed_cost_usd_override=info.fixed_cost_usd_override if info else None,
             )
@@ -666,11 +673,7 @@ def plot_provider_latency(
             "savefig.pad_inches": 0.01,
         }
     )
-    items = [
-        item
-        for item in diagnostics
-        if item.n > 0 and not math.isnan(item.mean_ttft_ms)
-    ]
+    items = [item for item in diagnostics if item.n > 0 and not math.isnan(item.mean_ttft_ms)]
     items = sorted(items, key=lambda item: item.mean_ttft_ms)
     labels = [provider_mix_legend_label(item.provider) for item in items]
     values = [item.mean_ttft_ms / 1000.0 for item in items]
@@ -696,6 +699,121 @@ def plot_provider_latency(
     fig.subplots_adjust(left=0.29, right=0.99, bottom=0.16, top=0.97)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
+    plt.close(fig)
+
+
+def provider_latency_samples(
+    args: argparse.Namespace,
+    providers: dict[str, ProviderInfo],
+    hint_to_name: dict[str, str],
+) -> list[tuple[str, str, list[float]]]:
+    samples_by_provider: dict[str, list[float]] = defaultdict(list)
+    counts: Counter[str] = Counter()
+    for policy_dir in selected_policy_dirs(args):
+        for row in read_policy_rows(policy_dir):
+            if row.get("status") != "success":
+                continue
+            raw_ttft = row.get("ttft_ms")
+            if raw_ttft in {"", None}:
+                continue
+            try:
+                ttft_ms = float(raw_ttft)
+            except ValueError:
+                continue
+            if not math.isfinite(ttft_ms) or ttft_ms < 0:
+                continue
+            provider = normalize_provider(
+                row.get("actual_provider") or row.get("primary_provider") or "",
+                hint_to_name=hint_to_name,
+            )
+            samples_by_provider[provider].append(ttft_ms / 1000.0)
+            counts[provider] += 1
+
+    ordered = sorted(
+        samples_by_provider,
+        key=lambda provider: provider_sort_key(provider, counts, providers),
+    )
+    return [
+        (
+            provider,
+            f"{provider_mix_legend_label(provider)}\n(n={len(samples_by_provider[provider])})",
+            samples_by_provider[provider],
+        )
+        for provider in ordered
+    ]
+
+
+def plot_provider_latency_boxplot(
+    args: argparse.Namespace,
+    providers: dict[str, ProviderInfo],
+    hint_to_name: dict[str, str],
+    output_path: Path,
+) -> None:
+    items = provider_latency_samples(args, providers, hint_to_name)
+    if not items:
+        raise ValueError("no provider TTFT samples to plot")
+
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 8.4,
+            "axes.labelsize": 8.8,
+            "xtick.labelsize": 7.8,
+            "ytick.labelsize": 7.0,
+            "figure.figsize": (3.35, 2.75),
+            "savefig.pad_inches": 0.01,
+        }
+    )
+    labels = [label for _, label, _ in items]
+    samples = [values for _, _, values in items]
+
+    fig, ax = plt.subplots(figsize=(3.35, 2.75), constrained_layout=False)
+    box = ax.boxplot(
+        samples,
+        vert=False,
+        patch_artist=True,
+        showfliers=False,
+        whis=(5, 95),
+        widths=0.64,
+        medianprops={"color": "#222222", "linewidth": 1.0},
+        whiskerprops={"color": "#555555", "linewidth": 0.8},
+        capprops={"color": "#555555", "linewidth": 0.8},
+        boxprops={"edgecolor": "#555555", "linewidth": 0.8},
+    )
+    for idx, (patch, (provider, _, _)) in enumerate(
+        zip(box["boxes"], items, strict=True)
+    ):
+        patch.set_facecolor(
+            PROVIDER_MIX_COLORS.get(
+                provider,
+                PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
+            )
+        )
+        patch.set_alpha(0.88)
+
+    ax.axvline(args.slo_ms / 1000.0, color="#444444", linestyle=":", linewidth=0.8)
+    ax.text(
+        args.slo_ms / 1000.0 + 0.12,
+        0.65,
+        f"{args.slo_ms / 1000.0:g}s SLO",
+        color="#444444",
+        fontsize=6.6,
+        ha="left",
+        va="bottom",
+    )
+    ax.set_yticks(range(1, len(labels) + 1), labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("TTFT (s)")
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    p95_values = [percentile(values, 95.0) for values in samples if values]
+    ax.set_xlim(0, max(args.slo_ms / 1000.0 * 1.6, max(p95_values) * 1.08))
+    fig.subplots_adjust(left=0.31, right=0.99, bottom=0.14, top=0.98)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -725,13 +843,15 @@ def selected_cdf_dirs(args: argparse.Namespace) -> list[Path]:
     dirs = [args.input_dir / policy for policy in policies]
     missing = [path.name for path in dirs if not (path / "requests.csv").exists()]
     if missing:
-        raise FileNotFoundError(
-            f"{args.input_dir}: missing CDF policy outputs: {missing}"
-        )
+        raise FileNotFoundError(f"{args.input_dir}: missing CDF policy outputs: {missing}")
     return dirs
 
 
-def plot_ttft_cdf(args: argparse.Namespace, output_path: Path) -> None:
+def plot_ttft_cdf(
+    args: argparse.Namespace,
+    output_path: Path,
+    cost_by_policy: dict[str, float] | None = None,
+) -> None:
     series: list[CdfSeries] = []
     p99_values: list[float] = []
     p99_values_for_axis: list[float] = []
@@ -755,6 +875,7 @@ def plot_ttft_cdf(args: argparse.Namespace, output_path: Path) -> None:
                 y_values=y,
                 p99_ms=p99,
                 alpha=alpha,
+                total_cost_usd=(cost_by_policy or {}).get(policy),
                 include_in_axis=policy != "random",
                 drawstyle="steps-post",
             )
@@ -800,9 +921,7 @@ def sort_key(summary: PolicySummary) -> tuple[int, float]:
     if summary.alpha is not None:
         return (1, summary.alpha)
     baseline_rank = (
-        float(BASELINE_ORDER.index(summary.policy))
-        if summary.policy in BASELINE_ORDER
-        else 99.0
+        float(BASELINE_ORDER.index(summary.policy)) if summary.policy in BASELINE_ORDER else 99.0
     )
     return (2, baseline_rank)
 
@@ -815,8 +934,7 @@ def write_table_rows(
     lines = []
     for s in summaries:
         hedge_stats = (
-            f"{100.0 * s.hedge_rate:.2f} / "
-            f"{100.0 * s.hedge_backup_win_rate:.2f}\\%"
+            f"{100.0 * s.hedge_rate:.2f} / {100.0 * s.hedge_backup_win_rate:.2f}\\%"
             if s.policy.endswith(ROUTEWISE_HEDGE_SUFFIX)
             else "--"
         )
@@ -925,7 +1043,11 @@ def main() -> int:
     write_summary(summaries, args.summary_out)
     diagnostics: list[ProviderDiagnostics] | None = None
     if args.cdf_out is not None:
-        plot_ttft_cdf(args, args.cdf_out)
+        plot_ttft_cdf(
+            args,
+            args.cdf_out,
+            {summary.policy: summary.total_cost_usd for summary in summaries},
+        )
         print(f"wrote {args.cdf_out}")
     if args.provider_mix_out is not None:
         plot_provider_mix(args, providers, hint_to_name, args.provider_mix_out)
@@ -934,11 +1056,20 @@ def main() -> int:
         args.provider_diagnostics_table_out is not None
         or args.provider_summary_out is not None
         or args.provider_latency_out is not None
+        or args.provider_latency_boxplot_out is not None
     ):
         diagnostics = provider_diagnostics(args, providers, hint_to_name)
     if args.provider_latency_out is not None and diagnostics is not None:
         plot_provider_latency(diagnostics, args.provider_latency_out)
         print(f"wrote {args.provider_latency_out}")
+    if args.provider_latency_boxplot_out is not None:
+        plot_provider_latency_boxplot(
+            args,
+            providers,
+            hint_to_name,
+            args.provider_latency_boxplot_out,
+        )
+        print(f"wrote {args.provider_latency_boxplot_out}")
     if args.provider_diagnostics_table_out is not None and diagnostics is not None:
         write_provider_diagnostics_table(
             diagnostics,
