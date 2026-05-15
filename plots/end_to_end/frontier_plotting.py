@@ -56,6 +56,14 @@ POLICY_COLORS = {
     "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#17becf"),
     "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#e377c2"),
 }
+POLICY_MARKERS = {
+    "greedy_cost": "s",
+    "greedy_latency": "s",
+    "or_auto": "D",
+    "or_sort_cost": "D",
+    "or_sort_latency": "D",
+    "random": "x",
+}
 BASELINE_LABEL_OFFSET = (4, 3)
 BASELINE_LABEL_OFFSETS_BY_METRIC = {
     "slo_violation_rate": {
@@ -67,11 +75,11 @@ BASELINE_LABEL_OFFSETS_BY_METRIC = {
         "random": (6, 4),
     },
     "mean_ttft_ms": {
-        "greedy_cost": (6, 5),
-        "greedy_latency": (-6, -11),
+        "greedy_cost": (6, -9),
+        "greedy_latency": (0, -12),
         "or_auto": (6, -12),
         "or_sort_cost": (6, -10),
-        "or_sort_latency": (6, 5),
+        "or_sort_latency": (8, -15),
         "random": (6, 4),
     },
 }
@@ -209,6 +217,10 @@ def policy_color(policy: str, *, alpha: float | None = None) -> str:
     return POLICY_COLORS.get(policy, "#555555")
 
 
+def policy_marker(policy: str) -> str:
+    return POLICY_MARKERS.get(policy, "s")
+
+
 def cdf_color(policy: str, *, alpha: float | None = None) -> str:
     return policy_color(policy, alpha=alpha)
 
@@ -276,7 +288,7 @@ def _annotate_baseline(ax: plt.Axes, point: FrontierPoint, attr: str) -> None:
         textcoords="offset points",
         fontsize=ANNOTATION_FONT_SIZE,
         color=policy_color(point.policy),
-        ha="right" if offset[0] < 0 else "left",
+        ha="center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left"),
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
         clip_on=False,
     )
@@ -446,7 +458,7 @@ def plot_metric_frontier(
         ax.scatter(
             point.total_cost_usd,
             metric_value(point, attr),
-            marker="s",
+            marker=policy_marker(point.policy),
             s=24,
             color=policy_color(point.policy),
             edgecolor="white",
