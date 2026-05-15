@@ -758,17 +758,14 @@ def plot_ttft_boxplot(
 
     sorted_samples_sec: list[list[float]] = []
     p95_sec: list[float] = []
-    p99_sec: list[float] = []
     for item in series:
         sorted_ms = sorted(item.samples_ms)
         sorted_samples_sec.append([value / 1000.0 for value in sorted_ms])
         p95_sec.append(_series_percentile(sorted_ms, 95.0) / 1000.0)
-        p99_sec.append(_series_percentile(sorted_ms, 99.0) / 1000.0)
 
     if x_max_sec is None:
         valid_p95 = [value for value in p95_sec if not math.isnan(value)]
-        valid_p99 = [value for value in p99_sec if not math.isnan(value)]
-        tail = max([*valid_p95, *valid_p99]) if valid_p95 or valid_p99 else slo_sec * 1.6
+        tail = max(valid_p95) if valid_p95 else slo_sec * 1.6
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
     fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
@@ -787,19 +784,6 @@ def plot_ttft_boxplot(
     for patch, item in zip(box["boxes"], series, strict=True):
         patch.set_facecolor(policy_color(item.policy, alpha=item.alpha))
         patch.set_alpha(0.78)
-    for idx, (item, value) in enumerate(zip(series, p99_sec, strict=True), start=1):
-        if math.isnan(value):
-            continue
-        ax.scatter(
-            value,
-            idx,
-            marker="D",
-            s=13,
-            color=policy_color(item.policy, alpha=item.alpha),
-            edgecolor="#222222",
-            linewidth=0.35,
-            zorder=3,
-        )
 
     ax.axvline(slo_sec, color="#444444", linestyle=":", linewidth=0.8)
     ax.text(

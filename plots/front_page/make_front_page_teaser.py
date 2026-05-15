@@ -269,32 +269,6 @@ def _plot_panel(
             linewidth=1.0,
             zorder=7,
         )
-        if policy == "greedy_cost":
-            ax.annotate(
-                "G-cost",
-                xy=(x, y),
-                xytext=(7, -22),
-                textcoords="offset points",
-                ha="left",
-                va="top",
-                fontsize=8.2,
-                color=color,
-                path_effects=stroke,
-                zorder=8,
-            )
-        elif policy == "greedy_latency":
-            ax.annotate(
-                "G-latency",
-                xy=(x, y),
-                xytext=(-4, 12),
-                textcoords="offset points",
-                ha="right",
-                va="bottom",
-                fontsize=8.2,
-                color=color,
-                path_effects=stroke,
-                zorder=8,
-            )
 
     _draw_better_cue(ax)
 
@@ -542,12 +516,12 @@ def _render_separate(
     stems: list[str] = []
     for metric in _metrics():
         stem = f"{out_stem}_{metric.stem_suffix}"
-        fig, ax = plt.subplots(figsize=(2.35, 1.92))
-        show_legend = False
-        top = 0.955
-        fig.subplots_adjust(left=0.215, right=0.985, bottom=0.275, top=top)
+        fig, ax = plt.subplots(figsize=(2.35, 2.08))
+        show_legend = include_legend and metric.stem_suffix != "slo"
+        top = 0.755 if show_legend else 0.955
+        fig.subplots_adjust(left=0.215, right=0.985, bottom=0.255, top=top)
         if metric.stem_suffix == "slo":
-            fig.subplots_adjust(left=0.215, right=0.985, bottom=0.275, top=top)
+            fig.subplots_adjust(left=0.215, right=0.985, bottom=0.255, top=top)
             _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
         else:
             _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
@@ -555,13 +529,13 @@ def _render_separate(
             fig.legend(
                 handles=_legend_handles(),
                 loc="upper center",
-                bbox_to_anchor=(0.56, 0.995),
+                bbox_to_anchor=(0.56, 0.985),
                 ncol=3,
                 frameon=False,
-                handlelength=1.2,
-                columnspacing=0.45,
+                handlelength=1.0,
+                columnspacing=0.38,
                 borderaxespad=0.0,
-                fontsize=12.4,
+                fontsize=9.8,
             )
         _save(fig, out_dir, stem)
         plt.close(fig)
