@@ -58,13 +58,13 @@ def _style() -> None:
             "axes.edgecolor": "#222222",
             "axes.labelcolor": TEXT,
             "axes.linewidth": 1.2,
-            "axes.titlesize": 11.0,
-            "axes.labelsize": 9.4,
+            "axes.titlesize": 0.0,
+            "axes.labelsize": 11.8,
             "xtick.color": TEXT,
-            "xtick.labelsize": 8.6,
+            "xtick.labelsize": 10.6,
             "ytick.color": TEXT,
-            "ytick.labelsize": 8.6,
-            "legend.fontsize": 8.8,
+            "ytick.labelsize": 10.6,
+            "legend.fontsize": 10.8,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
         }
@@ -160,8 +160,8 @@ def _draw_better_cue(ax: plt.Axes) -> None:
         arrowprops={
             "arrowstyle": "-|>",
             "color": "#737373",
-            "linewidth": 1.0,
-            "mutation_scale": 9,
+            "linewidth": 1.1,
+            "mutation_scale": 10,
             "alpha": 0.75,
             "shrinkA": 0,
             "shrinkB": 0,
@@ -173,7 +173,7 @@ def _draw_better_cue(ax: plt.Axes) -> None:
         0.235,
         "better",
         transform=ax.transAxes,
-        fontsize=7.4,
+        fontsize=9.4,
         color="#737373",
         fontweight="bold",
         ha="left",
@@ -200,7 +200,7 @@ def _plot_panel(
     ax.scatter(
         xs,
         ys,
-        s=22,
+        s=28,
         color=ROUTEWISE_TEAL,
         edgecolor="white",
         linewidth=0.7,
@@ -211,7 +211,7 @@ def _plot_panel(
         frontier_x,
         frontier_y,
         color=ROUTEWISE_TEAL,
-        linewidth=2.0,
+        linewidth=2.2,
         zorder=3,
         solid_capstyle="round",
     )
@@ -220,7 +220,7 @@ def _plot_panel(
     ax.scatter(
         xs[key_mask],
         ys[key_mask],
-        s=54,
+        s=64,
         color=ROUTEWISE_TEAL,
         edgecolor="white",
         linewidth=1.1,
@@ -237,12 +237,12 @@ def _plot_panel(
             xy=(x, y),
             xytext=xytext,
             color="#4b4b4b",
-            fontsize=8.0,
+            fontsize=10.4,
             fontweight="normal",
             arrowprops={
                 "arrowstyle": "-",
                 "color": "#777777",
-                "linewidth": 0.8,
+                "linewidth": 0.9,
                 "alpha": 0.65,
                 "shrinkA": 2,
                 "shrinkB": 3,
@@ -262,20 +262,45 @@ def _plot_panel(
         ax.scatter(
             [x],
             [y],
-            s=62,
+            s=76,
             marker=marker,
             color=color,
             edgecolor="white",
             linewidth=1.0,
             zorder=7,
         )
+        if policy == "greedy_cost":
+            ax.annotate(
+                "G-cost",
+                xy=(x, y),
+                xytext=(7, -22),
+                textcoords="offset points",
+                ha="left",
+                va="top",
+                fontsize=8.2,
+                color=color,
+                path_effects=stroke,
+                zorder=8,
+            )
+        elif policy == "greedy_latency":
+            ax.annotate(
+                "G-latency",
+                xy=(x, y),
+                xytext=(-4, 12),
+                textcoords="offset points",
+                ha="right",
+                va="bottom",
+                fontsize=8.2,
+                color=color,
+                path_effects=stroke,
+                zorder=8,
+            )
 
     _draw_better_cue(ax)
 
-    ax.set_title(metric.panel_title, loc="left", fontweight="bold", pad=6)
-    ax.set_xlabel("Normalized cost (Baseline Greedy-cost)")
+    ax.set_xlabel("Normalized cost\n(Baseline Greedy-cost)")
     ax.set_ylabel(metric.ylabel)
-    ax.grid(True, color=GRID, linewidth=0.8, zorder=0)
+    ax.grid(True, color=GRID, linewidth=1.0, zorder=0)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -341,7 +366,7 @@ def _plot_slo_box_panel(
         slo_s,
         color="#777777",
         linestyle=(0, (3, 2)),
-        linewidth=0.9,
+        linewidth=1.0,
         zorder=0,
     )
     ax.text(
@@ -351,7 +376,7 @@ def _plot_slo_box_panel(
         transform=ax.get_yaxis_transform(),
         ha="right",
         va="bottom",
-        fontsize=7.2,
+        fontsize=9.6,
         color="#666666",
     )
 
@@ -363,16 +388,15 @@ def _plot_slo_box_panel(
             f"{rate:.1f}%",
             va="bottom",
             ha="center",
-            fontsize=7.1,
+            fontsize=9.6,
             color="#4b4b4b",
         )
 
-    ax.set_title(metric.panel_title, loc="left", fontweight="bold", pad=6)
     ax.set_xlabel(r"RouteWise $\alpha$")
     ax.set_ylabel("TTFT (s)")
     ax.set_xticks(np.arange(1, len(labels) + 1))
     ax.set_xticklabels(labels)
-    ax.grid(True, axis="y", color=GRID, linewidth=0.8, zorder=0)
+    ax.grid(True, axis="y", color=GRID, linewidth=1.0, zorder=0)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -417,14 +441,14 @@ def _metrics() -> tuple[MetricSpec, MetricSpec]:
             column="mean_ttft_ms",
             ylabel="Mean TTFT (s)",
             scale=1.0 / 1000.0,
-            panel_title="(a) Cost vs. TTFT",
+            panel_title="",
             stem_suffix="ttft",
         ),
         MetricSpec(
             column="slo_violation_rate",
             ylabel="",
             scale=100.0,
-            panel_title="(b) SLO violations",
+            panel_title="",
             stem_suffix="slo",
         ),
     )
@@ -437,8 +461,8 @@ def _legend_handles() -> list[Line2D]:
             [0],
             color=ROUTEWISE_TEAL,
             marker="o",
-            markersize=5.0,
-            linewidth=1.8,
+            markersize=8.0,
+            linewidth=2.6,
             label="RouteWise",
         ),
         Line2D(
@@ -448,7 +472,7 @@ def _legend_handles() -> list[Line2D]:
             marker="s",
             markerfacecolor=GREEDY_COST,
             markeredgecolor="white",
-            markersize=6.0,
+            markersize=9.0,
             label="Greedy-cost",
         ),
         Line2D(
@@ -458,7 +482,7 @@ def _legend_handles() -> list[Line2D]:
             marker="s",
             markerfacecolor=GREEDY_LATENCY,
             markeredgecolor="white",
-            markersize=6.0,
+            markersize=9.0,
             label="Greedy-latency",
         ),
     ]
@@ -518,12 +542,12 @@ def _render_separate(
     stems: list[str] = []
     for metric in _metrics():
         stem = f"{out_stem}_{metric.stem_suffix}"
-        fig, ax = plt.subplots(figsize=(4.15, 3.05))
-        show_legend = include_legend and metric.stem_suffix != "slo"
-        top = 0.760 if show_legend else 0.900
-        fig.subplots_adjust(left=0.170, right=0.985, bottom=0.205, top=top)
+        fig, ax = plt.subplots(figsize=(2.35, 1.92))
+        show_legend = False
+        top = 0.955
+        fig.subplots_adjust(left=0.215, right=0.985, bottom=0.275, top=top)
         if metric.stem_suffix == "slo":
-            fig.subplots_adjust(left=0.170, right=0.985, bottom=0.205, top=top)
+            fig.subplots_adjust(left=0.215, right=0.985, bottom=0.275, top=top)
             _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
         else:
             _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
@@ -531,13 +555,13 @@ def _render_separate(
             fig.legend(
                 handles=_legend_handles(),
                 loc="upper center",
-                bbox_to_anchor=(0.56, 0.985),
+                bbox_to_anchor=(0.56, 0.995),
                 ncol=3,
                 frameon=False,
-                handlelength=1.4,
-                columnspacing=0.70,
+                handlelength=1.2,
+                columnspacing=0.45,
                 borderaxespad=0.0,
-                fontsize=7.7,
+                fontsize=12.4,
             )
         _save(fig, out_dir, stem)
         plt.close(fig)
