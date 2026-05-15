@@ -258,7 +258,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default="Normalized cost",
+        default="Total cost ($)",
         help="X-axis label for generated frontier figures.",
     )
     parser.add_argument(
