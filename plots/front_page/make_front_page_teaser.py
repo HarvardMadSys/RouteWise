@@ -1,0 +1,467 @@
+"""Front-page BurstGPT teaser with RouteWise alpha sweep.
+
+The plot intentionally uses only the policies needed for the teaser:
+Greedy-cost, Greedy-latency, and LP-only RouteWise alpha points.
+"""
+from __future__ import annotations
+
+import argparse
+import math
+from dataclasses import dataclass
+from pathlib import Path
+
+import matplotlib.patheffects as pe
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.lines import Line2D
+from matplotlib import rcParams
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CSV = (
+    REPO_ROOT
+    / "outputs"
+    / "simulation"
+    / "end_to_end_rw8_minimax_q1_c1_slo3_p005_20260515"
+    / "summary.csv"
+)
+FALLBACK_CSV = (
+    REPO_ROOT
+    / "outputs"
+    / "simulation"
+    / "end_to_end_rw8_minimax_q1_c1_slo3_20260514"
+    / "summary.csv"
+)
+
+ROUTEWISE_TEAL = "#2b777a"
+GREEDY_COST = "#1f77b4"
+GREEDY_LATENCY = "#d96ab7"
+GRID = "#e7e7e7"
+TEXT = "#202020"
+
+
+@dataclass(frozen=True)
+class MetricSpec:
+    column: str
+    ylabel: str
+    scale: float
+    panel_title: str
+    stem_suffix: str
+
+
+def _style() -> None:
+    rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+            "axes.edgecolor": "#222222",
+            "axes.labelcolor": TEXT,
+            "axes.linewidth": 1.2,
+            "axes.titlesize": 11.0,
+            "axes.labelsize": 9.4,
+            "xtick.color": TEXT,
+            "xtick.labelsize": 8.6,
+            "ytick.color": TEXT,
+            "ytick.labelsize": 8.6,
+            "legend.fontsize": 8.8,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
+
+def _load(csv: Path) -> pd.DataFrame:
+    df = pd.read_csv(csv)
+    if "hedging_enabled" in df.columns:
+        df = df[df["hedging_enabled"] == False].copy()  # noqa: E712
+    return df
+
+
+def _select(df: pd.DataFrame, policy: str) -> pd.Series:
+    rows = df[df["policy"] == policy]
+    if len(rows) != 1:
+        raise ValueError(f"expected one row for {policy!r}, got {len(rows)}")
+    return rows.iloc[0]
+
+
+def _routewise_rows(df: pd.DataFrame, base_cost: float) -> pd.DataFrame:
+    rows = df[df["policy"].str.startswith("ablation_lp_only_p")].copy()
+    if rows.empty:
+        raise ValueError("summary has no LP-only RouteWise rows")
+    rows = rows.sort_values("routewise_p").reset_index(drop=True)
+    rows["norm_cost"] = rows["total_cost_usd"] / base_cost
+    rows["alpha_label"] = rows["routewise_p"].map(_format_alpha)
+    return rows
+
+
+def _format_alpha(value: float) -> str:
+    if math.isclose(value, 0.0):
+        return "0"
+    if math.isclose(value, 1.0):
+        return "1"
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _key_alpha_mask(values: pd.Series) -> np.ndarray:
+    key = np.array([0.0, 1.0])
+    raw = values.to_numpy(dtype=float)
+    return np.array([np.any(np.isclose(value, key, atol=1e-9)) for value in raw])
+
+
+def _label_positions(metric: MetricSpec) -> dict[float, tuple[float, float]]:
+    if metric.column == "mean_ttft_ms":
+        return {
+            0.0: (1.018, 1.66),
+            1.0: (1.430, 0.78),
+        }
+    return {
+        0.0: (1.018, 8.78),
+        1.0: (1.430, 1.50),
+    }
+
+
+def _alpha_text(alpha: float) -> str:
+    if math.isclose(alpha, 0.0):
+        return r"$\alpha=0$"
+    if math.isclose(alpha, 1.0):
+        return r"$\alpha=1$"
+    return rf"$\alpha={_format_alpha(alpha)}$"
+
+
+def _pareto_frontier(sweep: pd.DataFrame, metric: MetricSpec) -> pd.DataFrame:
+    ordered = sweep.sort_values(["norm_cost", metric.column]).copy()
+    keep: list[int] = []
+    best = float("inf")
+    eps = 1e-12
+    for idx, row in ordered.iterrows():
+        value = float(row[metric.column])
+        if value < best - eps:
+            keep.append(idx)
+            best = value
+    return sweep.loc[keep].sort_values("norm_cost")
+
+
+def _draw_better_cue(ax: plt.Axes) -> None:
+    ax.annotate(
+        "",
+        xy=(0.075, 0.090),
+        xytext=(0.205, 0.230),
+        xycoords="axes fraction",
+        textcoords="axes fraction",
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": "#737373",
+            "linewidth": 1.0,
+            "mutation_scale": 9,
+            "alpha": 0.75,
+            "shrinkA": 0,
+            "shrinkB": 0,
+        },
+        zorder=1,
+    )
+    ax.text(
+        0.215,
+        0.235,
+        "better",
+        transform=ax.transAxes,
+        fontsize=7.4,
+        color="#737373",
+        fontweight="bold",
+        ha="left",
+        va="center",
+        zorder=1,
+    )
+
+
+def _plot_panel(
+    ax: plt.Axes,
+    *,
+    df: pd.DataFrame,
+    sweep: pd.DataFrame,
+    base_cost: float,
+    metric: MetricSpec,
+) -> None:
+    stroke = [pe.withStroke(linewidth=2.6, foreground="white")]
+    xs = sweep["norm_cost"].to_numpy(dtype=float)
+    ys = (sweep[metric.column].to_numpy(dtype=float) * metric.scale)
+    frontier = _pareto_frontier(sweep, metric)
+    frontier_x = frontier["norm_cost"].to_numpy(dtype=float)
+    frontier_y = frontier[metric.column].to_numpy(dtype=float) * metric.scale
+
+    ax.scatter(
+        xs,
+        ys,
+        s=22,
+        color=ROUTEWISE_TEAL,
+        edgecolor="white",
+        linewidth=0.7,
+        alpha=0.90,
+        zorder=4,
+    )
+    ax.plot(
+        frontier_x,
+        frontier_y,
+        color=ROUTEWISE_TEAL,
+        linewidth=2.0,
+        zorder=3,
+        solid_capstyle="round",
+    )
+
+    key_mask = _key_alpha_mask(sweep["routewise_p"])
+    ax.scatter(
+        xs[key_mask],
+        ys[key_mask],
+        s=54,
+        color=ROUTEWISE_TEAL,
+        edgecolor="white",
+        linewidth=1.1,
+        zorder=5,
+    )
+    label_positions = _label_positions(metric)
+    for _, row in sweep[key_mask].iterrows():
+        alpha = float(row["routewise_p"])
+        x = float(row["norm_cost"])
+        y = float(row[metric.column]) * metric.scale
+        xytext = label_positions.get(alpha, (x + 0.01, y))
+        ax.annotate(
+            _alpha_text(alpha),
+            xy=(x, y),
+            xytext=xytext,
+            color="#4b4b4b",
+            fontsize=8.0,
+            fontweight="normal",
+            arrowprops={
+                "arrowstyle": "-",
+                "color": "#777777",
+                "linewidth": 0.8,
+                "alpha": 0.65,
+                "shrinkA": 2,
+                "shrinkB": 3,
+            },
+            path_effects=stroke,
+            zorder=6,
+        )
+
+    baseline_specs = (
+        ("Greedy-cost", "greedy_cost", GREEDY_COST, "s"),
+        ("Greedy-latency", "greedy_latency", GREEDY_LATENCY, "s"),
+    )
+    for label, policy, color, marker in baseline_specs:
+        row = _select(df, policy)
+        x = float(row["total_cost_usd"]) / base_cost
+        y = float(row[metric.column]) * metric.scale
+        ax.scatter(
+            [x],
+            [y],
+            s=62,
+            marker=marker,
+            color=color,
+            edgecolor="white",
+            linewidth=1.0,
+            zorder=7,
+        )
+
+    _draw_better_cue(ax)
+
+    ax.set_title(metric.panel_title, loc="left", fontweight="bold", pad=6)
+    ax.set_xlabel("Normalized cost (Baseline Greedy-cost)")
+    ax.set_ylabel(metric.ylabel)
+    ax.grid(True, color=GRID, linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    x_min = min(xs.min(), 1.0) - 0.025
+    x_max = max(xs.max(), 1.0, float(_select(df, "greedy_latency")["total_cost_usd"]) / base_cost) + 0.07
+    ax.set_xlim(x_min, x_max)
+    ax.set_xticks(np.arange(1.0, math.ceil(x_max * 10) / 10 + 0.001, 0.1))
+    ax.set_xticklabels([f"{tick:.1f}x" for tick in ax.get_xticks()])
+
+    values = [*ys]
+    for policy in ("greedy_cost", "greedy_latency"):
+        values.append(float(_select(df, policy)[metric.column]) * metric.scale)
+    y_min = min(values)
+    y_max = max(values)
+    pad = max((y_max - y_min) * 0.18, 0.08 if metric.column == "mean_ttft_ms" else 0.5)
+    ax.set_ylim(max(0.0, y_min - pad), y_max + pad)
+
+
+def _metrics() -> tuple[MetricSpec, MetricSpec]:
+    return (
+        MetricSpec(
+            column="mean_ttft_ms",
+            ylabel="Mean TTFT (s)",
+            scale=1.0 / 1000.0,
+            panel_title="(a) Cost vs. TTFT",
+            stem_suffix="ttft",
+        ),
+        MetricSpec(
+            column="slo_violation_rate",
+            ylabel="SLO violations (%)",
+            scale=100.0,
+            panel_title="(b) Cost vs. SLO violations",
+            stem_suffix="slo",
+        ),
+    )
+
+
+def _legend_handles() -> list[Line2D]:
+    return [
+        Line2D(
+            [0],
+            [0],
+            color=ROUTEWISE_TEAL,
+            marker="o",
+            markersize=5.0,
+            linewidth=1.8,
+            label="RouteWise",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="none",
+            marker="s",
+            markerfacecolor=GREEDY_COST,
+            markeredgecolor="white",
+            markersize=6.0,
+            label="Greedy-cost",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="none",
+            marker="s",
+            markerfacecolor=GREEDY_LATENCY,
+            markeredgecolor="white",
+            markersize=6.0,
+            label="Greedy-latency",
+        ),
+    ]
+
+
+def _save(fig: plt.Figure, out_dir: Path, stem: str) -> None:
+    for ext in ("png", "pdf"):
+        fig.savefig(out_dir / f"{stem}.{ext}", dpi=300, bbox_inches="tight")
+
+
+def _render_combined(
+    *,
+    df: pd.DataFrame,
+    sweep: pd.DataFrame,
+    base_cost: float,
+    out_dir: Path,
+    out_stem: str,
+) -> None:
+    metrics = _metrics()
+    fig, axes = plt.subplots(1, 2, figsize=(8.0, 3.05))
+    fig.subplots_adjust(left=0.082, right=0.988, bottom=0.205, top=0.760, wspace=0.310)
+    fig.text(0.082, 0.955, "BurstGPT + ShareGPT", ha="left", va="top", fontsize=12.0, fontweight="bold")
+    for ax, metric in zip(axes, metrics, strict=True):
+        _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
+
+    fig.legend(
+        handles=_legend_handles(),
+        loc="upper right",
+        bbox_to_anchor=(0.988, 0.965),
+        ncol=3,
+        frameon=False,
+        handlelength=1.6,
+        columnspacing=1.0,
+        borderaxespad=0.0,
+    )
+
+    _save(fig, out_dir, out_stem)
+    if out_stem != "routewise_front_page_burstgpt":
+        _save(fig, out_dir, "routewise_front_page_burstgpt")
+    plt.close(fig)
+
+
+def _render_separate(
+    *,
+    df: pd.DataFrame,
+    sweep: pd.DataFrame,
+    base_cost: float,
+    out_dir: Path,
+    out_stem: str,
+    include_legend: bool = True,
+) -> list[str]:
+    stems: list[str] = []
+    for metric in _metrics():
+        stem = f"{out_stem}_{metric.stem_suffix}"
+        fig, ax = plt.subplots(figsize=(4.15, 3.05))
+        top = 0.760 if include_legend else 0.900
+        fig.subplots_adjust(left=0.170, right=0.985, bottom=0.205, top=top)
+        _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
+        if include_legend:
+            fig.legend(
+                handles=_legend_handles(),
+                loc="upper center",
+                bbox_to_anchor=(0.56, 0.985),
+                ncol=3,
+                frameon=False,
+                handlelength=1.4,
+                columnspacing=0.70,
+                borderaxespad=0.0,
+                fontsize=7.7,
+            )
+        _save(fig, out_dir, stem)
+        plt.close(fig)
+        stems.append(stem)
+    return stems
+
+
+def render(
+    csv: Path,
+    out_dir: Path,
+    *,
+    out_stem: str,
+    combined: bool = True,
+    separate_legend: bool = True,
+) -> list[str]:
+    _style()
+    df = _load(csv)
+    base_cost = float(_select(df, "greedy_cost")["total_cost_usd"])
+    sweep = _routewise_rows(df, base_cost)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stems = _render_separate(
+        df=df,
+        sweep=sweep,
+        base_cost=base_cost,
+        out_dir=out_dir,
+        out_stem=out_stem,
+        include_legend=separate_legend,
+    )
+    if combined:
+        _render_combined(
+            df=df,
+            sweep=sweep,
+            base_cost=base_cost,
+            out_dir=out_dir,
+            out_stem=out_stem,
+        )
+        stems.append(out_stem)
+    return stems
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV if DEFAULT_CSV.exists() else FALLBACK_CSV)
+    parser.add_argument("--out-dir", type=Path, default=Path.home() / "Desktop" / "output")
+    parser.add_argument("--out-stem", default="routewise_front_page_burstgpt_scatter_slo")
+    parser.add_argument("--no-combined", action="store_true", help="Only write separate TTFT/SLO panel files.")
+    parser.add_argument("--no-separate-legend", action="store_true", help="Omit legends from separate panel files.")
+    args = parser.parse_args()
+    stems = render(
+        args.csv,
+        args.out_dir,
+        out_stem=args.out_stem,
+        combined=not args.no_combined,
+        separate_legend=not args.no_separate_legend,
+    )
+    for stem in stems:
+        print(f"wrote: {args.out_dir}/{stem}.{{png,pdf}}")
+
+
+if __name__ == "__main__":
+    main()
