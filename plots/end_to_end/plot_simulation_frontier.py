@@ -516,12 +516,12 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=11.0,
+        legend_fontsize=6.8,
         font_size=10.8,
         label_fontsize=11.5,
         tick_fontsize=9.8,
-        margins=(0.43, 0.98, 0.18, 0.94),
-        show_legend=False,
+        margins=(0.43, 0.98, 0.18, 0.80),
+        show_legend=True,
         x_max=102.0,
     )
 
