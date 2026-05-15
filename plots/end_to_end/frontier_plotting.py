@@ -695,10 +695,10 @@ def plot_stacked_mix(
             frameon=False,
             ncols=legend_ncols,
             loc="upper center",
-            bbox_to_anchor=(0.57, 0.985),
+            bbox_to_anchor=(0.50, 0.985),
             handlelength=0.9,
             handletextpad=0.28,
-            columnspacing=0.65,
+            columnspacing=0.55,
             labelspacing=0.35,
             borderaxespad=0.0,
         )
