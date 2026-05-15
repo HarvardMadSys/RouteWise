@@ -6,6 +6,7 @@ Greedy-cost, Greedy-latency, and LP-only RouteWise alpha points.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,14 @@ def _load(csv: Path) -> pd.DataFrame:
     if "hedging_enabled" in df.columns:
         df = df[df["hedging_enabled"] == False].copy()  # noqa: E712
     return df
+
+
+def _load_histograms(csv: Path) -> dict[str, dict[str, object]]:
+    path = csv.with_name("ttft_histograms.json")
+    if not path.exists():
+        return {}
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    return {str(row["policy"]): dict(row["histogram"]) for row in rows}
 
 
 def _select(df: pd.DataFrame, policy: str) -> pd.Series:
@@ -286,6 +295,122 @@ def _plot_panel(
     ax.set_ylim(max(0.0, y_min - pad), y_max + pad)
 
 
+def _plot_slo_box_panel(
+    ax: plt.Axes,
+    *,
+    sweep: pd.DataFrame,
+    histograms: dict[str, dict[str, object]],
+    metric: MetricSpec,
+) -> None:
+    key_alphas = [0.0, 0.25, 0.5, 0.75, 1.0]
+    stats = []
+    labels = []
+    rates = []
+    for alpha in key_alphas:
+        match = sweep[np.isclose(sweep["routewise_p"].to_numpy(dtype=float), alpha)]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        policy = str(row["policy"])
+        if policy not in histograms:
+            raise ValueError(f"missing TTFT histogram for {policy!r}")
+        labels.append(_format_alpha(float(row["routewise_p"])))
+        rates.append(float(row[metric.column]) * metric.scale)
+        stats.append(_histogram_box_stats(policy, histograms[policy]))
+    if not stats:
+        raise ValueError("summary has no key RouteWise alpha rows for SLO box panel")
+
+    artists = ax.bxp(
+        stats,
+        positions=np.arange(1, len(stats) + 1),
+        widths=0.58,
+        showfliers=False,
+        patch_artist=True,
+        manage_ticks=False,
+    )
+    for idx, box in enumerate(artists["boxes"]):
+        box.set(facecolor=ROUTEWISE_TEAL if idx < len(stats) - 1 else GREEDY_LATENCY)
+        box.set(edgecolor="#ffffff", linewidth=0.9)
+        box.set_alpha(0.92)
+    for key in ("whiskers", "caps", "medians"):
+        for artist in artists[key]:
+            artist.set(color="#555555" if key != "medians" else "#ffffff", linewidth=1.0)
+
+    slo_s = 3.0
+    ax.axhline(
+        slo_s,
+        color="#777777",
+        linestyle=(0, (3, 2)),
+        linewidth=0.9,
+        zorder=0,
+    )
+    ax.text(
+        0.985,
+        slo_s + 0.08,
+        "3s SLO",
+        transform=ax.get_yaxis_transform(),
+        ha="right",
+        va="bottom",
+        fontsize=7.2,
+        color="#666666",
+    )
+
+    y_top = max(slo_s, max(stat["whishi"] for stat in stats))
+    for xpos, rate in enumerate(rates, start=1):
+        ax.text(
+            xpos,
+            y_top + 0.25,
+            f"{rate:.1f}%",
+            va="bottom",
+            ha="center",
+            fontsize=7.1,
+            color="#4b4b4b",
+        )
+
+    ax.set_title(metric.panel_title, loc="left", fontweight="bold", pad=6)
+    ax.set_xlabel(r"RouteWise $\alpha$")
+    ax.set_ylabel("TTFT (s)")
+    ax.set_xticks(np.arange(1, len(labels) + 1))
+    ax.set_xticklabels(labels)
+    ax.grid(True, axis="y", color=GRID, linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_ylim(0.0, y_top + 0.75)
+
+
+def _histogram_box_stats(label: str, histogram: dict[str, object]) -> dict[str, float | str]:
+    return {
+        "label": label,
+        "whislo": _histogram_quantile(histogram, 0.05) / 1000.0,
+        "q1": _histogram_quantile(histogram, 0.25) / 1000.0,
+        "med": _histogram_quantile(histogram, 0.50) / 1000.0,
+        "q3": _histogram_quantile(histogram, 0.75) / 1000.0,
+        "whishi": _histogram_quantile(histogram, 0.95) / 1000.0,
+    }
+
+
+def _histogram_quantile(histogram: dict[str, object], q: float) -> float:
+    edges = np.asarray(histogram["bin_edges_ms"], dtype=float)
+    counts = np.asarray(histogram["counts"], dtype=float)
+    n = float(histogram["n"])
+    target = q * n
+    cumulative = 0.0
+    for idx, count in enumerate(counts):
+        next_cumulative = cumulative + count
+        if target <= next_cumulative:
+            if idx == 0:
+                return float(histogram["min_ms"])
+            if idx == len(counts) - 1:
+                return float(histogram["max_ms"])
+            lo = float(edges[idx - 1])
+            hi = float(edges[idx])
+            frac = 0.5 if count <= 0 else (target - cumulative) / count
+            return lo + frac * (hi - lo)
+        cumulative = next_cumulative
+    return float(histogram["max_ms"])
+
+
 def _metrics() -> tuple[MetricSpec, MetricSpec]:
     return (
         MetricSpec(
@@ -297,9 +422,9 @@ def _metrics() -> tuple[MetricSpec, MetricSpec]:
         ),
         MetricSpec(
             column="slo_violation_rate",
-            ylabel="SLO violations (%)",
+            ylabel="",
             scale=100.0,
-            panel_title="(b) Cost vs. SLO violations",
+            panel_title="(b) SLO violations",
             stem_suffix="slo",
         ),
     )
@@ -349,6 +474,7 @@ def _render_combined(
     df: pd.DataFrame,
     sweep: pd.DataFrame,
     base_cost: float,
+    histograms: dict[str, dict[str, object]],
     out_dir: Path,
     out_stem: str,
 ) -> None:
@@ -357,7 +483,10 @@ def _render_combined(
     fig.subplots_adjust(left=0.082, right=0.988, bottom=0.205, top=0.760, wspace=0.310)
     fig.text(0.082, 0.955, "BurstGPT + ShareGPT", ha="left", va="top", fontsize=12.0, fontweight="bold")
     for ax, metric in zip(axes, metrics, strict=True):
-        _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
+        if metric.stem_suffix == "slo":
+            _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
+        else:
+            _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
 
     fig.legend(
         handles=_legend_handles(),
@@ -381,6 +510,7 @@ def _render_separate(
     df: pd.DataFrame,
     sweep: pd.DataFrame,
     base_cost: float,
+    histograms: dict[str, dict[str, object]],
     out_dir: Path,
     out_stem: str,
     include_legend: bool = True,
@@ -389,10 +519,15 @@ def _render_separate(
     for metric in _metrics():
         stem = f"{out_stem}_{metric.stem_suffix}"
         fig, ax = plt.subplots(figsize=(4.15, 3.05))
-        top = 0.760 if include_legend else 0.900
+        show_legend = include_legend and metric.stem_suffix != "slo"
+        top = 0.760 if show_legend else 0.900
         fig.subplots_adjust(left=0.170, right=0.985, bottom=0.205, top=top)
-        _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
-        if include_legend:
+        if metric.stem_suffix == "slo":
+            fig.subplots_adjust(left=0.170, right=0.985, bottom=0.205, top=top)
+            _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
+        else:
+            _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
+        if show_legend:
             fig.legend(
                 handles=_legend_handles(),
                 loc="upper center",
@@ -420,6 +555,7 @@ def render(
 ) -> list[str]:
     _style()
     df = _load(csv)
+    histograms = _load_histograms(csv)
     base_cost = float(_select(df, "greedy_cost")["total_cost_usd"])
     sweep = _routewise_rows(df, base_cost)
 
@@ -428,6 +564,7 @@ def render(
         df=df,
         sweep=sweep,
         base_cost=base_cost,
+        histograms=histograms,
         out_dir=out_dir,
         out_stem=out_stem,
         include_legend=separate_legend,
@@ -437,6 +574,7 @@ def render(
             df=df,
             sweep=sweep,
             base_cost=base_cost,
+            histograms=histograms,
             out_dir=out_dir,
             out_stem=out_stem,
         )
