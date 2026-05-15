@@ -64,40 +64,36 @@ POLICY_LABELS = {
 BASELINE_ORDER = (
     "greedy_cost",
     "greedy_latency",
-    "or_sort_cost",
-    "or_sort_latency",
     "random",
 )
 TABLE_POLICIES = (
     "greedy_cost",
     "greedy_latency",
-    "or_sort_cost",
-    "or_sort_latency",
     "random",
 )
-ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75)
-ROUTEWISE_FRONTIER_POLICY = "ablation_lp_hedging_p25"
+ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75, 1.0)
+ROUTEWISE_FIGURE_POLICIES = (
+    "ablation_lp_only_p0",
+    "ablation_lp_only_p25",
+    "ablation_lp_only_p50",
+    "ablation_lp_only_p75",
+    "ablation_lp_only_p100",
+)
 CDF_POLICIES = (
-    "ablation_lp_hedging_p25",
+    *ROUTEWISE_FIGURE_POLICIES,
     "greedy_cost",
     "greedy_latency",
-    "or_sort_cost",
-    "or_sort_latency",
     "random",
 )
 BOXPLOT_POLICIES = (
-    "ablation_lp_hedging_p25",
+    *ROUTEWISE_FIGURE_POLICIES,
     "greedy_cost",
     "greedy_latency",
-    "or_sort_cost",
-    "or_sort_latency",
 )
 PROVIDER_MIX_POLICIES = (
-    "ablation_lp_hedging_p25",
+    *ROUTEWISE_FIGURE_POLICIES,
     "greedy_cost",
     "greedy_latency",
-    "or_sort_cost",
-    "or_sort_latency",
     "random",
 )
 
@@ -185,11 +181,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--routewise-frontier-policy",
-        default=ROUTEWISE_FRONTIER_POLICY,
+        "--routewise-frontier-policies",
+        nargs="+",
+        default=None,
         help=(
-            "RouteWise policy to show in compact frontier figures. "
-            "Defaults to the paper's BurstGPT+ShareGPT operating point."
+            "RouteWise policies to show in compact frontier figures. "
+            "Defaults to the simulator alpha sweep."
         ),
     )
     parser.add_argument("--table-out", type=Path, required=True)
@@ -380,14 +377,15 @@ def frontier_points(rows: list[Row]) -> list[FrontierPoint]:
 def selected_frontier_points(
     rows: list[Row],
     baseline_policies: list[str] | None = None,
-    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+    routewise_policies: list[str] | None = None,
 ) -> list[FrontierPoint]:
     baselines = set(baseline_policies or BASELINE_ORDER)
+    routewise = set(routewise_policies or ROUTEWISE_FIGURE_POLICIES)
     return [
         point
         for point in frontier_points(rows)
         if (point.alpha is None and point.policy in baselines)
-        or point.policy == routewise_policy
+        or point.policy in routewise
     ]
 
 
@@ -395,13 +393,13 @@ def plot_frontier(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+    routewise_policies: list[str] | None = None,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
     plot_mean_ttft_frontier(
-        selected_frontier_points(rows, mean_baselines, routewise_policy),
+        selected_frontier_points(rows, mean_baselines, routewise_policies),
         output_path,
     )
 
@@ -410,10 +408,10 @@ def plot_slo(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_policy: str = ROUTEWISE_FRONTIER_POLICY,
+    routewise_policies: list[str] | None = None,
 ) -> None:
     plot_slo_frontier(
-        selected_frontier_points(rows, baseline_policies, routewise_policy),
+        selected_frontier_points(rows, baseline_policies, routewise_policies),
         output_path,
     )
 
@@ -520,7 +518,7 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=6.8,
+        legend_fontsize=8.2,
         font_size=10.8,
         label_fontsize=11.5,
         tick_fontsize=9.8,
@@ -581,7 +579,7 @@ def plot_provider_latency(
     items = [
         (provider, mean_ms)
         for provider, mean_ms in means.items()
-        if provider in totals and math.isfinite(mean_ms)
+        if math.isfinite(mean_ms)
     ]
     if not items:
         raise ValueError("no provider latency means available for selected provider mix")
@@ -731,18 +729,12 @@ def write_table(rows: list[Row], output_path: Path) -> None:
     for alpha in ROUTEWISE_TABLE_ALPHAS:
         policy = f"ablation_lp_only_p{int(alpha * 100)}"
         row = by_policy[policy]
-        if alpha == 0.75 and "ablation_lp_only_p100" in by_policy:
-            lines.append(_format_table_row(row, label=rf"\sysname{{}} ($\alpha\ge{alpha:g}$)"))
-        else:
-            lines.append(_format_table_row(row))
+        lines.append(_format_table_row(row))
     lines.append(r"\midrule")
     for alpha in ROUTEWISE_TABLE_ALPHAS:
         policy = f"ablation_lp_hedging_p{int(alpha * 100)}"
         row = by_policy[policy]
-        if alpha == 0.75 and "ablation_lp_hedging_p100" in by_policy:
-            lines.append(_format_table_row(row, label=rf"\sysname{{}} ($\alpha\ge{alpha:g}$ + hedge)"))
-        else:
-            lines.append(_format_table_row(row))
+        lines.append(_format_table_row(row))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -799,13 +791,13 @@ def main() -> int:
         rows,
         args.frontier_out,
         args.frontier_baselines,
-        args.routewise_frontier_policy,
+        args.routewise_frontier_policies,
     )
     plot_slo(
         rows,
         args.slo_out,
         args.frontier_baselines,
-        args.routewise_frontier_policy,
+        args.routewise_frontier_policies,
     )
     if args.tier_out is not None:
         plot_tier_mix(rows, args.tier_out)

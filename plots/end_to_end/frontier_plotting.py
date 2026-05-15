@@ -89,14 +89,14 @@ ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
         0.25: (5, 5),
         0.5: (5, 7),
         0.75: (5, 8),
-        1.0: (5, 8),
+        1.0: (5, 21),
     },
     "mean_ttft_ms": {
-        0.0: (5, -12),
+        0.0: (5, 28),
         0.25: (5, 5),
         0.5: (5, -12),
         0.75: (5, 7),
-        1.0: (5, 7),
+        1.0: (5, 21),
     },
 }
 CDF_LINESTYLES = {
@@ -121,7 +121,11 @@ PROVIDER_COLOR_CYCLE = (
     "#d62728",
 )
 PROVIDER_MIX_COLORS = {
-    "OR_DeepInfra": "#2b7bba",
+    "OR_Inceptron": "#76b7b2",
+    "OR_Friendli": "#9467bd",
+    "OR_DeepInfra": "#4e79a7",
+    "OR_SambaNova": "#e377c2",
+    "OR_Venice": "#17becf",
     "MiniMax_Plus_SQ": "#6b4c3b",
     "GLM_OR_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
@@ -357,11 +361,21 @@ def _plot_routewise_group(
 ) -> None:
     if not points:
         return
-    for point in points:
+    ordered = sorted(points, key=lambda point: point.alpha or 0.0)
+    if len(ordered) > 1:
+        ax.plot(
+            [point.total_cost_usd for point in ordered],
+            [metric_value(point, attr) for point in ordered],
+            color=ROUTEWISE_COLOR,
+            linewidth=1.0,
+            alpha=0.85,
+            zorder=2,
+        )
+    for point in ordered:
         ax.scatter(
             point.total_cost_usd,
             metric_value(point, attr),
-            marker="o",
+            marker=marker,
             s=30,
             color=ROUTEWISE_COLOR,
             edgecolor="white",
