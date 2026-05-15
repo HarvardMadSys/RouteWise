@@ -587,7 +587,7 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=6.8,
+        legend_fontsize=8.2,
         font_size=10.8,
         label_fontsize=11.5,
         tick_fontsize=9.8,
