@@ -137,6 +137,7 @@ PROVIDER_MIX_COLORS = {
     "OR_Novita": "#e377c2",
     "OR_Phala": "#bcbd22",
     "OR_SiliconFlow": "#7f7f7f",
+    "OR_Parasail": "#17becf",
 }
 TIER_MIX_SEGMENTS = (
     ("quota", r"$\mathcal{P}_Q$", TIER_COLORS.get("quota", "#2ca02c")),
