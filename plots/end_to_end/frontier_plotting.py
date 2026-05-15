@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 COLUMN_FIGSIZE = (3.35, 2.25)
-SLO_BAR_FIGSIZE = (3.35, 2.45)
+SLO_BAR_FIGSIZE = COLUMN_FIGSIZE
 MIX_FIGSIZE = (3.35, 2.55)
 BASE_FONT_SIZE = 8.4
 LABEL_FONT_SIZE = 8.8
@@ -409,7 +409,7 @@ def _cost_label(value: float) -> str:
 
 def _slo_bar_color(point: FrontierPoint) -> str:
     if point.alpha is not None:
-        return ROUTEWISE_HEDGE_COLOR if point.hedging else ROUTEWISE_COLOR
+        return ROUTEWISE_COLOR
     return policy_color(point.policy)
 
 
@@ -483,7 +483,8 @@ def plot_metric_frontier(
     ax.grid(True, linewidth=0.35, alpha=0.35)
     _pad_axes(ax)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight")
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -545,7 +546,8 @@ def plot_slo_bar(
     ax.set_xlim(0.0, max_slo + label_room)
     fig.subplots_adjust(left=0.33, right=0.99, bottom=0.16, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight")
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -625,7 +627,8 @@ def plot_stacked_mix(
         borderaxespad=0.0,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -716,7 +719,7 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError("no boxplot series to plot")
     apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
-    plt.rcParams.update({"figure.figsize": (3.35, 2.55)})
+    plt.rcParams.update({"figure.figsize": COLUMN_FIGSIZE})
 
     sorted_samples_sec: list[list[float]] = []
     p99_sec: list[float] = []
@@ -730,7 +733,7 @@ def plot_ttft_boxplot(
         tail = max(valid_p99) if valid_p99 else slo_sec * 4.0
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.55), constrained_layout=False)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
     box = ax.boxplot(
         sorted_samples_sec,
         vert=False,
@@ -803,7 +806,8 @@ def plot_ttft_boxplot(
 
     fig.subplots_adjust(left=0.30, right=0.99, bottom=0.18, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight")
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 

@@ -35,6 +35,7 @@ from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    MIX_FIGSIZE,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
@@ -72,6 +73,9 @@ POLICY_LABELS = {
 }
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
+DEFAULT_BOXPLOT_POLICIES = tuple(
+    policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
+)
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional output path for a per-policy TTFT distribution boxplot PDF.",
+    )
+    parser.add_argument(
+        "--boxplot-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy directory names to include in the TTFT boxplot. "
+            "Defaults to representative policies excluding random."
+        ),
     )
     parser.add_argument(
         "--cdf-policies",
@@ -770,14 +783,14 @@ def plot_provider_latency_boxplot(
             "axes.labelsize": 8.8,
             "xtick.labelsize": 7.8,
             "ytick.labelsize": 7.0,
-            "figure.figsize": (3.35, 2.75),
+            "figure.figsize": MIX_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
     )
     labels = [label for _, label, _ in items]
     samples = [values for _, _, values in items]
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.75), constrained_layout=False)
+    fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
     box = ax.boxplot(
         samples,
         vert=False,
@@ -821,9 +834,10 @@ def plot_provider_latency_boxplot(
     ax.spines["right"].set_visible(False)
     p95_values = [percentile(values, 95.0) for values in samples if values]
     ax.set_xlim(0, max(args.slo_ms / 1000.0 * 1.6, max(p95_values) * 1.08))
-    fig.subplots_adjust(left=0.31, right=0.99, bottom=0.14, top=0.98)
+    fig.subplots_adjust(left=0.31, right=0.99, bottom=0.16, top=0.79)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight")
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -854,6 +868,15 @@ def selected_cdf_dirs(args: argparse.Namespace) -> list[Path]:
     missing = [path.name for path in dirs if not (path / "requests.csv").exists()]
     if missing:
         raise FileNotFoundError(f"{args.input_dir}: missing CDF policy outputs: {missing}")
+    return dirs
+
+
+def selected_boxplot_dirs(args: argparse.Namespace) -> list[Path]:
+    policies = list(args.boxplot_policies or DEFAULT_BOXPLOT_POLICIES)
+    dirs = [args.input_dir / policy for policy in policies]
+    missing = [path.name for path in dirs if not (path / "requests.csv").exists()]
+    if missing:
+        raise FileNotFoundError(f"{args.input_dir}: missing boxplot policy outputs: {missing}")
     return dirs
 
 
@@ -905,7 +928,7 @@ def plot_ttft_boxplot(
     cost_by_policy: dict[str, float] | None = None,
 ) -> None:
     series: list[BoxSeries] = []
-    for policy_dir in selected_cdf_dirs(args):
+    for policy_dir in selected_boxplot_dirs(args):
         samples = policy_ttft_samples(policy_dir)
         if not samples:
             continue
@@ -1025,6 +1048,7 @@ def plot_metric_frontier(
         "baseline_order": BASELINE_ORDER,
     }
     if attr == "ttft_mean_ms":
+        kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         plot_slo_frontier(points, path, **kwargs)
