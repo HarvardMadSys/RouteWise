@@ -390,15 +390,11 @@ def _ordered_slo_bar_points(
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
 ) -> list[FrontierPoint]:
-    selected = [
+    return [
         *routewise_points(points, hedging=False, alphas=routewise_alphas),
         *routewise_points(points, hedging=True, alphas=routewise_alphas),
         *baseline_points(points, order=baseline_order),
     ]
-    return sorted(
-        selected,
-        key=lambda point: (metric_value(point, "slo_violation_rate"), point.total_cost_usd),
-    )
 
 
 def _short_slo_bar_label(point: FrontierPoint) -> str:

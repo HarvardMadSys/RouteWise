@@ -294,87 +294,76 @@ def _plot_panel(
     ax.set_ylim(max(0.0, y_min - pad), y_max + pad)
 
 
-def _plot_slo_box_panel(
+def _plot_slo_bar_panel(
     ax: plt.Axes,
     *,
+    df: pd.DataFrame,
     sweep: pd.DataFrame,
-    histograms: dict[str, dict[str, object]],
+    base_cost: float,
     metric: MetricSpec,
 ) -> None:
     key_alphas = [0.0, 0.25, 0.5, 0.75, 1.0]
-    stats = []
-    labels = []
-    rates = []
+    labels: list[str] = []
+    values: list[float] = []
+    costs: list[float] = []
+    colors: list[str] = []
     for alpha in key_alphas:
         match = sweep[np.isclose(sweep["routewise_p"].to_numpy(dtype=float), alpha)]
         if match.empty:
             continue
         row = match.iloc[0]
-        policy = str(row["policy"])
-        if policy not in histograms:
-            raise ValueError(f"missing TTFT histogram for {policy!r}")
-        labels.append(_format_alpha(float(row["routewise_p"])))
-        rates.append(float(row[metric.column]) * metric.scale)
-        stats.append(_histogram_box_stats(policy, histograms[policy]))
-    if not stats:
-        raise ValueError("summary has no key RouteWise alpha rows for SLO box panel")
+        labels.append(f"RouteWise-{_format_alpha(float(row['routewise_p']))}")
+        values.append(float(row[metric.column]) * metric.scale)
+        costs.append(float(row["total_cost_usd"]) / base_cost)
+        colors.append(ROUTEWISE_TEAL)
 
-    artists = ax.bxp(
-        stats,
-        positions=np.arange(1, len(stats) + 1),
-        widths=0.58,
-        showfliers=False,
-        patch_artist=True,
-        manage_ticks=False,
-    )
-    for idx, box in enumerate(artists["boxes"]):
-        box.set(facecolor=ROUTEWISE_TEAL if idx < len(stats) - 1 else GREEDY_LATENCY)
-        box.set(edgecolor="#ffffff", linewidth=0.9)
-        box.set_alpha(0.92)
-    for key in ("whiskers", "caps", "medians"):
-        for artist in artists[key]:
-            artist.set(color="#555555" if key != "medians" else "#ffffff", linewidth=1.0)
+    for label, policy, color in (
+        ("Greedy-cost", "greedy_cost", GREEDY_COST),
+        ("Greedy-latency", "greedy_latency", GREEDY_LATENCY),
+    ):
+        row = _select(df, policy)
+        labels.append(label)
+        values.append(float(row[metric.column]) * metric.scale)
+        costs.append(float(row["total_cost_usd"]) / base_cost)
+        colors.append(color)
 
-    slo_s = 3.0
-    ax.axhline(
-        slo_s,
-        color="#777777",
-        linestyle=(0, (3, 2)),
-        linewidth=1.0,
-        zorder=0,
-    )
-    ax.text(
-        0.985,
-        slo_s + 0.08,
-        "3s SLO",
-        transform=ax.get_yaxis_transform(),
-        ha="right",
-        va="bottom",
-        fontsize=9.6,
-        color="#666666",
-    )
+    if not values:
+        raise ValueError("summary has no points for SLO bar panel")
 
-    y_top = max(slo_s, max(stat["whishi"] for stat in stats))
-    for xpos, rate in enumerate(rates, start=1):
+    y = np.arange(len(values))
+    max_value = max(values)
+    text_pad = max(max_value * 0.03, 0.16)
+    ax.barh(
+        y,
+        values,
+        height=0.66,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.5,
+        zorder=3,
+    )
+    for row_idx, (value, cost) in enumerate(zip(values, costs, strict=True)):
         ax.text(
-            xpos,
-            y_top + 0.25,
-            f"{rate:.1f}%",
-            va="bottom",
-            ha="center",
-            fontsize=9.6,
+            value + text_pad,
+            row_idx,
+            f"{value:.1f}%  {cost:.2f}x",
+            va="center",
+            ha="left",
+            fontsize=8.4,
             color="#4b4b4b",
         )
 
-    ax.set_xlabel(r"RouteWise $\alpha$")
-    ax.set_ylabel("TTFT (s)")
-    ax.set_xticks(np.arange(1, len(labels) + 1))
-    ax.set_xticklabels(labels)
-    ax.grid(True, axis="y", color=GRID, linewidth=1.0, zorder=0)
+    ax.set_xlabel("SLO violations (%)")
+    ax.set_ylabel("")
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=8.4)
+    ax.invert_yaxis()
+    ax.grid(True, axis="x", color=GRID, linewidth=1.0, zorder=0)
+    ax.grid(False, axis="y")
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.set_ylim(0.0, y_top + 0.75)
+    ax.set_xlim(0.0, max_value + max(max_value * 0.44, 2.0))
 
 
 def _histogram_box_stats(label: str, histogram: dict[str, object]) -> dict[str, float | str]:
@@ -482,7 +471,7 @@ def _render_combined(
     fig.text(0.082, 0.955, "BurstGPT + ShareGPT", ha="left", va="top", fontsize=12.0, fontweight="bold")
     for ax, metric in zip(axes, metrics, strict=True):
         if metric.stem_suffix == "slo":
-            _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
+            _plot_slo_bar_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
         else:
             _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
 
@@ -519,11 +508,11 @@ def _render_separate(
         fig, ax = plt.subplots(figsize=(2.35, 2.08))
         show_legend = include_legend and metric.stem_suffix != "slo"
         top = 0.755 if show_legend else 0.955
-        fig.subplots_adjust(left=0.215, right=0.985, bottom=0.255, top=top)
         if metric.stem_suffix == "slo":
-            fig.subplots_adjust(left=0.215, right=0.985, bottom=0.255, top=top)
-            _plot_slo_box_panel(ax, sweep=sweep, histograms=histograms, metric=metric)
+            fig.subplots_adjust(left=0.455, right=0.985, bottom=0.255, top=0.955)
+            _plot_slo_bar_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
         else:
+            fig.subplots_adjust(left=0.215, right=0.985, bottom=0.255, top=top)
             _plot_panel(ax, df=df, sweep=sweep, base_cost=base_cost, metric=metric)
         if show_legend:
             fig.legend(
