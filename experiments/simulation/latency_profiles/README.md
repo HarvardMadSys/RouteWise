@@ -39,8 +39,20 @@ records `run_stats.is_full_day_observation=false`.
 Regenerate the artifact with:
 
 ```bash
-python -m scripts.prepare_latency_profiles
-python -m scripts.prepare_minimax_m25_openrouter_profile --endpoints-json /tmp/openrouter_minimax_m25_endpoints.json
+# Qwen3 235B
+python -m scripts.prepare_latency_profile \
+    --model qwen3_235b \
+    --source-log /path/to/qwen3/evaluation_log.csv \
+    --out-npz experiments/simulation/latency_profiles/qwen3_24h.npz
+
+# MiniMax M2.5 (OpenRouter)
+python -m scripts.prepare_latency_profile \
+    --model minimax_m25 --model-family minimax-m2.5 \
+    --source-log /path/to/minimax/evaluation_log.csv \
+    --out-npz experiments/simulation/latency_profiles/minimax_m25_openrouter_24h.npz \
+    --endpoints-json /tmp/openrouter_minimax_m25_endpoints.json \
+    --price-source https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints \
+    --run-label phase5_minimax_m25_24h
 ```
 
 The profile preparation script drops providers with fewer than 1,000 valid TTFT

@@ -1,18 +1,28 @@
-"""Prepare MiniMax M2.5 OpenRouter TTFT samples from the cached phase5 run.
+"""Prepare per-provider TTFT latency profiles from an evaluation log.
 
-The source directory is named ``phase5_minimax_m25_24h``, but the available
-CSV currently covers less than a full day. The generated metadata records the
-observed duration explicitly so downstream users do not mistake the artifact
-for a complete 24-hour measurement.
+Reads an ``evaluation_log.csv`` produced by a measurement run, extracts
+per-provider TTFT samples, subsamples them, and writes a compact ``.npz``
+plus a ``.json`` metadata sidecar for the simulator's empirical latency model.
 
-Run from the RouteWise package root:
+The script is model-agnostic. It tolerates logs that lack a ``status`` or
+``timestamp`` column: the ``status == "success"`` filter applies only when the
+column is present, and run-duration stats are emitted only when timestamps are
+available.
 
-    python -m scripts.prepare_minimax_m25_openrouter_profile \
-        --endpoints-json /tmp/openrouter_minimax_m25_endpoints.json
+Run from the RouteWise package root, for example:
 
-Output:
-    experiments/simulation/latency_profiles/minimax_m25_openrouter_24h.npz
-    experiments/simulation/latency_profiles/minimax_m25_openrouter_24h.json
+    python -m scripts.prepare_latency_profile \\
+        --model qwen3_235b \\
+        --source-log /path/to/qwen3/evaluation_log.csv \\
+        --out-npz experiments/simulation/latency_profiles/qwen3_24h.npz
+
+    python -m scripts.prepare_latency_profile \\
+        --model minimax_m25 --model-family minimax-m2.5 \\
+        --source-log /path/to/minimax/evaluation_log.csv \\
+        --out-npz experiments/simulation/latency_profiles/minimax_m25_openrouter_24h.npz \\
+        --endpoints-json /tmp/openrouter_minimax_m25_endpoints.json \\
+        --price-source https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints \\
+        --run-label phase5_minimax_m25_24h
 """
 
 from __future__ import annotations
@@ -27,22 +37,22 @@ from typing import Any
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_LOG = Path(
-    "/Users/realtmxi/Desktop/NSDI2027_RouteWise/experiment/results/"
-    "phase5_minimax_m25_24h/run_20260412_045326/evaluation_log.csv"
-)
-PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"
-OUT_NPZ = PROFILE_DIR / "minimax_m25_openrouter_24h.npz"
-OUT_META = PROFILE_DIR / "minimax_m25_openrouter_24h.json"
-
 MIN_SAMPLES_PER_PROVIDER = 1_000
 MAX_SAMPLES_PER_PROVIDER = 50_000
 SUBSAMPLE_SEED = 42
 
 
-def collect_ttft_per_provider(csv_path: Path) -> tuple[dict[str, list[float]], dict[str, Any]]:
-    """Parse the phase5 log into ``{provider: [ttft_ms, ...]}`` plus run stats."""
+def collect_ttft_per_provider(
+    csv_path: Path,
+) -> tuple[dict[str, list[float]], dict[str, Any]]:
+    """Parse an evaluation log into ``{provider: [ttft_ms, ...]}`` plus run stats.
+
+    Row inclusion requires a known provider and ``ttft_ms > 0``. The
+    ``status == "success"`` filter is applied only when the log has a
+    ``status`` column. Timestamps are recorded for run-duration stats when
+    present, but a missing or invalid timestamp never discards an otherwise
+    valid TTFT sample.
+    """
     ttft: dict[str, list[float]] = defaultdict(list)
     timestamps: list[float] = []
     total_rows = 0
@@ -51,7 +61,8 @@ def collect_ttft_per_provider(csv_path: Path) -> tuple[dict[str, list[float]], d
         reader = csv.DictReader(f)
         for row in reader:
             total_rows += 1
-            if row.get("status") != "success":
+            status = row.get("status")
+            if status is not None and status != "success":
                 skipped_rows += 1
                 continue
             provider = row.get("actual_provider", "")
@@ -60,15 +71,21 @@ def collect_ttft_per_provider(csv_path: Path) -> tuple[dict[str, list[float]], d
                 continue
             try:
                 value = float(row.get("ttft_ms", 0))
-                ts = float(row.get("timestamp", 0))
-            except ValueError:
+            except (TypeError, ValueError):
                 skipped_rows += 1
                 continue
-            if value <= 0 or ts <= 0:
+            if value <= 0:
                 skipped_rows += 1
                 continue
             ttft[provider].append(value)
-            timestamps.append(ts)
+            raw_ts = row.get("timestamp")
+            if raw_ts not in (None, ""):
+                try:
+                    ts = float(raw_ts)
+                except (TypeError, ValueError):
+                    ts = 0.0
+                if ts > 0:
+                    timestamps.append(ts)
 
     stats: dict[str, Any] = {
         "total_rows": total_rows,
@@ -159,9 +176,16 @@ def load_openrouter_prices(path: Path | None) -> dict[str, dict[str, Any]]:
 def build_metadata(
     ttft: dict[str, np.ndarray],
     *,
+    artifact_name: str,
     source: Path,
+    model: str,
+    model_family: str,
+    tier: str,
+    run_label: str | None,
+    note: str | None,
     run_stats: dict[str, Any],
     prices: dict[str, dict[str, Any]],
+    price_source: str | None,
     endpoints_json: Path | None,
     subsample_seed: int,
     max_samples: int,
@@ -170,7 +194,7 @@ def build_metadata(
     """Build provenance and per-provider summary metadata."""
     providers_meta: dict[str, dict[str, Any]] = {}
     for provider, arr in sorted(ttft.items()):
-        meta = {
+        meta: dict[str, Any] = {
             "n_samples": int(arr.size),
             "p50_ms": float(np.percentile(arr, 50)),
             "p90_ms": float(np.percentile(arr, 90)),
@@ -182,33 +206,32 @@ def build_metadata(
             meta["openrouter_price"] = prices[provider]
         providers_meta[provider] = meta
 
-    return {
+    metadata: dict[str, Any] = {
         "schema_version": "1.0",
-        "artifact": OUT_NPZ.name,
+        "artifact": artifact_name,
         "source_log": str(source),
-        "source_run_label": "phase5_minimax_m25_24h",
-        "source_note": (
-            "Directory name says 24h, but run_stats.observed_duration_hours is "
-            "the actual CSV coverage."
-        ),
-        "model": "minimax_m25",
-        "model_family": "minimax-m2.5",
-        "tier": "S_A",
-        "subsample_seed": subsample_seed,
-        "max_samples_per_provider": max_samples,
-        "min_samples_per_provider": min_samples,
-        "run_stats": run_stats,
-        "price_snapshot": {
-            "source": (
-                "https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints"
-            ),
+        "model": model,
+        "model_family": model_family,
+        "tier": tier,
+    }
+    if run_label:
+        metadata["source_run_label"] = run_label
+    if note:
+        metadata["source_note"] = note
+    metadata["subsample_seed"] = subsample_seed
+    metadata["max_samples_per_provider"] = max_samples
+    metadata["min_samples_per_provider"] = min_samples
+    metadata["run_stats"] = run_stats
+    if prices or endpoints_json or price_source:
+        metadata["price_snapshot"] = {
+            "source": price_source,
             "captured_from": str(endpoints_json) if endpoints_json else None,
             "unit": "USD per 1M tokens",
             "note": "Provider prices can change; refresh before paper numbers.",
-        },
-        "n_providers": len(providers_meta),
-        "providers": providers_meta,
-    }
+        }
+    metadata["n_providers"] = len(providers_meta)
+    metadata["providers"] = providers_meta
+    return metadata
 
 
 def _price_per_m(value: Any) -> float | None:
@@ -223,14 +246,59 @@ def _iso_utc(ts: float) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-log", type=Path, default=SOURCE_LOG)
-    parser.add_argument("--out-npz", type=Path, default=OUT_NPZ)
-    parser.add_argument("--out-meta", type=Path, default=OUT_META)
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="Model identifier recorded in metadata, e.g. qwen3_235b or minimax_m25.",
+    )
+    parser.add_argument(
+        "--model-family",
+        default=None,
+        help="Model family label. Defaults to --model when omitted.",
+    )
+    parser.add_argument(
+        "--source-log",
+        type=Path,
+        required=True,
+        help="Path to the evaluation_log.csv produced by a measurement run.",
+    )
+    parser.add_argument(
+        "--out-npz",
+        type=Path,
+        required=True,
+        help="Output .npz path (e.g. under experiments/simulation/latency_profiles/).",
+    )
+    parser.add_argument(
+        "--out-meta",
+        type=Path,
+        default=None,
+        help="Output .json metadata path. Defaults to --out-npz with a .json suffix.",
+    )
+    parser.add_argument(
+        "--tier",
+        default="S_A",
+        help="Latency tier label recorded in metadata (default: S_A).",
+    )
+    parser.add_argument(
+        "--run-label",
+        default=None,
+        help="Optional provenance label for the source measurement run.",
+    )
+    parser.add_argument(
+        "--note",
+        default=None,
+        help="Optional free-text caveat recorded in metadata (e.g. partial coverage).",
+    )
     parser.add_argument(
         "--endpoints-json",
         type=Path,
         default=None,
         help="Optional JSON captured from the OpenRouter endpoints API.",
+    )
+    parser.add_argument(
+        "--price-source",
+        default=None,
+        help="Optional URL recorded as the price-snapshot source.",
     )
     parser.add_argument("--min-samples", type=int, default=MIN_SAMPLES_PER_PROVIDER)
     parser.add_argument("--max-samples", type=int, default=MAX_SAMPLES_PER_PROVIDER)
@@ -239,16 +307,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    out_npz: Path = args.out_npz
+    out_meta: Path = args.out_meta or out_npz.with_suffix(".json")
+    model_family: str = args.model_family or args.model
+
     print(f"Reading {args.source_log}")
     raw, run_stats = collect_ttft_per_provider(args.source_log)
     print(
         f"  collected {len(raw)} providers, "
         f"{sum(len(v) for v in raw.values()):,} valid TTFT samples"
     )
-    print(
-        f"  observed duration: "
-        f"{run_stats.get('observed_duration_hours', 0.0):.2f} hours"
-    )
+    if "observed_duration_hours" in run_stats:
+        print(f"  observed duration: {run_stats['observed_duration_hours']:.2f} hours")
 
     rng = np.random.default_rng(SUBSAMPLE_SEED)
     sub = subsample_if_large(raw, cap=args.max_samples, rng=rng)
@@ -263,23 +333,30 @@ def main() -> None:
         matched = len(set(sub) & set(prices))
         print(f"  loaded price snapshot for {len(prices)} providers ({matched} matched)")
 
-    args.out_npz.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(args.out_npz, **sub)
-    print(f"  wrote {args.out_npz} ({args.out_npz.stat().st_size / 1024:.1f} KB)")
+    out_npz.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(out_npz, **sub)
+    print(f"  wrote {out_npz} ({out_npz.stat().st_size / 1024:.1f} KB)")
 
     metadata = build_metadata(
         sub,
+        artifact_name=out_npz.name,
         source=args.source_log,
+        model=args.model,
+        model_family=model_family,
+        tier=args.tier,
+        run_label=args.run_label,
+        note=args.note,
         run_stats=run_stats,
         prices=prices,
+        price_source=args.price_source,
         endpoints_json=args.endpoints_json,
         subsample_seed=SUBSAMPLE_SEED,
         max_samples=args.max_samples,
         min_samples=args.min_samples,
     )
-    with args.out_meta.open("w") as f:
+    with out_meta.open("w") as f:
         json.dump(metadata, f, indent=2)
-    print(f"  wrote {args.out_meta}")
+    print(f"  wrote {out_meta}")
 
     print("\nPer-provider summary:")
     print(
