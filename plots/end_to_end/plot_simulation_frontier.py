@@ -56,10 +56,8 @@ from plots.style import apply_style
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
-    "or_sort_cost": "OR-price",
     "random": "Random",
     "greedy_latency": "Greedy-latency",
-    "or_sort_latency": "OR-latency",
 }
 BASELINE_ORDER = (
     "greedy_cost",

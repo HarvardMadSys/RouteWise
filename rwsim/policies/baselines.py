@@ -29,22 +29,12 @@ _GREEDY_COST_TIER_RANK: dict[ProviderTier, int] = {
 _UNKNOWN_TIER_RANK = 99
 
 
-_BASELINE_MODES = frozenset(
-    {"greedy_cost", "greedy_latency", "random", "or_sort_cost", "or_sort_latency"}
-)
+_BASELINE_MODES = frozenset({"greedy_cost", "greedy_latency", "random"})
 
 
 @dataclass
 class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
-    """Greedy-cost, greedy-latency, random, plus the OR-tier sort baselines.
-
-    ``or_sort_cost`` and ``or_sort_latency`` mirror OpenRouter's request-level
-    ``sort=price`` / ``sort=latency`` parameters: OR sees only its listed
-    (S_A) providers and picks the cheapest / fastest one per request, with no
-    awareness of the user's separate Chutes / Featherless subscriptions. In
-    the simulator that becomes a tier-restricted variant of greedy_cost /
-    greedy_latency.
-    """
+    """Paper-facing greedy-cost, greedy-latency, and random baselines."""
 
     mode: str
     seed: int = 0
@@ -63,14 +53,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
         if not providers:
             raise ValueError("No providers configured for baseline policy.")
 
-        # or_sort_* policies model OpenRouter's view: only S_A providers are
-        # visible. Subscription tiers belong to the user, not to OR.
-        if self.mode.startswith("or_sort_"):
-            api_only = [p for p in providers if p.tier == ProviderTier.S_A]
-            if api_only:
-                providers = api_only
-
-        if self.mode in ("greedy_cost", "or_sort_cost"):
+        if self.mode == "greedy_cost":
             primary = min(
                 providers,
                 key=lambda provider: (
@@ -80,7 +63,7 @@ class BaselinePolicy(NoOpTickMixin, NoOpObserveMixin):
                     provider.name,
                 ),
             )
-        elif self.mode in ("greedy_latency", "or_sort_latency"):
+        elif self.mode == "greedy_latency":
             primary = min(
                 providers,
                 key=lambda provider: (

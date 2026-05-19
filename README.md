@@ -1,54 +1,73 @@
 # RouteWise Simulator
 
-This repository contains the trace-driven simulator and experiment harness used
-to evaluate RouteWise routing policies.
+Trace-driven simulator and experiment harness for evaluating RouteWise
+multi-provider LLM routing policies. It replays request traces against a
+model of provider capacity, quota, and latency, then reports per-request
+cost and latency outcomes for each routing policy.
 
-## Current Architecture
+<!-- TODO(authors): fill in before public release.
+Paper: "<title>", <venue> <year>.
+Replace the BibTeX block below with the real entry. Do not ship a
+placeholder citation.
 
-The simulator code is organized around one engine and a flat policy interface:
+```bibtex
+@inproceedings{routewise,
+  title     = {<paper title>},
+  author    = {<authors>},
+  booktitle = {<venue>},
+  year      = {<year>}
+}
+```
+-->
 
-- `rwsim/engine/`: request loop, capacity accounting, in-flight hedge ticks
-- `rwsim/world/`: providers, quota/concurrency state, latency distributions
-- `rwsim/data/`: trace workload loaders
-- `rwsim/policies/`: flat policy presets and implementations
-- `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
-- `experiments/`: paper configs, suites, and offline-stage workflows
+## Requirements
 
-The old `rwsim/strategies/` layer and stage directories under
-`rwsim/policies/` have been removed. Policy presets are:
+- Python >= 3.10
+- The dependencies pinned in `pyproject.toml` (resolved via `uv.lock`)
 
-- `greedy_cost`
-- `greedy_latency`
-- `random`
-- `ablation_lp_only`
-- `ablation_lp_hedging`
-- `routewise`
-
-## Quick Start
-
-From the repository root:
+## Installation
 
 ```bash
+python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
 
-Prepare trace workload data when needed:
+This installs the `routewise` command-line entry point.
+
+## Data
+
+The simulator is trace-driven and does not ship the workload traces. The
+harness expects public LLM-serving traces (BurstGPT, ShareGPT). Generate the
+local trace and dataset cache before running experiments:
 
 ```bash
 python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
-Run the implemented simulator paper sections. See
-`experiments/simulation/README.md` for the target sub-experiment tree:
+The real-evaluation harness (the path that issues live provider requests)
+additionally needs credentials. Copy the template and fill in only the
+providers you use:
+
+```bash
+cp .env.example .env
+```
+
+The pure simulator path does not require any API keys.
+
+## Running experiments
+
+List the available paper sections and run one:
 
 ```bash
 routewise simulator list
 routewise simulator cost-layer
 ```
 
-## Python Entrypoints
+See `experiments/simulation/README.md` for the full sub-experiment tree.
+
+## Python API
 
 ```python
 from rwsim import POLICIES, run_policy
@@ -57,7 +76,24 @@ from rwsim.policies import build_policy
 from rwsim.world import Provider, ScenarioConfig
 ```
 
-## Verification
+Available policy presets: `greedy_cost`, `greedy_latency`, `random`,
+`ablation_lp_only`, `ablation_lp_hedging`, `routewise`.
+The simulator does not include OpenRouter native `sort=price` or
+`sort=latency` baselines; those remain part of the live real-evaluation
+harness only.
+
+## Repository layout
+
+- `rwsim/engine/`: request loop, capacity accounting, in-flight hedge ticks
+- `rwsim/world/`: providers, quota and concurrency state, latency distributions
+- `rwsim/data/`: trace workload loaders
+- `rwsim/policies/`: policy presets and implementations
+- `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
+- `experiments/`: paper configs, suites, and offline-stage workflows
+- `routewise_cli/`: command-line entry point
+- `scripts/`: data preparation and profiling utilities
+
+## Testing
 
 Fast structural and unit checks:
 
@@ -65,7 +101,7 @@ Fast structural and unit checks:
 pytest -q -m "not slow"
 ```
 
-Golden comparison remains available for full regression runs:
+Golden comparison for full regression runs:
 
 ```bash
 python tests/golden_capture.py --mode compare
@@ -73,6 +109,9 @@ python tests/golden_capture.py --mode compare
 
 ## Documentation
 
-- `docs/RWSIM_REFACTOR_PLAN.md`
-- `docs/EXPERIMENT_LAYOUT.md`
-- `docs/REPRODUCIBILITY.md`
+- `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results
+- `docs/EXPERIMENT_LAYOUT.md`: how experiments, suites, and policies fit together
+
+## License
+
+MIT. See [LICENSE](LICENSE).

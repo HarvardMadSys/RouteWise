@@ -267,13 +267,11 @@ def _with_prefix_cache_config(
 def policies_for_section(
     p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
 ) -> tuple[str, ...]:
-    """Return §3 baselines plus LP-only and LP+hedging p sweeps."""
+    """Return §3 simulator baselines plus LP-only and LP+hedging p sweeps."""
     return (
         "greedy_cost",
         "greedy_latency",
         "random",
-        "or_sort_cost",
-        "or_sort_latency",
         *(routewise_lp_policy_name(value) for value in p_values),
         *(routewise_hedging_policy_name(value) for value in p_values),
     )

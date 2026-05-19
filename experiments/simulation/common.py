@@ -180,6 +180,9 @@ def make_routewise_presets(
 ) -> dict[str, dict[str, Any]]:
     """Build section-local policy presets with explorer disabled.
 
+    Simulator baselines intentionally stop at greedy-cost, greedy-latency, and
+    random; OpenRouter native sort policies live only in real evaluation.
+
     RouteWise uses bucket-mean output prediction by default for S_A LP cost.
     Pass ``None`` or ``"none"`` to use trace ``response_tokens`` instead.
     """
@@ -188,8 +191,6 @@ def make_routewise_presets(
         "greedy_cost": {"policy": "BaselinePolicy", "params": {"mode": "greedy_cost"}},
         "greedy_latency": {"policy": "BaselinePolicy", "params": {"mode": "greedy_latency"}},
         "random": {"policy": "BaselinePolicy", "params": {"mode": "random"}},
-        "or_sort_cost": {"policy": "BaselinePolicy", "params": {"mode": "or_sort_cost"}},
-        "or_sort_latency": {"policy": "BaselinePolicy", "params": {"mode": "or_sort_latency"}},
     }
     for value in p_values:
         params: dict[str, Any] = {

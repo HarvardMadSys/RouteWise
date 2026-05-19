@@ -33,6 +33,9 @@ Real-world pools are locked. See [`latency_profiles/pools.yaml`](latency_profile
 - `random`           — uniform over feasible providers
 - `offline`          — cost-only oracle (greedy / ILP, see `experiments/offline_stage/`)
 
+OpenRouter-native `sort=price` / `sort=latency` baselines are not simulated;
+they remain live real-evaluation policies only.
+
 **Dataset** — ShareGPT one-month trace.
 
 **Metrics** — every run reports:

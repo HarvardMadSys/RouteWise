@@ -28,8 +28,6 @@ from plots.style import apply_style
 
 POLICIES = (
     "greedy_cost",
-    "or_sort_cost",
-    "or_sort_latency",
     "greedy_latency",
     "random",
     "ablation_lp_only_p0",
@@ -46,8 +44,6 @@ POLICIES = (
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
-    "or_sort_cost": "OR-price",
-    "or_sort_latency": "OR-latency",
     "greedy_latency": "Greedy-latency",
     "random": "Random",
     "ablation_lp_only_p0": r"\sysname{} ($\alpha=0$)",
@@ -63,7 +59,7 @@ POLICY_LABELS = {
 }
 
 PLOT_POLICIES = (
-    "or_sort_cost",
+    "greedy_cost",
     "greedy_latency",
     "ablation_lp_only_p25",
     "ablation_lp_only_p50",

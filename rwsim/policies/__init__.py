@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from rwsim.policies.base import Policy
 from rwsim.policies.baselines import BaselinePolicy
@@ -26,14 +28,6 @@ DEFAULT_PRESETS: dict[str, dict[str, Any]] = {
     "random": {
         "policy": "BaselinePolicy",
         "params": {"mode": "random"},
-    },
-    "or_sort_cost": {
-        "policy": "BaselinePolicy",
-        "params": {"mode": "or_sort_cost"},
-    },
-    "or_sort_latency": {
-        "policy": "BaselinePolicy",
-        "params": {"mode": "or_sort_latency"},
     },
     "ablation_lp_only": {
         "policy": "RouteWisePolicy",
@@ -77,9 +71,9 @@ def build_policy(
 
 
 __all__ = [
-    "BaselinePolicy",
     "DEFAULT_PRESETS",
     "POLICY_CLASSES",
+    "BaselinePolicy",
     "Policy",
     "RouteWisePolicy",
     "available_policies",
