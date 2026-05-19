@@ -1,8 +1,10 @@
-"""Prepare per-provider TTFT latency profiles from an evaluation log.
+"""Prepare per-provider TTFT latency profiles from real measurement logs.
 
 Reads an ``evaluation_log.csv`` produced by a measurement run, extracts
 per-provider TTFT samples, subsamples them, and writes a compact ``.npz``
 plus a ``.json`` metadata sidecar for the simulator's empirical latency model.
+It can also read real-eval ``shared_profile_events.jsonl`` logs, excluding
+OpenRouter aggregate pseudo-providers such as ``__or_auto__`` by default.
 
 The script is model-agnostic. It tolerates logs that lack a ``status`` or
 ``timestamp`` column: the ``status == "success"`` filter applies only when the
@@ -30,7 +32,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +43,22 @@ import numpy as np
 MIN_SAMPLES_PER_PROVIDER = 1_000
 MAX_SAMPLES_PER_PROVIDER = 50_000
 SUBSAMPLE_SEED = 42
+PSEUDO_PROVIDER_RE = re.compile(r"^__.*__$")
+
+
+def normalize_provider(raw: str) -> str:
+    """Normalize real-eval provider labels to simulator profile keys."""
+    provider = raw.strip()
+    if "@" in provider:
+        provider = provider.split("@", 1)[1]
+    if provider.startswith("OR_"):
+        provider = provider[3:]
+    return provider
+
+
+def is_pseudo_provider(provider: str) -> bool:
+    """Return whether a provider label is an aggregate baseline profile."""
+    return bool(PSEUDO_PROVIDER_RE.match(provider))
 
 
 def collect_ttft_per_provider(
@@ -91,6 +110,108 @@ def collect_ttft_per_provider(
         "total_rows": total_rows,
         "valid_ttft_rows": sum(len(v) for v in ttft.values()),
         "skipped_rows": skipped_rows,
+    }
+    if timestamps:
+        start_ts = min(timestamps)
+        end_ts = max(timestamps)
+        stats.update(
+            {
+                "timestamp_min": _iso_utc(start_ts),
+                "timestamp_max": _iso_utc(end_ts),
+                "observed_duration_hours": (end_ts - start_ts) / 3600.0,
+                "is_full_day_observation": (end_ts - start_ts) >= 23.5 * 3600.0,
+            }
+        )
+    return dict(ttft), stats
+
+
+def collect_ttft_from_shared_profile_events(
+    events_path: Path,
+    *,
+    allowed_sources: set[str] | None,
+    include_pseudo: bool,
+) -> tuple[dict[str, list[float]], dict[str, Any]]:
+    """Parse shared profile events into ``{provider: [ttft_ms, ...]}``.
+
+    Shared profile events include successful samples, transport failures, probe
+    samples, and aggregate baseline labels. Only successful ``ttft_ms > 0``
+    samples are used for the empirical distributions. Aggregate labels such as
+    ``__or_sort_latency__`` are excluded unless explicitly requested.
+    """
+    ttft: dict[str, list[float]] = defaultdict(list)
+    source_counts: Counter[str] = Counter()
+    valid_source_counts: Counter[str] = Counter()
+    excluded_pseudo: Counter[str] = Counter()
+    error_counts: Counter[tuple[str, str]] = Counter()
+    n_total = 0
+    n_bad_json = 0
+    n_missing_provider = 0
+    n_missing_ttft = 0
+    n_source_filtered = 0
+    timestamps: list[float] = []
+
+    with events_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            n_total += 1
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                n_bad_json += 1
+                continue
+
+            source = str(event.get("source") or "")
+            source_counts[source] += 1
+            if allowed_sources is not None and source not in allowed_sources:
+                n_source_filtered += 1
+                continue
+
+            provider = normalize_provider(str(event.get("provider") or ""))
+            if not provider:
+                n_missing_provider += 1
+                continue
+            if is_pseudo_provider(provider) and not include_pseudo:
+                excluded_pseudo[provider] += 1
+                continue
+
+            error_type = event.get("error_type")
+            if error_type:
+                error_counts[(provider, str(error_type))] += 1
+                continue
+
+            try:
+                value = float(event.get("ttft_ms") or 0.0)
+            except (TypeError, ValueError):
+                n_missing_ttft += 1
+                continue
+            if value <= 0.0:
+                n_missing_ttft += 1
+                continue
+
+            ttft[provider].append(value)
+            valid_source_counts[source] += 1
+            try:
+                ts = float(event.get("ts") or 0.0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            if ts > 0.0:
+                timestamps.append(ts)
+
+    stats: dict[str, Any] = {
+        "total_events": n_total,
+        "valid_ttft_events": sum(len(v) for v in ttft.values()),
+        "bad_json_events": n_bad_json,
+        "source_filtered_events": n_source_filtered,
+        "missing_provider_events": n_missing_provider,
+        "missing_or_nonpositive_ttft_events": n_missing_ttft,
+        "source_counts": dict(sorted(source_counts.items())),
+        "valid_source_counts": dict(sorted(valid_source_counts.items())),
+        "excluded_pseudo_provider_counts": dict(sorted(excluded_pseudo.items())),
+        "error_counts": {
+            f"{provider}:{error_type}": count
+            for (provider, error_type), count in sorted(error_counts.items())
+        },
     }
     if timestamps:
         start_ts = min(timestamps)
@@ -173,6 +294,65 @@ def load_openrouter_prices(path: Path | None) -> dict[str, dict[str, Any]]:
     return prices
 
 
+def load_inventory_provider_metadata(path: Path | None) -> dict[str, dict[str, Any]]:
+    """Load provider metadata from a real-eval inventory, keyed by profile name."""
+    if path is None:
+        return {}
+    payload = json.loads(path.read_text())
+    metadata: dict[str, dict[str, Any]] = {}
+    for provider in payload.get("providers", []):
+        if not isinstance(provider, dict):
+            continue
+        raw_name = str(provider.get("name") or "")
+        if not raw_name:
+            continue
+        key = normalize_provider(raw_name)
+        entry = {
+            field: provider[field]
+            for field in (
+                "name",
+                "tier",
+                "transport",
+                "model",
+                "provider_hint",
+                "billing_mode",
+                "quota_requests",
+                "quota_window_sec",
+                "concurrency_limit",
+                "subscription_plan",
+                "stream_cancel_billing",
+                "notes",
+            )
+            if field in provider
+        }
+        input_price = provider.get("input_price_per_m")
+        output_price = provider.get("output_price_per_m")
+        cached_input = provider.get("cached_input_price_per_m")
+        if input_price is not None:
+            entry["input_price_per_m"] = float(input_price)
+        if output_price is not None:
+            entry["output_price_per_m"] = float(output_price)
+        if cached_input is not None:
+            entry["cached_input_price_per_m"] = float(cached_input)
+        if (
+            provider.get("transport") == "openrouter"
+            and input_price is not None
+            and output_price is not None
+        ):
+            entry["openrouter_price"] = {
+                "provider_name": provider.get("provider_hint") or key,
+                "input_price_per_m": float(input_price),
+                "output_price_per_m": float(output_price),
+                "input_cache_read_price_per_m": (
+                    None if cached_input is None else float(cached_input)
+                ),
+                "source": "real_eval_inventory",
+                "inventory_provider_name": raw_name,
+            }
+        metadata[key] = entry
+    return metadata
+
+
 def build_metadata(
     ttft: dict[str, np.ndarray],
     *,
@@ -183,13 +363,18 @@ def build_metadata(
     tier: str,
     run_label: str | None,
     note: str | None,
+    source_format: str,
     run_stats: dict[str, Any],
     prices: dict[str, dict[str, Any]],
+    provider_metadata: dict[str, dict[str, Any]],
     price_source: str | None,
     endpoints_json: Path | None,
+    inventory_json: Path | None,
     subsample_seed: int,
     max_samples: int,
     min_samples: int,
+    include_pseudo_providers: bool,
+    included_sources: set[str] | None,
 ) -> dict[str, Any]:
     """Build provenance and per-provider summary metadata."""
     providers_meta: dict[str, dict[str, Any]] = {}
@@ -202,6 +387,8 @@ def build_metadata(
             "mean_ms": float(np.mean(arr)),
             "max_ms": float(np.max(arr)),
         }
+        if provider in provider_metadata:
+            meta.update(provider_metadata[provider])
         if provider in prices:
             meta["openrouter_price"] = prices[provider]
         providers_meta[provider] = meta
@@ -210,9 +397,12 @@ def build_metadata(
         "schema_version": "1.0",
         "artifact": artifact_name,
         "source_log": str(source),
+        "source_format": source_format,
         "model": model,
         "model_family": model_family,
         "tier": tier,
+        "include_pseudo_providers": include_pseudo_providers,
+        "included_sources": None if included_sources is None else sorted(included_sources),
     }
     if run_label:
         metadata["source_run_label"] = run_label
@@ -222,10 +412,12 @@ def build_metadata(
     metadata["max_samples_per_provider"] = max_samples
     metadata["min_samples_per_provider"] = min_samples
     metadata["run_stats"] = run_stats
-    if prices or endpoints_json or price_source:
+    if prices or provider_metadata or endpoints_json or inventory_json or price_source:
         metadata["price_snapshot"] = {
             "source": price_source,
-            "captured_from": str(endpoints_json) if endpoints_json else None,
+            "captured_from": str(endpoints_json or inventory_json)
+            if endpoints_json or inventory_json
+            else None,
             "unit": "USD per 1M tokens",
             "note": "Provider prices can change; refresh before paper numbers.",
         }
@@ -260,7 +452,16 @@ def parse_args() -> argparse.Namespace:
         "--source-log",
         type=Path,
         required=True,
-        help="Path to the evaluation_log.csv produced by a measurement run.",
+        help=(
+            "Path to the source measurement log. Defaults to evaluation_log.csv; "
+            "use --source-format shared_profile_events for real-eval JSONL events."
+        ),
+    )
+    parser.add_argument(
+        "--source-format",
+        choices=("evaluation_log", "shared_profile_events"),
+        default="evaluation_log",
+        help="Input log format. Defaults to evaluation_log.",
     )
     parser.add_argument(
         "--out-npz",
@@ -300,6 +501,29 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional URL recorded as the price-snapshot source.",
     )
+    parser.add_argument(
+        "--inventory-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional real-eval inventory JSON. Useful with shared profile events "
+            "to attach provider tier/transport/pricing metadata."
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        action="append",
+        dest="sources",
+        help=(
+            "For shared_profile_events input, include only this event source "
+            "(e.g. natural, probe, warmup). Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--include-pseudo-providers",
+        action="store_true",
+        help="Keep aggregate labels such as __or_auto__ in shared-profile output.",
+    )
     parser.add_argument("--min-samples", type=int, default=MIN_SAMPLES_PER_PROVIDER)
     parser.add_argument("--max-samples", type=int, default=MAX_SAMPLES_PER_PROVIDER)
     return parser.parse_args()
@@ -312,13 +536,23 @@ def main() -> None:
     model_family: str = args.model_family or args.model
 
     print(f"Reading {args.source_log}")
-    raw, run_stats = collect_ttft_per_provider(args.source_log)
+    included_sources = set(args.sources) if args.sources else None
+    if args.source_format == "shared_profile_events":
+        raw, run_stats = collect_ttft_from_shared_profile_events(
+            args.source_log,
+            allowed_sources=included_sources,
+            include_pseudo=args.include_pseudo_providers,
+        )
+    else:
+        raw, run_stats = collect_ttft_per_provider(args.source_log)
     print(
         f"  collected {len(raw)} providers, "
         f"{sum(len(v) for v in raw.values()):,} valid TTFT samples"
     )
     if "observed_duration_hours" in run_stats:
         print(f"  observed duration: {run_stats['observed_duration_hours']:.2f} hours")
+    if run_stats.get("excluded_pseudo_provider_counts"):
+        print(f"  excluded pseudo providers: {run_stats['excluded_pseudo_provider_counts']}")
 
     rng = np.random.default_rng(SUBSAMPLE_SEED)
     sub = subsample_if_large(raw, cap=args.max_samples, rng=rng)
@@ -329,9 +563,16 @@ def main() -> None:
     )
 
     prices = load_openrouter_prices(args.endpoints_json)
+    provider_metadata = load_inventory_provider_metadata(args.inventory_json)
     if args.endpoints_json:
         matched = len(set(sub) & set(prices))
         print(f"  loaded price snapshot for {len(prices)} providers ({matched} matched)")
+    if args.inventory_json:
+        matched = len(set(sub) & set(provider_metadata))
+        print(
+            f"  loaded inventory metadata for {len(provider_metadata)} providers "
+            f"({matched} matched)"
+        )
 
     out_npz.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_npz, **sub)
@@ -346,13 +587,18 @@ def main() -> None:
         tier=args.tier,
         run_label=args.run_label,
         note=args.note,
+        source_format=args.source_format,
         run_stats=run_stats,
         prices=prices,
+        provider_metadata=provider_metadata,
         price_source=args.price_source,
         endpoints_json=args.endpoints_json,
+        inventory_json=args.inventory_json,
         subsample_seed=SUBSAMPLE_SEED,
         max_samples=args.max_samples,
         min_samples=args.min_samples,
+        include_pseudo_providers=args.include_pseudo_providers,
+        included_sources=included_sources,
     )
     with out_meta.open("w") as f:
         json.dump(metadata, f, indent=2)
