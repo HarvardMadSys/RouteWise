@@ -23,6 +23,13 @@ profiles:
     metadata: minimax_m25_or8_1h_effmean.json
     price_source: static_from_inventory
 
+  minimax_m25_shared_profile_8h:
+    model: minimax/minimax-m2.5
+    source: real_eval_minimax_m25_burstgpt_cap10s_shared_profile_8h
+    artifact: minimax_m25_shared_profile_8h.npz
+    metadata: minimax_m25_shared_profile_8h.json
+    price_source: static_from_inventory
+
 pools:
   rw3:
     description: "Small real-world S_A pool with clear latency spread."
@@ -106,6 +113,21 @@ pools:
       - Phala
       - SiliconFlow
       - Nebius
+      - WandB
+
+  minimax_m25_shared_profile_8h_api8:
+    description: "MiniMax M2.5 cap10s 8h real-eval shared-profile events: true API providers only; excludes __or_auto__/__or_sort_* aggregate baselines."
+    profile: minimax_m25_shared_profile_8h
+    pricing:
+      source: metadata_openrouter_price
+    providers:
+      - Chutes
+      - DeepInfra
+      - Novita
+      - AtlasCloud
+      - Phala
+      - SiliconFlow
+      - AkashML
       - WandB
 
 pooled:
