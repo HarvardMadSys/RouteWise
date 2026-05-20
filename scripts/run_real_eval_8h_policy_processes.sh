@@ -56,6 +56,7 @@ OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_direct_or8_top_${RUN_
 MAX_COST_USD="${MAX_COST_USD:-20}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 SPEEDUP="${SPEEDUP:-1.0}"
+QUOTA_WINDOW_ANCHOR="${QUOTA_WINDOW_ANCHOR:-wall_clock}"
 # Optional inventory-SLO override. When set, passes --slo-ms to every runner
 # process. Useful for SLO ablations without editing the inventory file.
 SLO_MS="${SLO_MS:-}"
@@ -87,6 +88,10 @@ KEY_SLOT_MAX="${KEY_SLOT_MAX:-20}"
 OPENROUTER_KEY_MODE="${OPENROUTER_KEY_MODE:-single}"
 if [[ "$OPENROUTER_KEY_MODE" != "single" && "$OPENROUTER_KEY_MODE" != "per_policy" ]]; then
   echo "OPENROUTER_KEY_MODE must be single or per_policy; got: $OPENROUTER_KEY_MODE" >&2
+  exit 2
+fi
+if [[ "$QUOTA_WINDOW_ANCHOR" != "wall_clock" && "$QUOTA_WINDOW_ANCHOR" != "trace_start" ]]; then
+  echo "QUOTA_WINDOW_ANCHOR must be wall_clock or trace_start; got: $QUOTA_WINDOW_ANCHOR" >&2
   exit 2
 fi
 if [[ "$SHARED_PROFILE_PROBING" != "0" && "$SHARED_PROFILE_EVENTS" == "0" ]]; then
@@ -392,6 +397,7 @@ fi
 if [[ -n "$DURATION_SEC" ]]; then
   EXTRA_RUNNER_ARGS+=(--duration-sec "$DURATION_SEC")
 fi
+EXTRA_RUNNER_ARGS+=(--quota-window-anchor "$QUOTA_WINDOW_ANCHOR")
 
 PROCESS_PERIODIC_PROBE_INTERVAL_SEC="$PERIODIC_PROBE_INTERVAL_SEC"
 if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
@@ -406,6 +412,7 @@ QUOTA_PROVIDER=$QUOTA_PROVIDER
 MAX_COST_USD=$MAX_COST_USD
 TIMEOUT_SEC=$TIMEOUT_SEC
 SPEEDUP=$SPEEDUP
+QUOTA_WINDOW_ANCHOR=$QUOTA_WINDOW_ANCHOR
 SLO_MS=$SLO_MS
 DURATION_SEC=$DURATION_SEC
 STAGGER_SEC=$STAGGER_SEC

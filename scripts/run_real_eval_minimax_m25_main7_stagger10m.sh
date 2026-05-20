@@ -29,6 +29,7 @@ cd "$ROOT"
 : "${SLO_MS:=3000}"
 : "${DURATION_SEC:=90000}"
 : "${SPEEDUP:=1.0}"
+: "${QUOTA_WINDOW_ANCHOR:=trace_start}"
 : "${TIMEOUT_SEC:=60}"
 : "${MAX_COST_USD:=250}"
 
@@ -92,6 +93,7 @@ export PREFIX_CACHE_ROUTING
 export SLO_MS
 export DURATION_SEC
 export SPEEDUP
+export QUOTA_WINDOW_ANCHOR
 export TIMEOUT_SEC
 export MAX_COST_USD
 export WARMUP_PROBES

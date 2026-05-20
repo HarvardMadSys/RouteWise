@@ -168,3 +168,72 @@ def test_duration_cap_stops_replay() -> None:
 
     # First request fires; the second should be cut off by duration cap.
     assert seen == [0]
+
+
+def test_trace_start_quota_anchor_resets_policy_windows() -> None:
+    inventory = load_inventory(_INVENTORY_PATH)
+    trace = [
+        TraceRequest(
+            arrival_time_sec=0.0,
+            prompt="x",
+            prompt_tokens=10,
+            max_tokens=8,
+        )
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Recorder(tmp)
+        runner = RealExperimentRunner(
+            inventory=inventory,
+            policy_names=["greedy_cost"],
+            recorder=rec,
+            slo_ms=inventory.primary_slo_ms,
+        )
+        quota = runner.policies["greedy_cost"].states["MiniMax_SQ"].quota
+        assert quota is not None and hasattr(quota, "windows")
+        assert [window.window_start for window in quota.windows] == [0.0, 0.0]
+
+        runner._dispatch_one = lambda policy, req, idx: None  # type: ignore[method-assign]
+        runner.replay(
+            trace,
+            speedup=1.0,
+            duration_sec=1.0,
+            quota_window_anchor="trace_start",
+        )
+        rec.close()
+
+    assert all(window.window_start > 0.0 for window in quota.windows)
+
+
+def test_wall_clock_quota_anchor_preserves_default_windows_until_first_charge() -> None:
+    inventory = load_inventory(_INVENTORY_PATH)
+    trace = [
+        TraceRequest(
+            arrival_time_sec=0.0,
+            prompt="x",
+            prompt_tokens=10,
+            max_tokens=8,
+        )
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Recorder(tmp)
+        runner = RealExperimentRunner(
+            inventory=inventory,
+            policy_names=["greedy_cost"],
+            recorder=rec,
+            slo_ms=inventory.primary_slo_ms,
+        )
+        quota = runner.policies["greedy_cost"].states["MiniMax_SQ"].quota
+        assert quota is not None and hasattr(quota, "windows")
+
+        runner._dispatch_one = lambda policy, req, idx: None  # type: ignore[method-assign]
+        runner.replay(
+            trace,
+            speedup=1.0,
+            duration_sec=1.0,
+            quota_window_anchor="wall_clock",
+        )
+        rec.close()
+
+    assert [window.window_start for window in quota.windows] == [0.0, 0.0]

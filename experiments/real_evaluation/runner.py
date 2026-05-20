@@ -1317,6 +1317,7 @@ class RealExperimentRunner:
         duration_sec: float = float("inf"),
         periodic_probe_interval_sec: float = 0.0,
         periodic_probe_sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
+        quota_window_anchor: str = "wall_clock",
     ) -> None:
         """Replay a trace against the configured policies.
 
@@ -1332,7 +1333,12 @@ class RealExperimentRunner:
             sleep_sec=periodic_probe_sleep_sec,
         )
         try:
-            self._replay_parallel_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
+            self._replay_parallel_full_trace(
+                trace,
+                speedup=speedup,
+                duration_sec=duration_sec,
+                quota_window_anchor=quota_window_anchor,
+            )
         finally:
             self._stop_periodic_profile_probe_thread(probe_handle)
             self._stop_periodic_profile_probe_thread(shared_profile_handle)
@@ -1440,8 +1446,17 @@ class RealExperimentRunner:
         *,
         speedup: float,
         duration_sec: float,
+        quota_window_anchor: str,
     ) -> None:
         run_start = time.time()
+        if quota_window_anchor == "trace_start":
+            self._reset_policy_quota_windows(window_start=run_start)
+            logger.info("quota windows anchored to trace start: %.3f", run_start)
+        elif quota_window_anchor != "wall_clock":
+            raise ValueError(
+                "quota_window_anchor must be 'wall_clock' or 'trace_start', "
+                f"got {quota_window_anchor!r}"
+            )
         threads: list[threading.Thread] = []
         policies = list(self.policies.values())
         for i, req in enumerate(trace):
@@ -1462,6 +1477,12 @@ class RealExperimentRunner:
                 threads = [t for t in threads if t.is_alive()]
 
         self._join_threads(threads)
+
+    def _reset_policy_quota_windows(self, *, window_start: float) -> None:
+        for policy in self.policies.values():
+            for state in policy.states.values():
+                if state.quota is not None:
+                    state.quota.reset(window_start=window_start)
 
     # ------------------------------------------------------------------
     # Per-request dispatch.
@@ -2156,6 +2177,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--quota-window-anchor",
+        choices=("wall_clock", "trace_start"),
+        default="wall_clock",
+        help=(
+            "How local quota windows are anchored. wall_clock preserves fixed "
+            "provider-style reset boundaries; trace_start resets local quota "
+            "state when replay starts, so staggered policy processes see the "
+            "same quota timeline relative to the workload."
+        ),
+    )
+    parser.add_argument(
         "--duration-sec",
         type=float,
         default=float("inf"),
@@ -2408,6 +2440,7 @@ def main(argv: list[str] | None = None) -> int:
         duration_sec=args.duration_sec,
         periodic_probe_interval_sec=args.periodic_probe_interval_sec,
         periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
+        quota_window_anchor=args.quota_window_anchor,
     )
 
     billing_duration_sec = (
