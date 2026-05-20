@@ -2,22 +2,21 @@
 set -euo pipefail
 
 # MiniMax M2.5 main real-eval run:
-# - one 24h BurstGPT trace compressed with the cap10s workload file
+# - one true 24h BurstGPT trace, replayed at wall-clock speed
 # - seven paper-facing policies
 # - 10 minute launch stagger across every policy
 #
-# The cap10s trace spans about 8.1h of replay time. DURATION_SEC=32400 is
-# intentionally long enough to replay the full compressed trace while leaving
-# headroom for slow requests. This is the MiniMax counterpart of the GLM-5.1
-# main7 script.
+# This is intentionally different from the cap10s sanity scripts. The raw
+# trace spans 86399s, so DURATION_SEC defaults to 90000 to preserve the full
+# day and leave headroom for scheduler overhead near the last arrivals.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 : "${RUN_ID:=$(date +%Y%m%d_%H%M%S)}"
-: "${TRACE:=data/real_eval/burstgpt_day0_24h_cap10s.jsonl}"
-: "${INVENTORY:=experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_top_24h.json}"
-: "${OUTPUT_BASE:=outputs/real_eval/real_eval_minimax_m25_burstgpt_cap10s_main7_stagger10m_${RUN_ID}}"
+: "${TRACE:=data/real_eval/burstgpt_day0_24h.jsonl}"
+: "${INVENTORY:=experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_true24h.json}"
+: "${OUTPUT_BASE:=outputs/real_eval/real_eval_minimax_m25_burstgpt_true24h_main7_stagger10m_${RUN_ID}}"
 
 : "${POLICY_LIST:=budget_range_p75_hedge budget_range_p75 greedy_latency or_sort_latency or_auto or_sort_cost greedy_cost}"
 : "${STAGGER_SEC:=600}"
@@ -28,7 +27,7 @@ cd "$ROOT"
 : "${PREFIX_CACHE_ROUTING:=1}"
 
 : "${SLO_MS:=3000}"
-: "${DURATION_SEC:=32400}"
+: "${DURATION_SEC:=90000}"
 : "${SPEEDUP:=1.0}"
 : "${TIMEOUT_SEC:=60}"
 : "${MAX_COST_USD:=250}"
