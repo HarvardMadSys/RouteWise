@@ -119,6 +119,16 @@ DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge bud
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
 
+if [[ ! -f "$TRACE" ]]; then
+  echo "TRACE file not found: $TRACE" >&2
+  echo "Set TRACE to an existing JSONL workload before starting real eval." >&2
+  exit 2
+fi
+if [[ ! -f "$INVENTORY" ]]; then
+  echo "INVENTORY file not found: $INVENTORY" >&2
+  exit 2
+fi
+
 if [[ -n "$POLICY_INVENTORY_MAP" ]]; then
   IFS=',' read -r -a _POLICY_INVENTORY_PAIRS <<< "$POLICY_INVENTORY_MAP"
   for pair in "${_POLICY_INVENTORY_PAIRS[@]}"; do
@@ -147,6 +157,14 @@ inventory_for_policy() {
   fi
   printf '%s' "$INVENTORY"
 }
+
+for policy in "${POLICIES[@]}"; do
+  policy_inventory="$(inventory_for_policy "$policy")"
+  if [[ ! -f "$policy_inventory" ]]; then
+    echo "inventory file not found for policy $policy: $policy_inventory" >&2
+    exit 2
+  fi
+done
 
 is_native_or_baseline() {
   case "$1" in
