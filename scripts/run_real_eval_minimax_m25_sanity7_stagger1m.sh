@@ -42,11 +42,37 @@ cd "$ROOT"
 # slot 4 can safely back two logical policy slots. The generic launcher only
 # understands key count, not unit count, so expose key4 twice when the caller
 # has not provided an explicit FEATHERLESS_API_KEYS list.
-if [[ -z "${FEATHERLESS_API_KEYS:-}" && -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
+_read_dotenv_value() {
+  local key="$1"
+  local line value
+
+  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" .env | tail -n 1 || true)"
+  [[ -n "$line" ]] || return 1
+
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line#export }"
+  line="${line#export	}"
+  value="${line#*=}"
+  value="${value%$'\r'}"
+
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+
+  printf '%s' "$value"
+}
+
+if [[ -f .env ]]; then
+  for key in FEATHERLESS_API_KEYS FEATHERLESS_API_KEY1 FEATHERLESS_API_KEY2 FEATHERLESS_API_KEY3 FEATHERLESS_API_KEY4; do
+    if [[ -z "${!key:-}" ]]; then
+      value="$(_read_dotenv_value "$key" || true)"
+      if [[ -n "$value" ]]; then
+        export "$key=$value"
+      fi
+    fi
+  done
 fi
 if [[ -z "${FEATHERLESS_API_KEYS:-}" \
   && -n "${FEATHERLESS_API_KEY1:-}" \
