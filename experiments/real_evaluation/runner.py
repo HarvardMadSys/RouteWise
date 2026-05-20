@@ -101,6 +101,14 @@ SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE: str = (
 logger = logging.getLogger(__name__)
 
 
+def _is_hedge_loser_canceled(result: SingleRequestResult) -> bool:
+    """Return True for transport results canceled by our hedge race."""
+    return (
+        result.status == "canceled"
+        and result.error_message == "canceled_by_hedge_winner"
+    )
+
+
 @dataclass
 class TraceRequest:
     """One row from a trace JSONL."""
@@ -1883,6 +1891,8 @@ class RealExperimentRunner:
     def _feed_back_single(
         self, policy: BasePolicy, provider: str, result: SingleRequestResult
     ) -> None:
+        if _is_hedge_loser_canceled(result):
+            return
         error_type = None if result.status == "success" else result.status
         ttft_ms = result.ttft_ms if result.status == "success" else -1.0
         sample_ts = self._profile_sample_ts(result)

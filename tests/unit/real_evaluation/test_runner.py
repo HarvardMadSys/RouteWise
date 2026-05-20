@@ -19,6 +19,7 @@ from experiments.real_evaluation.inventory import (
     load_inventory,
     subscription_fixed_cost_for_inventory,
 )
+from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -1179,6 +1180,145 @@ def test_shared_profile_feedback_updates_all_local_policies(tmp_path) -> None:
     )
     assert latest[provider].ts == pytest.approx(first_token_ts)
     assert path.exists()
+    rec.close()
+
+
+def test_hedge_loser_canceled_is_not_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    primary = runner.inventory.providers[0].name
+    backup = runner.inventory.providers[1].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    hedged = HedgedResult(
+        primary_result=SingleRequestResult(
+            ttft_ms=123.0,
+            e2e_ms=200.0,
+            status="success",
+            provider=primary,
+            start_ts=now,
+            first_token_ts=now + 0.123,
+        ),
+        backup_result=SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=150.0,
+            status="canceled",
+            provider=backup,
+            error_message="canceled_by_hedge_winner",
+            start_ts=now + 0.05,
+        ),
+        winner="primary",
+        hedge_triggered=True,
+        backup_provider=backup,
+    )
+
+    runner._feed_back_hedged(policy, hedged)
+
+    for local_policy in runner.policies.values():
+        primary_state = local_policy.states[primary]
+        backup_state = local_policy.states[backup]
+        assert primary_state.profile.sample_count(time.time()) == 1
+        assert primary_state.profile.mean_ms(time.time()) == pytest.approx(123.0)
+        assert backup_state.profile.total_count(time.time()) == 0
+
+    lines = path.read_text().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["provider"] == primary
+    assert event["error_type"] is None
+    rec.close()
+
+
+def test_primary_hedge_loser_canceled_is_not_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    primary = runner.inventory.providers[0].name
+    backup = runner.inventory.providers[1].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    hedged = HedgedResult(
+        primary_result=SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=150.0,
+            status="canceled",
+            provider=primary,
+            error_message="canceled_by_hedge_winner",
+            start_ts=now,
+        ),
+        backup_result=SingleRequestResult(
+            ttft_ms=95.0,
+            e2e_ms=180.0,
+            status="success",
+            provider=backup,
+            start_ts=now + 0.05,
+            first_token_ts=now + 0.145,
+        ),
+        winner="backup",
+        hedge_triggered=True,
+        backup_provider=backup,
+    )
+
+    runner._feed_back_hedged(policy, hedged)
+
+    for local_policy in runner.policies.values():
+        primary_state = local_policy.states[primary]
+        backup_state = local_policy.states[backup]
+        assert primary_state.profile.total_count(time.time()) == 0
+        assert backup_state.profile.sample_count(time.time()) == 1
+        assert backup_state.profile.mean_ms(time.time()) == pytest.approx(95.0)
+
+    lines = path.read_text().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["provider"] == backup
+    assert event["error_type"] is None
+    rec.close()
+
+
+def test_real_request_errors_still_enter_shared_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    provider = runner.inventory.providers[0].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    runner._feed_back_single(
+        policy,
+        provider,
+        SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=20.0,
+            status="HTTP 429",
+            provider=provider,
+            http_status=429,
+            rate_limited=True,
+            start_ts=now,
+        ),
+    )
+
+    for local_policy in runner.policies.values():
+        state = local_policy.states[provider]
+        assert state.profile.sample_count(time.time()) == 0
+        assert state.profile.total_count(time.time()) == 1
+        assert state.profile.error_rate(time.time()) == pytest.approx(1.0)
+
+    latest = SharedProfileEventLog(path).recent_last_event_by_provider(
+        now=now + 1.0,
+        window_sec=15.0,
+    )
+    assert latest[provider].error_type == "HTTP 429"
+    assert latest[provider].ttft_ms == pytest.approx(-1.0)
     rec.close()
 
 
