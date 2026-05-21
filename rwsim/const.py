@@ -63,4 +63,25 @@ from __future__ import annotations
 DISPATCH_OVERHEAD_MS: float = 5.0
 
 
-__all__ = ["DISPATCH_OVERHEAD_MS"]
+# Minimum acceptable end-to-end success probability for a hedging decision
+# to fire. RouteWise's probability-target hedger searches for the latest
+# dispatch time `t` such that `P(primary or backup meets SLO | wait t) >=
+# HEDGE_SUCCESS_TARGET`. Setting the target higher fires hedges earlier
+# (more cost, more SLO safety); lowering it fires later (less cost, more
+# SLO risk).
+#
+# This is a paper-level RouteWise protocol constant. Every harness that
+# implements probability-target hedging must read the same value:
+#
+#   1. `rwsim/policies/hedging.py` — simulator hedging math.
+#   2. `experiments/real_evaluation/policies.py` — live-API hedging adapter.
+#   3. (future) hybridInference production router, once it adopts the
+#      probability-target hedger in place of the legacy SMART_ECONOMIC logic.
+#
+# The 0.99 value follows the paper convention (Section 4 hedging design).
+# Do not change this without a paper-level decision: every figure and
+# headline number that mentions hedging SLO success rate assumes 0.99.
+HEDGE_SUCCESS_TARGET: float = 0.99
+
+
+__all__ = ["DISPATCH_OVERHEAD_MS", "HEDGE_SUCCESS_TARGET"]

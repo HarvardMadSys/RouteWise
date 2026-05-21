@@ -61,14 +61,17 @@ from experiments.real_evaluation.shadow_price import (
     effective_cost,
     request_marginal_cost,
 )
+from rwsim.const import HEDGE_SUCCESS_TARGET  # re-export below
 from rwsim.schemas import Request as _PredictionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+# HEDGE_SUCCESS_TARGET is re-exported above from `rwsim.const` so the
+# simulator and real-eval share one paper-level RouteWise protocol constant.
+# Edit the value there, not here.
 LP_EPS: float = 1e-9
 _COST_TIEBREAK_MS: float = 1e-3
-HEDGE_SUCCESS_TARGET: float = 0.99
 RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
