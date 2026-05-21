@@ -68,8 +68,21 @@ class Simulator:
             retain_records=self.retain_records,
         )
 
+        prev_trace_time: float | None = None
         for request in requests:
-            state.now = float(request.timestamp)
+            now = float(request.timestamp)
+            # Garbage-collect capacity ledger entries that completed before
+            # the previous outer trace timestamp. The hedge tick loop inside
+            # _execute_request may temporarily advance state.now to future
+            # checkpoints; using prev_trace_time as the watermark (strictly
+            # earlier than any subsequent query) keeps GC safe under such
+            # non-monotonic queries.
+            if prev_trace_time is not None and now >= prev_trace_time:
+                for provider in providers.values():
+                    if provider.concurrency is not None:
+                        provider.concurrency.gc_before(prev_trace_time)
+
+            state.now = now
             decision = policy.route(request, state)
             outcome = self._execute_request(
                 request,
@@ -92,6 +105,8 @@ class Simulator:
             user_id = _request_user_id(request)
             if user_id is not None and not outcome.rejected:
                 state.user_last_provider[user_id] = outcome.final_provider
+
+            prev_trace_time = now
 
         return aggregator.finalize()
 
