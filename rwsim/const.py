@@ -88,4 +88,45 @@ DISPATCH_OVERHEAD_MS: float = 5.0
 HEDGE_SUCCESS_TARGET: float = 0.99
 
 
-__all__ = ["DISPATCH_OVERHEAD_MS", "HEDGE_SUCCESS_TARGET"]
+# Probability-target hedge checkpoint schedule. RouteWise re-evaluates each
+# in-flight request at a fixed set of elapsed times relative to its SLO, and
+# may dispatch a backup at any of them if the conditional success probability
+# falls below `HEDGE_SUCCESS_TARGET`. The three fractions below define that
+# schedule:
+#
+#   - `HEDGE_CHECKPOINT_START_FRACTION` — earliest elapsed fraction of SLO at
+#     which a hedge may be considered. Earlier elapsed times are skipped so
+#     that the primary has enough opportunity to finish without paying for an
+#     unnecessary backup.
+#   - `HEDGE_CHECKPOINT_END_FRACTION` — latest elapsed fraction. Past this
+#     point, dispatching a backup is unlikely to beat the SLO even if it runs
+#     at the provider's median TTFT.
+#   - `HEDGE_CHECKPOINT_INTERVAL_FRACTION` — gap between adjacent checkpoints
+#     expressed as a fraction of SLO. Finer granularity catches more
+#     opportunities to hedge at the cost of more frequent re-evaluation.
+#
+# These are paper-level RouteWise protocol constants. Every harness that
+# implements probability-target hedging reads the same values:
+#
+#   1. `rwsim/policies/hedging.py:hedge_checkpoints_for_slo` — canonical
+#      simulator + real-eval implementation.
+#   2. `experiments/real_evaluation/policies.py` — re-exports the helper
+#      under a seconds-based wrapper.
+#   3. (future) hybridInference production router, once it adopts the
+#      checkpoint-based hedger in place of the legacy SMART_ECONOMIC logic.
+#
+# Defaults (0.25 / 0.90 / 0.025) match the paper Section 4 hedging schedule.
+# Editing them shifts every hedge decision in every harness; re-capture
+# golden baselines after any change.
+HEDGE_CHECKPOINT_START_FRACTION: float = 0.25
+HEDGE_CHECKPOINT_END_FRACTION: float = 0.90
+HEDGE_CHECKPOINT_INTERVAL_FRACTION: float = 0.025
+
+
+__all__ = [
+    "DISPATCH_OVERHEAD_MS",
+    "HEDGE_CHECKPOINT_END_FRACTION",
+    "HEDGE_CHECKPOINT_INTERVAL_FRACTION",
+    "HEDGE_CHECKPOINT_START_FRACTION",
+    "HEDGE_SUCCESS_TARGET",
+]

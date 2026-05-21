@@ -62,7 +62,20 @@ from experiments.real_evaluation.shadow_price import (
     request_marginal_cost,
 )
 from rwsim.const import HEDGE_SUCCESS_TARGET  # re-export below
+from rwsim.policies.hedging import (
+    hedge_checkpoints_for_slo as _hedge_checkpoints_for_slo_ms,
+)
 from rwsim.schemas import Request as _PredictionRequest
+
+
+def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
+    """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds.
+
+    Real-eval keeps the seconds-based signature for backward compatibility
+    with existing exported call sites. The underlying schedule is computed by
+    the shared ``rwsim.policies.hedging`` helper, which expects milliseconds.
+    """
+    return _hedge_checkpoints_for_slo_ms(float(slo_sec) * 1000.0)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -81,9 +94,6 @@ BODY_MEAN_MIN_SAMPLES: int = 5
 # USD, not seconds) — that yielded ~0.1 ms and made unprofiled
 # providers look fastest.
 UNPROFILED_LATENCY_PENALTY_MS: float = 1e9
-_HEDGE_CHECKPOINT_START_FRACTION: float = 0.25
-_HEDGE_CHECKPOINT_END_FRACTION: float = 0.90
-_HEDGE_CHECKPOINT_INTERVAL_FRACTION: float = 0.025
 
 # Sentinel provider names used for OpenRouter's native routing modes. The
 # runner translates these into transport-level config when dispatching.
@@ -405,28 +415,6 @@ def select_safe_cheapest_backup(
     return feasible[0][-1].spec.name
 
 
-def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
-    """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds."""
-    slo_ms = max(0.0, float(slo_sec) * 1000.0)
-    interval_ms = slo_ms * _HEDGE_CHECKPOINT_INTERVAL_FRACTION
-    if interval_ms <= 0.0:
-        return ()
-    start_ms = _ceil_to_interval_ms(
-        slo_ms * _HEDGE_CHECKPOINT_START_FRACTION,
-        interval_ms,
-    )
-    end_ms = slo_ms * _HEDGE_CHECKPOINT_END_FRACTION
-    if start_ms > end_ms + LP_EPS:
-        return ()
-
-    checkpoints_ms: list[float] = []
-    current_ms = start_ms
-    while current_ms <= end_ms + LP_EPS:
-        checkpoints_ms.append(current_ms)
-        current_ms += interval_ms
-    return tuple(ms / 1000.0 for ms in checkpoints_ms)
-
-
 def select_checkpoint_backup(
     primary: str,
     states: dict[str, ProviderState],
@@ -577,10 +565,6 @@ def _checkpoint_candidate_counts(
         if success_probability >= success_target - LP_EPS:
             feasible_count += 1
     return candidate_count, feasible_count
-
-
-def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
-    return math.ceil((value_ms - LP_EPS) / interval_ms) * interval_ms
 
 
 # ---------------------------------------------------------------------------

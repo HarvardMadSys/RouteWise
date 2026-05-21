@@ -6,11 +6,11 @@ import pytest
 
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy, routewise as routewise_module
+from rwsim.policies.hedging import hedge_checkpoints_for_slo
 from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
     _cost_tiebroken_objective,
-    _hedge_checkpoints_for_slo,
     _normalize_weights,
     _same_cost_shortcut_weights,
     _solve_lp,
@@ -189,7 +189,7 @@ def test_routewise_declares_in_flight_hedge_checkpoints():
 
 
 def test_routewise_hedge_checkpoints_spaced_by_2_5_percent_of_slo() -> None:
-    checkpoints = _hedge_checkpoints_for_slo(2000.0)
+    checkpoints = hedge_checkpoints_for_slo(2000.0)
 
     assert checkpoints[0] == pytest.approx(0.5)
     assert checkpoints[-1] == pytest.approx(1.8)

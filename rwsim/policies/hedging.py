@@ -7,12 +7,19 @@ ablation should live in experiment policies, not here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # Re-export so existing `from rwsim.policies.hedging import ...` call sites
 # keep working. The values live in `rwsim.const`; edit them there.
-from rwsim.const import DISPATCH_OVERHEAD_MS, HEDGE_SUCCESS_TARGET
+from rwsim.const import (
+    DISPATCH_OVERHEAD_MS,
+    HEDGE_CHECKPOINT_END_FRACTION,
+    HEDGE_CHECKPOINT_INTERVAL_FRACTION,
+    HEDGE_CHECKPOINT_START_FRACTION,
+    HEDGE_SUCCESS_TARGET,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -21,6 +28,45 @@ if TYPE_CHECKING:
     from rwsim.world.providers import Provider
 
 EPS = 1e-9
+
+def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
+    return math.ceil((value_ms - EPS) / interval_ms) * interval_ms
+
+
+def hedge_checkpoints_for_slo(slo_ms: float) -> tuple[float, ...]:
+    """Return SLO-relative hedge checkpoints as elapsed seconds.
+
+    Generates an increasing tuple of elapsed times (in seconds) at which the
+    policy re-evaluates whether to dispatch a hedge backup. Checkpoints span
+    ``HEDGE_CHECKPOINT_START_FRACTION`` through ``HEDGE_CHECKPOINT_END_FRACTION``
+    of the request's SLO, spaced ``HEDGE_CHECKPOINT_INTERVAL_FRACTION`` of SLO
+    apart.
+
+    Args:
+        slo_ms: Request SLO in milliseconds. Non-positive values yield ``()``.
+
+    Returns:
+        Tuple of checkpoint times in seconds, sorted ascending. The first
+        element is the earliest time at which the policy may consider hedging;
+        the last is the latest. Empty if ``slo_ms`` is non-positive.
+    """
+    slo_ms_f = max(0.0, float(slo_ms))
+    interval_ms = slo_ms_f * HEDGE_CHECKPOINT_INTERVAL_FRACTION
+    if interval_ms <= 0.0:
+        return ()
+    start_ms = _ceil_to_interval_ms(
+        slo_ms_f * HEDGE_CHECKPOINT_START_FRACTION,
+        interval_ms,
+    )
+    end_ms = slo_ms_f * HEDGE_CHECKPOINT_END_FRACTION
+    if start_ms > end_ms + EPS:
+        return ()
+    checkpoints_ms: list[float] = []
+    current_ms = start_ms
+    while current_ms <= end_ms + EPS:
+        checkpoints_ms.append(current_ms)
+        current_ms += interval_ms
+    return tuple(ms / 1000.0 for ms in checkpoints_ms)
 
 
 @dataclass(frozen=True)
@@ -145,11 +191,15 @@ def has_feasible_backup(candidates: Sequence[BackupCandidate]) -> bool:
 __all__ = [
     "DISPATCH_OVERHEAD_MS",
     "EPS",
+    "HEDGE_CHECKPOINT_END_FRACTION",
+    "HEDGE_CHECKPOINT_INTERVAL_FRACTION",
+    "HEDGE_CHECKPOINT_START_FRACTION",
     "HEDGE_SUCCESS_TARGET",
     "BackupCandidate",
     "best_backup_success_probability",
     "collect_backup_candidates",
     "combined_success_probability",
     "has_feasible_backup",
+    "hedge_checkpoints_for_slo",
     "select_probability_backup",
 ]
