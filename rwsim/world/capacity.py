@@ -291,11 +291,15 @@ class WeightedConcurrencyState:
         event_points = {start for start, _, _, _, _, _ in self.active}
         return max((self._used_at(point) for point in event_points), default=0)
 
-    def _peak_over_entries_removed_by_gc(self, watermark: float) -> int:
-        """Return observed peak contributed by entries GC will remove."""
-        event_points = {
-            start for start, finish, _, _, _, _ in self.active if finish <= watermark
-        }
+    def _peak_before_watermark(self, watermark: float) -> int:
+        """Return observed peak for the time range GC makes historical.
+
+        Intervals retained after GC can still have start points before the
+        watermark, and those start points may be where deleted intervals
+        overlapped with retained ones. They must be included before deletion
+        so historical peak metrics do not drop after GC.
+        """
+        event_points = {start for start, _, _, _, _, _ in self.active if start < watermark}
         return max((self._used_at(point) for point in event_points), default=0)
 
     def _refresh_peak(self) -> None:
@@ -436,7 +440,7 @@ class WeightedConcurrencyState:
         """
         self._historical_peak_used_concurrency_cost = max(
             self._historical_peak_used_concurrency_cost,
-            self._peak_over_entries_removed_by_gc(watermark),
+            self._peak_before_watermark(watermark),
         )
         self.active = [entry for entry in self.active if entry[1] > watermark]
         self._refresh_peak()

@@ -422,6 +422,27 @@ class CapacityStateTest(unittest.TestCase):
         self.assertEqual(len(concurrency.active), 1)
         self.assertEqual(concurrency.active[0][1], 20.0)
 
+    def test_weighted_concurrency_gc_preserves_peak_overlap_with_retained_interval(
+        self,
+    ) -> None:
+        """GC must preserve historical peak even when a deleted interval's
+        highest overlap occurred at a retained interval's start time."""
+        concurrency = WeightedConcurrencyState(
+            capacity_units=8,
+            model_concurrency_costs_by_class={"m": 4},
+            fixed_model_class="m",
+        )
+        concurrency.admit_interval(now=0.0, service_time_sec=10.0, request_id=1)
+        concurrency.admit_interval(now=5.0, service_time_sec=15.0, request_id=2)
+        self.assertEqual(concurrency.peak_used_concurrency_cost, 8)
+
+        concurrency.gc_before(10.0)
+
+        self.assertEqual(len(concurrency.active), 1)
+        self.assertEqual(concurrency.active[0][3], 2)
+        self.assertEqual(concurrency.used_concurrency_cost(10.0), 4)
+        self.assertEqual(concurrency.peak_used_concurrency_cost, 8)
+
     def test_weighted_concurrency_matches_reference_under_monotonic_time(
         self,
     ) -> None:
