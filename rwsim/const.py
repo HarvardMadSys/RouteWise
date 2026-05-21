@@ -15,43 +15,47 @@ the kind of silent drift this module exists to prevent.
 
 from __future__ import annotations
 
-# Estimated client-side dispatch overhead (milliseconds): the wall-clock time
-# between a hedging policy deciding to send a backup and the HTTP request
-# actually leaving the client. Models Python async event-loop ticks, lock
-# acquisition, httpx connection setup, and payload serialization — work that
-# happens *before* `start_perf = time.perf_counter()` is taken inside
-# `experiments/real_evaluation/transports.py`, and is therefore not captured
-# in any provider's latency profile.
+# Estimated local hedge-dispatch overhead (milliseconds): the time between a
+# RouteWise checkpoint deciding to launch a backup and the backup entering the
+# transport timing window used for provider TTFT samples.
 #
-# NOT network latency. The per-provider latency profile already includes the
-# server round-trip; subtracting network latency here would double-count it
-# and make hedging artificially aggressive.
+# In real-eval, this interval is real wall-clock time. The live runner compares
+# absolute primary/backup first-token timestamps, so it must not add this
+# constant to measured outcomes. The constant exists for the simulator, which
+# has no real thread/HTTP handoff to account for.
 #
-# This constant has two consumers, which is why it lives in this module
-# instead of in either of them:
+# This is NOT network latency or provider TTFT. Provider latency profiles are
+# measured from transport start to first visible token and already include HTTP
+# request/response time and server round trip. Treating this constant as
+# network time would double-count latency and make hedging too conservative.
+#
+# The simulator-side consumers must use the same value:
 #
 #   1. `rwsim/policies/hedging.py:combined_success_probability` subtracts it
-#      from `remaining_ms` when estimating how much time the backup actually
-#      has, so the algorithm's world model matches physical wall-clock time.
-#   2. `rwsim/engine/simulator.py:_execute_request` adds it to the
-#      simulator's physical hedged TTFT to emulate the real dispatch delay.
+#      from `remaining_ms` when estimating how much time a simulated backup has
+#      after a hedge decision.
+#   2. `rwsim/engine/simulator.py:_execute_request` adds it to simulated
+#      backup-wins TTFT to emulate the local dispatch handoff that real-eval
+#      observes naturally.
 #
-# The two consumers must use the same value. If the algorithm's estimate and
-# the simulator's physical emulation diverge, simulator results stop being
-# self-consistent.
+# If the policy estimate and the simulator's physical emulation diverge,
+# simulator hedging results stop being self-consistent.
 #
 # Calibrated 2026-05-21 from ~10,200 hedge dispatches across MiniMax
 # real-eval runs (2026-05-13 -- 2026-05-20), measured via
-# `backup_dispatch_overhead_ms` recorded by
-# `experiments/real_evaluation/recorder.py`. Empirical distribution:
+# `backup_dispatch_overhead_ms` in `experiments/real_evaluation/recorder.py`.
+# That metric is `backup_start_ts - backup_dispatch_ts`: the time from just
+# before the backup thread is started to the transport entry timestamp, before
+# the transport begins its own TTFT timer. Empirical distribution:
 #   P50 = 0.31 ms, P90 = 5.41 ms, P95 = 6.61 ms, P99 = 17.96 ms,
-#   max = 87.44 ms (single outlier, likely a cold connection).
-# The value tracks roughly the empirical P90 — enough headroom for typical
-# dispatches without being skewed by tail outliers.
+#   max = 87.44 ms (single outlier).
+# The value tracks roughly the empirical P90: enough headroom for typical
+# local handoff delays without being skewed by tail outliers.
 #
 # Caveats:
-#   1. Calibration data is all MiniMax. Other providers with different
-#      connection-reuse behaviour may warrant re-measurement.
+#   1. Calibration data is all MiniMax live-eval traffic on the current runner.
+#      Different hosts, executor implementations, or load regimes may warrant
+#      re-measurement.
 #   2. Overhead is load-dependent: P90 ~0.4 ms at low load (sanity runs),
 #      ~5 ms at BurstGPT cap10s load. The 5 ms value matches the high-load
 #      operating point, which is the regime where hedging decisions matter.

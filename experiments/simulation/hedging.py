@@ -41,6 +41,7 @@ from experiments.simulation.common import (
     write_json,
 )
 from experiments.simulation.latency_profiles import load_pool
+from rwsim.const import HEDGE_SUCCESS_TARGET
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -52,7 +53,10 @@ SECTION_NAME = "hedging"
 
 PUBLIC_SCENARIO_TAG: str = "hedging"
 DEFAULT_ROUTEWISE_P: float = 0.75
-TARGET_SUCCESS_PROBABILITY: float = 0.99
+# Mirror of `rwsim.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
+# `target_success_probability`. Derive (do not redefine) so the value plots
+# and summaries advertise can never drift from the value the algorithm uses.
+TARGET_SUCCESS_PROBABILITY: float = HEDGE_SUCCESS_TARGET
 
 HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
 REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
