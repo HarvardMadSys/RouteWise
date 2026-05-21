@@ -147,6 +147,26 @@ class ConcurrencyState:
             )
         self.active.append((now, end, request_id))
 
+    def truncate(self, request_id: int, end_time: float) -> bool:
+        """Shorten one admitted request interval to end no later than ``end_time``.
+
+        Returns ``True`` when an interval was changed. If ``end_time`` is at
+        or before the interval start, the interval is removed because it never
+        occupied capacity in the modeled timeline.
+        """
+        changed = False
+        active: list[tuple[float, float, int]] = []
+        for t_start, t_end, rid in self.active:
+            if rid != request_id or end_time >= t_end:
+                active.append((t_start, t_end, rid))
+                continue
+            changed = True
+            if end_time > t_start:
+                active.append((t_start, float(end_time), rid))
+        if changed:
+            self.active = active
+        return changed
+
     def gc_before(self, watermark: float) -> None:
         """Drop intervals ending at or before ``watermark``.
 
@@ -172,8 +192,8 @@ class WeightedConcurrencyState:
     consumes the weighted cost associated with its resolved model class.
 
     The ``active`` list is an append-only ledger of admitted weighted
-    intervals, each entry being ``(start, finish, sequence, model_class,
-    cost)``. Read APIs (``used_concurrency_cost``, ``utilization``,
+    intervals, each entry being ``(start, finish, sequence, request_id,
+    model_class, cost)``. Read APIs (``used_concurrency_cost``, ``utilization``,
     ``can_admit``, ``can_admit_interval``) are side-effect-free pure
     functions over the current ledger, so they are safe under non-monotonic
     time queries (e.g. when the simulator's hedge tick loop temporarily
@@ -190,20 +210,25 @@ class WeightedConcurrencyState:
     capacity_units: int
     model_concurrency_costs_by_class: MappingProxyType[str, int]
     fixed_model_class: str | None = None
-    # Append-only ledger of (start, finish, sequence, model_class, cost).
-    active: list[tuple[float, float, int, str, int]] = field(default_factory=list)
+    # Append-only ledger of (start, finish, sequence, request_id, model_class, cost).
+    active: list[tuple[float, float, int, int, str, int]] = field(default_factory=list)
+    # Peak reflects the currently modeled occupancy after cancellations.
+    # Explicit GC preserves naturally completed intervals in the historical
+    # component; truncate treats canceled tail occupancy as never consumed.
     peak_used_concurrency_cost: int = 0
     total_capacity_unit_seconds_used: float = 0.0
     _sequence: int = field(default=0, init=False, repr=False)
+    _historical_peak_used_concurrency_cost: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        # Active entries must use the 5-tuple shape; old 3/4-tuple shapes
-        # lacked a start_time and cannot be safely upgraded.
+        # Active entries must use the 6-tuple shape; old 3/4-tuple shapes
+        # lacked a start_time and the 5-tuple interim shape lacked request_id,
+        # so none can be safely upgraded.
         for entry in self.active:
-            if len(entry) != 5:
+            if len(entry) != 6:
                 raise ValueError(
                     "WeightedConcurrencyState.active entries must be "
-                    "(start, finish, sequence, model_class, cost); "
+                    "(start, finish, sequence, request_id, model_class, cost); "
                     f"got {entry!r}"
                 )
         self.capacity_units = int(self.capacity_units)
@@ -259,7 +284,25 @@ class WeightedConcurrencyState:
 
         Pure read; does not mutate ``active``.
         """
-        return sum(cost for s, e, _, _, cost in self.active if s <= now < e)
+        return sum(cost for s, e, _, _, _, cost in self.active if s <= now < e)
+
+    def _peak_over_active(self) -> int:
+        """Return max active weighted cost over retained interval start points."""
+        event_points = {start for start, _, _, _, _, _ in self.active}
+        return max((self._used_at(point) for point in event_points), default=0)
+
+    def _peak_over_entries_removed_by_gc(self, watermark: float) -> int:
+        """Return observed peak contributed by entries GC will remove."""
+        event_points = {
+            start for start, finish, _, _, _, _ in self.active if finish <= watermark
+        }
+        return max((self._used_at(point) for point in event_points), default=0)
+
+    def _refresh_peak(self) -> None:
+        self.peak_used_concurrency_cost = max(
+            self._historical_peak_used_concurrency_cost,
+            self._peak_over_active(),
+        )
 
     def used_concurrency_cost(self, now: float) -> int:
         """Return weighted capacity occupied at ``now``.
@@ -303,7 +346,7 @@ class WeightedConcurrencyState:
         if end <= start:
             return self.can_admit(resolved, start)
         event_points = {start}
-        for s, _, _, _, _ in self.active:
+        for s, _, _, _, _, _ in self.active:
             if start <= s < end:
                 event_points.add(s)
         return all(self._used_at(p) + cost <= self.capacity_units for p in event_points)
@@ -314,6 +357,7 @@ class WeightedConcurrencyState:
         finish_time: float,
         *,
         now: float,
+        request_id: int | None = None,
     ) -> bool:
         """Admit one request occupying ``[now, finish_time)``.
 
@@ -328,21 +372,20 @@ class WeightedConcurrencyState:
             return False
         if not self.can_admit_interval(now, finish_time, model_class):
             return False
+        sequence = self._sequence
         self.active.append(
-            (float(now), float(finish_time), self._sequence, str(model_class), cost)
+            (
+                float(now),
+                float(finish_time),
+                sequence,
+                int(sequence if request_id is None else request_id),
+                str(model_class),
+                cost,
+            )
         )
         self._sequence += 1
-        # Current cost-layer S_C runs do not cancel admitted requests; if
-        # cancellation is added, account this at completion/cancel events.
         self.total_capacity_unit_seconds_used += cost * (float(finish_time) - float(now))
-        # Peak is recomputed from interval start times (where occupancy may
-        # change) so that newly admitted future-start intervals are not
-        # double-counted at the time of admission.
-        event_points = {entry[0] for entry in self.active}
-        self.peak_used_concurrency_cost = max(
-            self.peak_used_concurrency_cost,
-            max((self._used_at(p) for p in event_points), default=0),
-        )
+        self._refresh_peak()
         return True
 
     def admit_interval(
@@ -350,13 +393,38 @@ class WeightedConcurrencyState:
         now: float,
         service_time_sec: float,
         model_class: str | None = None,
+        request_id: int | None = None,
     ) -> bool:
         """Record one fixed/scoped-model request interval starting at ``now``."""
         return self.admit(
             self._model_class_for_interval(model_class),
             now + service_time_sec,
             now=now,
+            request_id=request_id,
         )
+
+    def truncate(self, request_id: int, end_time: float) -> bool:
+        """Shorten one admitted request interval to end no later than ``end_time``."""
+        changed = False
+        active: list[tuple[float, float, int, int, str, int]] = []
+        for start, finish, sequence, rid, model_class, cost in self.active:
+            if rid != request_id or end_time >= finish:
+                active.append((start, finish, sequence, rid, model_class, cost))
+                continue
+            changed = True
+            new_finish = float(end_time)
+            unused_seconds = finish - max(new_finish, start)
+            self.total_capacity_unit_seconds_used -= cost * unused_seconds
+            if end_time > start:
+                active.append((start, new_finish, sequence, rid, model_class, cost))
+        if changed:
+            self.active = active
+            self.total_capacity_unit_seconds_used = max(
+                self.total_capacity_unit_seconds_used,
+                0.0,
+            )
+            self._refresh_peak()
+        return changed
 
     def gc_before(self, watermark: float) -> None:
         """Drop interval entries whose ``finish`` is at or before ``watermark``.
@@ -366,7 +434,12 @@ class WeightedConcurrencyState:
         strictly less than ``watermark``; otherwise the dropped state
         would be needed for correctness.
         """
+        self._historical_peak_used_concurrency_cost = max(
+            self._historical_peak_used_concurrency_cost,
+            self._peak_over_entries_removed_by_gc(watermark),
+        )
         self.active = [entry for entry in self.active if entry[1] > watermark]
+        self._refresh_peak()
 
     def reset(self) -> None:
         """Reset mutable weighted concurrency state."""
@@ -374,6 +447,7 @@ class WeightedConcurrencyState:
         self.peak_used_concurrency_cost = 0
         self.total_capacity_unit_seconds_used = 0.0
         self._sequence = 0
+        self._historical_peak_used_concurrency_cost = 0
 
 
 __all__ = [

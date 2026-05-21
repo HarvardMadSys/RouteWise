@@ -106,6 +106,25 @@ class CapacityStateTest(unittest.TestCase):
         self.assertEqual(len(concurrency.active), 1)
         self.assertEqual(concurrency.active[0][2], 2)
 
+    def test_concurrency_truncate_shortens_admitted_interval(self) -> None:
+        concurrency = ConcurrencyState(limit=1)
+        concurrency.admit(request_id=1, now=0.0, service_time_sec=10.0)
+
+        self.assertTrue(concurrency.truncate(request_id=1, end_time=3.0))
+
+        self.assertFalse(concurrency.can_admit(2.0))
+        self.assertTrue(concurrency.can_admit(3.0))
+        self.assertEqual(concurrency.active, [(0.0, 3.0, 1)])
+
+    def test_concurrency_truncate_before_start_removes_interval(self) -> None:
+        concurrency = ConcurrencyState(limit=1)
+        concurrency.admit(request_id=1, now=5.0, service_time_sec=10.0)
+
+        self.assertTrue(concurrency.truncate(request_id=1, end_time=4.0))
+
+        self.assertEqual(concurrency.active, [])
+        self.assertTrue(concurrency.can_admit(5.0))
+
     def test_weighted_concurrency_cost_four_fills_capacity(self) -> None:
         concurrency = WeightedConcurrencyState(
             capacity_units=4,
@@ -329,7 +348,7 @@ class CapacityStateTest(unittest.TestCase):
             concurrency.utilization(None)  # type: ignore[arg-type]
 
     def test_weighted_concurrency_rejects_legacy_active_shape(self) -> None:
-        """Pre-existing 3/4-tuple active entries had no start_time and
+        """Pre-existing active entries lacked start_time or request_id and
         cannot be safely upgraded; the constructor rejects them."""
         with self.assertRaises(ValueError):
             WeightedConcurrencyState(
@@ -343,6 +362,52 @@ class CapacityStateTest(unittest.TestCase):
                 model_concurrency_costs_by_class={"m": 1},
                 active=[(10.0, 0, "m", 1)],  # legacy 4-tuple shape  # type: ignore[list-item]
             )
+        with self.assertRaises(ValueError):
+            WeightedConcurrencyState(
+                capacity_units=4,
+                model_concurrency_costs_by_class={"m": 1},
+                active=[
+                    (0.0, 10.0, 0, "m", 1),  # interim 5-tuple shape  # type: ignore[list-item]
+                ],
+            )
+
+    def test_weighted_concurrency_truncate_shortens_request_interval(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=4,
+            model_concurrency_costs_by_class={"m": 4},
+            fixed_model_class="m",
+        )
+        self.assertTrue(
+            concurrency.admit_interval(
+                now=0.0,
+                service_time_sec=10.0,
+                request_id=101,
+            )
+        )
+        self.assertEqual(concurrency.total_capacity_unit_seconds_used, 40.0)
+
+        self.assertTrue(concurrency.truncate(request_id=101, end_time=3.0))
+
+        self.assertEqual(concurrency.used_concurrency_cost(2.0), 4)
+        self.assertEqual(concurrency.used_concurrency_cost(3.0), 0)
+        self.assertEqual(concurrency.total_capacity_unit_seconds_used, 12.0)
+        self.assertEqual(concurrency.active[0][1], 3.0)
+        self.assertEqual(concurrency.active[0][3], 101)
+
+    def test_weighted_concurrency_truncate_recomputes_future_peak(self) -> None:
+        concurrency = WeightedConcurrencyState(
+            capacity_units=8,
+            model_concurrency_costs_by_class={"m": 4},
+            fixed_model_class="m",
+        )
+        concurrency.admit_interval(now=0.0, service_time_sec=10.0, request_id=1)
+        concurrency.admit_interval(now=5.0, service_time_sec=10.0, request_id=2)
+        self.assertEqual(concurrency.peak_used_concurrency_cost, 8)
+
+        self.assertTrue(concurrency.truncate(request_id=1, end_time=3.0))
+
+        self.assertEqual(concurrency.peak_used_concurrency_cost, 4)
+        self.assertEqual(concurrency.used_concurrency_cost(6.0), 4)
 
     def test_weighted_concurrency_gc_before_drops_finished_intervals(self) -> None:
         concurrency = WeightedConcurrencyState(
