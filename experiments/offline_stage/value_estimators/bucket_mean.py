@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from experiments.offline_stage.value_estimators.base import (
     OutputTokenPredictor,
+    PointPrediction,
     PredictionContext,
-    QuantilePrediction,
 )
 from rwsim.schemas import Request
 
@@ -57,15 +57,10 @@ class BucketMeanOutputPredictor(OutputTokenPredictor):
         self.bucket_states: dict[int, MeanState] = {}
         self.global_state = MeanState()
 
-    def predict(self, request: Request) -> QuantilePrediction:
+    def predict(self, request: Request) -> PointPrediction:
         ctx = PredictionContext.from_request(request)
         value, warmed_up = self._estimate(ctx.input_bin)
-        return QuantilePrediction(
-            q10=value,
-            q50=value,
-            q90=value,
-            is_warmed_up=warmed_up,
-        )
+        return PointPrediction(tokens=value, is_warmed_up=warmed_up)
 
     def update(self, request: Request) -> None:
         output_tokens = float(request.response_tokens or 0)

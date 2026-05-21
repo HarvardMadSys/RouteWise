@@ -669,12 +669,21 @@ class PrimalDualOnlineStrategy(OnlineStrategy):
 
         # 1. Estimate value using predictor (NO DATA LEAKAGE)
         # MUST NOT use request.response_tokens here
-        # Use q50 as point estimate for all predictors:
+        # Use the point estimate for point predictors, or q50 for quantile
+        # predictors:
         # - HistogramOutputPredictor: q50 from histogram bins
         # - EMAOutputPredictor: q50 = mean (normal approximation)
-        # When not warmed up, predict() returns a reasonable default q50.
+        # - BucketMeanOutputPredictor: point estimate from bucket mean
+        # When not warmed up, predict() returns a reasonable default estimate.
         prediction = self.output_predictor.predict(request)
-        value = _calculate_predicted_api_cost(self.config, request, prediction.q50)
+        predicted_output_tokens = (
+            prediction.tokens if hasattr(prediction, "tokens") else prediction.q50
+        )
+        value = _calculate_predicted_api_cost(
+            self.config,
+            request,
+            predicted_output_tokens,
+        )
 
         # For S_C: estimate duration using EMA (NO DATA LEAKAGE)
         # MUST NOT use request.latency_seconds here

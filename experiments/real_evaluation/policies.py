@@ -658,7 +658,10 @@ class BasePolicy:
         )
         with self._lock:
             prediction = self.output_predictor.predict(stub)
-        return max(1, int(round(prediction.median)))
+        predicted_tokens = (
+            prediction.tokens if hasattr(prediction, "tokens") else prediction.median
+        )
+        return max(1, int(round(predicted_tokens)))
 
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
         """Return route-time API cost, optionally using trace-reported cache hit."""

@@ -242,9 +242,9 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if self.output_predictor is None or provider.tier != ProviderTier.S_A:
             return effective_cost(provider, request, now, U=U, L=L, state=state)
         prediction = self.output_predictor.predict(request)
-        predicted_response_tokens = max(
-            float(getattr(prediction, self.output_predictor_quantile)),
-            0.0,
+        predicted_response_tokens = _predicted_output_tokens_from_prediction(
+            prediction,
+            self.output_predictor_quantile,
         )
         request_tokens = int(getattr(request, "request_tokens", 0) or 0)
         cached_tokens = 0
@@ -519,6 +519,19 @@ def _cost_tiebroken_objective(
 
     normalized_costs = (costs - costs.min()) / cost_span
     return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+
+
+def _predicted_output_tokens_from_prediction(prediction: Any, quantile: str) -> float:
+    """Extract a route-time output-token estimate from a predictor result."""
+
+    if hasattr(prediction, "tokens"):
+        if quantile != "q50":
+            raise ValueError(
+                "output_predictor_quantile="
+                f"{quantile!r} requires a quantile predictor; point predictors only support q50"
+            )
+        return max(float(getattr(prediction, "tokens")), 0.0)
+    return max(float(getattr(prediction, quantile)), 0.0)
 
 
 def _same_cost_shortcut_weights(

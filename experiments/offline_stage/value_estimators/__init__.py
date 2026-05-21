@@ -5,6 +5,7 @@ from .base import (
     DurationPrediction,
     DurationPredictor,
     OutputTokenPredictor,
+    PointPrediction,
     PredictionContext,
     QuantilePrediction,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "MeanState",
     "OracleOutputPredictor",
     "OutputTokenPredictor",
+    "PointPrediction",
     "PredictionContext",
     "QuantilePrediction",
     "StreamingHistogram",

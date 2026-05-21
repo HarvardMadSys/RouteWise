@@ -31,6 +31,17 @@ from rwsim.offline.schemas import Request, RoutingDecision
 logger = logging.getLogger(__name__)
 
 
+def _require_quantile_prediction(prediction: object) -> QuantilePrediction:
+    """Return a quantile prediction or fail fast for point predictors."""
+
+    if not isinstance(prediction, QuantilePrediction):
+        raise TypeError(
+            "learning-augmented strategies require a quantile output predictor; "
+            "point predictors such as BucketMeanOutputPredictor do not expose q10/q50/q90"
+        )
+    return prediction
+
+
 def _calculate_predicted_api_cost(
     config: dict,
     request: Request,
@@ -315,7 +326,7 @@ class LearningAugmentedPrimalDualStrategy(OnlineStrategy):
         self._stats["total_decisions"] += 1
 
         # Step 1: Get prediction
-        prediction = self.output_predictor.predict(request)
+        prediction = _require_quantile_prediction(self.output_predictor.predict(request))
 
         # Step 2: Compute value estimate with safeguard/fallback
         value_estimate: float
@@ -584,7 +595,7 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
         self._stats["total_decisions"] += 1
 
         # Get predictions
-        output_pred = self.output_predictor.predict(request)
+        output_pred = _require_quantile_prediction(self.output_predictor.predict(request))
         duration_pred = self.duration_predictor.predict(request, output_pred.q90)
 
         # Calculate value LCB (using EMA fallback to avoid data leakage)
