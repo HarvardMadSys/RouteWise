@@ -41,7 +41,9 @@ if [[ -f "$ENV_FILE" ]]; then
     elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
       value="${value:1:${#value}-2}"
     fi
-    export "$key=$value"
+    if [[ -z "${!key:-}" ]]; then
+      export "$key=$value"
+    fi
   done < "$ENV_FILE"
 fi
 
