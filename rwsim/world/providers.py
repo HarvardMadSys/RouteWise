@@ -182,6 +182,26 @@ class Provider:
             cached_input_tokens=cached_input_tokens,
         )
 
+    def marginal_prefill_cost_for_request(
+        self,
+        request,
+        now: float,
+        *,
+        cached_input_tokens: int | float = 0,
+    ) -> float:
+        """Real USD cost for a canceled request before its first output token."""
+        del now
+        if self.tier != ProviderTier.S_A:
+            return 0.0
+
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        return self.token_cost(
+            request_tokens=request_tokens,
+            response_tokens=0.0,
+            total_tokens=None,
+            cached_input_tokens=cached_input_tokens,
+        )
+
     def account_request(
         self,
         request_id: int,
@@ -195,9 +215,19 @@ class Provider:
         elif self.tier == ProviderTier.S_C:
             assert self.concurrency is not None
             if isinstance(self.concurrency, WeightedConcurrencyState):
-                self.concurrency.admit_interval(now, service_time_sec)
+                self.concurrency.admit_interval(
+                    now,
+                    service_time_sec,
+                    request_id=request_id,
+                )
             else:
                 self.concurrency.admit(request_id, now, service_time_sec)
+
+    def cancel_request(self, request_id: int, cancel_time: float) -> bool:
+        """Cancel an admitted request's capacity occupancy at ``cancel_time``."""
+        if self.tier != ProviderTier.S_C or self.concurrency is None:
+            return False
+        return self.concurrency.truncate(request_id, cancel_time)
 
     def reset_state(self, *, quota_window_start: float = 0.0) -> None:
         """Clear capacity state so a scenario can be re-run."""

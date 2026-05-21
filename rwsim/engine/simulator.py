@@ -163,6 +163,12 @@ class Simulator:
             now,
             cached_input_tokens=primary_cached_input_tokens,
         )
+        primary_cancel_cost_usd = primary.marginal_prefill_cost_for_request(
+            request,
+            now,
+            cached_input_tokens=primary_cached_input_tokens,
+        )
+        primary_uncanceled_cost_usd = primary_cost_usd
         billed_cost = primary_cost_usd
 
         final_provider = primary.name
@@ -171,9 +177,18 @@ class Simulator:
         hedge_dispatch: HedgeDispatch | None = None
         backup_ttft_ms: float | None = None
         backup_observed_at: float | None = None
+        backup_start_time: float | None = None
+        backup_full_service_end_at: float | None = None
         backup_cost_usd = 0.0
+        backup_cancel_cost_usd = 0.0
+        backup_uncanceled_cost_usd = 0.0
         backup_cached_input_tokens = 0
         hedge_delay_ms: float | None = None
+        primary_observed_at = now + primary_ttft_ms / 1000.0
+        primary_full_service_end_at = now + primary_service_time
+        hedge_loser: str | None = None
+        hedge_cancel_time: float | None = None
+        hedge_loser_canceled = False
 
         for elapsed in sorted(decision.hedge_checkpoints):
             elapsed_ms = float(elapsed) * 1000.0
@@ -187,44 +202,58 @@ class Simulator:
         if hedge_dispatch is not None:
             backup = providers[hedge_dispatch.backup_provider]
             dispatch_time = state.now
+            backup_start_time = dispatch_time + self.dispatch_overhead_ms / 1000.0
             backup_rng = provider_rngs[backup.name]
-            backup_ttft_ms = backup.sample_ttft(backup_rng, dispatch_time)
+            backup_ttft_ms = backup.sample_ttft(backup_rng, backup_start_time)
             backup_service_time = _sample_service_time(
                 backup,
                 backup_rng,
-                dispatch_time,
+                backup_start_time,
                 request.response_tokens or 1,
                 backup_ttft_ms,
             )
-            if _can_admit(backup, dispatch_time, backup_service_time):
+            if _can_admit(backup, backup_start_time, backup_service_time):
                 backup_cached_input_tokens = cached_input_tokens(backup, request, state)
                 backup.account_request(
                     request.id + _HEDGE_REQUEST_ID_OFFSET,
-                    dispatch_time,
+                    backup_start_time,
                     backup_service_time,
                 )
+                backup_full_service_end_at = backup_start_time + backup_service_time
                 backup_cost_usd = backup.marginal_cost_for_request(
                     request,
-                    dispatch_time,
+                    backup_start_time,
                     cached_input_tokens=backup_cached_input_tokens,
                 )
-                billed_cost += backup_cost_usd
-                hedge_delay_ms = (dispatch_time - now) * 1000.0
-                backup_observed_at = dispatch_time + backup_ttft_ms / 1000.0
-                hedged_ttft = (
-                    (dispatch_time - now) * 1000.0 + self.dispatch_overhead_ms + backup_ttft_ms
+                backup_cancel_cost_usd = backup.marginal_prefill_cost_for_request(
+                    request,
+                    backup_start_time,
+                    cached_input_tokens=backup_cached_input_tokens,
                 )
+                backup_uncanceled_cost_usd = backup_cost_usd
+                hedge_delay_ms = (dispatch_time - now) * 1000.0
+                backup_observed_at = backup_start_time + backup_ttft_ms / 1000.0
+                hedged_ttft = (backup_observed_at - now) * 1000.0
                 if hedged_ttft < final_ttft_ms:
                     final_ttft_ms = hedged_ttft
                     final_provider = backup.name
+                    primary_cost_usd = primary_cancel_cost_usd
+                    hedge_loser = "primary"
+                    hedge_cancel_time = backup_observed_at
+                    hedge_loser_canceled = primary.cancel_request(
+                        request.id,
+                        backup_observed_at,
+                    )
+                else:
+                    backup_cost_usd = backup_cancel_cost_usd
+                    hedge_loser = "backup"
+                    hedge_cancel_time = primary_observed_at
+                    hedge_loser_canceled = backup.cancel_request(
+                        request.id + _HEDGE_REQUEST_ID_OFFSET,
+                        primary_observed_at,
+                    )
+                billed_cost = primary_cost_usd + backup_cost_usd
                 hedge_triggered = True
-
-                # TODO(routewise-hedging): model cancellation after the first
-                # visible token wins the hedge race. Today both primary and
-                # backup consume their full modeled service time and billed
-                # cost. A cancel-aware simulator should truncate loser
-                # concurrency occupancy at winner first-token time and record
-                # both no-cancel and cancel-adjusted costs.
 
         state.now = now
         return RoutingOutcome(
@@ -236,16 +265,27 @@ class Simulator:
             hedge_triggered=hedge_triggered,
             metadata={
                 "primary_ttft_ms": primary_ttft_ms,
-                "primary_observed_at": now + primary_ttft_ms / 1000.0,
+                "primary_observed_at": primary_observed_at,
+                "primary_full_service_end_at": primary_full_service_end_at,
                 "hedge_provider": hedge_dispatch.backup_provider if hedge_dispatch else None,
                 "hedge_delay_ms": hedge_delay_ms,
                 "backup_ttft_ms": backup_ttft_ms,
                 "backup_observed_at": backup_observed_at,
+                "backup_start_time": backup_start_time,
+                "backup_full_service_end_at": backup_full_service_end_at,
+                "hedge_loser": hedge_loser,
+                "hedge_cancel_time": hedge_cancel_time,
+                "hedge_loser_canceled": hedge_loser_canceled,
                 "primary_cost_usd": primary_cost_usd,
                 "backup_cost_usd": backup_cost_usd,
+                "primary_cancel_cost_usd": primary_cancel_cost_usd,
+                "backup_cancel_cost_usd": backup_cancel_cost_usd,
+                "primary_uncanceled_cost_usd": primary_uncanceled_cost_usd,
+                "backup_uncanceled_cost_usd": backup_uncanceled_cost_usd,
                 "primary_cached_input_tokens": primary_cached_input_tokens,
                 "backup_cached_input_tokens": backup_cached_input_tokens,
                 "sim_dispatch_overhead_ms": self.dispatch_overhead_ms,
+                "sim_cancel_assumes_provider_cancelable": True,
             },
         )
 
@@ -294,7 +334,18 @@ class Simulator:
             metadata["sim_true_p99_ms"] = final_provider.true_p99_ms(float(request.timestamp))
         for key in (
             "primary_observed_at",
+            "primary_full_service_end_at",
             "backup_observed_at",
+            "backup_start_time",
+            "backup_full_service_end_at",
+            "hedge_loser",
+            "hedge_cancel_time",
+            "hedge_loser_canceled",
+            "primary_cancel_cost_usd",
+            "backup_cancel_cost_usd",
+            "primary_uncanceled_cost_usd",
+            "backup_uncanceled_cost_usd",
+            "sim_cancel_assumes_provider_cancelable",
             "sim_dispatch_overhead_ms",
         ):
             if key in outcome.metadata:
