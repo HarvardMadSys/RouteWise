@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from rwsim.const import DISPATCH_OVERHEAD_MS
 from rwsim.engine.state import SimulationState
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
 from rwsim.policies.prefix_cache import cached_input_tokens
@@ -30,7 +31,6 @@ if TYPE_CHECKING:
 
 
 _HEDGE_REQUEST_ID_OFFSET = 10_000_000
-_DISPATCH_OVERHEAD_MS = 50.0
 
 
 @dataclass
@@ -39,7 +39,7 @@ class Simulator:
 
     scenario: ScenarioConfig
     seed: int = 42
-    dispatch_overhead_ms: float = _DISPATCH_OVERHEAD_MS
+    dispatch_overhead_ms: float = DISPATCH_OVERHEAD_MS
     retain_records: bool = True
 
     def run(

@@ -10,6 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+# Re-export so existing `from rwsim.policies.hedging import DISPATCH_OVERHEAD_MS`
+# call sites keep working. The value lives in `rwsim.const`; edit it there.
+from rwsim.const import DISPATCH_OVERHEAD_MS
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
@@ -18,7 +22,6 @@ if TYPE_CHECKING:
 
 EPS = 1e-9
 HEDGE_SUCCESS_TARGET = 0.99
-DISPATCH_OVERHEAD_MS = 50.0
 
 
 @dataclass(frozen=True)
