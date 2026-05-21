@@ -66,11 +66,9 @@ PUBLIC_SCENARIO_TAG = "end_to_end"
 RW3_SCENARIO_NAME = "end_to_end_rw3"
 COST_TIERED_SCENARIO_NAME = "end_to_end_3sa_cost_tiers"
 RW8_SCENARIO_NAME = "end_to_end_rw8"
-OR8_1H_EFFMEAN_SCENARIO_NAME = "end_to_end_or8_1h_effmean"
 RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
-MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME = "minimax_m25_or8_1h_effmean"
 
 # Match the live real-eval setup: one Chutes quota subscription and one
 # Featherless Premium account, whose ge_70b weighted capacity admits one
@@ -111,7 +109,6 @@ def list_scenarios() -> tuple[str, ...]:
         RW3_SCENARIO_NAME,
         COST_TIERED_SCENARIO_NAME,
         RW8_SCENARIO_NAME,
-        OR8_1H_EFFMEAN_SCENARIO_NAME,
     )
 
 
@@ -195,22 +192,6 @@ def make_scenario(
             _make_end_to_end_scenario(
                 scenario_name=name,
                 pool_name=MINIMAX_M25_RW8_POOL_NAME,
-                api_provider_limit=None,
-                quota_plan_id=quota_plan,
-                quota_count=quota_count,
-                concurrency_plan_id=concurrency_plan,
-                concurrency_count=concurrency_count,
-                model=model,
-                slo_ms=slo_ms,
-            ),
-            enabled=prefix_cache_enabled,
-            cached_input_price_fraction=cached_input_price_fraction,
-        )
-    if name == OR8_1H_EFFMEAN_SCENARIO_NAME:
-        return _with_prefix_cache_config(
-            _make_end_to_end_scenario(
-                scenario_name=name,
-                pool_name=MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME,
                 api_provider_limit=None,
                 quota_plan_id=quota_plan,
                 quota_count=quota_count,
