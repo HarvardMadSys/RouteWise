@@ -309,6 +309,15 @@ specific policy needs them and ownership is clear.
 
 ### 4.4 Per-request record and Run aggregate
 
+> **Schema details superseded** by
+> [`SCHEMA_UNIFICATION_2026_05_21.md`](SCHEMA_UNIFICATION_2026_05_21.md).
+> The H6 delta there extends this section with `lp_*` fields, a canonical
+> accounting cost line plus optional `routing_estimated_*` and `physical_*`
+> fields, `hedge_algorithm` / `hedge_schedule`, `source`, `model`,
+> `timestamp_sec`, and a PROD `api_logs.metadata["routewise"]` mapping. This
+> §4.4 stays as the original Phase 0 background and high-level commit plan;
+> the new schema is not copied here to avoid two sources of truth.
+
 `rwsim/metrics/` carries the canonical per-request record schema for both the
 simulator AND real-evaluation experiments, not just the simulator's output.
 This is the layer paper figures consume; sim-vs-real comparisons (5/4 meeting:
