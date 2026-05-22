@@ -2010,6 +2010,8 @@ class RealExperimentRunner:
             provider="none",
             error_message=decision.notes or "no_route",
         )
+        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -2019,6 +2021,8 @@ class RealExperimentRunner:
             primary_result=sentinel,
             slo_ms=self.slo_sec * 1000.0,
             ts=ts,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
         )
 
     def _record_single(
@@ -2041,6 +2045,8 @@ class RealExperimentRunner:
         # logged as ``tier=quota`` even though OR_DeepInfra is an API
         # provider), which throws off downstream tier-mix analysis.
         final_spec = self._spec_by_name.get(final_provider or "") or spec
+        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -2056,6 +2062,8 @@ class RealExperimentRunner:
             else None,
             primary_cached_input_tokens=primary_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
         )
 
     def _record_hedged(
