@@ -360,12 +360,16 @@ class Simulator:
         hedge_algorithm = "probability_target" if hedging_active else "disabled"
         hedge_schedule = "slo_relative_checkpoints" if hedging_active else None
 
-        # routing_estimated_cost_usd is the LP's decision-time cost estimate.
-        # outcome.cost_usd is the realized accounting cost (rewritten after hedge
-        # cancel etc.) — those are different physical quantities. Leave None
-        # until the policy emits an explicit estimate on RoutingDecision.metadata.
-        routing_estimated_cost_usd: float | None = None
-        primary_routing_estimated_cost_usd: float | None = None
+        # routing_estimated_cost_usd is the LP's decision-time cost estimate
+        # (predicted tokens, not realized). The policy emits it on
+        # RoutingDecision.metadata; outcome.cost_usd is a different (realized)
+        # quantity and must not be substituted here.
+        routing_estimated_cost_usd: float | None = decision.metadata.get(
+            "routing_estimated_cost_usd"
+        )
+        # In SIM the backup is chosen at a hedge checkpoint (tick), not at route
+        # time, so only the primary leg has a route-time estimate.
+        primary_routing_estimated_cost_usd: float | None = routing_estimated_cost_usd
         backup_routing_estimated_cost_usd: float | None = None
 
         return PerRequestRecord(
@@ -412,7 +416,7 @@ class Simulator:
             hedge_schedule=hedge_schedule,
             lp_weights=lp_weights,
             lp_budget_usd=lp_budget_usd,
-            lp_status=None,  # SIM policy does not yet emit lp_status; TBD.
+            lp_status=decision.metadata.get("lp_status"),
             status=Status.REJECTED if outcome.rejected else Status.SUCCESS,
             error_class=outcome.error,
             metadata=metadata,

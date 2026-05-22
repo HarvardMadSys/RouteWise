@@ -133,6 +133,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 objective=objective,
                 costs=[c_eff[name] for name in names],
             )
+            lp_status = "single_candidate" if len(names) == 1 else "feasible"
         else:
             success, vector = _solve_lp(
                 objective=objective,
@@ -140,14 +141,23 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 upper_bound=budget,
             )
             weights = _normalize_weights(names, vector) if success and vector is not None else {}
+            # budget = c_min + p*(c_max - c_min) with p in [0, 1], so budget >= c_min
+            # and the min-cost provider is always within budget. An empty solve is
+            # therefore a solver fallback, not an over-budget infeasibility: the
+            # fallback below picks the (feasible) min-cost provider.
+            lp_status = "feasible"
         if not weights:
             best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
             weights = {best.name: 1.0}
+            lp_status = "feasible"
 
         primary_name = _sample_weighted(weights, self.rng)
         hedge_checkpoints = ()
         if self.hedging:
             hedge_checkpoints = hedge_checkpoints_for_slo(self.slo_ms)
+
+        primary_provider = next(p for p in providers if p.name == primary_name)
+        routing_estimated_cost_usd = self._routing_dollar_cost(primary_provider, request, state)
 
         return RoutingDecision(
             primary_provider=primary_name,
@@ -158,6 +168,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 "budget": budget,
                 "L": L,
                 "U": U,
+                "lp_status": lp_status,
+                "routing_estimated_cost_usd": routing_estimated_cost_usd,
             },
         )
 
@@ -256,6 +268,49 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             request_tokens=request_tokens,
             response_tokens=predicted_response_tokens,
             cached_input_tokens=cached_tokens,
+        )
+
+    def _routing_dollar_cost(
+        self,
+        provider: Provider,
+        request: Request,
+        state: SimulationState | None,
+    ) -> float | None:
+        """Decision-time dollar token cost using predicted output tokens.
+
+        This is the routing-time estimate, not the realized cost. It uses only
+        information visible at routing time: the predictor output, or the trace's
+        ``estimated_response_tokens``. It never uses the actual generated
+        ``response_tokens`` — substituting that would make the estimate equal the
+        realized cost. Returns ``None`` when no routing-time estimate exists.
+
+        Mirrors real-eval's ``routing_cache_diagnostics`` /
+        ``cache_aware_request_cost_usd``: raw token-priced dollars regardless of
+        tier, so SIM and real-eval expose the same quantity.
+        """
+        if self.output_predictor is not None:
+            prediction = self.output_predictor.predict(request)
+            predicted_response_tokens = _predicted_output_tokens_from_prediction(
+                prediction,
+                self.output_predictor_quantile,
+            )
+        else:
+            predicted = getattr(request, "estimated_response_tokens", None)
+            if predicted is None:
+                return None
+            predicted_response_tokens = float(predicted)
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        cached_tokens = 0
+        if state is not None:
+            from rwsim.policies.prefix_cache import cached_input_tokens
+
+            cached_tokens = cached_input_tokens(provider, request, state)
+        return float(
+            provider.token_cost(
+                request_tokens=request_tokens,
+                response_tokens=predicted_response_tokens,
+                cached_input_tokens=cached_tokens,
+            )
         )
 
     def _ensure_profiles(self, providers: dict[str, Provider]) -> None:

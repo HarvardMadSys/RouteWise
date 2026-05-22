@@ -2023,6 +2023,7 @@ class RealExperimentRunner:
             ts=ts,
             hedge_algorithm=hedge_algorithm,
             hedge_schedule=hedge_schedule,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_single(
@@ -2064,6 +2065,7 @@ class RealExperimentRunner:
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             hedge_algorithm=hedge_algorithm,
             hedge_schedule=hedge_schedule,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_hedged(
@@ -2100,6 +2102,7 @@ class RealExperimentRunner:
             backup_cached_input_tokens=backup_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     # ------------------------------------------------------------------

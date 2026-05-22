@@ -1917,6 +1917,48 @@ def test_non_hedged_greedy_cost_falls_back_to_next_provider_on_429(monkeypatch) 
     rec.close()
 
 
+def test_dispatch_populates_model_from_inventory(monkeypatch) -> None:
+    """The runner must fill ``model`` from the run-level inventory, not a spec
+    attribute that does not exist (drift audit gap 1)."""
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    expected_model = runner.inventory.openrouter_model_id
+    assert expected_model  # inventory carries a non-empty model id
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8),
+        req_index=0,
+    )
+
+    assert rec._rows[0].model == expected_model
+    assert rec.to_run().records[0].model == expected_model
+    rec.close()
+
+
 def test_prepare_dispatch_holds_concurrency_capacity_until_release() -> None:
     runner, rec = _build_runner(policy_names=["greedy_cost"])
     policy = runner.policies["greedy_cost"]

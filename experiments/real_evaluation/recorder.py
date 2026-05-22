@@ -76,6 +76,9 @@ CSV_FIELDS: tuple[str, ...] = (
     "reference_cost_usd",
     "tier_mix",
     "notes",
+    "model",
+    "hedge_algorithm",
+    "hedge_schedule",
 )
 
 
@@ -132,6 +135,11 @@ class RequestLogRow:
     reference_cost_usd: float | None
     tier_mix: dict[str, float] | None
     notes: str | None
+    # Policy-level routing identity. Persisted so a CSV reload can recover what
+    # model and hedging rule the policy ran, instead of guessing from the row.
+    model: str | None = None
+    hedge_algorithm: str | None = None
+    hedge_schedule: str | None = None
 
     def to_csv_dict(self) -> dict[str, str]:
         def _maybe_json(value: Any) -> str:
@@ -213,6 +221,9 @@ class RequestLogRow:
             ),
             "tier_mix": _maybe_json(self.tier_mix),
             "notes": self.notes or "",
+            "model": self.model or "",
+            "hedge_algorithm": self.hedge_algorithm or "",
+            "hedge_schedule": self.hedge_schedule or "",
         }
 
 
@@ -273,6 +284,7 @@ class Recorder:
         ts: float | None = None,
         hedge_algorithm: str | None = None,
         hedge_schedule: str | None = None,
+        ctx_model: str | None = None,
     ) -> None:
         """Convenience wrapper that builds a ``RequestLogRow`` from common parts.
 
@@ -386,6 +398,9 @@ class Recorder:
             reference_cost_usd=decision.reference_cost_usd,
             tier_mix=decision.tier_mix,
             notes=decision.notes,
+            model=ctx_model,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
         )
         # routing_estimated_cost_usd: sum of primary + backup LP estimates.
         # The recorder receives these as kwargs; sum them so default metrics can
@@ -416,7 +431,7 @@ class Recorder:
             final_tier=resolved_final_tier,
             backup_provider=decision.hedge,
             backup_tier=resolved_backup_tier,
-            model=None,  # TODO: wire ctx_model through write_request signature.
+            model=ctx_model,
             source="real_eval",
             timestamp_sec=row_ts,
             ttft_ms=record_ttft_ms,
@@ -508,6 +523,7 @@ class Recorder:
         ts: float | None = None,
         hedge_algorithm: str | None = "probability_target",
         hedge_schedule: str | None = "slo_relative_checkpoints",
+        ctx_model: str | None = None,
     ) -> None:
         """Convenience wrapper that unpacks a ``HedgedResult``.
 
@@ -545,6 +561,7 @@ class Recorder:
             ts=ts,
             hedge_algorithm=hedge_algorithm,
             hedge_schedule=hedge_schedule,
+            ctx_model=ctx_model,
         )
 
     def to_run(self, policy: str | None = None, *, slo_ms: float | None = None) -> Run:
@@ -591,7 +608,7 @@ class Recorder:
             final_tier=row.tier or "",
             backup_provider=row.backup_provider,
             backup_tier=None,
-            model=None,
+            model=row.model,
             source="real_eval",
             timestamp_sec=row.ts,
             ttft_ms=row.ttft_ms,
@@ -618,14 +635,10 @@ class Recorder:
             hedge_triggered=row.hedge_triggered,
             hedge_delay_ms=row.hedge_delay_ms,
             hedge_winner=row.hedge_winner,
-            # Reload from CSV cannot recover policy.use_hedge; leave hedge_algorithm
-            # / hedge_schedule None unless the row recorded an actual hedge.
-            hedge_algorithm=(
-                "probability_target" if row.backup_provider else None
-            ),
-            hedge_schedule=(
-                "slo_relative_checkpoints" if row.backup_provider else None
-            ),
+            # Policy-level hedge identity is now persisted on the row, so a CSV
+            # reload recovers it exactly instead of guessing from backup presence.
+            hedge_algorithm=row.hedge_algorithm,
+            hedge_schedule=row.hedge_schedule,
             # LP state (lp_status normalized to canonical enum).
             lp_weights=row.lp_weights,
             lp_budget_usd=row.budget_usd,
