@@ -125,7 +125,7 @@ def run_offline_oracle_policy(
     aggregator = RunAggregator(
         policy=OFFLINE_POLICY,
         scenario_name=scenario.name,
-        source="simulation",
+        source="sim",
         retain_records=retain_records,
     )
     for request in requests:

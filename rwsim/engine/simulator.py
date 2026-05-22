@@ -64,7 +64,7 @@ class Simulator:
         aggregator = RunAggregator(
             policy=policy_name,
             scenario_name=self.scenario.name,
-            source="simulation",
+            source="sim",
             retain_records=self.retain_records,
         )
 
@@ -318,11 +318,12 @@ class Simulator:
                 float(request.timestamp),
             ),
         }
-        if "weights" in decision.metadata:
-            metadata["sim_lp_weights"] = decision.metadata["weights"]
-        if "budget" in decision.metadata:
-            metadata["sim_lp_budget"] = decision.metadata["budget"]
+        # Canonical LP state (promoted from decision metadata; was sim_lp_weights / sim_lp_budget).
+        lp_weights = decision.metadata.get("weights")
+        lp_budget_usd = decision.metadata.get("budget")
         if "c_eff" in decision.metadata:
+            # sim-only oracle quantity (no canonical equivalent — per-provider effective cost
+            # is reproducible only inside the simulator).
             metadata["sim_c_eff"] = decision.metadata["c_eff"]
         for key in (
             "primary_cached_input_tokens",
@@ -353,6 +354,20 @@ class Simulator:
         if outcome.error:
             metadata["sim_error"] = outcome.error
 
+        # Hedging schedule / algorithm metadata (canonical fields).
+        # SIM main path runs probability-target hedging on SLO-relative checkpoints.
+        hedging_active = bool(decision.hedge_checkpoints)
+        hedge_algorithm = "probability_target" if hedging_active else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if hedging_active else None
+
+        # routing_estimated_cost_usd is the LP's decision-time cost estimate.
+        # outcome.cost_usd is the realized accounting cost (rewritten after hedge
+        # cancel etc.) — those are different physical quantities. Leave None
+        # until the policy emits an explicit estimate on RoutingDecision.metadata.
+        routing_estimated_cost_usd: float | None = None
+        primary_routing_estimated_cost_usd: float | None = None
+        backup_routing_estimated_cost_usd: float | None = None
+
         return PerRequestRecord(
             request_id=str(outcome.request_id),
             elapsed_sec=float(request.timestamp),
@@ -370,6 +385,9 @@ class Simulator:
             final_tier=_provider_tier_value(final_provider),
             backup_provider=str(backup_name) if backup_name else None,
             backup_tier=_provider_tier_value(backup_provider) if backup_provider else None,
+            model=request.model,
+            source="sim",
+            timestamp_sec=None,
             ttft_ms=float(outcome.ttft_ms),
             e2e_ms=None,
             primary_local_ttft_ms=outcome.metadata.get("primary_ttft_ms"),
@@ -381,9 +399,20 @@ class Simulator:
             total_cost_usd=float(outcome.cost_usd),
             primary_cost_usd=outcome.metadata.get("primary_cost_usd", 0.0),
             backup_cost_usd=backup_cost if outcome.hedge_triggered else None,
+            routing_estimated_cost_usd=routing_estimated_cost_usd,
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
+            physical_cost_usd=None,
+            primary_physical_cost_usd=None,
+            backup_physical_cost_usd=None,
             hedge_triggered=outcome.hedge_triggered,
             hedge_delay_ms=outcome.metadata.get("hedge_delay_ms"),
             hedge_winner=hedge_winner,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
+            lp_weights=lp_weights,
+            lp_budget_usd=lp_budget_usd,
+            lp_status=None,  # SIM policy does not yet emit lp_status; TBD.
             status=Status.REJECTED if outcome.rejected else Status.SUCCESS,
             error_class=outcome.error,
             metadata=metadata,

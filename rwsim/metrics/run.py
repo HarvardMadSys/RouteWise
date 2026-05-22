@@ -109,7 +109,7 @@ class Run:
         records: Sequence[PerRequestRecord],
         policy: str = "",
         scenario_name: str = "",
-        source: str = "simulation",
+        source: str = "sim",
         aggregate: RunAggregate | None = None,
         window_sec: float = 300.0,
     ) -> None:
