@@ -5,27 +5,32 @@
 > contract only — capacity/concurrency model (H5) is handled by prior commits
 > and out of scope here.
 
-Last updated: 2026-05-21.
+Last updated: 2026-05-22.
 
 ---
 
 ## 1. TL;DR
 
-SIM and REAL-EVAL already share a `PerRequestRecord` and a `Run` aggregate:
+SIM and REAL-EVAL share a `PerRequestRecord` and a `Run` aggregate:
 
 - `rwsim/metrics/record.py:20` — `PerRequestRecord` dataclass
 - `rwsim/metrics/run.py:103` — `Run.records: list[PerRequestRecord]`
 - `experiments/real_evaluation/recorder.py:381` — REAL-EVAL already constructs `PerRequestRecord`
 
-What is missing for full three-way alignment:
+The H6 field contract is now implemented for SIM and REAL-EVAL records, and
+PROD writes the current non-hedged RouteWise subset into
+`api_logs.metadata["routewise"]`:
 
-1. New identity / LP / hedging fields on `PerRequestRecord`.
+1. Identity / LP / hedging fields live on `PerRequestRecord`.
 2. `total_cost_usd` / `primary_cost_usd` / `backup_cost_usd` keep their role
    as the **canonical accounting cost** read by default metrics; two optional
    debug/ops cost lines (`routing_estimated_*`, `physical_*`) sit alongside.
-3. Promoting existing real-eval `metadata["real_*"]` LP / physical-cost keys to canonical.
-4. PROD writes the same routing detail into `api_logs.metadata["routewise"]`,
-   without schema migration.
+3. Real-eval promotes LP / physical-cost values to canonical fields and
+   persists `model`, `hedge_algorithm`, and `hedge_schedule` in CSV.
+4. PROD writes RouteWise routing detail into `api_logs.metadata["routewise"]`,
+   without schema migration. Current PROD does not dispatch hedges yet, so
+   hedge fields are `disabled` / `None`; the future production hedger must
+   populate them dynamically.
 
 H5 (simulator capacity and concurrency model) is already resolved by
 commits `c82d11f`, `e8729f0`, `5d0b708`, `3400ead`. The earlier
@@ -51,21 +56,28 @@ authoritative "what this request cost" number — and adds two optional lines
 for LP debug (`routing_estimated_*`) and provider reconciliation
 (`physical_*`).
 
-### 2.2 PROD has none of this
+### 2.2 PROD writes a routewise metadata subset
 
 `apps/backend/serving/storage/database.py:73–110` (plus the `ALTER TABLE`
 migrations at 196–204) defines `api_logs`. It has `cost_usd`,
-`upstream_cost_usd`, and a `metadata JSONB` column. It has no routing-level
-fields: no `policy`, no `primary_provider`/`backup_provider` split, no
-`hedge_*`, no `lp_*`, no `slo_*`.
+`upstream_cost_usd`, and a `metadata JSONB` column. The hybridInference
+RouteWise body router now writes a `"routewise"` namespace into that metadata
+column with canonical body-routing fields: `policy`, `primary_provider`,
+`primary_tier`, `backup_provider`, `backup_tier`, `hedge_*`, `lp_weights`,
+`lp_budget_usd`, `lp_status`, and `routing_estimated_cost_usd`.
+
+Current PROD intentionally does **not** dispatch hedges, so its canonical hedge
+fields are static (`hedge_algorithm="disabled"`, `hedge_triggered=false`).
+When production RouteWise hedging is enabled, those fields must be populated
+from the actual probability-target hedge execution path.
 
 ### 2.3 What needs to change
 
-1. Extend `PerRequestRecord` with the missing canonical fields.
-2. Promote real-eval's existing `metadata["real_*"]` LP / cost fields to
-   those canonical fields.
-3. PROD writes a `routewise` namespace into `api_logs.metadata` carrying the
-   same canonical field set.
+1. Keep SIM / REAL-EVAL populating the canonical `PerRequestRecord` fields.
+2. Keep PROD's `routewise` metadata namespace aligned with the canonical field
+   names.
+3. Add parity tests whenever a source starts populating a previously-`None`
+   optional field, especially production hedging fields.
 
 ---
 
@@ -202,32 +214,45 @@ Drop `real_wall_clock_ts` (now redundant with the canonical `timestamp_sec`).
 ## 5. PROD Stage 1 — `metadata["routewise"]`
 
 PROD does NOT alter `api_logs`. It writes routing detail into the existing
-`metadata JSONB` column under a `"routewise"` namespace:
+`metadata JSONB` column under a `"routewise"` namespace. The current
+hybridInference body router writes the non-hedged subset below:
 
 ```json
 {
   "routewise": {
     "policy": "routewise",
-    "primary_provider": "chutes",
+    "primary_provider": "chutes:https://chutes.example/v1",
     "primary_tier": "quota",
-    "backup_provider": "openrouter",
-    "backup_tier": "api",
-    "final_provider": "openrouter",
-    "final_tier": "api",
-    "hedge_triggered": true,
-    "hedge_delay_ms": 1250.0,
-    "hedge_winner": "backup",
-    "hedge_algorithm": "probability_target",
-    "hedge_schedule": "slo_relative_checkpoints",
-    "lp_weights": {"chutes": 0.7, "openrouter": 0.3},
+    "backup_provider": null,
+    "backup_tier": null,
+    "hedge_triggered": false,
+    "hedge_winner": null,
+    "hedge_algorithm": "disabled",
+    "hedge_schedule": null,
+    "lp_weights": {"chutes:https://chutes.example/v1": 1.0},
     "lp_budget_usd": 0.0012,
     "lp_status": "feasible",
-    "routing_estimated_cost_usd": 0.0008,
-    "primary_routing_estimated_cost_usd": 0.0,
-    "backup_routing_estimated_cost_usd": 0.0008,
-    "slo_ms": 3000,
-    "slo_violated": false
+    "routing_estimated_cost_usd": null
   }
+}
+```
+
+`primary_provider` is endpoint-level in PROD because the production router
+selects concrete endpoints. SIM / REAL-EVAL may use provider-level names; that
+value-granularity difference is source-specific and not a schema mismatch.
+
+When production hedging is enabled, the same namespace must additionally fill
+the dynamic hedge fields from execution:
+
+```json
+{
+  "backup_provider": "openrouter:https://api.openrouter.ai/v1",
+  "backup_tier": "api",
+  "hedge_triggered": true,
+  "hedge_delay_ms": 1250.0,
+  "hedge_winner": "backup",
+  "hedge_algorithm": "probability_target",
+  "hedge_schedule": "slo_relative_checkpoints"
 }
 ```
 
@@ -248,11 +273,12 @@ Existing `api_logs` columns map to canonical fields without renaming:
 | `status_code` | `status` (canonicalize) |
 | `error` | `error_class` |
 
-Set `source = "prod"`. Once PROD migrates to the canonical RouteWise hedger,
-write `hedge_algorithm = "probability_target"` and
-`hedge_schedule = "slo_relative_checkpoints"`. Pre-migration legacy PROD
-hedging is not part of the canonical enum; if it must be logged before the
-migration, keep it in PROD-specific metadata instead of `hedge_algorithm`.
+Set `source = "prod"` in the reader / parity layer. Once PROD migrates to the
+canonical RouteWise hedger, write `hedge_algorithm = "probability_target"` and
+`hedge_schedule = "slo_relative_checkpoints"` from the real execution path.
+Pre-migration legacy PROD hedging is not part of the canonical enum; if it must
+be logged before the migration, keep it in PROD-specific metadata instead of
+`hedge_algorithm`.
 
 **Stage 1 explicitly does NOT**:
 - Add columns to `api_logs`
@@ -270,10 +296,11 @@ by actual query frequency, not part of this doc.
 | Step | Owner | Notes |
 |---|---|---|
 | 1. Extend `PerRequestRecord` with new identity/LP/hedging fields and six optional cost fields (`routing_estimated_*`, `physical_*`) | SIM core | All new fields default to `None`; existing `total_cost_usd` etc. unchanged |
-| 2. SIM populates new fields where applicable (`lp_weights`, `lp_budget_usd`, `hedge_algorithm`, `hedge_schedule`, `source="sim"`); `routing_estimated_*` and `lp_status` remain `None` until the policy emits explicit decision-time estimates on `RoutingDecision.metadata` | SIM | Engine already has `lp_weights` / `lp_budget` from the policy — wire those through; the rest is a policy-side follow-up |
-| 3. REAL-EVAL recorder promotes metadata `real_*` per §4 table | REAL | Direct edit of `recorder.py:381–448` |
-| 4. PROD router writes `api_logs.metadata["routewise"]` per §5 | PROD | Only logging path changes; `api_logs` schema unchanged |
-| 5. Cross-source parity test reads sim/real/prod records into the same metric function | All | `Run.mean_cost_usd()` reads `total_cost_usd` unchanged; no `cost_basis` param needed |
+| 2. SIM populates new fields where applicable (`lp_weights`, `lp_budget_usd`, `lp_status`, `hedge_algorithm`, `hedge_schedule`, `source="sim"`, and decision-time `routing_estimated_*` when a predictor or estimate exists) | SIM | Done for the RouteWise policy path |
+| 3. REAL-EVAL recorder promotes metadata `real_*` per §4 table and persists policy identity in CSV | REAL | Done in `recorder.py` / `runner.py` |
+| 4. PROD router writes current non-hedged `api_logs.metadata["routewise"]` subset per §5 | PROD | Done in hybridInference; `api_logs` schema unchanged |
+| 5. Cross-source parity test checks sim/real/prod fixtures against the same H6 key contract | All | Done in `tests/unit/metrics/test_schema_unification.py`; `Run.mean_cost_usd()` reads `total_cost_usd` unchanged |
+| 6. Production hedging dynamically populates canonical hedge fields | PROD | Future work; do not leave static disabled fields once hedging dispatch is enabled |
 
 Each step is independently shippable. Step 4 (PROD) can land before step 2
 or 3 — they share only the schema definition.
