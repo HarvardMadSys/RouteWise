@@ -928,8 +928,8 @@ def test_warmup_cadenced_skips_concurrency_limited_provider_in_flight(
     rec.close()
 
 
-def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
-    """Replay-time probe failures (periodic / shared sidecar) must not write
+def test_profile_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
+    """Replay-time probe failures from shared maintenance must not write
     to the latency profile at all — neither a positive synthetic sample nor
     an error sample. Real-request 429s remain the only way a provider gets
     penalized (via the ``error_samples`` path with
@@ -969,7 +969,7 @@ def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
-    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="periodic")
+    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="shared")
 
     now = time.time()
     bad_state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
@@ -1142,7 +1142,7 @@ def test_initial_profile_seed_offset_prevents_shared_log_duplicate(tmp_path) -> 
         assert state.profile.sample_count(time.time()) == 2
         assert state.profile.mean_ms(time.time()) == pytest.approx((111.0 + 222.0) / 2)
     finally:
-        runner._stop_periodic_profile_probe_thread(handle)
+        runner._stop_background_thread(handle)
         rec.close()
 
 
@@ -1346,7 +1346,7 @@ def test_shared_profile_tailer_imports_external_events(tmp_path) -> None:
             time.sleep(0.02)
         assert state.profile.mean_ms(time.time()) == pytest.approx(654.0)
     finally:
-        runner._stop_periodic_profile_probe_thread(handle)
+        runner._stop_background_thread(handle)
         rec.close()
 
 
@@ -1355,64 +1355,6 @@ def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
 
     runner.validate_profile_bootstrap(min_success_samples=5)
 
-    rec.close()
-
-
-def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["or_auto"])
-    probe_calls: list[str] = []
-
-    def fake_send_via_transport(
-        provider: str,
-        prompt: str,
-        max_tokens: int,
-        timeout: int,
-        ttft_event: threading.Event | None,
-        ttft_info: dict[str, Any] | None,
-        cancel_event: threading.Event | None = None,
-    ) -> SingleRequestResult:
-        assert prompt == WARMUP_PROBE_PROMPT
-        probe_calls.append(provider)
-        return SingleRequestResult(
-            ttft_ms=100.0,
-            e2e_ms=150.0,
-            status="success",
-            provider=provider,
-            billed_cost_usd=0.001,
-            start_ts=time.time(),
-            first_token_ts=time.time(),
-        )
-
-    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
-    monkeypatch.setattr(
-        runner,
-        "_dispatch_one",
-        lambda policy, req, idx: None,
-    )
-
-    runner.replay(
-        [
-            TraceRequest(
-                arrival_time_sec=0.0,
-                prompt="x",
-                prompt_tokens=10,
-                max_tokens=8,
-            ),
-            TraceRequest(
-                arrival_time_sec=0.2,
-                prompt="x",
-                prompt_tokens=10,
-                max_tokens=8,
-            ),
-        ],
-        speedup=1.0,
-        duration_sec=1.0,
-        periodic_probe_interval_sec=0.05,
-        periodic_probe_sleep_sec=0.0,
-    )
-
-    assert probe_calls
-    assert runner._profile_probe_counts["periodic"] == len(probe_calls)
     rec.close()
 
 

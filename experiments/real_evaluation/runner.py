@@ -79,7 +79,6 @@ DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 24
 DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 5.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
 DEFAULT_PROFILE_PROBE_PARALLELISM: int = 0
-DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
 # Probes are exogenous observations: if a request fails we do not retry and
 # do not poison the latency profile. Real-request feedback (which is what the
@@ -423,8 +422,8 @@ class _PreparedDispatch:
 
 
 @dataclass
-class _PeriodicProbeHandle:
-    """Background profile-maintenance probe loop."""
+class _BackgroundThreadHandle:
+    """Background helper thread plus its stop event."""
 
     thread: threading.Thread
     stop_event: threading.Event
@@ -492,10 +491,10 @@ class RealExperimentRunner:
         self._cost_per_policy: dict[str, float] = dict.fromkeys(policy_names, 0.0)
         self._total_cost_usd: float = 0.0
         self._profile_probe_cost_usd: float = 0.0
-        self._profile_probe_counts: dict[str, int] = {"warmup": 0, "periodic": 0}
+        self._profile_probe_counts: dict[str, int] = {"warmup": 0}
         self._stop_event = threading.Event()
-        # Tracks providers whose API key env var is unset so the periodic
-        # prober can skip them after warning once. Populated lazily by
+        # Tracks providers whose API key env var is unset so profile probes
+        # can skip them after warning once. Populated lazily by
         # ``_provider_api_key_missing``.
         self._providers_missing_api_key: set[str] = set()
         # ``threading.local`` must live on the runner instance so each
@@ -674,7 +673,7 @@ class RealExperimentRunner:
         probes_per_provider: int = 1,
         sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
         round_interval_sec: float = 0.0,
-        phase: str = "periodic",
+        phase: str = "probe",
         stop_event: threading.Event | None = None,
         parallelism: int = DEFAULT_PROFILE_PROBE_PARALLELISM,
     ) -> None:
@@ -687,8 +686,8 @@ class RealExperimentRunner:
         in-flight probes.
 
         When ``round_interval_sec <= 0`` or ``probes_per_provider == 1`` the
-        loop falls back to the simple synchronous path used by periodic /
-        single-shot calls.
+        loop falls back to the simple synchronous path used by single-shot
+        calls.
 
         Providers whose API key env var is unset in this process get skipped
         on first encounter (with a one-time warning) so e.g. OR-only
@@ -1072,9 +1071,9 @@ class RealExperimentRunner:
 
         # All attempts exhausted. Warmup is the only phase that injects a
         # synthetic sample, so the LP can still tentatively rank a provider
-        # that failed during startup. Replay-time probes (periodic / shared
-        # sidecar) stay silent: probe failures must not poison the routing
-        # profile. Real-request 429s use the ``error_samples`` path with
+        # that failed during startup. Replay-time shared probes stay silent:
+        # probe failures must not poison the routing profile. Real-request
+        # 429s use the ``error_samples`` path with
         # ``RATE_LIMIT_ERROR_PENALTY_MS`` instead.
         if phase == "warmup":
             synthetic_ts = time.time()
@@ -1315,8 +1314,6 @@ class RealExperimentRunner:
         *,
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
-        periodic_probe_interval_sec: float = 0.0,
-        periodic_probe_sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
         quota_window_anchor: str = "wall_clock",
     ) -> None:
         """Replay a trace against the configured policies.
@@ -1328,10 +1325,6 @@ class RealExperimentRunner:
             logger.warning("replay called with empty trace")
             return
         shared_profile_handle = self._start_shared_profile_tailer_thread()
-        probe_handle = self._start_periodic_profile_probe_thread(
-            interval_sec=periodic_probe_interval_sec,
-            sleep_sec=periodic_probe_sleep_sec,
-        )
         try:
             self._replay_parallel_full_trace(
                 trace,
@@ -1340,10 +1333,9 @@ class RealExperimentRunner:
                 quota_window_anchor=quota_window_anchor,
             )
         finally:
-            self._stop_periodic_profile_probe_thread(probe_handle)
-            self._stop_periodic_profile_probe_thread(shared_profile_handle)
+            self._stop_background_thread(shared_profile_handle)
 
-    def _start_shared_profile_tailer_thread(self) -> _PeriodicProbeHandle | None:
+    def _start_shared_profile_tailer_thread(self) -> _BackgroundThreadHandle | None:
         if self._shared_profile_log is None:
             return None
 
@@ -1371,43 +1363,11 @@ class RealExperimentRunner:
             daemon=True,
         )
         thread.start()
-        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
-
-    def _start_periodic_profile_probe_thread(
-        self,
-        *,
-        interval_sec: float,
-        sleep_sec: float,
-    ) -> _PeriodicProbeHandle | None:
-        if interval_sec <= 0:
-            return None
-
-        stop_event = threading.Event()
-
-        def _loop() -> None:
-            logger.info("periodic profile probing enabled: interval=%.1fs", interval_sec)
-            while not stop_event.wait(interval_sec):
-                if self._stop_event.is_set():
-                    return
-                logger.info("periodic profile probe round starting")
-                self.probe_profiles(
-                    probes_per_provider=1,
-                    sleep_sec=sleep_sec,
-                    phase="periodic",
-                    stop_event=stop_event,
-                )
-
-        thread = threading.Thread(
-            target=_loop,
-            name="real-eval-profile-prober",
-            daemon=True,
-        )
-        thread.start()
-        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
+        return _BackgroundThreadHandle(thread=thread, stop_event=stop_event)
 
     @staticmethod
-    def _stop_periodic_profile_probe_thread(
-        handle: _PeriodicProbeHandle | None,
+    def _stop_background_thread(
+        handle: _BackgroundThreadHandle | None,
     ) -> None:
         if handle is None:
             return
@@ -2215,15 +2175,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help=("Seconds between warmup probe rounds. Use 0 for a fast smoke run."),
     )
     parser.add_argument(
-        "--periodic-probe-interval-sec",
-        type=float,
-        default=DEFAULT_PERIODIC_PROBE_INTERVAL_SEC,
-        help=(
-            "Seconds between shared profile-maintenance probe rounds during "
-            "replay. Use 0 to disable."
-        ),
-    )
-    parser.add_argument(
         "--shared-profile-events",
         type=Path,
         default=None,
@@ -2243,7 +2194,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--profile-probe-sleep-sec",
         type=float,
         default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
-        help="Sleep between provider probes inside a warmup/periodic round.",
+        help="Sleep between provider probes inside a warmup/shared probe round.",
     )
     parser.add_argument(
         "--min-profile-success-samples",
@@ -2378,13 +2329,12 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("policies: %s", ", ".join(args.policies))
     logger.info(
         "inventory: %d providers from %s; warmup_probes=%d; "
-        "warmup_probe_interval_sec=%.1f; periodic_probe_interval_sec=%.1f; "
+        "warmup_probe_interval_sec=%.1f; "
         "min_profile_success_samples=%d; max_cost_usd=$%.2f",
         len(inventory.providers),
         args.inventory,
         args.warmup_probes,
         args.warmup_probe_interval_sec,
-        args.periodic_probe_interval_sec,
         args.min_profile_success_samples,
         args.max_cost_usd,
     )
@@ -2438,8 +2388,6 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
-        periodic_probe_interval_sec=args.periodic_probe_interval_sec,
-        periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
         quota_window_anchor=args.quota_window_anchor,
     )
 

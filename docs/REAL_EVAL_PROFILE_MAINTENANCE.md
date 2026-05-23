@@ -22,24 +22,22 @@ the empirical profiles.
 The live evaluator maintains one rolling TTFT profile per provider per policy.
 The default profile window is 15 minutes.
 
-Before replay, the runner sends warmup probes to every provider and broadcasts
-the resulting TTFT/error samples to all policy-local profiles. Warmup is
-round-based by default: one round probes all providers once, then the runner
-waits before the next round. With the defaults, the runner sends five warmup
-rounds spaced 180 seconds apart. The first round starts immediately, so replay
-starts after roughly 12 minutes plus probe execution time; this keeps all five
-samples safely inside the 15-minute profile window instead of placing the first
-sample on the pruning boundary. For smoke tests, set
-`--warmup-probe-interval-sec 0`.
+Before replay, the launcher can prebuild a shared warmup profile and seed
+`shared_profile_events.jsonl`. Each policy process loads that same warmup
+profile before replay. Warmup is round-based by default: one round probes all
+providers once, then the runner waits before the next round. With the current
+true-24h launcher defaults, warmup uses 24 rounds at a 5-second cadence.
+For smoke tests, set `--warmup-probe-interval-sec 0`.
 
-After replay starts, a background maintenance loop can periodically probe all
-providers once per interval and broadcast those observations in the same way.
+During replay, profile sharing happens through `shared_profile_events.jsonl`:
+natural request feedback and shared-prober samples are appended to the log, and
+every policy process tails the log into its own local profile state.
 
-The default periodic interval is 180 seconds. With the default 15-minute
-profile window, that maintains five probe-only samples per provider when there
-is no real traffic or hedge feedback for that provider. The older Phase 5/6
-online harness used a 300-second periodic interval; that is still available as
-a lower-probe-rate override.
+Per-policy periodic probing during replay has been removed. Multi-policy
+experiments should not run one maintenance probe loop per policy process; that
+duplicates measurements and makes provider/key pressure hard to reason about.
+Runtime maintenance should be performed by the shared prober
+(`scripts/shared_profile_probe.py`) when explicit shared probing is enabled.
 
 ## Bootstrap Guard
 
@@ -57,18 +55,14 @@ profile data explicit instead of silently routing with unprofiled penalties.
 For a latency-focused pilot, use:
 
 ```text
---warmup-probes 5
---warmup-probe-interval-sec 180
+--warmup-probes 24
+--warmup-probe-interval-sec 5
 --min-profile-success-samples 5
---periodic-probe-interval-sec 180
 --profile-window-sec 900
 ```
 
-If quota pressure is high, use:
-
-```text
---periodic-probe-interval-sec 300
-```
+If replay-time profile maintenance is needed, launch the shared prober instead
+of enabling per-policy probing.
 
 ## Cost Accounting
 
