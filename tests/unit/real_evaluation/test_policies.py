@@ -12,13 +12,14 @@ from experiments.real_evaluation.inventory import (
     ProviderState,
 )
 from experiments.real_evaluation.policies import (
-    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     UNPROFILED_LATENCY_PENALTY_MS,
     BudgetRangeHedgePolicy,
     BudgetRangePolicy,
+    CapacityUnavailableError,
     RequestContext,
+    _normalize_weights,
     build_policy,
     select_safe_cheapest_backup,
 )
@@ -98,6 +99,12 @@ def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
     assert decision.primary == "OR_cheap"
     assert decision.lp_weights == {"OR_cheap": 1.0}
     assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
+
+
+def test_real_eval_lp_normalization_uses_core_epsilon() -> None:
+    weights = _normalize_weights(["main", "tiny"], (1.0 - 1e-7, 1e-7))
+
+    assert weights == pytest.approx({"main": 1.0 - 1e-7, "tiny": 1e-7})
 
 
 def test_budget_range_latency_objective_penalizes_error_attempts() -> None:
@@ -568,7 +575,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
             self._cross_violation = False
             self._race_lock = threading.Lock()
 
-        def predict(self, request):  # noqa: ANN001 - duck typed
+        def predict(self, request):
             with self._race_lock:
                 if self._in_update > 0:
                     self._cross_violation = True
@@ -583,7 +590,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
                     self._in_predict -= 1
             return QuantilePrediction(q10=10.0, q50=10.0, q90=10.0)
 
-        def update(self, request):  # noqa: ANN001 - duck typed
+        def update(self, request):
             with self._race_lock:
                 if self._in_predict > 0:
                     self._cross_violation = True

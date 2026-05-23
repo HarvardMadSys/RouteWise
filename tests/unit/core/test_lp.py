@@ -6,6 +6,7 @@ import random
 
 import pytest
 
+import rwsim.core as core
 from rwsim.core.lp import (
     BudgetLPCandidate,
     cost_tiebroken_objective,
@@ -17,6 +18,14 @@ from rwsim.core.lp import (
 
 def _dot(left: list[float], right: tuple[float, ...]) -> float:
     return sum(a * b for a, b in zip(left, right, strict=True))
+
+
+def test_core_package_exports_public_lp_api() -> None:
+    assert core.BudgetLPCandidate is BudgetLPCandidate
+    assert core.cost_tiebroken_objective is cost_tiebroken_objective
+    assert core.normalize_weights is normalize_weights
+    assert core.solve_budget_lp is solve_budget_lp
+    assert core.solve_simplex_lp is solve_simplex_lp
 
 
 def test_solve_simplex_lp_selects_best_pure_candidate() -> None:
@@ -46,6 +55,31 @@ def test_solve_simplex_lp_reports_infeasible_when_all_candidates_exceed_budget()
         [100.0, 300.0],
         upper_constraint=[3.0, 4.0],
         upper_bound=2.0,
+    )
+
+    assert not success
+    assert vector is None
+
+
+@pytest.mark.parametrize(
+    ("objective", "costs", "budget"),
+    [
+        ([], [], 1.0),
+        ([100.0, 300.0], [1.0], 2.0),
+        ([float("nan")], [1.0], 2.0),
+        ([100.0], [float("inf")], 2.0),
+        ([100.0], [1.0], float("inf")),
+    ],
+)
+def test_solve_simplex_lp_rejects_invalid_inputs(
+    objective: list[float],
+    costs: list[float],
+    budget: float,
+) -> None:
+    success, vector = solve_simplex_lp(
+        objective,
+        upper_constraint=costs,
+        upper_bound=budget,
     )
 
     assert not success
