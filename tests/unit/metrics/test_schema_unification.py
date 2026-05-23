@@ -1,4 +1,4 @@
-"""Cross-source checks for the H6 canonical request schema."""
+"""Cross-source checks for the canonical RouteWise request schema."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from rwsim.metrics import PerRequestRecord, Status
 
 
-H6_CANONICAL_FIELDS = {
+CANONICAL_ROUTEWISE_REQUEST_FIELDS = {
     "request_id",
     "policy",
     "model",
@@ -44,11 +44,11 @@ H6_CANONICAL_FIELDS = {
 }
 
 
-def test_per_request_record_declares_h6_canonical_fields() -> None:
-    """SIM and REAL-EVAL records expose the H6 contract directly."""
+def test_per_request_record_declares_canonical_routewise_fields() -> None:
+    """SIM and REAL-EVAL records expose the canonical request fields directly."""
     field_names = {field.name for field in fields(PerRequestRecord)}
 
-    assert H6_CANONICAL_FIELDS <= field_names
+    assert CANONICAL_ROUTEWISE_REQUEST_FIELDS <= field_names
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,7 @@ def test_per_request_record_declares_h6_canonical_fields() -> None:
         ("prod", lambda: _prod_payload(_prod_api_log_row())),
     ],
 )
-def test_sim_real_eval_and_prod_payloads_share_h6_contract(
+def test_sim_real_eval_and_prod_payloads_share_canonical_routewise_contract(
     source: str,
     payload: Any,
 ) -> None:
@@ -67,7 +67,7 @@ def test_sim_real_eval_and_prod_payloads_share_h6_contract(
     data = payload()
 
     assert data["source"] == source
-    assert H6_CANONICAL_FIELDS <= set(data)
+    assert CANONICAL_ROUTEWISE_REQUEST_FIELDS <= set(data)
     assert isinstance(data["request_id"], str)
     assert isinstance(data["policy"], str)
     assert isinstance(data["model"], str)
@@ -98,7 +98,7 @@ def test_sim_real_eval_and_prod_payloads_share_h6_contract(
 
 
 def _record_payload(record: PerRequestRecord) -> dict[str, Any]:
-    return {field: getattr(record, field) for field in H6_CANONICAL_FIELDS}
+    return {field: getattr(record, field) for field in CANONICAL_ROUTEWISE_REQUEST_FIELDS}
 
 
 def _prod_payload(api_log_row: dict[str, Any]) -> dict[str, Any]:

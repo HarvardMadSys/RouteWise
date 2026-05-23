@@ -34,7 +34,6 @@ version uses the empirical rolling profile.
 
 from __future__ import annotations
 
-import logging
 import math
 import random
 import threading
@@ -42,7 +41,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
-from scipy.optimize import linprog
 
 from experiments.offline_stage.value_estimators import (
     BucketMeanOutputPredictor,
@@ -62,6 +60,12 @@ from experiments.real_evaluation.shadow_price import (
     request_marginal_cost,
 )
 from rwsim.const import HEDGE_SUCCESS_TARGET  # re-export below
+from rwsim.core.lp import (
+    LP_EPS,
+    cost_tiebroken_objective as _core_cost_tiebroken_objective,
+    normalize_weights as _core_normalize_weights,
+    solve_simplex_lp,
+)
 from rwsim.policies.hedging import (
     hedge_checkpoints_for_slo as _hedge_checkpoints_for_slo_ms,
 )
@@ -83,8 +87,6 @@ if TYPE_CHECKING:
 # HEDGE_SUCCESS_TARGET is re-exported above from `rwsim.const` so the
 # simulator and real-eval share one paper-level RouteWise protocol constant.
 # Edit the value there, not here.
-LP_EPS: float = 1e-9
-_COST_TIEBREAK_MS: float = 1e-3
 RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
@@ -221,68 +223,16 @@ def _body_latency_proxy_ms(
     return float("inf"), True
 
 
-def _solve_simplex_lp(
-    objective: Sequence[float],
-    *,
-    upper_constraint: Sequence[float] | None = None,
-    upper_bound: float | None = None,
-) -> tuple[bool, np.ndarray | None]:
-    """Solve ``min c·x  s.t.  a·x <= b,  sum(x) = 1,  x >= 0``."""
-    n = len(objective)
-    if n == 0:
-        return False, None
-    A_ub = None
-    b_ub = None
-    if upper_constraint is not None and upper_bound is not None:
-        A_ub = np.array(upper_constraint, dtype=float).reshape(1, -1)
-        b_ub = np.array([upper_bound], dtype=float)
-    A_eq = np.ones((1, n), dtype=float)
-    b_eq = np.array([1.0], dtype=float)
-    bounds = [(0.0, 1.0) for _ in range(n)]
-    try:
-        result = linprog(
-            c=np.array(objective, dtype=float),
-            A_ub=A_ub,
-            b_ub=b_ub,
-            A_eq=A_eq,
-            b_eq=b_eq,
-            bounds=bounds,
-            method="highs",
-        )
-    except Exception as exc:
-        logging.warning("linprog failed: %s", exc)
-        return False, None
-    if not result.success:
-        return False, None
-    return True, np.asarray(result.x, dtype=float)
-
-
 def _cost_tiebroken_objective(
     latency_objective_ms: Sequence[float],
     effective_costs: Sequence[float],
 ) -> list[float]:
-    """Prefer lower effective cost when LP latency objectives are equal."""
-    if len(latency_objective_ms) != len(effective_costs):
-        raise ValueError("latency objective and cost arrays must have the same length")
-    if len(latency_objective_ms) == 0:
-        return []
-
-    latencies = np.asarray(latency_objective_ms, dtype=float)
-    costs = np.asarray(effective_costs, dtype=float)
-    cost_span = float(costs.max() - costs.min())
-    if cost_span <= LP_EPS:
-        return [float(value) for value in latencies]
-
-    normalized_costs = (costs - costs.min()) / cost_span
-    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+    """Compatibility wrapper for the public core LP tiebreak helper."""
+    return _core_cost_tiebroken_objective(latency_objective_ms, effective_costs)
 
 
-def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
-    raw = {names[i]: float(vector[i]) for i in range(len(names)) if vector[i] > 1e-6}
-    total = sum(raw.values())
-    if total <= 0:
-        return {}
-    return {k: v / total for k, v in raw.items()}
+def _normalize_weights(names: list[str], vector: Sequence[float]) -> dict[str, float]:
+    return _core_normalize_weights(names, vector)
 
 
 # ---------------------------------------------------------------------------
@@ -1243,7 +1193,7 @@ class BudgetRangePolicy(BasePolicy):
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = _solve_simplex_lp(
+        success, vector = solve_simplex_lp(
             objective=objective,
             upper_constraint=[c_eff[name] for name in names],
             upper_bound=budget,
@@ -1314,7 +1264,7 @@ class BudgetRangePolicy(BasePolicy):
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = _solve_simplex_lp(
+        success, vector = solve_simplex_lp(
             objective=objective,
             upper_constraint=[c_eff[name] for name in names],
             upper_bound=budget,

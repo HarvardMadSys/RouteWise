@@ -311,7 +311,7 @@ specific policy needs them and ownership is clear.
 
 > **Schema details superseded** by
 > [`SCHEMA_UNIFICATION_2026_05_21.md`](SCHEMA_UNIFICATION_2026_05_21.md).
-> The H6 delta there extends this section with `lp_*` fields, a canonical
+> The schema unification delta there extends this section with `lp_*` fields, a canonical
 > accounting cost line plus optional `routing_estimated_*` and `physical_*`
 > fields, `hedge_algorithm` / `hedge_schedule`, `source`, `model`,
 > `timestamp_sec`, and a PROD `api_logs.metadata["routewise"]` mapping. This

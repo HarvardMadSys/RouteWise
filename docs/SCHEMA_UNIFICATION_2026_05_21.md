@@ -1,4 +1,4 @@
-# Schema Unification (H6)
+# Schema Unification
 
 > Decision document. Defines the delta from the current `PerRequestRecord`
 > to a schema that SIM, REAL-EVAL, and PROD all populate. Scoped to record
@@ -17,7 +17,7 @@ SIM and REAL-EVAL share a `PerRequestRecord` and a `Run` aggregate:
 - `rwsim/metrics/run.py:103` — `Run.records: list[PerRequestRecord]`
 - `experiments/real_evaluation/recorder.py:381` — REAL-EVAL already constructs `PerRequestRecord`
 
-The H6 field contract is now implemented for SIM and REAL-EVAL records, and
+The canonical request schema contract is now implemented for SIM and REAL-EVAL records, and
 PROD writes the current non-hedged RouteWise subset into
 `api_logs.metadata["routewise"]`:
 
@@ -299,7 +299,7 @@ by actual query frequency, not part of this doc.
 | 2. SIM populates new fields where applicable (`lp_weights`, `lp_budget_usd`, `lp_status`, `hedge_algorithm`, `hedge_schedule`, `source="sim"`, and decision-time `routing_estimated_*` when a predictor or estimate exists) | SIM | Done for the RouteWise policy path |
 | 3. REAL-EVAL recorder promotes metadata `real_*` per §4 table and persists policy identity in CSV | REAL | Done in `recorder.py` / `runner.py` |
 | 4. PROD router writes current non-hedged `api_logs.metadata["routewise"]` subset per §5 | PROD | Done in hybridInference; `api_logs` schema unchanged |
-| 5. Cross-source parity test checks sim/real/prod fixtures against the same H6 key contract | All | Done in `tests/unit/metrics/test_schema_unification.py`; `Run.mean_cost_usd()` reads `total_cost_usd` unchanged |
+| 5. Cross-source parity test checks sim/real/prod fixtures against the same canonical key contract | All | Done in `tests/unit/metrics/test_schema_unification.py`; `Run.mean_cost_usd()` reads `total_cost_usd` unchanged |
 | 6. Production hedging dynamically populates canonical hedge fields | PROD | Future work; do not leave static disabled fields once hedging dispatch is enabled |
 
 Each step is independently shippable. Step 4 (PROD) can land before step 2
@@ -321,7 +321,7 @@ or 3 — they share only the schema definition.
 
 ## 8. Sign-Off
 
-This document is the source of truth for the H6 schema work if we agree:
+This document is the source of truth for the canonical request schema work if we agree:
 
 1. Add new identity / LP / hedging fields: `model`, `source`, `timestamp_sec`,
    `lp_weights`, `lp_budget_usd`, `lp_status`, `hedge_algorithm`,

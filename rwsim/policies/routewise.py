@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
+from rwsim.core.lp import (
+    LP_EPS,
+    cost_tiebroken_objective as _core_cost_tiebroken_objective,
+    normalize_weights as _core_normalize_weights,
+    solve_simplex_lp,
+)
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.effective_cost_kernel import scarcity_price
 from rwsim.policies.hedging import (
@@ -43,8 +49,7 @@ class OutputPredictor(Protocol):
     def update(self, request: Request) -> None: ...
 
 
-_LP_EPS = 1e-9
-_COST_TIEBREAK_MS = 1e-3
+_LP_EPS = LP_EPS
 
 
 @dataclass
@@ -494,86 +499,23 @@ def _solve_lp(
     upper_constraint: list[float],
     upper_bound: float,
 ) -> tuple[bool, np.ndarray | None]:
-    """Solve the RouteWise simplex LP without invoking a generic solver.
-
-    The LP has one equality constraint (sum of weights is 1) and one budget
-    inequality.  Its optimum is therefore either a single provider whose cost is
-    within budget, or a mixture of two providers that lies exactly on the budget
-    boundary.  Enumerating those candidates is equivalent to solving the LP and
-    avoids paying scipy/HiGHS setup cost for every routed request.
-    """
-    n = len(objective)
-    if n == 0 or n != len(upper_constraint):
+    """Compatibility wrapper for the public core LP solver."""
+    success, vector = solve_simplex_lp(
+        objective,
+        upper_constraint=upper_constraint,
+        upper_bound=upper_bound,
+    )
+    if not success or vector is None:
         return False, None
-
-    obj = np.asarray(objective, dtype=float)
-    costs = np.asarray(upper_constraint, dtype=float)
-    if not np.all(np.isfinite(obj)) or not np.all(np.isfinite(costs)):
-        return False, None
-
-    best_vector: np.ndarray | None = None
-    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
-
-    def consider(vector: np.ndarray) -> None:
-        nonlocal best_key, best_vector
-        expected_cost = float(np.dot(costs, vector))
-        if expected_cost > upper_bound + _LP_EPS:
-            return
-        value = float(np.dot(obj, vector))
-        support = int(np.count_nonzero(vector > _LP_EPS))
-        rounded = tuple(round(float(part), 12) for part in vector)
-        key = (value, expected_cost, support, rounded)
-        if best_key is None or key < best_key:
-            best_key = key
-            best_vector = vector
-
-    for index, cost in enumerate(costs):
-        if cost <= upper_bound + _LP_EPS:
-            vector = np.zeros(n, dtype=float)
-            vector[index] = 1.0
-            consider(vector)
-
-    for left in range(n):
-        left_cost = float(costs[left])
-        for right in range(left + 1, n):
-            right_cost = float(costs[right])
-            span = left_cost - right_cost
-            if abs(span) <= _LP_EPS:
-                continue
-            left_weight = (upper_bound - right_cost) / span
-            right_weight = 1.0 - left_weight
-            if left_weight < -_LP_EPS or right_weight < -_LP_EPS:
-                continue
-            left_weight = min(max(left_weight, 0.0), 1.0)
-            right_weight = min(max(right_weight, 0.0), 1.0)
-            vector = np.zeros(n, dtype=float)
-            vector[left] = left_weight
-            vector[right] = right_weight
-            consider(vector)
-
-    if best_vector is None:
-        return False, None
-    return True, best_vector
+    return True, np.asarray(vector, dtype=float)
 
 
 def _cost_tiebroken_objective(
     latency_objective_ms: list[float],
     effective_costs: list[float],
 ) -> list[float]:
-    """Prefer lower effective cost when LP latency objectives are equal."""
-    if len(latency_objective_ms) != len(effective_costs):
-        raise ValueError("latency objective and cost arrays must have the same length")
-    if not latency_objective_ms:
-        return []
-
-    latencies = np.asarray(latency_objective_ms, dtype=float)
-    costs = np.asarray(effective_costs, dtype=float)
-    cost_span = float(costs.max() - costs.min())
-    if cost_span <= _LP_EPS:
-        return [float(value) for value in latencies]
-
-    normalized_costs = (costs - costs.min()) / cost_span
-    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+    """Compatibility wrapper for the public core LP tiebreak helper."""
+    return _core_cost_tiebroken_objective(latency_objective_ms, effective_costs)
 
 
 def _predicted_output_tokens_from_prediction(prediction: Any, quantile: str) -> float:
@@ -609,15 +551,7 @@ def _same_cost_shortcut_weights(
 
 
 def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
-    weights = {
-        name: float(vector[idx])
-        for idx, name in enumerate(names)
-        if float(vector[idx]) > _LP_EPS
-    }
-    total = sum(weights.values())
-    if total <= 0.0:
-        return {}
-    return {name: value / total for name, value in weights.items()}
+    return _core_normalize_weights(names, vector)
 
 
 def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str:
