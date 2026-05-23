@@ -8,6 +8,15 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
+from rwsim.core.hedging import (
+    DISPATCH_OVERHEAD_MS,
+    HEDGE_SUCCESS_TARGET,
+    BackupCandidate,
+    combined_success_probability,
+    has_feasible_backup,
+    hedge_checkpoints_for_slo,
+    select_probability_backup,
+)
 from rwsim.core.lp import (
     LP_EPS,
     cost_tiebroken_objective,
@@ -16,16 +25,6 @@ from rwsim.core.lp import (
 )
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.effective_cost_kernel import scarcity_price
-from rwsim.policies.hedging import (
-    DISPATCH_OVERHEAD_MS,
-    HEDGE_SUCCESS_TARGET,
-    BackupCandidate,
-    collect_backup_candidates,
-    combined_success_probability,
-    has_feasible_backup,
-    hedge_checkpoints_for_slo,
-    select_probability_backup,
-)
 from rwsim.policies.latency_profiles import (
     LatencyProfileMode,
     LatencyProfileStrategy,
@@ -342,27 +341,35 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         *,
         elapsed_ms: float,
     ) -> list[BackupCandidate]:
-        return collect_backup_candidates(
-            state.providers.values(),
-            primary,
-            request,
-            now=state.now,
-            elapsed_ms=elapsed_ms,
-            slo_ms=self.slo_ms,
-            cdf_ms=lambda provider, value_ms: self._cdf_ms(
-                provider,
-                value_ms,
-                state.now,
-            ),
-            success_target=HEDGE_SUCCESS_TARGET,
-            dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
-            marginal_cost=lambda provider: cache_aware_marginal_cost(
-                provider,
-                request,
-                state,
-                now=state.now,
-            ),
-        )
+        candidates: list[BackupCandidate] = []
+        for provider in state.providers.values():
+            if provider.name == primary.name or not provider.is_available(state.now):
+                continue
+            candidates.append(
+                BackupCandidate(
+                    provider=provider,
+                    success_probability=combined_success_probability(
+                        lambda value_ms: self._cdf_ms(primary, value_ms, state.now),
+                        lambda value_ms, backup=provider: self._cdf_ms(
+                            backup,
+                            value_ms,
+                            state.now,
+                        ),
+                        elapsed_ms=elapsed_ms,
+                        slo_ms=self.slo_ms,
+                        dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+                    ),
+                    marginal_cost=cache_aware_marginal_cost(
+                        provider,
+                        request,
+                        state,
+                        now=state.now,
+                    ),
+                    true_mean_ms=provider.true_mean_ms(state.now),
+                    success_target=HEDGE_SUCCESS_TARGET,
+                )
+            )
+        return candidates
 
     def _select_backup_candidate(
         self,
@@ -393,13 +400,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             future_ms = future_elapsed * 1000.0
             if self.explorer:
                 future = combined_success_probability(
-                    lambda provider, value_ms: self._cdf_ms(
-                        provider,
-                        value_ms,
-                        state.now,
-                    ),
-                    primary,
-                    selected.provider,
+                    lambda value_ms: self._cdf_ms(primary, value_ms, state.now),
+                    lambda value_ms: self._cdf_ms(selected.provider, value_ms, state.now),
                     elapsed_ms=future_ms,
                     slo_ms=self.slo_ms,
                     dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,

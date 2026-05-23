@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from rwsim.core.hedging import hedge_checkpoints_for_slo
 from rwsim.core.lp import cost_tiebroken_objective, normalize_weights, solve_simplex_lp
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy, routewise as routewise_module
-from rwsim.policies.hedging import hedge_checkpoints_for_slo
 from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,

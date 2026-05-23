@@ -65,7 +65,7 @@ random_feasible:
 采用 hybrid 方案：
 
 ```text
-rwsim/policies/hedging.py
+rwsim/core/hedging.py
   放稳定、可复用、可单测的 hedging primitives。
 
 rwsim/policies/routewise.py
@@ -92,7 +92,7 @@ production 和 ablation 不 drift
 新增：
 
 ```text
-rwsim/policies/hedging.py
+rwsim/core/hedging.py
 ```
 
 建议包含：
@@ -512,7 +512,7 @@ summary 中包含 dispatch_timing / backup_selection metadata。
 ### Step 1: pure refactor
 
 ```text
-新增 rwsim/policies/hedging.py
+新增 rwsim/core/hedging.py
 移动 combined_success_probability 等 helper
 RouteWisePolicy.tick 改用 helper
 加入 protected hooks

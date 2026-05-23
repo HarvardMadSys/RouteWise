@@ -8,7 +8,7 @@ the simulator's behaviour will change.
 
 Do not add module-local copies of these constants in other files. The
 historical cost of having two `DISPATCH_OVERHEAD_MS = 50.0` definitions
-(one in `rwsim/policies/hedging.py` for the algorithm's estimate, one in
+(one in the hedging policy helper for the algorithm's estimate, one in
 `rwsim/engine/simulator.py` for the simulator's physical model) was exactly
 the kind of silent drift this module exists to prevent.
 """
@@ -31,7 +31,7 @@ from __future__ import annotations
 #
 # The simulator-side consumers must use the same value:
 #
-#   1. `rwsim/policies/hedging.py:combined_success_probability` subtracts it
+#   1. `rwsim/core/hedging.py:combined_success_probability` subtracts it
 #      from `remaining_ms` when estimating how much time a simulated backup has
 #      after a hedge decision.
 #   2. `rwsim/engine/simulator.py:_execute_request` adds it to simulated
@@ -77,7 +77,7 @@ DISPATCH_OVERHEAD_MS: float = 5.0
 # This is a paper-level RouteWise protocol constant. Every harness that
 # implements probability-target hedging must read the same value:
 #
-#   1. `rwsim/policies/hedging.py` — simulator hedging math.
+#   1. `rwsim/core/hedging.py` — shared hedging math.
 #   2. `experiments/real_evaluation/policies.py` — live-API hedging adapter.
 #   3. (future) hybridInference production router, once it adopts the
 #      probability-target hedger in place of the legacy SMART_ECONOMIC logic.
@@ -108,10 +108,10 @@ HEDGE_SUCCESS_TARGET: float = 0.99
 # These are paper-level RouteWise protocol constants. Every harness that
 # implements probability-target hedging reads the same values:
 #
-#   1. `rwsim/policies/hedging.py:hedge_checkpoints_for_slo` — canonical
+#   1. `rwsim/core/hedging.py:hedge_checkpoints_for_slo` — canonical
 #      simulator + real-eval implementation.
-#   2. `experiments/real_evaluation/policies.py` — re-exports the helper
-#      under a seconds-based wrapper.
+#   2. `experiments/real_evaluation/runner.py` — calls the canonical helper
+#      with the real-eval SLO converted to milliseconds.
 #   3. (future) hybridInference production router, once it adopts the
 #      checkpoint-based hedger in place of the legacy SMART_ECONOMIC logic.
 #

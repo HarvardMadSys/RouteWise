@@ -16,14 +16,21 @@ Longer term, hybridInference should be able to depend on the package without pul
 
 ## Current Status
 
-The first extraction target has landed in this branch:
+Two extraction targets have landed in this branch:
 
 - `rwsim.core.lp.solve_simplex_lp`
 - `rwsim.core.lp.solve_budget_lp`
 - `rwsim.core.lp.cost_tiebroken_objective`
 - `rwsim.core.lp.normalize_weights`
+- `rwsim.core.hedging.hedge_checkpoints_for_slo`
+- `rwsim.core.hedging.combined_success_probability`
+- `rwsim.core.hedging.latest_safe_hedge_delay_sec`
+- `rwsim.core.hedging.select_probability_backup`
 
-SIM, REAL-EVAL, and the effective-cost ablation now delegate to this shared LP implementation through compatibility wrappers. REAL-EVAL no longer imports `scipy.optimize.linprog` at policy runtime; scipy is used only as a test oracle for equivalence.
+SIM, REAL-EVAL, and ablation code now call these core APIs directly. The old
+LP and hedging helper wrappers were removed rather than kept as compatibility
+aliases. REAL-EVAL no longer imports `scipy.optimize.linprog` at policy runtime;
+scipy is used only as a test oracle for LP equivalence.
 
 ## What Belongs In Core
 
@@ -230,7 +237,7 @@ The writer remains harness-specific:
 
 - Create `rwsim.core` modules.
 - Move or wrap existing pure helpers.
-- Preserve old import paths in `rwsim.policies.hedging` and `rwsim.policies.routewise`.
+- Migrate call sites directly to core APIs; do not preserve duplicate helper wrappers.
 - Add focused unit tests for the new public API.
 
 Expected behavior change: none.
@@ -306,9 +313,9 @@ Required checks before considering the extraction complete:
 
 ## Next Recommended Commit
 
-Hedging helpers are the next best target:
+Effective-cost extraction is the next best target:
 
-1. Move the public hedging helpers from `rwsim.policies.hedging` into `rwsim.core.hedging`.
-2. Keep `rwsim.policies.hedging` as a compatibility wrapper.
-3. Make REAL-EVAL call the same `combined_success_probability` core helper via provider-profile adapters.
-4. Add golden tests for SIM dispatch-overhead semantics and REAL-EVAL wall-clock semantics.
+1. Add `rwsim.core.cost`.
+2. Move the scalar RouteWise effective-cost formula there.
+3. Keep quota/concurrency/cache state in SIM and REAL-EVAL adapters.
+4. Make SIM, REAL-EVAL, and the effective-cost ablation build scalar snapshots and call the same core cost helper.

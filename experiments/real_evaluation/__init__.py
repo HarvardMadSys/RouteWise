@@ -46,7 +46,6 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
-    compute_hedge_time_sec,
     select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.recorder import (
@@ -114,7 +113,6 @@ __all__ = [
     "build_policy",
     "build_provider_states",
     "build_transport",
-    "compute_hedge_time_sec",
     "compute_request_cost_usd",
     "concurrency_shadow_price",
     "effective_cost",

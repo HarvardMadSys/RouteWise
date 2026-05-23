@@ -59,34 +59,26 @@ from experiments.real_evaluation.shadow_price import (
     effective_cost,
     request_marginal_cost,
 )
-from rwsim.const import HEDGE_SUCCESS_TARGET  # re-export below
+from rwsim.core.hedging import (
+    HEDGE_SUCCESS_TARGET,
+    BackupCandidate,
+    combined_success_probability,
+    latest_safe_hedge_delay_sec,
+    select_probability_backup,
+)
 from rwsim.core.lp import (
     LP_EPS,
     cost_tiebroken_objective,
     normalize_weights,
     solve_simplex_lp,
 )
-from rwsim.policies.hedging import (
-    hedge_checkpoints_for_slo as _hedge_checkpoints_for_slo_ms,
-)
 from rwsim.schemas import Request as _PredictionRequest
-
-
-def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
-    """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds.
-
-    Real-eval keeps the seconds-based signature for backward compatibility
-    with existing exported call sites. The underlying schedule is computed by
-    the shared ``rwsim.policies.hedging`` helper, which expects milliseconds.
-    """
-    return _hedge_checkpoints_for_slo_ms(float(slo_sec) * 1000.0)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-# HEDGE_SUCCESS_TARGET is re-exported above from `rwsim.const` so the
+# HEDGE_SUCCESS_TARGET is re-exported above from `rwsim.core.hedging` so the
 # simulator and real-eval share one paper-level RouteWise protocol constant.
-# Edit the value there, not here.
 RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
@@ -228,7 +220,7 @@ def _body_latency_proxy_ms(
 # ---------------------------------------------------------------------------
 
 
-def _combined_hedge_success_probability(
+def _profile_combined_success_probability(
     primary_state: ProviderState,
     backup_state: ProviderState,
     *,
@@ -236,65 +228,14 @@ def _combined_hedge_success_probability(
     slo_sec: float,
     now: float,
 ) -> float:
-    """Probability that hedging now keeps the request within SLO.
-
-    Mirrors ``rwsim.policies.hedging.combined_success_probability`` for the
-    real-eval ``ProviderState`` representation.
-    """
-    elapsed_ms = max(0.0, float(elapsed_sec)) * 1000.0
-    slo_ms = slo_sec * 1000.0
-    primary_cdf_t = primary_state.profile.cdf_at(elapsed_ms, now)
-    primary_cdf_slo = primary_state.profile.cdf_at(slo_ms, now)
-    primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
-    if primary_survival_t <= LP_EPS:
-        return 0.0
-
-    p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
-    p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
-    remaining_ms = (slo_sec - float(elapsed_sec)) * 1000.0
-    backup_success = 0.0 if remaining_ms <= 0.0 else backup_state.profile.cdf_at(remaining_ms, now)
-    return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
-
-
-def compute_hedge_time_sec(
-    primary_state: ProviderState,
-    backup_state: ProviderState,
-    slo_sec: float,
-    now: float,
-    *,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    grid_step_sec: float = 0.05,
-) -> float:
-    """Return the latest backup-dispatch wait time meeting target success.
-
-    Searches a uniform grid for the latest ``t`` such that
-
-        P(not violate | wait t) + P(violate | wait t) * P(backup ok in remaining)
-        >= success_target.
-
-    Returns ``math.inf`` if no ``t`` in ``[0, slo_sec]`` meets the target —
-    the runner interprets that as "do not hedge".
-
-    Empirical version of ``rwsim``'s latest-safe probability-target hedging.
-    """
-    latest_safe: float | None = None
-    max_elapsed_sec = max(0.0, slo_sec)
-    grid = np.arange(0.0, max_elapsed_sec + 1e-9, grid_step_sec)
-    if len(grid) == 0:
-        grid = np.array([0.0])
-    for elapsed_sec in grid:
-        combined = _combined_hedge_success_probability(
-            primary_state,
-            backup_state,
-            elapsed_sec=float(elapsed_sec),
-            slo_sec=slo_sec,
-            now=now,
-        )
-        if combined >= success_target:
-            latest_safe = float(elapsed_sec)
-    if latest_safe is not None:
-        return latest_safe
-    return float("inf")
+    """Adapt real-eval ProviderState profiles to the core hedging formula."""
+    return combined_success_probability(
+        lambda value_ms: primary_state.profile.cdf_at(value_ms, now),
+        lambda value_ms: backup_state.profile.cdf_at(value_ms, now),
+        elapsed_ms=max(0.0, float(elapsed_sec)) * 1000.0,
+        slo_ms=float(slo_sec) * 1000.0,
+        dispatch_overhead_ms=0.0,
+    )
 
 
 def select_safe_cheapest_backup(
@@ -318,20 +259,24 @@ def select_safe_cheapest_backup(
     if primary_state is None:
         return None
 
-    feasible: list[tuple[float, float, float, str, ProviderState]] = []
+    candidates: list[BackupCandidate[ProviderState]] = []
     for name, state in states.items():
         if name == primary or not state.is_available(now):
             continue
-        hedge_delay_sec = compute_hedge_time_sec(
-            primary_state,
-            state,
-            slo_sec,
-            now,
+        hedge_delay_sec = latest_safe_hedge_delay_sec(
+            lambda elapsed_sec, backup_state=state: _profile_combined_success_probability(
+                primary_state,
+                backup_state,
+                elapsed_sec=elapsed_sec,
+                slo_sec=slo_sec,
+                now=now,
+            ),
+            slo_sec=slo_sec,
             success_target=success_target,
         )
         if not math.isfinite(hedge_delay_sec):
             continue
-        success_probability = _combined_hedge_success_probability(
+        success_probability = _profile_combined_success_probability(
             primary_state,
             state,
             elapsed_sec=hedge_delay_sec,
@@ -346,11 +291,19 @@ def select_safe_cheapest_backup(
         )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        feasible.append((cost, -success_probability, mean_ms, state.spec.name, state))
-    if not feasible:
+        candidates.append(
+            BackupCandidate(
+                provider=state,
+                success_probability=success_probability,
+                marginal_cost=cost,
+                true_mean_ms=mean_ms,
+                success_target=success_target,
+            )
+        )
+    selected = select_probability_backup(candidates)
+    if selected is None:
         return None
-    feasible.sort(key=lambda item: item[:-1])
-    return feasible[0][-1].spec.name
+    return selected.provider.spec.name
 
 
 def select_checkpoint_backup(
@@ -450,11 +403,11 @@ def _select_checkpoint_candidate(
     success_target: float,
     cost_fn: Callable[[ProviderState], float] | None,
 ) -> tuple[float, float, float, ProviderState] | None:
-    candidates: list[tuple[float, float, float, ProviderState]] = []
+    candidates: list[BackupCandidate[ProviderState]] = []
     for state in states.values():
         if state.spec.name == primary_state.spec.name or not state.is_available(now):
             continue
-        success_probability = _combined_hedge_success_probability(
+        success_probability = _profile_combined_success_probability(
             primary_state,
             state,
             elapsed_sec=elapsed_sec,
@@ -471,11 +424,24 @@ def _select_checkpoint_candidate(
         )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        candidates.append((cost, success_probability, mean_ms, state))
-    if not candidates:
+        candidates.append(
+            BackupCandidate(
+                provider=state,
+                success_probability=success_probability,
+                marginal_cost=cost,
+                true_mean_ms=mean_ms,
+                success_target=success_target,
+            )
+        )
+    selected = select_probability_backup(candidates)
+    if selected is None:
         return None
-    candidates.sort(key=lambda item: (item[0], -item[1], item[2], item[3].spec.name))
-    return candidates[0]
+    return (
+        selected.marginal_cost,
+        selected.success_probability,
+        selected.true_mean_ms,
+        selected.provider,
+    )
 
 
 def _checkpoint_candidate_counts(
@@ -493,7 +459,7 @@ def _checkpoint_candidate_counts(
         if state.spec.name == primary_state.spec.name or not state.is_available(now):
             continue
         candidate_count += 1
-        success_probability = _combined_hedge_success_probability(
+        success_probability = _profile_combined_success_probability(
             primary_state,
             state,
             elapsed_sec=elapsed_sec,
@@ -1421,8 +1387,6 @@ __all__ = [
     "RoutingDecision",
     "TierFirstPolicy",
     "build_policy",
-    "compute_hedge_time_sec",
-    "hedge_checkpoints_for_slo",
     "request_cost_for_spec",
     "select_checkpoint_backup",
     "select_safe_cheapest_backup",

@@ -55,7 +55,6 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
-    hedge_checkpoints_for_slo,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
@@ -69,6 +68,7 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     build_transport,
 )
+from rwsim.core.hedging import hedge_checkpoints_for_slo
 
 DEFAULT_TIMEOUT_SEC: int = 60
 # Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.
@@ -1507,7 +1507,7 @@ class RealExperimentRunner:
         hedge_delay_sec = float("inf")
         hedge_checkpoints_sec: tuple[float, ...] = ()
         if policy.use_hedge:
-            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
+            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec * 1000.0)
 
         now = time.time()
         try:
