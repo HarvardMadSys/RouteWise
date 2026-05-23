@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from rwsim.core.lp import cost_tiebroken_objective, normalize_weights, solve_simplex_lp
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy, routewise as routewise_module
 from rwsim.policies.hedging import hedge_checkpoints_for_slo
 from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
-    _cost_tiebroken_objective,
-    _normalize_weights,
     _same_cost_shortcut_weights,
-    _solve_lp,
     concurrency_shadow_price,
 )
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
@@ -299,10 +297,10 @@ def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
     p_value: float,
 ) -> None:
     names = ["fast", "medium", "slow"]
-    objective = _cost_tiebroken_objective(latencies, costs)
+    objective = cost_tiebroken_objective(latencies, costs)
     c_min = min(costs)
     c_max = max(costs)
-    success, vector = _solve_lp(
+    success, vector = solve_simplex_lp(
         objective=objective,
         upper_constraint=costs,
         upper_bound=c_min + p_value * (c_max - c_min),
@@ -311,7 +309,7 @@ def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
     assert success
     assert vector is not None
     assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == (
-        _normalize_weights(names, vector)
+        normalize_weights(names, vector)
     )
 
 
@@ -343,9 +341,9 @@ def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatc
     )
 
     def fail_solve_lp(*args, **kwargs):
-        raise AssertionError("_solve_lp should not run for same-cost providers")
+        raise AssertionError("solve_simplex_lp should not run for same-cost providers")
 
-    monkeypatch.setattr(routewise_module, "_solve_lp", fail_solve_lp)
+    monkeypatch.setattr(routewise_module, "solve_simplex_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 

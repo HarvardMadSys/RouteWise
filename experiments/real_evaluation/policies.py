@@ -62,8 +62,8 @@ from experiments.real_evaluation.shadow_price import (
 from rwsim.const import HEDGE_SUCCESS_TARGET  # re-export below
 from rwsim.core.lp import (
     LP_EPS,
-    cost_tiebroken_objective as _core_cost_tiebroken_objective,
-    normalize_weights as _core_normalize_weights,
+    cost_tiebroken_objective,
+    normalize_weights,
     solve_simplex_lp,
 )
 from rwsim.policies.hedging import (
@@ -221,18 +221,6 @@ def _body_latency_proxy_ms(
         if mean is not None:
             return float(mean), n < BODY_MEAN_MIN_SAMPLES
     return float("inf"), True
-
-
-def _cost_tiebroken_objective(
-    latency_objective_ms: Sequence[float],
-    effective_costs: Sequence[float],
-) -> list[float]:
-    """Compatibility wrapper for the public core LP tiebreak helper."""
-    return _core_cost_tiebroken_objective(latency_objective_ms, effective_costs)
-
-
-def _normalize_weights(names: list[str], vector: Sequence[float]) -> dict[str, float]:
-    return _core_normalize_weights(names, vector)
 
 
 # ---------------------------------------------------------------------------
@@ -1189,7 +1177,7 @@ class BudgetRangePolicy(BasePolicy):
         budget = float(c_min + p * (c_max - c_min))
 
         names = [s.spec.name for s in feasible]
-        objective = _cost_tiebroken_objective(
+        objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
@@ -1199,7 +1187,7 @@ class BudgetRangePolicy(BasePolicy):
             upper_bound=budget,
         )
         if success and vector is not None:
-            weights = _normalize_weights(names, vector)
+            weights = normalize_weights(names, vector)
             if weights:
                 primary = _sample_weighted(weights, rng=random.Random(int(now * 1e6)))
                 return RoutingDecision(
@@ -1260,7 +1248,7 @@ class BudgetRangePolicy(BasePolicy):
         c_max = max(c_values)
         budget = float(c_min + (self.budget_percentile / 100.0) * (c_max - c_min))
         names = [state.spec.name for state in feasible]
-        objective = _cost_tiebroken_objective(
+        objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
@@ -1272,7 +1260,7 @@ class BudgetRangePolicy(BasePolicy):
 
         lp_order: list[str] = []
         if success and vector is not None:
-            weights = _normalize_weights(names, vector)
+            weights = normalize_weights(names, vector)
             lp_order = [
                 name
                 for name, weight in sorted(

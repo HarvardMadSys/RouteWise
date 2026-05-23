@@ -15,8 +15,8 @@ import numpy as np
 
 from rwsim.core.lp import (
     LP_EPS,
-    cost_tiebroken_objective as _core_cost_tiebroken_objective,
-    normalize_weights as _core_normalize_weights,
+    cost_tiebroken_objective,
+    normalize_weights,
     solve_simplex_lp,
 )
 from rwsim.policies.base import NoOpTickMixin
@@ -99,15 +99,15 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
                 budget=budget,
             )
         else:
-            success, vector = _solve_lp(
-                objective=_cost_tiebroken_objective(
+            success, vector = solve_simplex_lp(
+                objective=cost_tiebroken_objective(
                     latency_objective,
                     effective_costs,
                 ),
                 upper_constraint=effective_costs,
                 upper_bound=budget,
             )
-            weights = _normalize_weights(names, vector) if success and vector is not None else {}
+            weights = normalize_weights(names, vector) if success and vector is not None else {}
         if not weights:
             best = min(
                 providers,
@@ -194,31 +194,6 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         return provider.true_mean_ms(now)
 
 
-def _solve_lp(
-    objective: list[float],
-    *,
-    upper_constraint: list[float],
-    upper_bound: float,
-) -> tuple[bool, np.ndarray | None]:
-    """Compatibility wrapper for the public core LP solver."""
-    success, vector = solve_simplex_lp(
-        objective,
-        upper_constraint=upper_constraint,
-        upper_bound=upper_bound,
-    )
-    if not success or vector is None:
-        return False, None
-    return True, np.asarray(vector, dtype=float)
-
-
-def _cost_tiebroken_objective(
-    latency_objective_ms: list[float],
-    effective_costs: list[float],
-) -> list[float]:
-    """Compatibility wrapper for the public core LP tiebreak helper."""
-    return _core_cost_tiebroken_objective(latency_objective_ms, effective_costs)
-
-
 def _p_zero_weights(
     names: list[str],
     *,
@@ -227,7 +202,7 @@ def _p_zero_weights(
     budget: float,
 ) -> dict[str, float]:
     """Return the p=0 LP optimum without running the generic enumerator."""
-    objective = _cost_tiebroken_objective(latency_objective, effective_costs)
+    objective = cost_tiebroken_objective(latency_objective, effective_costs)
     best_key: tuple[float, float, int, tuple[float, ...]] | None = None
     best_name: str | None = None
     n = len(names)
@@ -240,10 +215,6 @@ def _p_zero_weights(
             best_key = key
             best_name = name
     return {best_name: 1.0} if best_name is not None else {}
-
-
-def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
-    return _core_normalize_weights(names, vector)
 
 
 def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str:
