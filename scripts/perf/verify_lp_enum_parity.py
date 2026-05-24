@@ -1,12 +1,12 @@
-"""Parity check: analytical LP enumeration vs scipy.optimize.linprog.
+"""Parity check: RouteWise LP core enumeration vs scipy.optimize.linprog.
 
 Runs both solvers on the same LP instances drawn from realistic
 RouteWise parameters and compares objective value, expected cost,
-and weight vector. Used to validate the enumeration solver in
-rwsim/policies/routewise.py:_solve_lp before merging the swap.
+and weight vector. This is a manual parity/performance smoke test for
+rwsim.core.lp.solve_simplex_lp.
 
 Usage:
-    .venv/bin/python scripts/perf/verify_lp_enum_parity.py
+    uv run python scripts/perf/verify_lp_enum_parity.py
 """
 
 from __future__ import annotations
@@ -16,10 +16,9 @@ import time
 import numpy as np
 from scipy.optimize import linprog
 
-from rwsim.policies.routewise import (
-    _LP_EPS,
-    _cost_tiebroken_objective,
-    _solve_lp,
+from rwsim.core.lp import (
+    cost_tiebroken_objective,
+    solve_simplex_lp,
 )
 
 
@@ -58,7 +57,7 @@ def _make_routewise_lp(
     c_min = float(base_costs.min())
     c_max = float(base_costs.max())
     budget = c_min + p_value * (c_max - c_min)
-    objective = _cost_tiebroken_objective(latencies.tolist(), base_costs.tolist())
+    objective = cost_tiebroken_objective(latencies.tolist(), base_costs.tolist())
     return objective, base_costs.tolist(), budget
 
 
@@ -69,7 +68,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Two providers with identical cost (degenerate budget edge).
     cases.append(
         (
-            _cost_tiebroken_objective([300.0, 200.0, 250.0], [1e-6, 1e-6, 4e-6]),
+            cost_tiebroken_objective([300.0, 200.0, 250.0], [1e-6, 1e-6, 4e-6]),
             [1e-6, 1e-6, 4e-6],
             1e-6,
         )
@@ -78,7 +77,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Two providers with identical latency objective (forces cost tiebreak).
     cases.append(
         (
-            _cost_tiebroken_objective([300.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
+            cost_tiebroken_objective([300.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
             [1e-6, 2e-6, 4e-6],
             1.5e-6,
         )
@@ -87,7 +86,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # All providers identical.
     cases.append(
         (
-            _cost_tiebroken_objective([300.0, 300.0, 300.0], [2e-6, 2e-6, 2e-6]),
+            cost_tiebroken_objective([300.0, 300.0, 300.0], [2e-6, 2e-6, 2e-6]),
             [2e-6, 2e-6, 2e-6],
             2e-6,
         )
@@ -96,7 +95,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Budget exactly equals c_min (p=0).
     cases.append(
         (
-            _cost_tiebroken_objective([500.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
+            cost_tiebroken_objective([500.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
             [1e-6, 2e-6, 4e-6],
             1e-6,
         )
@@ -105,7 +104,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Budget exactly equals c_max (p=1).
     cases.append(
         (
-            _cost_tiebroken_objective([500.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
+            cost_tiebroken_objective([500.0, 300.0, 200.0], [1e-6, 2e-6, 4e-6]),
             [1e-6, 2e-6, 4e-6],
             4e-6,
         )
@@ -114,7 +113,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Cheap provider also fastest — budget irrelevant.
     cases.append(
         (
-            _cost_tiebroken_objective([100.0, 300.0, 500.0], [1e-6, 2e-6, 4e-6]),
+            cost_tiebroken_objective([100.0, 300.0, 500.0], [1e-6, 2e-6, 4e-6]),
             [1e-6, 2e-6, 4e-6],
             2e-6,
         )
@@ -123,7 +122,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # Expensive provider fastest, mid budget — typical mix scenario.
     cases.append(
         (
-            _cost_tiebroken_objective([500.0, 300.0, 150.0], [1e-6, 2e-6, 4e-6]),
+            cost_tiebroken_objective([500.0, 300.0, 150.0], [1e-6, 2e-6, 4e-6]),
             [1e-6, 2e-6, 4e-6],
             2.5e-6,
         )
@@ -132,7 +131,7 @@ def _make_edge_cases() -> list[tuple[list[float], list[float], float]]:
     # 5-provider variant.
     cases.append(
         (
-            _cost_tiebroken_objective(
+            cost_tiebroken_objective(
                 [500.0, 400.0, 300.0, 200.0, 150.0],
                 [1e-6, 1.5e-6, 2e-6, 3e-6, 4e-6],
             ),
@@ -150,7 +149,7 @@ def _check(
     upper_constraint: list[float],
     upper_bound: float,
 ) -> tuple[bool, str]:
-    enum_ok, enum_w = _solve_lp(
+    enum_ok, enum_w = solve_simplex_lp(
         objective,
         upper_constraint=upper_constraint,
         upper_bound=upper_bound,
@@ -240,7 +239,7 @@ def main() -> None:
 
     t0 = time.perf_counter()
     for _ in range(n_iter):
-        _solve_lp(obj, upper_constraint=cost, upper_bound=bnd)
+        solve_simplex_lp(obj, upper_constraint=cost, upper_bound=bnd)
     enum_us = (time.perf_counter() - t0) * 1e6 / n_iter
 
     t0 = time.perf_counter()
