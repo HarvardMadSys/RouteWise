@@ -67,9 +67,9 @@ from rwsim.core.hedging import (
 )
 from rwsim.core.lp import (
     LP_EPS,
+    BudgetLPCandidate,
     cost_tiebroken_objective,
-    normalize_weights,
-    solve_simplex_lp,
+    solve_budget_lp,
 )
 from rwsim.schemas import Request as _PredictionRequest
 
@@ -1078,25 +1078,29 @@ class BudgetRangePolicy(BasePolicy):
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = solve_simplex_lp(
-            objective=objective,
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
-        )
-        if success and vector is not None:
-            weights = normalize_weights(names, vector)
-            if weights:
-                primary = _sample_weighted(weights, rng=random.Random(int(now * 1e6)))
-                return RoutingDecision(
-                    primary=primary,
-                    lp_weights=weights,
-                    lp_status="optimal",
-                    budget_usd=float(budget),
-                    reference_cost_usd=float(c_max),
-                    c_eff_map=c_eff,
-                    tier_mix=_tier_mix_from_weights(weights, self.states),
-                    notes=self.name,
+        result = solve_budget_lp(
+            [
+                BudgetLPCandidate(
+                    name=name,
+                    objective=objective[index],
+                    effective_cost=c_eff[name],
                 )
+                for index, name in enumerate(names)
+            ],
+            budget=budget,
+        )
+        if result.feasible and result.weights:
+            primary = _sample_weighted(result.weights, rng=random.Random(int(now * 1e6)))
+            return RoutingDecision(
+                primary=primary,
+                lp_weights=result.weights,
+                lp_status="optimal",
+                budget_usd=float(budget),
+                reference_cost_usd=float(c_max),
+                c_eff_map=c_eff,
+                tier_mix=_tier_mix_from_weights(result.weights, self.states),
+                notes=self.name,
+            )
 
         return _fallback_in_budget(feasible, c_eff, budget, c_max, fallback_label="range")
 
@@ -1149,19 +1153,24 @@ class BudgetRangePolicy(BasePolicy):
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = solve_simplex_lp(
-            objective=objective,
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
+        result = solve_budget_lp(
+            [
+                BudgetLPCandidate(
+                    name=name,
+                    objective=objective[index],
+                    effective_cost=c_eff[name],
+                )
+                for index, name in enumerate(names)
+            ],
+            budget=budget,
         )
 
         lp_order: list[str] = []
-        if success and vector is not None:
-            weights = normalize_weights(names, vector)
+        if result.feasible:
             lp_order = [
                 name
                 for name, weight in sorted(
-                    weights.items(),
+                    result.weights.items(),
                     key=lambda item: (-item[1], tbar[item[0]], c_eff[item[0]], item[0]),
                 )
                 if weight > LP_EPS

@@ -9,7 +9,7 @@ import pytest
 
 from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
 from rwsim.core.hedging import BackupCandidate, hedge_checkpoints_for_slo
-from rwsim.core.lp import cost_tiebroken_objective, normalize_weights, solve_simplex_lp
+from rwsim.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy, routewise as routewise_module
 from rwsim.policies.routewise import (
@@ -345,17 +345,16 @@ def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
     objective = cost_tiebroken_objective(latencies, costs)
     c_min = min(costs)
     c_max = max(costs)
-    success, vector = solve_simplex_lp(
-        objective=objective,
-        upper_constraint=costs,
-        upper_bound=c_min + p_value * (c_max - c_min),
+    result = solve_budget_lp(
+        [
+            BudgetLPCandidate(name, objective=objective[index], effective_cost=costs[index])
+            for index, name in enumerate(names)
+        ],
+        budget=c_min + p_value * (c_max - c_min),
     )
 
-    assert success
-    assert vector is not None
-    assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == (
-        normalize_weights(names, vector)
-    )
+    assert result.feasible
+    assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == result.weights
 
 
 def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -386,9 +385,9 @@ def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatc
     )
 
     def fail_solve_lp(*args, **kwargs):
-        raise AssertionError("solve_simplex_lp should not run for same-cost providers")
+        raise AssertionError("solve_budget_lp should not run for same-cost providers")
 
-    monkeypatch.setattr(routewise_module, "solve_simplex_lp", fail_solve_lp)
+    monkeypatch.setattr(routewise_module, "solve_budget_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 

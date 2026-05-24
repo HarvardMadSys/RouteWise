@@ -1,4 +1,4 @@
-"""Shared RouteWise simplex LP solver.
+"""Shared RouteWise budget LP solver.
 
 The RouteWise body router solves a small linear program:
 
@@ -7,10 +7,10 @@ The RouteWise body router solves a small linear program:
                 sum(weights) = 1
                 weights >= 0
 
-With one budget inequality plus the simplex constraints, an optimum is either
-a pure provider or a two-provider mixture on the budget boundary. Enumerating
-those candidates is exact for this LP and avoids a scipy runtime dependency in
-policy code.
+With one budget inequality plus the probability-simplex constraints, an
+optimum is either a pure provider or a two-provider mixture on the budget
+boundary. Enumerating those candidates is exact for this LP and avoids a scipy
+runtime dependency in policy code.
 """
 
 from __future__ import annotations
@@ -48,18 +48,87 @@ class BudgetLPResult:
     status: str = "infeasible"
 
 
-def solve_simplex_lp(
+def solve_budget_lp(
+    candidates: Sequence[BudgetLPCandidate],
+    *,
+    budget: float,
+    eps: float = LP_EPS,
+) -> BudgetLPResult:
+    """Solve the RouteWise budget LP for named provider candidates."""
+    names = [candidate.name for candidate in candidates]
+    if len(set(names)) != len(names):
+        return BudgetLPResult(
+            feasible=False,
+            weights={},
+            budget=float(budget),
+            status="invalid",
+        )
+    objective = [candidate.objective for candidate in candidates]
+    costs = [candidate.effective_cost for candidate in candidates]
+    success, vector = _solve_budget_vector_lp(
+        objective,
+        upper_constraint=costs,
+        upper_bound=budget,
+        eps=eps,
+    )
+    if not success or vector is None:
+        return BudgetLPResult(
+            feasible=False,
+            weights={},
+            budget=float(budget),
+        )
+
+    weights = _normalize_weights(names, vector, eps=eps)
+    if not weights:
+        return BudgetLPResult(
+            feasible=False,
+            weights={},
+            budget=float(budget),
+        )
+
+    return BudgetLPResult(
+        feasible=True,
+        weights=weights,
+        budget=float(budget),
+        objective=_dot(tuple(objective), vector),
+        expected_cost=_dot(tuple(costs), vector),
+        status="feasible",
+    )
+
+
+def cost_tiebroken_objective(
+    latency_objective_ms: Sequence[float],
+    effective_costs: Sequence[float],
+    *,
+    eps: float = LP_EPS,
+) -> list[float]:
+    """Prefer lower effective cost when LP latency objectives are equal."""
+    if len(latency_objective_ms) != len(effective_costs):
+        raise ValueError("latency objective and cost arrays must have the same length")
+    if len(latency_objective_ms) == 0:
+        return []
+
+    latencies = [float(value) for value in latency_objective_ms]
+    costs = [float(value) for value in effective_costs]
+    cost_min = min(costs)
+    cost_span = max(costs) - cost_min
+    if cost_span <= eps:
+        return latencies
+
+    return [
+        latency + _COST_TIEBREAK_MS * ((cost - cost_min) / cost_span)
+        for latency, cost in zip(latencies, costs, strict=True)
+    ]
+
+
+def _solve_budget_vector_lp(
     objective: Sequence[float],
     *,
     upper_constraint: Sequence[float],
     upper_bound: float,
     eps: float = LP_EPS,
 ) -> tuple[bool, tuple[float, ...] | None]:
-    """Solve the RouteWise simplex LP and return the optimal vector.
-
-    This low-level API preserves the shape used by the historical SIM and
-    REAL-EVAL helpers. Prefer ``solve_budget_lp`` for new named-provider code.
-    """
+    """Solve the low-level vector form of the RouteWise budget LP."""
     n = len(objective)
     if n == 0 or n != len(upper_constraint):
         return False, None
@@ -121,73 +190,7 @@ def solve_simplex_lp(
     return True, best_vector
 
 
-def solve_budget_lp(
-    candidates: Sequence[BudgetLPCandidate],
-    *,
-    budget: float,
-    eps: float = LP_EPS,
-) -> BudgetLPResult:
-    """Solve the RouteWise budget LP for named provider candidates."""
-    names = [candidate.name for candidate in candidates]
-    objective = [candidate.objective for candidate in candidates]
-    costs = [candidate.effective_cost for candidate in candidates]
-    success, vector = solve_simplex_lp(
-        objective,
-        upper_constraint=costs,
-        upper_bound=budget,
-        eps=eps,
-    )
-    if not success or vector is None:
-        return BudgetLPResult(
-            feasible=False,
-            weights={},
-            budget=float(budget),
-        )
-
-    weights = normalize_weights(names, vector, eps=eps)
-    if not weights:
-        return BudgetLPResult(
-            feasible=False,
-            weights={},
-            budget=float(budget),
-        )
-
-    return BudgetLPResult(
-        feasible=True,
-        weights=weights,
-        budget=float(budget),
-        objective=_dot(tuple(objective), vector),
-        expected_cost=_dot(tuple(costs), vector),
-        status="feasible",
-    )
-
-
-def cost_tiebroken_objective(
-    latency_objective_ms: Sequence[float],
-    effective_costs: Sequence[float],
-    *,
-    eps: float = LP_EPS,
-) -> list[float]:
-    """Prefer lower effective cost when LP latency objectives are equal."""
-    if len(latency_objective_ms) != len(effective_costs):
-        raise ValueError("latency objective and cost arrays must have the same length")
-    if len(latency_objective_ms) == 0:
-        return []
-
-    latencies = [float(value) for value in latency_objective_ms]
-    costs = [float(value) for value in effective_costs]
-    cost_min = min(costs)
-    cost_span = max(costs) - cost_min
-    if cost_span <= eps:
-        return latencies
-
-    return [
-        latency + _COST_TIEBREAK_MS * ((cost - cost_min) / cost_span)
-        for latency, cost in zip(latencies, costs, strict=True)
-    ]
-
-
-def normalize_weights(
+def _normalize_weights(
     names: Sequence[str],
     vector: Sequence[float],
     *,

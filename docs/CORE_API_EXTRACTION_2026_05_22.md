@@ -18,10 +18,8 @@ Longer term, hybridInference should be able to depend on the package without pul
 
 Three extraction targets have landed in this branch:
 
-- `rwsim.core.lp.solve_simplex_lp`
 - `rwsim.core.lp.solve_budget_lp`
 - `rwsim.core.lp.cost_tiebroken_objective`
-- `rwsim.core.lp.normalize_weights`
 - `rwsim.core.cost.effective_cost`
 - `rwsim.core.cost.quota_effective_cost`
 - `rwsim.core.cost.concurrency_effective_cost`
@@ -154,18 +152,13 @@ def solve_budget_lp(
     ...
 
 
-def solve_simplex_lp(
-    objective: Sequence[float],
-    *,
-    upper_constraint: Sequence[float],
-    upper_bound: float,
-) -> tuple[bool, tuple[float, ...] | None]:
-    ...
 ```
 
-Implementation uses the enumeration solver in `rwsim.core.lp.solve_simplex_lp`
-and the named-provider wrapper `rwsim.core.lp.solve_budget_lp`, not
-`scipy.optimize.linprog`.
+`solve_budget_lp` is the public API. The low-level vector enumeration helper is
+private to `rwsim.core.lp`; callers should pass named `BudgetLPCandidate`
+snapshots instead of handling raw weight vectors.
+
+Implementation uses exact enumeration, not `scipy.optimize.linprog`.
 
 Reason: this LP has one budget constraint plus simplex constraints. The optimum is either a pure provider or a two-provider mix on the budget boundary. Enumeration is exact for this problem, fast, and production-friendly.
 
@@ -262,14 +255,13 @@ Expected behavior change: none.
 
 ### Phase 2: Share LP Solver
 
-- Move LP enumeration to `rwsim.core.lp.solve_simplex_lp` and expose
-  `rwsim.core.lp.solve_budget_lp` for named-provider callers.
+- Move LP enumeration behind `rwsim.core.lp.solve_budget_lp`.
 - Make SIM delegate to core.
 - Make REAL-EVAL replace `scipy.optimize.linprog` runtime use with core enumeration.
 - Add random small-case equivalence tests against scipy in test-only code while scipy remains in dev dependencies.
 
 Status: landed for SIM, REAL-EVAL, and effective-cost ablation. The manual
-parity/performance script now calls `rwsim.core.lp.solve_simplex_lp`.
+parity/performance script now calls `rwsim.core.lp.solve_budget_lp`.
 
 Expected behavior change: none, except tiny floating-point formatting differences.
 

@@ -19,9 +19,9 @@ from rwsim.core.cost import (
 )
 from rwsim.core.lp import (
     LP_EPS,
+    BudgetLPCandidate,
     cost_tiebroken_objective,
-    normalize_weights,
-    solve_simplex_lp,
+    solve_budget_lp,
 )
 from rwsim.policies.base import NoOpTickMixin
 from rwsim.policies.routewise import RollingLatencyProfile
@@ -102,15 +102,22 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
                 budget=budget,
             )
         else:
-            success, vector = solve_simplex_lp(
-                objective=cost_tiebroken_objective(
-                    latency_objective,
-                    effective_costs,
-                ),
-                upper_constraint=effective_costs,
-                upper_bound=budget,
+            objective = cost_tiebroken_objective(
+                latency_objective,
+                effective_costs,
             )
-            weights = normalize_weights(names, vector) if success and vector is not None else {}
+            result = solve_budget_lp(
+                [
+                    BudgetLPCandidate(
+                        name=name,
+                        objective=objective[index],
+                        effective_cost=effective_costs[index],
+                    )
+                    for index, name in enumerate(names)
+                ],
+                budget=budget,
+            )
+            weights = result.weights if result.feasible else {}
         if not weights:
             best = min(
                 providers,

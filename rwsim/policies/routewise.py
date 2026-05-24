@@ -24,9 +24,9 @@ from rwsim.core.hedging import (
 )
 from rwsim.core.lp import (
     LP_EPS,
+    BudgetLPCandidate,
     cost_tiebroken_objective,
-    normalize_weights,
-    solve_simplex_lp,
+    solve_budget_lp,
 )
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.latency_profiles import (
@@ -143,12 +143,18 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             )
             lp_status = "single_candidate" if len(names) == 1 else "feasible"
         else:
-            success, vector = solve_simplex_lp(
-                objective=objective,
-                upper_constraint=[c_eff[name] for name in names],
-                upper_bound=budget,
+            result = solve_budget_lp(
+                [
+                    BudgetLPCandidate(
+                        name=name,
+                        objective=objective[index],
+                        effective_cost=c_eff[name],
+                    )
+                    for index, name in enumerate(names)
+                ],
+                budget=budget,
             )
-            weights = normalize_weights(names, vector) if success and vector is not None else {}
+            weights = result.weights if result.feasible else {}
             # budget = c_min + p*(c_max - c_min) with p in [0, 1], so budget >= c_min
             # and the min-cost provider is always within budget. An empty solve is
             # therefore a solver fallback, not an over-budget infeasibility: the

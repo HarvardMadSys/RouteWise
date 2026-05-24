@@ -29,7 +29,7 @@ from experiments.real_evaluation.shadow_price import (
     workload_cost_envelope,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from rwsim.core.lp import normalize_weights
+from rwsim.core.lp import BudgetLPCandidate, solve_budget_lp
 
 
 def _api_spec(
@@ -101,10 +101,17 @@ def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
     assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
 
 
-def test_real_eval_lp_normalization_uses_core_epsilon() -> None:
-    weights = normalize_weights(["main", "tiny"], (1.0 - 1e-7, 1e-7))
+def test_real_eval_budget_lp_keeps_small_core_epsilon_weight() -> None:
+    result = solve_budget_lp(
+        [
+            BudgetLPCandidate("main", objective=100.0, effective_cost=1.0),
+            BudgetLPCandidate("tiny", objective=0.0, effective_cost=2.0),
+        ],
+        budget=1.0 + 1e-7,
+    )
 
-    assert weights == pytest.approx({"main": 1.0 - 1e-7, "tiny": 1e-7})
+    assert result.feasible
+    assert result.weights == pytest.approx({"main": 1.0 - 1e-7, "tiny": 1e-7})
 
 
 def test_budget_range_latency_objective_penalizes_error_attempts() -> None:

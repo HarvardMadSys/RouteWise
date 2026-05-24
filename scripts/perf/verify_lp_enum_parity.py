@@ -1,9 +1,9 @@
-"""Parity check: RouteWise LP core enumeration vs scipy.optimize.linprog.
+"""Parity check: RouteWise public budget LP vs scipy.optimize.linprog.
 
 Runs both solvers on the same LP instances drawn from realistic
 RouteWise parameters and compares objective value, expected cost,
 and weight vector. This is a manual parity/performance smoke test for
-rwsim.core.lp.solve_simplex_lp.
+rwsim.core.lp.solve_budget_lp.
 
 Usage:
     uv run python scripts/perf/verify_lp_enum_parity.py
@@ -17,8 +17,9 @@ import numpy as np
 from scipy.optimize import linprog
 
 from rwsim.core.lp import (
+    BudgetLPCandidate,
     cost_tiebroken_objective,
-    solve_simplex_lp,
+    solve_budget_lp,
 )
 
 
@@ -149,11 +150,16 @@ def _check(
     upper_constraint: list[float],
     upper_bound: float,
 ) -> tuple[bool, str]:
-    enum_ok, enum_w = solve_simplex_lp(
-        objective,
-        upper_constraint=upper_constraint,
-        upper_bound=upper_bound,
+    names = [f"p{idx}" for idx in range(len(objective))]
+    enum = solve_budget_lp(
+        [
+            BudgetLPCandidate(name, objective=obj, effective_cost=cost)
+            for name, obj, cost in zip(names, objective, upper_constraint, strict=True)
+        ],
+        budget=upper_bound,
     )
+    enum_ok = enum.feasible
+    enum_w = np.asarray([enum.weights.get(name, 0.0) for name in names])
     ref_ok, ref_w = _reference_linprog(objective, upper_constraint, upper_bound)
 
     if enum_ok != ref_ok:
@@ -239,7 +245,13 @@ def main() -> None:
 
     t0 = time.perf_counter()
     for _ in range(n_iter):
-        solve_simplex_lp(obj, upper_constraint=cost, upper_bound=bnd)
+        solve_budget_lp(
+            [
+                BudgetLPCandidate(f"p{idx}", objective=value, effective_cost=cost[idx])
+                for idx, value in enumerate(obj)
+            ],
+            budget=bnd,
+        )
     enum_us = (time.perf_counter() - t0) * 1e6 / n_iter
 
     t0 = time.perf_counter()

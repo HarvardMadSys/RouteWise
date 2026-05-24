@@ -30,9 +30,7 @@ from rwsim.core.lp import (
     BudgetLPCandidate,
     BudgetLPResult,
     cost_tiebroken_objective,
-    normalize_weights,
     solve_budget_lp,
-    solve_simplex_lp,
 )
 
 __all__ = [
@@ -53,10 +51,8 @@ __all__ = [
     "effective_cost",
     "has_feasible_backup",
     "hedge_checkpoints_for_slo",
-    "normalize_weights",
     "quota_effective_cost",
     "scarcity_price",
     "select_probability_backup",
     "solve_budget_lp",
-    "solve_simplex_lp",
 ]

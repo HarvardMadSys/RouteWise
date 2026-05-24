@@ -11,7 +11,7 @@ from experiments.simulation.common import (
     make_concurrency_provider,
     make_quota_provider,
 )
-from rwsim.core.lp import cost_tiebroken_objective, normalize_weights, solve_simplex_lp
+from rwsim.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
 from rwsim.engine.state import SimulationState
 from rwsim.policies.routewise import RouteWisePolicy, quota_shadow_price
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
@@ -196,22 +196,22 @@ def test_p_zero_fast_path_matches_lp_enumerator() -> None:
         provider.name: policy._latency_objective_ms(provider, state.now) for provider in providers
     }
     budget = min(c_eff.values())
-    success, vector = solve_simplex_lp(
-        objective=cost_tiebroken_objective(
-            [tbar[name] for name in names],
-            [c_eff[name] for name in names],
-        ),
-        upper_constraint=[c_eff[name] for name in names],
-        upper_bound=budget,
+    objective = cost_tiebroken_objective(
+        [tbar[name] for name in names],
+        [c_eff[name] for name in names],
+    )
+    result = solve_budget_lp(
+        [
+            BudgetLPCandidate(name, objective=objective[index], effective_cost=c_eff[name])
+            for index, name in enumerate(names)
+        ],
+        budget=budget,
     )
 
     decision = policy.route(request, state)
 
-    assert success
-    assert vector is not None
-    assert decision.metadata["weights"] == pytest.approx(
-        normalize_weights(names, vector)
-    )
+    assert result.feasible
+    assert decision.metadata["weights"] == pytest.approx(result.weights)
 
 
 def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,9 +238,9 @@ def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatc
     )
 
     def fail_solve_lp(*args, **kwargs):
-        raise AssertionError("solve_simplex_lp should not run for p=0")
+        raise AssertionError("solve_budget_lp should not run for p=0")
 
-    monkeypatch.setattr(effective_cost_policy, "solve_simplex_lp", fail_solve_lp)
+    monkeypatch.setattr(effective_cost_policy, "solve_budget_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 
