@@ -9,7 +9,7 @@ Extract the RouteWise math and decision primitives that are currently duplicated
 The core should be usable like:
 
 ```python
-from rwsim.core import solve_budget_lp, effective_cost, hedge_checkpoints_for_slo
+from routewise.core import solve_budget_lp, effective_cost, hedge_checkpoints_for_slo
 ```
 
 Longer term, hybridInference should be able to depend on the package without pulling in the simulator harness, plotting stack, or experiment runners.
@@ -62,8 +62,8 @@ This is the boundary that avoids the earlier H5 trap: we should not try to share
 
 ## Current Module Layout
 
-The core extraction currently lives inside the existing package to minimize
-packaging churn:
+The core extraction currently lives inside the existing simulator package and is
+re-exported through the public `routewise.core` alias:
 
 ```text
 rwsim/core/
@@ -71,6 +71,9 @@ rwsim/core/
   lp.py
   cost.py
   hedging.py
+
+routewise/core/
+  __init__.py
 ```
 
 Still outside `rwsim.core`:
@@ -297,26 +300,34 @@ Expected behavior change: none.
 
 ### Phase 6: Packaging
 
-Current `pyproject.toml` packages simulator, experiments, and CLI together and pulls heavy dependencies such as scipy, pandas, matplotlib, and pulp into the default install. That is not ideal for production integration.
+Current `pyproject.toml` packages simulator, experiments, and CLI together. The
+public core import path should not pull heavy dependencies such as scipy,
+pandas, matplotlib, and pulp into a default install.
 
-Options:
+Status: option 1 has landed. The base distribution has no third-party runtime
+dependencies and exposes only the lightweight `routewise.core` import path.
+Heavier workflows are split into extras:
 
-1. Keep one package but add extras:
-   - base: core only
-   - `sim`: simulator dependencies
-   - `experiments`: real-eval/offline dependencies
-   - `plots`: matplotlib/pandas
+- `sim`: simulator dependencies, including the offline oracle dependency used
+  by simulator cost-layer commands
+- `real-eval`: live real-evaluation dependencies
+- `offline`: offline optimizer dependencies
+- `plots`: matplotlib/pandas plotting dependencies
+- `scripts`: operational script dependencies
 
-2. Split a separate `routewise-core` package later.
-
-Recommendation: start with option 1. It is easier to land incrementally and still gives hybridInference a lightweight import path once dependency groups are cleaned up.
+The import-boundary test imports `routewise.core` in a subprocess and asserts
+that heavy modules such as numpy, scipy, pandas, and matplotlib were not loaded.
+This locks the lazy-import behavior in `rwsim.__init__`, `rwsim.const`, and
+`rwsim.core`.
 
 ## Non-Goals
 
 - Do not share concurrency or quota mutator implementations.
 - Do not force SIM, REAL-EVAL, and PROD to use the same persistence writer.
 - Do not implement production hedging as part of this extraction.
-- Do not rename the package before the core API is stable.
+- Coordinate environment reinstalls after the distribution rename because
+  editable environments installed under the old `routewise-simulator` name will
+  not update automatically.
 - Do not expose simulator-specific provider objects in the public core API.
 
 ## Validation
@@ -331,7 +342,7 @@ Required checks before considering the extraction complete:
 - Done: cross-source canonical request schema parity tests.
 - Done: REAL-EVAL policy tests proving scipy is no longer required at runtime.
 - Remaining: simulator smoke comparison on the current minimax shared-profile run.
-- Remaining: packaging check proving a lightweight core import path can avoid
+- Done: packaging check proving a lightweight core import path can avoid
   experiment/plot/runtime-heavy dependencies.
 
 ## Next Recommended Commit
@@ -345,6 +356,6 @@ The next semantic cleanup is the output predictor contract (H7):
    estimates.
 4. Add focused tests for SIM and REAL-EVAL predictor selection behavior.
 
-After that, the main remaining core-integration work is packaging: split the
-install surface so hybridInference can import `rwsim.core` without pulling in
-the simulator harness and plotting/experiment stack by default.
+After that, the main remaining core-integration work is the hybridInference
+adapter spike: import `routewise.core`, map production snapshots into the core
+types, and keep production state mutation in the production harness.

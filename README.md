@@ -1,9 +1,9 @@
-# RouteWise Simulator
+# RouteWise
 
-Trace-driven simulator and experiment harness for evaluating RouteWise
-multi-provider LLM routing policies. It replays request traces against a
-model of provider capacity, quota, and latency, then reports per-request
-cost and latency outcomes for each routing policy.
+RouteWise core routing algorithms plus the trace-driven simulator and
+experiment harnesses used to evaluate multi-provider LLM routing policies.
+The lightweight public API is available from `routewise.core`; simulator and
+experiment harnesses live under `rwsim` and `experiments`.
 
 <!-- TODO(authors): fill in before public release.
 Paper: "<title>", <venue> <year>.
@@ -23,7 +23,7 @@ placeholder citation.
 ## Requirements
 
 - Python >= 3.10
-- The dependencies pinned in `pyproject.toml` (resolved via `uv.lock`)
+- Optional extras in `pyproject.toml` depending on the workflow
 
 ## Installation
 
@@ -33,7 +33,25 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-This installs the `routewise` command-line entry point.
+The base install is intentionally lightweight and supports:
+
+```python
+from routewise.core import solve_budget_lp, effective_cost
+```
+
+Install extras for heavier workflows:
+
+```bash
+python -m pip install -e ".[sim]"        # simulator
+python -m pip install -e ".[real-eval]"  # live real-evaluation harness
+python -m pip install -e ".[offline]"    # offline optimization studies
+python -m pip install -e ".[plots]"      # plotting scripts
+python -m pip install -e ".[scripts]"    # operational scripts
+```
+
+For full local development, install all extras or use `uv sync`. The package
+distribution name is now `routewise`; existing editable environments created
+under the old `routewise-simulator` name should be reinstalled.
 
 ## Data
 
@@ -68,6 +86,22 @@ routewise simulator cost-layer
 See `experiments/simulation/README.md` for the full sub-experiment tree.
 
 ## Python API
+
+Lightweight core API:
+
+```python
+from routewise.core import (
+    BackupCandidate,
+    BudgetLPCandidate,
+    combined_success_probability,
+    effective_cost,
+    hedge_checkpoints_for_slo,
+    select_probability_backup,
+    solve_budget_lp,
+)
+```
+
+Simulator API:
 
 ```python
 from rwsim import POLICIES, run_policy

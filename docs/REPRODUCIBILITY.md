@@ -11,11 +11,17 @@ From the repository root:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e ".[sim,real-eval,offline,plots,scripts]"
 ```
 
 If the package is not installed, replace `routewise` below with
 `python -m routewise_cli.main`.
+
+The base `pip install -e .` install exposes only the lightweight
+`routewise.core` API. Rerunning simulator, live-eval, offline, and plotting
+workflows and operational scripts require the extras above. The distribution
+name is `routewise`; environments installed under the old
+`routewise-simulator` name should be reinstalled.
 
 ## Discover Experiments
 
