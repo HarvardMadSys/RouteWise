@@ -50,6 +50,28 @@ def test_solve_simplex_lp_uses_budget_boundary_mix() -> None:
     assert vector == pytest.approx((0.5, 0.5))
 
 
+def test_solve_simplex_lp_skips_equal_cost_mix_and_uses_best_pure() -> None:
+    success, vector = solve_simplex_lp(
+        [300.0, 100.0],
+        upper_constraint=[2.0, 2.0],
+        upper_bound=2.0,
+    )
+
+    assert success
+    assert vector == (0.0, 1.0)
+
+
+def test_solve_simplex_lp_treats_exact_budget_cost_as_feasible() -> None:
+    success, vector = solve_simplex_lp(
+        [300.0, 100.0],
+        upper_constraint=[1.0, 2.0],
+        upper_bound=2.0,
+    )
+
+    assert success
+    assert vector == (0.0, 1.0)
+
+
 def test_solve_simplex_lp_reports_infeasible_when_all_candidates_exceed_budget() -> None:
     success, vector = solve_simplex_lp(
         [100.0, 300.0],
