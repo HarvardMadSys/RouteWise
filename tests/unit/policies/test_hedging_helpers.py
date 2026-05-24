@@ -11,7 +11,6 @@ from rwsim.core.hedging import (
     BackupCandidate,
     combined_success_probability,
     has_feasible_backup,
-    latest_safe_hedge_delay_sec,
     select_probability_backup,
 )
 
@@ -23,7 +22,6 @@ def _provider(name: str):
 def test_core_package_exports_public_hedging_api() -> None:
     assert core.BackupCandidate is BackupCandidate
     assert core.combined_success_probability is combined_success_probability
-    assert core.latest_safe_hedge_delay_sec is latest_safe_hedge_delay_sec
     assert core.select_probability_backup is select_probability_backup
 
 
@@ -103,25 +101,3 @@ def test_select_probability_backup_ignores_infeasible_candidates() -> None:
 
     assert select_probability_backup([infeasible]) is None
     assert not has_feasible_backup([infeasible])
-
-
-def test_latest_safe_hedge_delay_uses_latest_grid_point() -> None:
-    delay = latest_safe_hedge_delay_sec(
-        lambda elapsed_sec: 0.995 if elapsed_sec <= 0.10 else 0.50,
-        slo_sec=0.20,
-        success_target=0.99,
-        grid_step_sec=0.05,
-    )
-
-    assert delay == pytest.approx(0.10)
-
-
-def test_latest_safe_hedge_delay_returns_inf_when_no_grid_point_is_safe() -> None:
-    delay = latest_safe_hedge_delay_sec(
-        lambda _elapsed_sec: 0.50,
-        slo_sec=0.20,
-        success_target=0.99,
-        grid_step_sec=0.05,
-    )
-
-    assert delay == float("inf")

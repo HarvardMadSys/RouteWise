@@ -24,7 +24,6 @@ Two extraction targets have landed in this branch:
 - `rwsim.core.lp.normalize_weights`
 - `rwsim.core.hedging.hedge_checkpoints_for_slo`
 - `rwsim.core.hedging.combined_success_probability`
-- `rwsim.core.hedging.latest_safe_hedge_delay_sec`
 - `rwsim.core.hedging.select_probability_backup`
 
 SIM, REAL-EVAL, and ablation code now call these core APIs directly. The old

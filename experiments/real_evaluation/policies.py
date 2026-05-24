@@ -63,7 +63,6 @@ from rwsim.core.hedging import (
     HEDGE_SUCCESS_TARGET,
     BackupCandidate,
     combined_success_probability,
-    latest_safe_hedge_delay_sec,
     select_probability_backup,
 )
 from rwsim.core.lp import (
@@ -236,74 +235,6 @@ def _profile_combined_success_probability(
         slo_ms=float(slo_sec) * 1000.0,
         dispatch_overhead_ms=0.0,
     )
-
-
-def select_safe_cheapest_backup(
-    primary: str,
-    states: dict[str, ProviderState],
-    ctx: RequestContext,
-    slo_sec: float,
-    now: float,
-    *,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    cost_fn: Callable[[ProviderState], float] | None = None,
-) -> str | None:
-    """Pick the cheapest feasible probability-target backup.
-
-    This is the real-eval adapter of simulator ``select_probability_backup``.
-    A backup is feasible only if some latest-safe dispatch time lets the
-    primary+backup pair satisfy the combined SLO success target. If no backup is
-    feasible, return ``None`` and let the runner keep the request primary-only.
-    """
-    primary_state = states.get(primary)
-    if primary_state is None:
-        return None
-
-    candidates: list[BackupCandidate[ProviderState]] = []
-    for name, state in states.items():
-        if name == primary or not state.is_available(now):
-            continue
-        hedge_delay_sec = latest_safe_hedge_delay_sec(
-            lambda elapsed_sec, backup_state=state: _profile_combined_success_probability(
-                primary_state,
-                backup_state,
-                elapsed_sec=elapsed_sec,
-                slo_sec=slo_sec,
-                now=now,
-            ),
-            slo_sec=slo_sec,
-            success_target=success_target,
-        )
-        if not math.isfinite(hedge_delay_sec):
-            continue
-        success_probability = _profile_combined_success_probability(
-            primary_state,
-            state,
-            elapsed_sec=hedge_delay_sec,
-            slo_sec=slo_sec,
-            now=now,
-        )
-        cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
-        mean_ms, _ = _body_latency_proxy_ms(
-            state,
-            now,
-            error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-        )
-        if not math.isfinite(mean_ms):
-            mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        candidates.append(
-            BackupCandidate(
-                provider=state,
-                success_probability=success_probability,
-                marginal_cost=cost,
-                true_mean_ms=mean_ms,
-                success_target=success_target,
-            )
-        )
-    selected = select_probability_backup(candidates)
-    if selected is None:
-        return None
-    return selected.provider.spec.name
 
 
 def select_checkpoint_backup(
@@ -565,7 +496,7 @@ class BasePolicy:
         predicted_tokens = (
             prediction.tokens if hasattr(prediction, "tokens") else prediction.median
         )
-        return max(1, int(round(predicted_tokens)))
+        return max(1, round(predicted_tokens))
 
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
         """Return route-time API cost, optionally using trace-reported cache hit."""
@@ -1360,7 +1291,6 @@ def build_policy(
 
 
 __all__ = [
-    "CapacityUnavailableError",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
     "OR_SORT_COST_SENTINEL",
@@ -1371,6 +1301,7 @@ __all__ = [
     "BasePolicy",
     "BudgetRangeHedgePolicy",
     "BudgetRangePolicy",
+    "CapacityUnavailableError",
     "CheckpointHedgeDecision",
     "ConcurrencyFirstPolicy",
     "GreedyCostPolicy",
@@ -1389,5 +1320,4 @@ __all__ = [
     "build_policy",
     "request_cost_for_spec",
     "select_checkpoint_backup",
-    "select_safe_cheapest_backup",
 ]

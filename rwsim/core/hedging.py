@@ -102,27 +102,6 @@ def combined_success_probability(
     return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
 
 
-def latest_safe_hedge_delay_sec(
-    success_probability_at_sec: Callable[[float], float],
-    *,
-    slo_sec: float,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    grid_step_sec: float = 0.05,
-) -> float:
-    """Return the latest grid delay whose success probability meets target."""
-    max_elapsed_sec = max(0.0, float(slo_sec))
-    step = max(float(grid_step_sec), EPS)
-    latest_safe: float | None = None
-    count = math.floor(max_elapsed_sec / step + EPS)
-    for index in range(count + 1):
-        elapsed_sec = min(index * step, max_elapsed_sec)
-        if success_probability_at_sec(elapsed_sec) >= success_target:
-            latest_safe = elapsed_sec
-    if latest_safe is not None:
-        return latest_safe
-    return float("inf")
-
-
 def select_probability_backup(
     candidates: Sequence[BackupCandidate[ProviderT]],
 ) -> BackupCandidate[ProviderT] | None:
@@ -176,6 +155,5 @@ __all__ = [
     "combined_success_probability",
     "has_feasible_backup",
     "hedge_checkpoints_for_slo",
-    "latest_safe_hedge_delay_sec",
     "select_probability_backup",
 ]

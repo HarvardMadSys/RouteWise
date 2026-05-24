@@ -163,7 +163,7 @@ def cache_aware_request_cost_usd(
 ### 7.3 Hedge Backup Selection
 
 ```python
-select_safe_cheapest_backup(
+select_checkpoint_backup(
     ...,
     cost_fn=lambda state: policy.request_cost_for_state(state, ctx),
 )
@@ -287,7 +287,7 @@ off: RouteWise decision cost 全部按 uncached input price
 1. `load_trace_jsonl()` 能从 `cache_read_tokens` / `cached_input_tokens` 字段填充 `TraceRequest.trace_cached_input_tokens`，缺失即 `None`。
 2. `cached_input_tokens(...)` 在 `trace_cached_input_tokens is None` 时返回 0；非空时按 `min(prompt_tokens, value)` 截断。
 3. `BudgetRangePolicy.route()` 在 trace 给出 cache hit 后使用更低 S_A request cost；trace 没给时退回 uncached price。
-4. `select_safe_cheapest_backup()` 通过 `cost_fn` 复用 cache-aware cost function。
+4. `select_checkpoint_backup()` 通过 `cost_fn` 复用 cache-aware cost function。
 5. Recorder billed cost 仍来自 `SingleRequestResult.billed_cost_usd`，不会被 routing estimated cost 覆盖；`primary_cached_input_tokens` 写出 route-time trace 值，`primary_observed_cached_input_tokens` 写出 provider observed 值。
 6. Transport 能解析 `usage.prompt_tokens_details.cached_tokens` 和 `usage.cache_read_input_tokens`。
 7. `refresh_inventory.py` 能把 OpenRouter `pricing.input_cache_read` 写成 `cached_input_price_per_m`。

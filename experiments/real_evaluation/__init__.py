@@ -46,7 +46,6 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
-    select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.recorder import (
     CSV_FIELDS,
@@ -121,6 +120,5 @@ __all__ = [
     "quota_shadow_price",
     "request_marginal_cost",
     "resolve_transport_config",
-    "select_safe_cheapest_backup",
     "send_request",
 ]

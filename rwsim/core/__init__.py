@@ -12,7 +12,6 @@ from rwsim.core.hedging import (
     combined_success_probability,
     has_feasible_backup,
     hedge_checkpoints_for_slo,
-    latest_safe_hedge_delay_sec,
     select_probability_backup,
 )
 from rwsim.core.lp import (
@@ -36,7 +35,6 @@ __all__ = [
     "cost_tiebroken_objective",
     "has_feasible_backup",
     "hedge_checkpoints_for_slo",
-    "latest_safe_hedge_delay_sec",
     "normalize_weights",
     "select_probability_backup",
     "solve_budget_lp",
