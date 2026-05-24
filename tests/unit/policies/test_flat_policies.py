@@ -7,6 +7,7 @@ from itertools import pairwise
 
 import pytest
 
+from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
 from rwsim.core.hedging import BackupCandidate, hedge_checkpoints_for_slo
 from rwsim.core.lp import cost_tiebroken_objective, normalize_weights, solve_simplex_lp
 from rwsim.engine.state import SimulationState
@@ -498,6 +499,34 @@ def test_routewise_configured_latency_profile_ignores_observations() -> None:
 def test_routewise_requires_explicit_cost_envelope():
     with pytest.raises(ValueError, match="requires an explicit cost_envelope"):
         RouteWisePolicy(hedging=False, explorer=False, p=0.75, seed=7)
+
+
+def test_routewise_rejects_point_predictor_for_tail_quantile():
+    providers = [
+        TieredProvider(
+            name="api",
+            cost_per_token=1e-6,
+            input_cost_per_token=1e-6,
+            output_cost_per_token=1e-6,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        )
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = RouteWisePolicy(
+        hedging=False,
+        explorer=False,
+        p=0.75,
+        seed=7,
+        cost_envelope=(1e-6, 1e-3),
+        output_predictor=BucketMeanOutputPredictor(),
+        output_predictor_quantile="q90",
+    )
+
+    with pytest.raises(ValueError, match="point predictors only support q50"):
+        policy.route(request, state)
 
 
 def test_routewise_fixed_cost_envelope_keeps_quota_price_request_independent():

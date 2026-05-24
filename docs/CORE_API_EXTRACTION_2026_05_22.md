@@ -16,20 +16,25 @@ Longer term, hybridInference should be able to depend on the package without pul
 
 ## Current Status
 
-Two extraction targets have landed in this branch:
+Three extraction targets have landed in this branch:
 
 - `rwsim.core.lp.solve_simplex_lp`
 - `rwsim.core.lp.solve_budget_lp`
 - `rwsim.core.lp.cost_tiebroken_objective`
 - `rwsim.core.lp.normalize_weights`
+- `rwsim.core.cost.effective_cost`
+- `rwsim.core.cost.quota_effective_cost`
+- `rwsim.core.cost.concurrency_effective_cost`
+- `rwsim.core.cost.scarcity_price`
 - `rwsim.core.hedging.hedge_checkpoints_for_slo`
 - `rwsim.core.hedging.combined_success_probability`
 - `rwsim.core.hedging.select_probability_backup`
 
 SIM, REAL-EVAL, and ablation code now call these core APIs directly. The old
-LP and hedging helper wrappers were removed rather than kept as compatibility
-aliases. REAL-EVAL no longer imports `scipy.optimize.linprog` at policy runtime;
-scipy is used only as a test oracle for LP equivalence.
+LP, hedging, and effective-cost helper wrappers were removed rather than kept
+as compatibility aliases. REAL-EVAL no longer imports `scipy.optimize.linprog`
+at policy runtime; scipy is used only as a test oracle/manual parity benchmark
+for LP equivalence.
 
 ## What Belongs In Core
 
@@ -57,85 +62,110 @@ Core reads snapshots. Harnesses own mutable state.
 
 This is the boundary that avoids the earlier H5 trap: we should not try to share a `try_acquire()` / `release()` implementation. Those are mutators, and they belong inside each harness. The shared core only needs the read-only facts required to decide.
 
-## Proposed Module Layout
+## Current Module Layout
 
-Start inside the existing package to minimize packaging churn:
+The core extraction currently lives inside the existing package to minimize
+packaging churn:
 
 ```text
 rwsim/core/
   __init__.py
-  constants.py
-  types.py
   lp.py
   cost.py
   hedging.py
-  records.py
 ```
+
+Still outside `rwsim.core`:
+
+- Algorithm constants remain in `rwsim.const`; `rwsim.core.hedging` re-exports
+  the hedging constants it needs.
+- Simulator routing dataclasses remain in `rwsim.schemas`.
+- The canonical request record remains in `rwsim.metrics.record`.
 
 Later, if hybridInference needs an even smaller install surface, this can move or be published as a separate `routewise-core` package. For now, `rwsim.core` is the least disruptive path.
 
-### `constants.py`
+### Constants
 
-Public source for algorithm constants:
+Public source for algorithm constants is still `rwsim.const`:
 
 - `HEDGE_SUCCESS_TARGET`
 - `DISPATCH_OVERHEAD_MS`
 - checkpoint schedule defaults
 
-Existing imports from `rwsim.const` can be preserved as compatibility aliases.
+Do not add a second source of truth. If a future `rwsim.core.constants` module is
+introduced, it should re-export from `rwsim.const` or replace it in one commit.
 
-### `types.py`
+### Public Types
 
-Provider-agnostic dataclasses. These should avoid simulator-specific classes such as `Provider`, `TieredProvider`, or `ProviderState`.
+Provider-agnostic dataclasses should avoid simulator-specific classes such as
+`Provider`, `TieredProvider`, or `ProviderState`.
 
-Sketch:
+Currently landed:
 
 ```python
 @dataclass(frozen=True)
-class CandidateSnapshot:
-    provider: str
-    tier: str
-    marginal_cost_usd: float
-    effective_cost_usd: float
-    latency_objective_ms: float
-    available: bool = True
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+class BudgetLPCandidate:
+    name: str
+    objective: float
+    effective_cost: float
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
-class LPResult:
-    status: str
-    weights: Mapping[str, float]
-    budget_usd: float
-    objective_ms: float | None
-    expected_effective_cost_usd: float | None
+class BudgetLPResult:
+    feasible: bool
+    weights: dict[str, float]
+    budget: float
+    objective: float | None = None
+    expected_cost: float | None = None
+    status: str = "infeasible"
 
 
 @dataclass(frozen=True)
-class BackupCandidate:
-    provider: str
+class BackupCandidate(Generic[ProviderT]):
+    provider: ProviderT
     success_probability: float
-    marginal_cost_usd: float
-    mean_ms: float | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    marginal_cost: float
+    true_mean_ms: float
+    success_target: float = HEDGE_SUCCESS_TARGET
 ```
 
-The exact field names can mirror the canonical request schema where possible.
+The record schema has been aligned separately through `PerRequestRecord` tests,
+but it has not moved to a `rwsim.core.records` module.
 
 ### `lp.py`
 
 Public LP API:
 
 ```python
+@dataclass(frozen=True)
+class BudgetLPCandidate:
+    name: str
+    objective: float
+    effective_cost: float
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+
 def solve_budget_lp(
-    candidates: Sequence[CandidateSnapshot],
+    candidates: Sequence[BudgetLPCandidate],
     *,
-    budget_usd: float,
-) -> LPResult:
+    budget: float,
+) -> BudgetLPResult:
+    ...
+
+
+def solve_simplex_lp(
+    objective: Sequence[float],
+    *,
+    upper_constraint: Sequence[float],
+    upper_bound: float,
+) -> tuple[bool, tuple[float, ...] | None]:
     ...
 ```
 
-Implementation should use the enumeration solver currently in `rwsim.policies.routewise._solve_lp`, not `scipy.optimize.linprog`.
+Implementation uses the enumeration solver in `rwsim.core.lp.solve_simplex_lp`
+and the named-provider wrapper `rwsim.core.lp.solve_budget_lp`, not
+`scipy.optimize.linprog`.
 
 Reason: this LP has one budget constraint plus simplex constraints. The optimum is either a pure provider or a two-provider mix on the budget boundary. Enumeration is exact for this problem, fast, and production-friendly.
 
@@ -147,32 +177,31 @@ Public effective-cost API should operate on scalar snapshots:
 
 ```python
 def effective_cost(
-    *,
     tier: str,
-    marginal_cost_usd: float,
+    *,
+    request_cost_usd: float = 0.0,
     quota_fraction_used: float | None = None,
-    quota_lower: float | None = None,
-    quota_upper: float | None = None,
     concurrency_utilization: float | None = None,
-    concurrency_alpha: float = 1.0,
+    L: float,
+    U: float,
+    quota_curve: ScarcityCurve = "exp_lu",
+    concurrency_curve: ScarcityCurve | None = None,
 ) -> float:
     ...
 ```
 
-SIM can compute `quota_fraction_used` from its virtual quota ledger. PROD can compute it from calendar/API quota state. Core should not know how either state is mutated.
+SIM can compute `quota_fraction_used` from its virtual quota ledger. PROD can
+compute it from calendar/API quota state. Core should not know how either state
+is mutated. The main RouteWise concurrency path passes
+`concurrency_curve=None`, which keeps reusable slots availability-only; ablation
+paths can pass a curve such as `util_linear_u`.
 
 ### `hedging.py`
 
 Public hedging API:
 
 ```python
-def hedge_checkpoints_for_slo(
-    slo_ms: float,
-    *,
-    first_fraction: float = 0.25,
-    last_fraction: float = 0.90,
-    step_fraction: float = 0.025,
-) -> tuple[float, ...]:
+def hedge_checkpoints_for_slo(slo_ms: float) -> tuple[float, ...]:
     ...
 
 
@@ -189,8 +218,6 @@ def combined_success_probability(
 
 def select_probability_backup(
     candidates: Sequence[BackupCandidate],
-    *,
-    success_target: float = HEDGE_SUCCESS_TARGET,
 ) -> BackupCandidate | None:
     ...
 ```
@@ -201,20 +228,10 @@ The `dispatch_overhead_ms` default should be explicit at call sites:
 - REAL-EVAL passes 0 ms because wall-clock dispatch already elapsed.
 - PROD should follow the same wall-clock rule unless it is making a pre-dispatch planning estimate.
 
-For checkpoint scheduling, the shared API should expose the RouteWise paper behavior. A later helper can support REAL-EVAL's latest-safe search:
-
-```python
-def latest_safe_checkpoint(
-    checkpoints_sec: Sequence[float],
-    *,
-    primary_cdf_at_ms: Callable[[float], float],
-    backup_profiles: Sequence[BackupProfileSnapshot],
-    slo_sec: float,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    dispatch_overhead_ms: float = 0.0,
-) -> float | None:
-    ...
-```
+Checkpoint scheduling now exposes the RouteWise paper behavior directly. The
+old latest-safe helper was removed; REAL-EVAL waits by asking the same core
+backup selector at future canonical checkpoints, while dispatch execution stays
+inside the REAL-EVAL runner.
 
 ### `records.py`
 
@@ -239,14 +256,20 @@ The writer remains harness-specific:
 - Migrate call sites directly to core APIs; do not preserve duplicate helper wrappers.
 - Add focused unit tests for the new public API.
 
+Status: landed for LP, hedging, and effective cost.
+
 Expected behavior change: none.
 
 ### Phase 2: Share LP Solver
 
-- Move `_solve_lp` enumeration to `rwsim.core.lp.solve_budget_lp`.
+- Move LP enumeration to `rwsim.core.lp.solve_simplex_lp` and expose
+  `rwsim.core.lp.solve_budget_lp` for named-provider callers.
 - Make SIM delegate to core.
 - Make REAL-EVAL replace `scipy.optimize.linprog` runtime use with core enumeration.
 - Add random small-case equivalence tests against scipy in test-only code while scipy remains in dev dependencies.
+
+Status: landed for SIM, REAL-EVAL, and effective-cost ablation. The manual
+parity/performance script now calls `rwsim.core.lp.solve_simplex_lp`.
 
 Expected behavior change: none, except tiny floating-point formatting differences.
 
@@ -258,13 +281,19 @@ Expected behavior change: none, except tiny floating-point formatting difference
 
 Expected behavior change: none if call-site parameters match current intended semantics.
 
+Status: landed for SIM and REAL-EVAL. The stale random explorer and latest-safe
+helper paths were removed.
+
 ### Phase 4: Share Effective Cost
 
 - Convert SIM effective-cost calculation to build scalar snapshots and call `rwsim.core.cost.effective_cost`.
-- Convert REAL-EVAL and PROD adapters to the same scalar API.
+- Convert REAL-EVAL adapters to the same scalar API.
 - Keep quota/concurrency mutation and reconciliation in each harness.
 
 Expected behavior change: none if snapshots match current state.
+
+Status: landed for SIM, REAL-EVAL, and effective-cost ablations. PROD /
+hybridInference integration remains a separate repo integration task.
 
 ### Phase 5: Stabilize Public Types
 
@@ -302,19 +331,28 @@ Recommendation: start with option 1. It is easier to land incrementally and stil
 
 Required checks before considering the extraction complete:
 
-- LP solver deterministic unit tests.
-- LP solver equivalence tests against scipy for random small cases.
-- Golden tests for hedge checkpoint schedule.
-- Golden tests for combined success probability under SIM and REAL-EVAL overhead semantics.
-- Cross-source canonical request schema parity tests.
-- Simulator smoke comparison on the current minimax shared-profile run.
-- REAL-EVAL policy tests proving scipy is no longer required at runtime.
+- Done: LP solver deterministic unit tests.
+- Done: LP solver equivalence tests against scipy for random small cases.
+- Done: LP parity/performance manual script using the core solver.
+- Done: golden tests for hedge checkpoint schedule.
+- Done: tests for combined success probability and backup selection.
+- Done: cross-source canonical request schema parity tests.
+- Done: REAL-EVAL policy tests proving scipy is no longer required at runtime.
+- Remaining: simulator smoke comparison on the current minimax shared-profile run.
+- Remaining: packaging check proving a lightweight core import path can avoid
+  experiment/plot/runtime-heavy dependencies.
 
 ## Next Recommended Commit
 
-Effective-cost extraction is the next best target:
+The next semantic cleanup is the output predictor contract (H7):
 
-1. Add `rwsim.core.cost`.
-2. Move the scalar RouteWise effective-cost formula there.
-3. Keep quota/concurrency/cache state in SIM and REAL-EVAL adapters.
-4. Make SIM, REAL-EVAL, and the effective-cost ablation build scalar snapshots and call the same core cost helper.
+1. Audit every route-time use of `PointPrediction` vs `QuantilePrediction`.
+2. Keep `BucketMeanOutputPredictor` as a point predictor; do not let q10/q90
+   paths accept it silently.
+3. Prefer histogram/quantile predictors where the algorithm needs tail
+   estimates.
+4. Add focused tests for SIM and REAL-EVAL predictor selection behavior.
+
+After that, the main remaining core-integration work is packaging: split the
+install surface so hybridInference can import `rwsim.core` without pulling in
+the simulator harness and plotting/experiment stack by default.
