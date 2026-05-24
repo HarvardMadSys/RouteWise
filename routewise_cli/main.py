@@ -42,6 +42,23 @@ ABLATION_COMMAND_DESCRIPTIONS = {
 }
 
 
+def _optional_dependency_error(command: str, extra: str, exc: ModuleNotFoundError) -> str:
+    missing = exc.name or str(exc)
+    return (
+        f"error: `routewise {command}` requires optional dependencies that are not "
+        "installed in the lightweight base package. Install them with "
+        f"`python -m pip install 'routewise[{extra}]'`, or for an editable checkout "
+        f"`python -m pip install -e '.[{extra}]'`. Missing module: {missing}"
+    )
+
+
+def _import_optional_module(module_name: str, *, command: str, extra: str) -> Any:
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        raise SystemExit(_optional_dependency_error(command, extra, exc)) from exc
+
+
 def _json_dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
@@ -107,7 +124,7 @@ def _list_payload(experiment_name: str | None) -> dict[str, Any]:
 def _simulator_list_payload() -> dict[str, Any]:
     sections: list[dict[str, Any]] = []
     for name, module_name in SIMULATOR_SECTIONS.items():
-        module = importlib.import_module(module_name)
+        module = _import_optional_module(module_name, command="simulator", extra="sim")
         list_scenarios = getattr(module, "list_scenarios", None)
         policies_for_section = getattr(module, "policies_for_section", None)
         sections.append(
@@ -143,7 +160,11 @@ def _dispatch_simulator(raw_args: list[str]) -> int | None:
         print(_json_dump(_simulator_list_payload()))
         return 0
     if command in SIMULATOR_SECTIONS:
-        module = importlib.import_module(SIMULATOR_SECTIONS[command])
+        module = _import_optional_module(
+            SIMULATOR_SECTIONS[command],
+            command="simulator",
+            extra="sim",
+        )
         return int(module.main(raw_args[2:]))
     return None
 
@@ -156,7 +177,7 @@ def _dispatch_ablation(raw_args: list[str]) -> int | None:
         print(_json_dump(_ablation_list_payload()))
         return 0
     if command in ABLATION_COMMANDS:
-        module = importlib.import_module(ABLATION_COMMANDS[command])
+        module = _import_optional_module(ABLATION_COMMANDS[command], command="ablation", extra="sim")
         return int(module.main(raw_args[2:]))
     return None
 

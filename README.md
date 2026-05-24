@@ -76,6 +76,13 @@ The pure simulator path does not require any API keys.
 
 ## Running experiments
 
+Install the relevant extra before running a heavier workflow. Simulator section
+commands require:
+
+```bash
+python -m pip install -e ".[sim]"
+```
+
 List the available paper sections and run one:
 
 ```bash
