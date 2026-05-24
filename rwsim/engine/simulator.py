@@ -9,6 +9,7 @@ but are not used by the simulator's main capacity model.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
 
 
 _HEDGE_REQUEST_ID_OFFSET = 10_000_000
+
+
+@dataclass(frozen=True)
+class _FallbackAdmission:
+    provider: Provider
+    ttft_ms: float
+    service_time: float
 
 
 @dataclass
@@ -134,7 +142,13 @@ class Simulator:
         )
 
         if not _can_admit(primary, now, primary_service_time):
-            fallback = _fallback_provider(providers.values(), now)
+            fallback = _fallback_admission(
+                providers.values(),
+                now,
+                request.response_tokens or 1,
+                provider_rngs,
+                exclude={primary.name},
+            )
             if fallback is None:
                 return RoutingOutcome(
                     request_id=request.id,
@@ -145,16 +159,9 @@ class Simulator:
                     rejected=True,
                     error="no_capacity",
                 )
-            primary = fallback
-            primary_rng = provider_rngs[primary.name]
-            primary_ttft_ms = primary.sample_ttft(primary_rng, now)
-            primary_service_time = _sample_service_time(
-                primary,
-                primary_rng,
-                now,
-                request.response_tokens or 1,
-                primary_ttft_ms,
-            )
+            primary = fallback.provider
+            primary_ttft_ms = fallback.ttft_ms
+            primary_service_time = fallback.service_time
 
         primary_cached_input_tokens = cached_input_tokens(primary, request, state)
         primary.account_request(request.id, now, primary_service_time)
@@ -491,18 +498,40 @@ def _can_admit(provider: Provider, now: float, service_time: float) -> bool:
     return provider.is_available(now)
 
 
-def _fallback_provider(providers: Sequence[Provider], now: float) -> Provider | None:
-    available = [provider for provider in providers if provider.is_available(now)]
-    if not available:
-        return None
-    return min(
-        available,
+def _fallback_admission(
+    providers: Sequence[Provider],
+    now: float,
+    output_tokens: int,
+    provider_rngs: dict[str, np.random.Generator],
+    *,
+    exclude: set[str] | None = None,
+) -> _FallbackAdmission | None:
+    excluded = exclude or set()
+    candidates = sorted(
+        (
+            provider
+            for provider in providers
+            if provider.name not in excluded and provider.is_available(now)
+        ),
         key=lambda provider: (
             provider.effective_input_cost_per_token,
             provider.effective_output_cost_per_token,
             provider.true_p50_ms(now),
         ),
     )
+    for provider in candidates:
+        rng = provider_rngs[provider.name]
+        rng_state = copy.deepcopy(rng.bit_generator.state)
+        ttft_ms = provider.sample_ttft(rng, now)
+        service_time = _sample_service_time(provider, rng, now, output_tokens, ttft_ms)
+        if _can_admit(provider, now, service_time):
+            return _FallbackAdmission(
+                provider=provider,
+                ttft_ms=ttft_ms,
+                service_time=service_time,
+            )
+        rng.bit_generator.state = rng_state
+    return None
 
 
 def _request_user_id(request: Request) -> str | None:
