@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from experiments.simulation.common import WORKLOAD_COST_ENVELOPE, p_label
-from rwsim.policies.effective_cost_kernel import SCARCITY_CURVES, ScarcityCurve
+from rwsim.core.cost import SCARCITY_CURVES, ScarcityCurve
 
 DEFAULT_P_VALUES = (0.5,)
 DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (

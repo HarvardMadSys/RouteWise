@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from rwsim.core.cost import (
+    ScarcityCurve,
+    effective_cost as core_effective_cost,
+)
 from rwsim.core.lp import (
     LP_EPS,
     cost_tiebroken_objective,
@@ -20,7 +24,6 @@ from rwsim.core.lp import (
     solve_simplex_lp,
 )
 from rwsim.policies.base import NoOpTickMixin
-from rwsim.policies.effective_cost_kernel import ScarcityCurve, scarcity_price
 from rwsim.policies.routewise import RollingLatencyProfile
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
@@ -141,24 +144,33 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
     ) -> float:
         """Return candidate piecewise effective cost for one provider."""
         if provider.tier == ProviderTier.S_A:
-            return provider.marginal_cost_for_request(request, now)
-        if provider.tier == ProviderTier.S_Q:
-            if provider.quota is None:
-                return 0.0
-            return scarcity_price(
-                self.quota_curve,
-                provider.quota.fraction_used(now),
+            return core_effective_cost(
+                "api",
+                request_cost_usd=provider.marginal_cost_for_request(request, now),
                 L=L,
                 U=U,
             )
-        if provider.tier == ProviderTier.S_C:
-            if provider.concurrency is None:
-                return 0.0
-            return scarcity_price(
-                self.concurrency_curve,
-                provider.concurrency.utilization(now),
+        if provider.tier == ProviderTier.S_Q:
+            return core_effective_cost(
+                "quota",
+                quota_fraction_used=(
+                    None if provider.quota is None else provider.quota.fraction_used(now)
+                ),
                 L=L,
                 U=U,
+                quota_curve=self.quota_curve,
+            )
+        if provider.tier == ProviderTier.S_C:
+            return core_effective_cost(
+                "concurrency",
+                concurrency_utilization=(
+                    None
+                    if provider.concurrency is None
+                    else provider.concurrency.utilization(now)
+                ),
+                L=L,
+                U=U,
+                concurrency_curve=self.concurrency_curve,
             )
         raise ValueError(
             f"unsupported provider tier for effective-cost ablation: {provider.tier!r}"

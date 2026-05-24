@@ -113,10 +113,13 @@ duplication. This is the model we want to replicate everywhere.
 ## 4. Target Architecture
 
 ```text
-rwsim/policies/effective_cost_kernel.py   ← NEW, shared math only
+rwsim/core/cost.py   ← shared pure math and piecewise scalar API
     ScarcityCurve
+    EffectiveCostTier
     SCARCITY_CURVES
     scarcity_price(curve, x, *, L, U)
+    effective_cost(tier, *, request_cost_usd, quota_fraction_used,
+                   concurrency_utilization, L, U, ...)
 
 rwsim/policies/routewise.py
     quota_shadow_price(provider, now, *, U, L) -> float:
@@ -128,7 +131,7 @@ rwsim/policies/routewise.py
     concurrency_shadow_price(provider, now, *, U, L, alpha=1.0) -> float:
         if provider.tier != ProviderTier.S_C: return 0.0
         if provider.concurrency is None:      return 0.0
-        return scarcity_price("constant_l", 0.0, L=L, U=U)
+        return effective_cost("concurrency", concurrency_utilization=None, L=L, U=U)
 
 experiments/real_evaluation/shadow_price.py
     # Same shape, but extracts from ProviderState instead of Provider.
@@ -140,20 +143,19 @@ experiments/ablations/effective_cost/{policy,presets,harness}.py
 
 ### 4.1 Naming
 
-Pick `effective_cost_kernel.py` (not `effective_cost.py`) to avoid name
-collision with the existing `effective_cost(...)` function in
-`routewise.py`. The kernel is intentionally narrow — only the curve math.
-Higher-level orchestration (tier dispatch, full piecewise `effective_cost`)
-stays in the simulator/real-eval modules because it depends on layer types.
+Use `rwsim/core/cost.py` for the public core API. The module is allowed to
+export a pure scalar `effective_cost(...)` because it lives outside
+`rwsim/policies/routewise.py`, where the simulator adapter keeps its
+provider-shaped wrapper of the same name.
 
-### 4.2 Why the kernel lives under `rwsim/policies/`
+### 4.2 Why the kernel lives under `rwsim/core/`
 
 It is core simulator math. Real-eval and ablation depend on `rwsim`; the
-reverse is not true. Keeping the kernel in `rwsim` preserves the dependency
-direction:
+reverse is not true. Keeping the shared scalar API in `rwsim.core` also matches
+the LP and hedging extraction boundary:
 
 ```text
-rwsim.policies.effective_cost_kernel   (no project deps)
+rwsim.core.cost   (no provider/harness deps)
     ├── rwsim.policies.routewise
     ├── experiments.real_evaluation.shadow_price
     └── experiments.ablations.effective_cost.{policy,presets,harness}
@@ -169,9 +171,9 @@ ablation-local formula module.
 
 ### Step 1 — Introduce the kernel module (new file only)
 
-Create `rwsim/policies/effective_cost_kernel.py` containing exactly the
-contents of `experiments/ablations/effective_cost/curves.py` (move the
-`ScarcityCurve` type, the `SCARCITY_CURVES` tuple, and `scarcity_price`).
+Create `rwsim/core/cost.py` containing the scarcity curves plus a pure scalar
+`effective_cost(...)` that accepts normalized tier names and read-only scalar
+snapshots.
 
 Leave the ablation imports unchanged until step 5 so steps 2 and 3 can land
 independently.
@@ -224,8 +226,8 @@ silent bug.
 ### Step 5 — Delete the ablation-local `curves.py`
 
 Remove `experiments/ablations/effective_cost/curves.py` and update all callers
-to import directly from `rwsim.policies.effective_cost_kernel`. This avoids
-keeping two formula entry points after the migration.
+to import directly from `rwsim.core.cost`. This avoids keeping two formula entry
+points after the migration.
 
 ---
 
@@ -258,12 +260,12 @@ merges.
   `rwsim/policies/routewise.py` and
   `experiments/real_evaluation/shadow_price.py`.
 - Existing in-repo imports of `scarcity_price` move directly to
-  `rwsim.policies.effective_cost_kernel`.
+  `rwsim.core.cost`.
 - The `util_linear_u` curve stays available in the kernel — it is still
   the named ablation comparison curve in `presets.py`.
 
 External callers that import the old ablation-local `curves.py` must update
-to `rwsim.policies.effective_cost_kernel`.
+to `rwsim.core.cost`.
 
 ---
 
@@ -311,7 +313,8 @@ regression, revert that commit; if step 5 breaks an external script, restore
 
 The refactor is done when:
 
-- A single file under `rwsim/policies/` defines `scarcity_price`.
+- A single file under `rwsim/core/` defines `scarcity_price` and the scalar
+  `effective_cost(...)` API.
 - `rwsim/policies/routewise.py` and
   `experiments/real_evaluation/shadow_price.py` no longer contain the
   inline `L * (U/L)**z` or `return L` math.

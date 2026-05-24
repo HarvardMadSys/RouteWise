@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
+from rwsim.core.cost import (
+    concurrency_effective_cost,
+    effective_cost as core_effective_cost,
+    quota_effective_cost,
+)
 from rwsim.core.hedging import (
     DISPATCH_OVERHEAD_MS,
     HEDGE_SUCCESS_TARGET,
@@ -24,7 +29,6 @@ from rwsim.core.lp import (
     solve_simplex_lp,
 )
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
-from rwsim.policies.effective_cost_kernel import scarcity_price
 from rwsim.policies.latency_profiles import (
     LatencyProfileMode,
     LatencyProfileStrategy,
@@ -419,7 +423,7 @@ def quota_shadow_price(
         return 0.0
     if provider.quota is None:
         return 0.0
-    return scarcity_price("exp_lu", provider.quota.fraction_used(now), L=L, U=U)
+    return quota_effective_cost(provider.quota.fraction_used(now), L=L, U=U)
 
 
 def concurrency_shadow_price(
@@ -431,12 +435,12 @@ def concurrency_shadow_price(
     alpha: float = 1.0,
 ) -> float:
     """Zero marginal shadow price for reusable concurrency capacity."""
-    del now, U, L, alpha
+    del now, alpha
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.concurrency is None:
         return 0.0
-    return 0.0
+    return concurrency_effective_cost(None, L=L, U=U)
 
 
 def effective_cost(
@@ -464,12 +468,32 @@ def effective_cost(
     tier = provider.tier
     if tier == ProviderTier.S_A:
         if state is not None:
-            return cache_aware_marginal_cost(provider, request, state, now=now)
-        return provider.marginal_cost_for_request(request, now)
+            request_cost = cache_aware_marginal_cost(provider, request, state, now=now)
+        else:
+            request_cost = provider.marginal_cost_for_request(request, now)
+        return core_effective_cost(
+            "api",
+            request_cost_usd=request_cost,
+            L=L,
+            U=U,
+        )
     if tier == ProviderTier.S_Q:
-        return quota_shadow_price(provider, now, U=U, L=L)
+        return core_effective_cost(
+            "quota",
+            quota_fraction_used=(
+                None if provider.quota is None else provider.quota.fraction_used(now)
+            ),
+            L=L,
+            U=U,
+        )
     if tier == ProviderTier.S_C:
-        return concurrency_shadow_price(provider, now, U=U, L=L, alpha=concurrency_alpha)
+        del concurrency_alpha
+        return core_effective_cost(
+            "concurrency",
+            concurrency_utilization=None,
+            L=L,
+            U=U,
+        )
     raise ValueError(f"Unsupported provider tier for RouteWise effective cost: {tier!r}")
 
 
