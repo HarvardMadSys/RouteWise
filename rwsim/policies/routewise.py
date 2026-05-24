@@ -202,7 +202,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
         future_feasible = self._has_future_feasible_backup(
             primary,
-            selected,
             request,
             decision,
             elapsed,
@@ -375,20 +374,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         self,
         candidates: list[BackupCandidate],
     ) -> BackupCandidate | None:
-        if not candidates:
-            return None
-        if self.explorer:
-            # TODO(routewise-hedging-ablation): replace this coarse random
-            # fallback with an explicit random/spread backup-selection mode for
-            # hedge-as-probe experiments. The default hedging path below stays
-            # probability-driven and optimizes the current request's SLO success.
-            return candidates[int(self.rng.integers(0, len(candidates)))]
         return select_probability_backup(candidates)
 
     def _has_future_feasible_backup(
         self,
         primary: Provider,
-        selected: BackupCandidate,
         request: Request,
         decision: RoutingDecision,
         elapsed: float,
@@ -398,18 +388,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             if future_elapsed <= elapsed + _LP_EPS:
                 continue
             future_ms = future_elapsed * 1000.0
-            if self.explorer:
-                future = combined_success_probability(
-                    lambda value_ms: self._cdf_ms(primary, value_ms, state.now),
-                    lambda value_ms: self._cdf_ms(selected.provider, value_ms, state.now),
-                    elapsed_ms=future_ms,
-                    slo_ms=self.slo_ms,
-                    dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
-                )
-                if future >= HEDGE_SUCCESS_TARGET - _LP_EPS:
-                    return True
-                continue
-
             candidates = self._collect_backup_candidates(
                 primary,
                 request,
@@ -504,7 +482,7 @@ def _predicted_output_tokens_from_prediction(prediction: Any, quantile: str) -> 
                 "output_predictor_quantile="
                 f"{quantile!r} requires a quantile predictor; point predictors only support q50"
             )
-        return max(float(getattr(prediction, "tokens")), 0.0)
+        return max(float(prediction.tokens), 0.0)
     return max(float(getattr(prediction, quantile)), 0.0)
 
 

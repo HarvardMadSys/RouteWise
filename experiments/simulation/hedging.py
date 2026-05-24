@@ -412,8 +412,6 @@ def _hedging_policy_mode(policy_name: str, params: dict[str, Any]) -> str:
 def _backup_selection(params: dict[str, Any]) -> str:
     if not params.get("hedging"):
         return "none"
-    if params.get("explorer"):
-        return "random_non_primary"
     return "probability_target_non_primary"
 
 
