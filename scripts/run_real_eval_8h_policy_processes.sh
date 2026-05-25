@@ -69,15 +69,14 @@ DURATION_SEC="${DURATION_SEC:-}"
 WARMUP_PROBES="${WARMUP_PROBES:-24}"
 WARMUP_PROBE_INTERVAL_SEC="${WARMUP_PROBE_INTERVAL_SEC:-5}"
 PROFILE_PROBE_SLEEP_SEC="${PROFILE_PROBE_SLEEP_SEC:-0.5}"
-PERIODIC_PROBE_INTERVAL_SEC="${PERIODIC_PROBE_INTERVAL_SEC:-180}"
 MIN_PROFILE_SUCCESS_SAMPLES="${MIN_PROFILE_SUCCESS_SAMPLES:-5}"
 SHARED_WARMUP_PROFILE="${SHARED_WARMUP_PROFILE:-1}"
 INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}"
-# Real-eval runs launch one process per policy, so profile maintenance must
-# be shared across processes by default. The sidecar below probes only when a
-# provider has no natural request feedback in the idle window.
+# Real-eval runs launch one process per policy, so natural/probe feedback is
+# shared across processes by default. The optional sidecar below adds active
+# probes; turning it off should not disable natural-feedback sharing.
 SHARED_PROFILE_PROBING="${SHARED_PROFILE_PROBING:-1}"
-SHARED_PROFILE_EVENTS="${SHARED_PROFILE_EVENTS:-$SHARED_PROFILE_PROBING}"
+SHARED_PROFILE_EVENTS="${SHARED_PROFILE_EVENTS:-1}"
 SHARED_PROFILE_EVENTS_PATH="${SHARED_PROFILE_EVENTS_PATH:-$OUTPUT_BASE/shared_profile_events.jsonl}"
 SHARED_PROFILE_POLL_SEC="${SHARED_PROFILE_POLL_SEC:-1}"
 SHARED_PROFILE_PROBE_INTERVAL_SEC="${SHARED_PROFILE_PROBE_INTERVAL_SEC:-5}"
@@ -299,8 +298,9 @@ done
 # When the shared profile prober runs, reserve FEATHERLESS_KEYS[0] for it so
 # warmup + sidecar probes never compete with real-policy traffic for the
 # single concurrency slot on that account. Policies then draw from index 1
-# onward. With sidecar disabled, the prober only runs during one-shot warmup
-# (which completes before any policy starts), so sharing index 0 is safe.
+# onward. With active probing disabled, the only up-front probes are one-shot
+# warmup probes, which complete before any policy starts, so sharing index 0 is
+# safe.
 FEATHERLESS_POLICY_START_IDX=0
 if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   FEATHERLESS_POLICY_START_IDX=1
@@ -309,7 +309,7 @@ FEATHERLESS_REQUIRED=$((FEATHERLESS_POLICY_COUNT + FEATHERLESS_POLICY_START_IDX)
 
 if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_REQUIRED" ]]; then
   if [[ "$FEATHERLESS_POLICY_START_IDX" -gt 0 ]]; then
-    echo "expected at least $FEATHERLESS_REQUIRED Featherless keys ($FEATHERLESS_POLICY_COUNT joint policies + 1 dedicated to the shared profile prober) from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}. Set SHARED_PROFILE_PROBING=0 to share the first key between the prober and a policy." >&2
+    echo "expected at least $FEATHERLESS_REQUIRED Featherless keys ($FEATHERLESS_POLICY_COUNT joint policies + 1 dedicated to the active shared profile prober) from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}. Set SHARED_PROFILE_PROBING=0 to disable active shared probing and let policies use the first key; shared profile events remain enabled unless SHARED_PROFILE_EVENTS=0 is set explicitly." >&2
   else
     echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
   fi
@@ -419,11 +419,6 @@ if [[ -n "$DURATION_SEC" ]]; then
 fi
 EXTRA_RUNNER_ARGS+=(--quota-window-anchor "$QUOTA_WINDOW_ANCHOR")
 
-PROCESS_PERIODIC_PROBE_INTERVAL_SEC="$PERIODIC_PROBE_INTERVAL_SEC"
-if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
-  PROCESS_PERIODIC_PROBE_INTERVAL_SEC=0
-fi
-
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
 TRACE=$TRACE
 INVENTORY=$INVENTORY
@@ -443,8 +438,6 @@ SHARED_WARMUP_PROFILE=$SHARED_WARMUP_PROFILE
 INITIAL_PROFILE_PATH=$INITIAL_PROFILE_PATH
 WARMUP_PROBE_INTERVAL_SEC=$WARMUP_PROBE_INTERVAL_SEC
 PROFILE_PROBE_SLEEP_SEC=$PROFILE_PROBE_SLEEP_SEC
-PERIODIC_PROBE_INTERVAL_SEC=$PERIODIC_PROBE_INTERVAL_SEC
-PROCESS_PERIODIC_PROBE_INTERVAL_SEC=$PROCESS_PERIODIC_PROBE_INTERVAL_SEC
 SHARED_PROFILE_PROBING=$SHARED_PROFILE_PROBING
 SHARED_PROFILE_EVENTS=$SHARED_PROFILE_EVENTS
 SHARED_PROFILE_EVENTS_PATH=$SHARED_PROFILE_EVENTS_PATH
@@ -614,7 +607,6 @@ for i in "${!POLICIES[@]}"; do
       "${EXTRA_RUNNER_ARGS[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
-      --periodic-probe-interval-sec "$PROCESS_PERIODIC_PROBE_INTERVAL_SEC" \
       --min-profile-success-samples "$MIN_PROFILE_SUCCESS_SAMPLES" \
       > "$out/run.log" 2>&1
   ) &

@@ -50,13 +50,18 @@ def test_routing_decision_rejects_ambiguous_checkpoint_keywords() -> None:
         raise AssertionError("expected TypeError")
 
 
-def test_hedge_dispatch_has_optional_delay_metadata() -> None:
+def test_hedge_dispatch_carries_backup_provider_and_metadata() -> None:
     dispatch = HedgeDispatch(
         backup_provider="backup",
-        hedge_delay_sec=0.5,
         metadata={"reason": "probability_target"},
     )
 
     assert dispatch.backup_provider == "backup"
-    assert dispatch.hedge_delay_sec == 0.5
+    assert dispatch.metadata == {"reason": "probability_target"}
+
+
+def test_hedge_dispatch_preserves_legacy_positional_metadata() -> None:
+    dispatch = HedgeDispatch("backup", {"reason": "probability_target"})
+
+    assert dispatch.backup_provider == "backup"
     assert dispatch.metadata == {"reason": "probability_target"}

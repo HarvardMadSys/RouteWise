@@ -59,7 +59,6 @@ class HedgeDispatch:
     """In-flight hedge dispatch requested by a policy checkpoint."""
 
     backup_provider: str
-    hedge_delay_sec: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

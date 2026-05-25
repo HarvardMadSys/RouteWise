@@ -34,14 +34,12 @@ cd "$ROOT"
 : "${WARMUP_PROBES:=24}"
 : "${SHARED_WARMUP_PROFILE:=1}"
 : "${SHARED_PROFILE_PROBING:=1}"
-: "${PERIODIC_PROBE_INTERVAL_SEC:=180}"
 : "${MIN_PROFILE_SUCCESS_SAMPLES:=5}"
 
-# The current Featherless setup has four accounts, where slots 1-3 each have
-# 4 units and slot 4 has 8 units. MiniMax M2.5 consumes 4 units/request, so
-# slot 4 can safely back two logical policy slots. The generic launcher only
-# understands key count, not unit count, so expose key4 twice when the caller
-# has not provided an explicit FEATHERLESS_API_KEYS list.
+# The current Featherless setup has four policy accounts, where slots 1-3 each
+# have 4 units and slot 4 has 8 units. MiniMax M2.5 consumes 4 units/request,
+# so slot 4 can safely back two logical policy slots. If KEY5 exists, reserve it
+# for shared profile probing and expose key4 twice for the policy slots.
 _read_dotenv_value() {
   local key="$1"
   local line value
@@ -65,7 +63,7 @@ _read_dotenv_value() {
 }
 
 if [[ -f .env ]]; then
-  for key in FEATHERLESS_API_KEYS FEATHERLESS_API_KEY1 FEATHERLESS_API_KEY2 FEATHERLESS_API_KEY3 FEATHERLESS_API_KEY4; do
+  for key in FEATHERLESS_API_KEYS FEATHERLESS_API_KEY1 FEATHERLESS_API_KEY2 FEATHERLESS_API_KEY3 FEATHERLESS_API_KEY4 FEATHERLESS_API_KEY5; do
     if [[ -z "${!key:-}" ]]; then
       value="$(_read_dotenv_value "$key" || true)"
       if [[ -n "$value" ]]; then
@@ -79,7 +77,11 @@ if [[ -z "${FEATHERLESS_API_KEYS:-}" \
   && -n "${FEATHERLESS_API_KEY2:-}" \
   && -n "${FEATHERLESS_API_KEY3:-}" \
   && -n "${FEATHERLESS_API_KEY4:-}" ]]; then
-  export FEATHERLESS_API_KEYS="${FEATHERLESS_API_KEY1},${FEATHERLESS_API_KEY2},${FEATHERLESS_API_KEY3},${FEATHERLESS_API_KEY4},${FEATHERLESS_API_KEY4}"
+  if [[ -n "${FEATHERLESS_API_KEY5:-}" ]]; then
+    export FEATHERLESS_API_KEYS="${FEATHERLESS_API_KEY5},${FEATHERLESS_API_KEY1},${FEATHERLESS_API_KEY2},${FEATHERLESS_API_KEY3},${FEATHERLESS_API_KEY4},${FEATHERLESS_API_KEY4}"
+  else
+    export FEATHERLESS_API_KEYS="${FEATHERLESS_API_KEY1},${FEATHERLESS_API_KEY2},${FEATHERLESS_API_KEY3},${FEATHERLESS_API_KEY4},${FEATHERLESS_API_KEY4}"
+  fi
 fi
 
 export RUN_ID
@@ -100,7 +102,6 @@ export MAX_COST_USD
 export WARMUP_PROBES
 export SHARED_WARMUP_PROFILE
 export SHARED_PROFILE_PROBING
-export PERIODIC_PROBE_INTERVAL_SEC
 export MIN_PROFILE_SUCCESS_SAMPLES
 
 exec scripts/run_real_eval_8h_policy_processes.sh
