@@ -69,7 +69,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     profile_window_sec: float = 15 * 60.0
     latency_profile_mode: LatencyProfileMode = "observed"
     output_predictor: OutputPredictor | None = None
-    output_predictor_quantile: str = "q50"
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
     _latency_profile: LatencyProfileStrategy = field(init=False, repr=False)
@@ -89,11 +88,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 f"got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
-        if self.output_predictor_quantile not in {"q10", "q50", "q90"}:
-            raise ValueError(
-                "output_predictor_quantile must be one of q10, q50, q90; "
-                f"got {self.output_predictor_quantile!r}"
-            )
         self.rng = np.random.default_rng(self.seed)
         self._latency_profile = make_latency_profile_strategy(
             self.latency_profile_mode,
@@ -268,10 +262,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if self.output_predictor is None or provider.tier != ProviderTier.S_A:
             return effective_cost(provider, request, now, U=U, L=L, state=state)
         prediction = self.output_predictor.predict(request)
-        predicted_response_tokens = _predicted_output_tokens_from_prediction(
-            prediction,
-            self.output_predictor_quantile,
-        )
+        predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
         request_tokens = int(getattr(request, "request_tokens", 0) or 0)
         cached_tokens = 0
         if state is not None:
@@ -304,10 +295,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         """
         if self.output_predictor is not None:
             prediction = self.output_predictor.predict(request)
-            predicted_response_tokens = _predicted_output_tokens_from_prediction(
-                prediction,
-                self.output_predictor_quantile,
-            )
+            predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
         else:
             predicted = getattr(request, "estimated_response_tokens", None)
             if predicted is None:
@@ -504,17 +492,16 @@ def effective_cost(
     raise ValueError(f"Unsupported provider tier for RouteWise effective cost: {tier!r}")
 
 
-def _predicted_output_tokens_from_prediction(prediction: Any, quantile: str) -> float:
-    """Extract a route-time output-token estimate from a predictor result."""
+def _predicted_output_tokens_from_prediction(prediction: Any) -> float:
+    """Extract the route-time point estimate from a predictor result."""
 
     if hasattr(prediction, "tokens"):
-        if quantile != "q50":
-            raise ValueError(
-                "output_predictor_quantile="
-                f"{quantile!r} requires a quantile predictor; point predictors only support q50"
-            )
         return max(float(prediction.tokens), 0.0)
-    return max(float(getattr(prediction, quantile)), 0.0)
+    if hasattr(prediction, "median"):
+        return max(float(prediction.median), 0.0)
+    if hasattr(prediction, "q50"):
+        return max(float(prediction.q50), 0.0)
+    raise TypeError("output predictor must return PointPrediction or a q50-compatible result")
 
 
 def _same_cost_shortcut_weights(

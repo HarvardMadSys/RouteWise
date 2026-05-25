@@ -500,7 +500,7 @@ def test_routewise_requires_explicit_cost_envelope():
         RouteWisePolicy(hedging=False, explorer=False, p=0.75, seed=7)
 
 
-def test_routewise_rejects_point_predictor_for_tail_quantile():
+def test_routewise_uses_point_predictor_for_route_time_cost():
     providers = [
         TieredProvider(
             name="api",
@@ -521,11 +521,11 @@ def test_routewise_rejects_point_predictor_for_tail_quantile():
         seed=7,
         cost_envelope=(1e-6, 1e-3),
         output_predictor=BucketMeanOutputPredictor(),
-        output_predictor_quantile="q90",
     )
 
-    with pytest.raises(ValueError, match="point predictors only support q50"):
-        policy.route(request, state)
+    decision = policy.route(request, state)
+
+    assert decision.metadata["routing_estimated_cost_usd"] == pytest.approx(600e-6)
 
 
 def test_routewise_fixed_cost_envelope_keeps_quota_price_request_independent():

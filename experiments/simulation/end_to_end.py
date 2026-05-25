@@ -263,7 +263,6 @@ def make_policy_presets(
     p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
     slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
@@ -272,7 +271,6 @@ def make_policy_presets(
         include_hedging=True,
         cost_envelope=WORKLOAD_COST_ENVELOPE,
         output_predictor=output_predictor,
-        output_predictor_quantile=output_predictor_quantile,
     )
     for preset in presets.values():
         if preset.get("policy") != "RouteWisePolicy":
@@ -642,7 +640,6 @@ def _enrich_rows_with_end_to_end_metadata(
                 "explorer_enabled": bool(params.get("explorer", False)),
                 "latency_profile_mode": params.get("latency_profile_mode"),
                 "output_predictor": _predictor_name_from_params(params),
-                "output_predictor_quantile": params.get("output_predictor_quantile"),
             }
         )
         enriched.append(merged)
@@ -693,7 +690,6 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "explorer_enabled",
     "latency_profile_mode",
     "output_predictor",
-    "output_predictor_quantile",
     "seeds",
     "n_requests",
     "mean_ttft_ms",
@@ -830,15 +826,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
     parser.add_argument(
         "--output-dir",
@@ -882,7 +872,6 @@ def main(argv: list[str] | None = None) -> int:
     presets = make_policy_presets(
         p_values,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
         slo_ms=args.slo_ms,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)

@@ -345,17 +345,14 @@ Required checks before considering the extraction complete:
 - Done: packaging check proving a lightweight core import path can avoid
   experiment/plot/runtime-heavy dependencies.
 
-## Next Recommended Commit
+## Next Recommended Work
 
-The next semantic cleanup is the output predictor contract (H7):
+The H7 output-predictor cleanup has landed for the simulator mainline:
+RouteWise uses `BucketMeanOutputPredictor` as a point predictor by default, and
+paper-section CLI entry points no longer expose a `q10`/`q50`/`q90` selector for
+output-token prediction. Histogram/EMA quantile predictors remain offline
+experiment tools, not RouteWise default routing semantics.
 
-1. Audit every route-time use of `PointPrediction` vs `QuantilePrediction`.
-2. Keep `BucketMeanOutputPredictor` as a point predictor; do not let q10/q90
-   paths accept it silently.
-3. Prefer histogram/quantile predictors where the algorithm needs tail
-   estimates.
-4. Add focused tests for SIM and REAL-EVAL predictor selection behavior.
-
-After that, the main remaining core-integration work is the hybridInference
-adapter spike: import `routewise.core`, map production snapshots into the core
-types, and keep production state mutation in the production harness.
+The main remaining core-integration work is the hybridInference adapter spike:
+import `routewise.core`, map production snapshots into the core types, and keep
+production state mutation in the production harness.

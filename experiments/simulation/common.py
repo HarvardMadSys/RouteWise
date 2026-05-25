@@ -176,7 +176,6 @@ def make_routewise_presets(
     include_hedging: bool = False,
     cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build section-local policy presets with explorer disabled.
 
@@ -201,7 +200,6 @@ def make_routewise_presets(
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
-            params["output_predictor_quantile"] = output_predictor_quantile
         presets[routewise_lp_policy_name(value)] = {
             "policy": "RouteWisePolicy",
             "params": params,
@@ -215,7 +213,6 @@ def make_routewise_presets(
             }
             if predictor_spec is not None:
                 hedging_params["output_predictor_spec"] = dict(predictor_spec)
-                hedging_params["output_predictor_quantile"] = output_predictor_quantile
             presets[routewise_hedging_policy_name(value)] = {
                 "policy": "RouteWisePolicy",
                 "params": hedging_params,

@@ -220,7 +220,6 @@ def make_policy_presets(
     p_value: float = DEFAULT_ROUTEWISE_P,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build the section-local policy presets for §2.2."""
     from experiments.simulation.common import _normalize_predictor_arg
@@ -240,7 +239,6 @@ def make_policy_presets(
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
-            params["output_predictor_quantile"] = output_predictor_quantile
         return params
 
     return {
@@ -594,15 +592,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
@@ -612,7 +604,6 @@ def main(argv: list[str] | None = None) -> int:
     presets = make_policy_presets(
         p_value,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_value)
     unknown = [policy for policy in policies if policy not in presets]

@@ -637,15 +637,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
@@ -725,7 +719,6 @@ def main(argv: list[str] | None = None) -> int:
         p_values=p_values,
         include_hedging=False,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
     section_runners = {OFFLINE_POLICY: run_offline_policy}
