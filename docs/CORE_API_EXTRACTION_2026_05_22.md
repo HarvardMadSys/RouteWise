@@ -364,7 +364,7 @@ Required checks before considering the extraction complete:
 - Done: tests for combined success probability and backup selection.
 - Done: cross-source canonical request schema parity tests.
 - Done: REAL-EVAL policy tests proving scipy is no longer required at runtime.
-- Remaining: simulator smoke comparison on the current minimax shared-profile run.
+- Done: simulator smoke comparison against the current cost-layer golden baseline.
 - Done: packaging check proving a lightweight core import path can avoid
   experiment/plot/runtime-heavy dependencies.
 
