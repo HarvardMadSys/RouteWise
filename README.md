@@ -5,20 +5,10 @@ experiment harnesses used to evaluate multi-provider LLM routing policies.
 The lightweight public API is available from `routewise.core`; simulator and
 experiment harnesses live under `rwsim` and `experiments`.
 
-<!-- TODO(authors): fill in before public release.
-Paper: "<title>", <venue> <year>.
-Replace the BibTeX block below with the real entry. Do not ship a
-placeholder citation.
-
-```bibtex
-@inproceedings{routewise,
-  title     = {<paper title>},
-  author    = {<authors>},
-  booktitle = {<venue>},
-  year      = {<year>}
-}
-```
--->
+This repository is organized so the pure routing algorithms can be reused
+without pulling in simulator, plotting, or live-provider dependencies. Paper
+metadata and citation details will be added after the public manuscript entry
+is finalized.
 
 ## Requirements
 
@@ -132,7 +122,7 @@ harness only.
 - `rwsim/data/`: trace workload loaders
 - `rwsim/policies/`: policy presets and implementations
 - `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
-- `experiments/`: paper configs, suites, and offline-stage workflows
+- `experiments/`: paper configs, section runners, ablations, and offline-stage workflows
 - `routewise_cli/`: command-line entry point
 - `scripts/`: data preparation and profiling utilities
 
@@ -152,8 +142,9 @@ python tests/golden_capture.py --mode compare
 
 ## Documentation
 
+- `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
+- `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
 - `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results
-- `docs/EXPERIMENT_LAYOUT.md`: how experiments, suites, and policies fit together
 
 ## License
 

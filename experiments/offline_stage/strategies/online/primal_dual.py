@@ -1,7 +1,7 @@
 """Primal-Dual online routing strategies.
 
 This module implements the Primal-Dual threshold-based strategies for online
-request routing, as described in docs/algorithm/online.md.
+request routing.
 
 Components:
 - PrimalDualQuotaManager: Manages S_Q (daily quota) with exponential threshold

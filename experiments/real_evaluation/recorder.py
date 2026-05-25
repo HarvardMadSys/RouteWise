@@ -888,7 +888,7 @@ def _backup_dispatch_overhead_ms(
 def _normalize_lp_status(raw: str | None) -> str | None:
     """Normalize policy-emitted ``lp_status`` to the canonical record enum.
 
-    Canonical values (per ``SCHEMA_UNIFICATION_2026_05_21.md``):
+    Canonical values are:
     ``"feasible" | "single_candidate" | "all_over_budget" | "no_candidates"``.
 
     Policy emits: ``"optimal"``, ``"fallback_in_budget_{label}"``,

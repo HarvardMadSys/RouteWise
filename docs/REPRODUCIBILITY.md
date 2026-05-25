@@ -1,6 +1,6 @@
 # Reproducibility
 
-This document is the operational entrypoint for rerunning RouteWise experiments.
+This is the operational entrypoint for rerunning RouteWise experiments.
 Architecture and algorithm contracts live in `docs/ARCHITECTURE.md` and
 `docs/ALGORITHMS.md`.
 
@@ -14,48 +14,79 @@ source .venv/bin/activate
 python -m pip install -e ".[sim,real-eval,offline,plots,scripts]"
 ```
 
-If the package is not installed, replace `routewise` below with
-`python -m routewise_cli.main`.
-
 The base `pip install -e .` install exposes only the lightweight
-`routewise.core` API. Rerunning simulator, live-eval, offline, and plotting
-workflows and operational scripts require the extras above. The distribution
-name is `routewise`; environments installed under the old
+`routewise.core` API. Simulator, live-evaluation, offline, plotting, and
+operational workflows require the extras above. The package distribution name
+is `routewise`; editable environments created under the old
 `routewise-simulator` name should be reinstalled.
+
+If the package is not installed, replace `routewise` below with:
+
+```bash
+python -m routewise_cli.main
+```
+
+## Data
+
+The simulator is trace-driven and does not ship workload traces. Prepare the
+local trace and dataset cache before running paper-facing simulator sections:
+
+```bash
+python scripts/prepare_workload.py --days 30
+python -m experiments.simulation.dataset_cache build --dataset burstgpt
+```
+
+Live real-evaluation issues provider requests and requires credentials:
+
+```bash
+cp .env.example .env
+```
+
+Fill in only the providers used by the run. The pure simulator path does not
+require API keys.
 
 ## Discover Experiments
 
+Config-driven experiments:
+
 ```bash
 routewise list
+```
+
+Paper-facing simulator sections:
+
+```bash
 routewise simulator list
 ```
 
-## Run One Paper Section
+## Run One Simulator Section
 
-The simulator is organised one Python file per paper section. See
-`experiments/simulation/README.md` for the sub-experiment tree
-(§1.1.1 / §1.1.2 / §2.1.1.1 / §3.1 / etc.):
+Each section runner exposes `--help` for scenario, policy, seed, and output
+options:
 
 ```bash
+routewise simulator cost-layer -- --help
 routewise simulator cost-layer
 ```
 
-Each section runner exposes `--help` for sub-experiment selection. Legacy
-full-sweep suites were removed; section commands are the paper-facing surface.
-
-Generated artifacts should go under `outputs/`.
+The simulator is organized one Python file per paper section. See
+`experiments/simulation/README.md` for the section tree. Generated artifacts
+should go under `outputs/`.
 
 ## Regression Checks
 
-The behavior-preserving refactor gate is:
+Golden comparison for behavior-sensitive simulator outputs:
 
 ```bash
 python tests/golden_capture.py --mode compare
 ```
 
-Fast structural and policy checks:
+Fast local test suite:
 
 ```bash
-python -m unittest tests/test_architecture_scaffold.py -v
-pytest tests/unit/policies -q
+pytest -q -m "not slow"
 ```
+
+Live real-evaluation tests are not part of the default reproducibility gate;
+they depend on external provider credentials, quota state, and network
+conditions.

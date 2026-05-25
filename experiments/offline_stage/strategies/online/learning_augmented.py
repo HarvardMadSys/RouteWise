@@ -7,9 +7,8 @@ Key algorithms:
 - LearningAugmentedPrimalDualStrategy: Stage 1 LA-PD with v_t^{LCB} + fallback
 - LearningAugmentedUnifiedStrategy: Stage 2 unified router with duration UCB
 
-References:
-- docs/algorithm/online.tex (Part 5: Learning-Augmented Online Algorithm)
-- docs/algorithm/online_planning.md
+These strategies are kept with the offline-stage research harness and are not
+part of the public simulator policy surface.
 """
 
 import logging

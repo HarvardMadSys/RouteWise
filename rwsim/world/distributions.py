@@ -25,9 +25,9 @@ filters that previously read ``LogNormal.mu/sigma`` directly. Routing code
 should call ``provider.ttft_dist.p95()`` rather than reaching into
 distribution-specific attributes.
 
-Following the design principles in ``docs/DESIGN_PRINCIPLES.md``: start with
-``Uniform`` for sanity, escalate to ``Normal``, then ``LogNormal`` for
-heavy-tail behaviour. Each step adds exactly one variable.
+The simulator generally starts with ``Uniform`` for sanity, escalates to
+``Normal``, then uses ``LogNormal`` for heavy-tail behaviour. Each step adds
+exactly one variable.
 """
 
 from __future__ import annotations

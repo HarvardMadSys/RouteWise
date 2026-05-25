@@ -1,7 +1,6 @@
 """Stage 1 Optimal Strategy with Fixed-Window Subscriptions.
 
-This implements the offline optimal routing strategy for Stage 1 as described
-in docs/algorithm/offline_stage1_new.md.
+This implements the offline optimal routing strategy for Stage 1.
 
 Key features:
 - Multiple subscription plans (OpenAI, Anthropic, Z.ai/GLM)

@@ -86,8 +86,8 @@ DISPATCH_OVERHEAD_MS: float = 5.0
 #
 #   1. `rwsim/core/hedging.py` — shared hedging math.
 #   2. `experiments/real_evaluation/policies.py` — live-API hedging adapter.
-#   3. (future) hybridInference production router, once it adopts the
-#      probability-target hedger in place of the legacy SMART_ECONOMIC logic.
+#   3. external production routers that reuse the public `routewise.core`
+#      hedging helpers.
 #
 # The 0.99 value follows the paper convention (Section 4 hedging design).
 # Do not change this without a paper-level decision: every figure and
@@ -119,8 +119,8 @@ HEDGE_SUCCESS_TARGET: float = 0.99
 #      simulator + real-eval implementation.
 #   2. `experiments/real_evaluation/runner.py` — calls the canonical helper
 #      with the real-eval SLO converted to milliseconds.
-#   3. (future) hybridInference production router, once it adopts the
-#      checkpoint-based hedger in place of the legacy SMART_ECONOMIC logic.
+#   3. external production routers that reuse the public `routewise.core`
+#      hedging helpers.
 #
 # Defaults (0.25 / 0.90 / 0.025) match the paper Section 4 hedging schedule.
 # Editing them shifts every hedge decision in every harness; re-capture
