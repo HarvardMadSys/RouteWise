@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from rwsim.core.types import HedgeDispatch, RoutingDecision
+
 
 class ProviderTier(str, Enum):
     """Provider pricing or capacity regime."""
@@ -123,23 +125,6 @@ class Request:
         if self.total_tokens is None:
             return 0.0
         return self.total_tokens / 2000.0
-
-
-@dataclass(frozen=True)
-class RoutingDecision:
-    """Policy decision for one request."""
-
-    primary_provider: str
-    hedge_checkpoints: tuple[float, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class HedgeDispatch:
-    """In-flight hedge dispatch requested by a policy checkpoint."""
-
-    backup_provider: str
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,7 @@ from rwsim.core.lp import (
     cost_tiebroken_objective,
     solve_budget_lp,
 )
+from rwsim.core.types import HedgeDispatch, RoutingDecision
 
 __all__ = [
     "DISPATCH_OVERHEAD_MS",
@@ -44,6 +45,8 @@ __all__ = [
     "BudgetLPCandidate",
     "BudgetLPResult",
     "EffectiveCostTier",
+    "HedgeDispatch",
+    "RoutingDecision",
     "ScarcityCurve",
     "combined_success_probability",
     "concurrency_effective_cost",

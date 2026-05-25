@@ -27,6 +27,8 @@ Three extraction targets have landed in this branch:
 - `rwsim.core.hedging.hedge_checkpoints_for_slo`
 - `rwsim.core.hedging.combined_success_probability`
 - `rwsim.core.hedging.select_probability_backup`
+- `rwsim.core.types.RoutingDecision`
+- `rwsim.core.types.HedgeDispatch`
 
 SIM, REAL-EVAL, and ablation code now call these core APIs directly. The old
 LP, hedging, and effective-cost helper wrappers were removed rather than kept
@@ -80,7 +82,8 @@ Still outside `rwsim.core`:
 
 - Algorithm constants remain in `rwsim.const`; `rwsim.core.hedging` re-exports
   the hedging constants it needs.
-- Simulator routing dataclasses remain in `rwsim.schemas`.
+- Routing decision dataclasses live in `rwsim.core.types`; `rwsim.schemas`
+  re-exports them for simulator compatibility.
 - The canonical request record remains in `rwsim.metrics.record`.
 
 Later, if hybridInference needs an even smaller install surface, this can move or be published as a separate `routewise-core` package. For now, `rwsim.core` is the least disruptive path.
@@ -129,6 +132,20 @@ class BackupCandidate(Generic[ProviderT]):
     marginal_cost: float
     true_mean_ms: float
     success_target: float = HEDGE_SUCCESS_TARGET
+
+
+@dataclass(frozen=True)
+class RoutingDecision:
+    primary_provider: str
+    hedge_checkpoints_sec: tuple[float, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HedgeDispatch:
+    backup_provider: str
+    hedge_delay_sec: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 ```
 
 The record schema has been aligned separately through `PerRequestRecord` tests,
@@ -297,6 +314,12 @@ hybridInference integration remains a separate repo integration task.
 - Align canonical request schema tests with the public type definitions.
 
 Expected behavior change: none.
+
+Status: partially landed for `RoutingDecision` and `HedgeDispatch`. The
+simulator imports them through the existing `rwsim.schemas` path, while the
+public lightweight path exposes them as `routewise.core.RoutingDecision` and
+`routewise.core.HedgeDispatch`. Request record normalization remains outside
+core for now.
 
 ### Phase 6: Packaging
 

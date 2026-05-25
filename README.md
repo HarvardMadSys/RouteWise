@@ -100,6 +100,8 @@ Lightweight core API:
 from routewise.core import (
     BackupCandidate,
     BudgetLPCandidate,
+    HedgeDispatch,
+    RoutingDecision,
     combined_success_probability,
     effective_cost,
     hedge_checkpoints_for_slo,
