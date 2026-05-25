@@ -82,7 +82,6 @@ SHARED_PROFILE_POLL_SEC="${SHARED_PROFILE_POLL_SEC:-1}"
 SHARED_PROFILE_PROBE_INTERVAL_SEC="${SHARED_PROFILE_PROBE_INTERVAL_SEC:-5}"
 SHARED_PROFILE_IDLE_SEC="${SHARED_PROFILE_IDLE_SEC:-5}"
 SHARED_PROFILE_MAX_PROBES_PER_TICK="${SHARED_PROFILE_MAX_PROBES_PER_TICK:-0}"
-SHARED_PROFILE_EXCLUDE_PROVIDERS="${SHARED_PROFILE_EXCLUDE_PROVIDERS:-}"
 SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
@@ -317,31 +316,6 @@ if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_REQUIRED" ]]; then
   exit 2
 fi
 
-if [[ "$SHARED_PROFILE_PROBING" != "0" && "${#FEATHERLESS_KEYS[@]}" -gt 0 ]]; then
-  prober_featherless_key="${FEATHERLESS_KEYS[0]}"
-  prober_featherless_key_shared=0
-  for ((idx = FEATHERLESS_POLICY_START_IDX; idx < FEATHERLESS_REQUIRED; idx++)); do
-    if [[ "${FEATHERLESS_KEYS[$idx]}" == "$prober_featherless_key" ]]; then
-      prober_featherless_key_shared=1
-      break
-    fi
-  done
-  if [[ "$prober_featherless_key_shared" -eq 1 ]]; then
-    case ",$SHARED_PROFILE_EXCLUDE_PROVIDERS," in
-      *,Featherless_SC,*)
-        ;;
-      *)
-        if [[ -n "$SHARED_PROFILE_EXCLUDE_PROVIDERS" ]]; then
-          SHARED_PROFILE_EXCLUDE_PROVIDERS="$SHARED_PROFILE_EXCLUDE_PROVIDERS,Featherless_SC"
-        else
-          SHARED_PROFILE_EXCLUDE_PROVIDERS="Featherless_SC"
-        fi
-        ;;
-    esac
-    echo "shared profile prober shares the Featherless key with a policy; excluding Featherless_SC from active shared probes"
-  fi
-fi
-
 if [[ "$QUOTA_PROVIDER" == "none" ]]; then
   :
 elif [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
@@ -471,7 +445,6 @@ SHARED_PROFILE_POLL_SEC=$SHARED_PROFILE_POLL_SEC
 SHARED_PROFILE_PROBE_INTERVAL_SEC=$SHARED_PROFILE_PROBE_INTERVAL_SEC
 SHARED_PROFILE_IDLE_SEC=$SHARED_PROFILE_IDLE_SEC
 SHARED_PROFILE_MAX_PROBES_PER_TICK=$SHARED_PROFILE_MAX_PROBES_PER_TICK
-SHARED_PROFILE_EXCLUDE_PROVIDERS=$SHARED_PROFILE_EXCLUDE_PROVIDERS
 MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
 SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
 SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
@@ -497,16 +470,6 @@ if [[ "$SHARED_PROFILE_EVENTS" != "0" ]]; then
   )
 fi
 if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
-  SHARED_PROFILE_PROBE_EXCLUDE_ARGS=()
-  if [[ -n "$SHARED_PROFILE_EXCLUDE_PROVIDERS" ]]; then
-    IFS=',' read -r -a _SHARED_PROFILE_EXCLUDES <<< "$SHARED_PROFILE_EXCLUDE_PROVIDERS"
-    for excluded_provider in "${_SHARED_PROFILE_EXCLUDES[@]}"; do
-      excluded_provider="${excluded_provider//[[:space:]]/}"
-      if [[ -n "$excluded_provider" ]]; then
-        SHARED_PROFILE_PROBE_EXCLUDE_ARGS+=(--exclude-provider "$excluded_provider")
-      fi
-    done
-  fi
   prebuild_chutes_key=""
   prebuild_minimax_key=""
   if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
@@ -524,7 +487,6 @@ if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
     --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
     --timeout-sec "$TIMEOUT_SEC" \
     --max-cost-usd "$MAX_COST_USD" \
-    "${SHARED_PROFILE_PROBE_EXCLUDE_ARGS[@]}" \
     > "$OUTPUT_BASE/shared_profile_probe.log" 2>&1 &
   profile_probe_pid="$!"
   sleep 2

@@ -21,10 +21,6 @@ from experiments.real_evaluation.runner import (
 from experiments.real_evaluation.shared_profile import SharedProfileEventLog
 
 
-def _filter_probe_providers(providers: list[object], excluded: set[str]) -> list[object]:
-    return [spec for spec in providers if getattr(spec, "name") not in excluded]
-
-
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", type=Path, required=True)
@@ -37,12 +33,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Max idle providers to probe per tick. Use 0 for all idle providers.",
-    )
-    parser.add_argument(
-        "--exclude-provider",
-        action="append",
-        default=[],
-        help="Provider name to exclude from active shared probes. May be repeated.",
     )
     parser.add_argument(
         "--profile-probe-sleep-sec",
@@ -97,15 +87,10 @@ def main(argv: list[str] | None = None) -> int:
                 profile_window_sec=args.profile_window_sec,
                 shared_profile_events_path=args.shared_profile_events,
             )
-            excluded_providers = set(args.exclude_provider)
-            providers = _filter_probe_providers(
-                list(inventory.providers),
-                excluded_providers,
-            )
+            providers = list(inventory.providers)
             logging.info(
-                "shared profile prober started: providers=%d excluded=%s path=%s interval=%.1fs idle=%.1fs max_per_tick=%d",
+                "shared profile prober started: providers=%d path=%s interval=%.1fs idle=%.1fs max_per_tick=%d",
                 len(providers),
-                ",".join(sorted(excluded_providers)) or "-",
                 args.shared_profile_events,
                 args.interval_sec,
                 args.idle_threshold_sec,
