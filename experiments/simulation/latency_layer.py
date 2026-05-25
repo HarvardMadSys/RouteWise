@@ -56,6 +56,7 @@ from experiments.simulation.latency_overlap import (
     summarise_realised_overlap,
     verify_calibration,
 )
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -189,7 +190,7 @@ def _make_latency_layer_scenario(
         description=description,
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata=metadata,
     )
 

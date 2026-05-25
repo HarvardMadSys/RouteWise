@@ -53,6 +53,7 @@ from experiments.simulation.latency_profiles import (
 )
 from experiments.simulation.provider_profiles import load_provider_pool
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -79,7 +80,7 @@ DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_COUNT = 1
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
 DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
-DEFAULT_SLO_MS = 5000.0
+DEFAULT_SLO_MS = DEFAULT_PRIMARY_SLO_MS
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
 _SCENARIO_KWARGS_PRESET_KEY = "__end_to_end_scenario_kwargs__"

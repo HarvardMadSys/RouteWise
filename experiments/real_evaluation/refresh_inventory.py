@@ -41,6 +41,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
+
 OR_ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{model_id}/endpoints"
 
 
@@ -291,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--slo-ms",
         type=int,
-        default=2000,
+        default=int(DEFAULT_PRIMARY_SLO_MS),
         help="primary_slo_ms when creating a fresh file. Existing values preserved.",
     )
     parser.add_argument(

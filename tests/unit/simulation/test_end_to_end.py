@@ -9,6 +9,7 @@ import pytest
 
 from experiments.simulation import end_to_end
 from routewise_cli.main import main as routewise_main
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 
 
@@ -33,7 +34,7 @@ def test_end_to_end_rw3_uses_one_api_plus_quota_and_concurrency():
     assert scenario.metadata["model"] == "qwen3-235b"
     assert scenario.metadata["model_class"] == "ge_70b"
     assert scenario.metadata["effective_concurrency_limit"] == 1
-    assert scenario.metadata["slo_ms"] == pytest.approx(5000.0)
+    assert scenario.metadata["slo_ms"] == pytest.approx(DEFAULT_PRIMARY_SLO_MS)
     assert [provider.tier for provider in scenario.providers] == [
         ProviderTier.S_Q,
         ProviderTier.S_C,
@@ -195,7 +196,9 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
     assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
     assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
     assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(5000.0)
+    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(
+        DEFAULT_PRIMARY_SLO_MS
+    )
 
 
 def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
@@ -244,7 +247,7 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     assert hedging_row["routewise_p"] == 0.75
     assert hedging_row["hedging_enabled"] is True
     assert hedging_row["explorer_enabled"] is False
-    assert hedging_row["slo_ms"] == 5000.0
+    assert hedging_row["slo_ms"] == DEFAULT_PRIMARY_SLO_MS
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))

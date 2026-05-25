@@ -15,6 +15,13 @@ the kind of silent drift this module exists to prevent.
 
 from __future__ import annotations
 
+# Canonical primary SLO threshold used by the paper-facing RouteWise runs.
+# Section-specific stress tests may override this explicitly, but default
+# simulator scenarios, RouteWise policy presets, and real-eval launch scripts
+# should converge on this value.
+DEFAULT_PRIMARY_SLO_MS: float = 3000.0
+
+
 # Estimated local hedge-dispatch overhead (milliseconds): the time between a
 # RouteWise checkpoint deciding to launch a backup and the backup entering the
 # transport timing window used for provider TTFT samples.
@@ -124,6 +131,7 @@ HEDGE_CHECKPOINT_INTERVAL_FRACTION: float = 0.025
 
 
 __all__ = [
+    "DEFAULT_PRIMARY_SLO_MS",
     "DISPATCH_OVERHEAD_MS",
     "HEDGE_CHECKPOINT_END_FRACTION",
     "HEDGE_CHECKPOINT_INTERVAL_FRACTION",

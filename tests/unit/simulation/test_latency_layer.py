@@ -9,6 +9,7 @@ import pytest
 
 from experiments.simulation import latency_layer
 from routewise_cli.main import main as routewise_main
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 
 
@@ -49,6 +50,7 @@ def test_latency_layer_synthetic_provider_invariants_and_band_targets():
             assert [provider.true_mean_ms() for provider in scenario.providers] == pytest.approx(
                 [100.0, 300.0, 1000.0]
             )
+            assert scenario.primary_slo_ms == pytest.approx(DEFAULT_PRIMARY_SLO_MS)
             assert scenario.metadata["mean_anchors_ms"] == [100.0, 300.0, 1000.0]
             assert len({provider.effective_input_cost_per_token for provider in scenario.providers}) == 1
             assert len({provider.effective_output_cost_per_token for provider in scenario.providers}) == 1

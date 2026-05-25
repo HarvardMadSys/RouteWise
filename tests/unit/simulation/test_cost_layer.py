@@ -11,6 +11,7 @@ from experiments.simulation import common, cost_layer
 from experiments.simulation.offline_oracle import OfflineOracleKind, assign_offline
 from experiments.subscriptions import load_subscription_plans
 from routewise_cli.main import main as routewise_main
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.metrics import Run
 from rwsim.schemas import Request
 from rwsim.world.capacity import ProviderTier, WeightedConcurrencyState
@@ -41,6 +42,9 @@ def test_cost_layer_scenarios_match_section_contract():
     assert "concurrency" in cost_layer.list_scenarios()
     assert "joint" in cost_layer.list_scenarios()
     assert "cost_layer_quota_q1" not in cost_layer.list_scenarios()
+    assert {scenario.primary_slo_ms for scenario in scenarios.values()} == {
+        DEFAULT_PRIMARY_SLO_MS
+    }
 
 
 def test_cost_layer_make_scenario_rebuilds_real_world_by_name():
@@ -246,18 +250,18 @@ def test_joint_scenario_combines_quota_and_concurrency_plans():
     assert scenario.providers[0].true_p50_ms() == pytest.approx(1210.2729224134237)
     assert scenario.providers[1].true_p50_ms() == pytest.approx(8157.45)
     assert all(
-        provider.true_mean_ms() == pytest.approx(300.0)
+        provider.true_mean_ms() == pytest.approx(300.0 * math.exp(0.125))
         for provider in scenario.providers[2:]
     )
     assert all(
-        provider.true_p50_ms() == pytest.approx(300.0 * math.exp(-0.125))
+        provider.true_p50_ms() == pytest.approx(300.0)
         for provider in scenario.providers[2:]
     )
     assert scenario.metadata["latency_profile"] == "minimax_m25_subscriptions"
     assert scenario.metadata["quota_latency_profile_provider"] == "chutes"
     assert scenario.metadata["concurrency_latency_profile_provider"] == "featherless"
     assert scenario.metadata["api_latency_family"] == "heavy_tail"
-    assert scenario.metadata["api_latency_anchor_kind"] == "mean"
+    assert scenario.metadata["api_latency_anchor_kind"] == "p50"
     assert scenario.metadata["api_latency_anchor_ms"] == 300.0
 
 
@@ -296,6 +300,58 @@ def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
         "output_predictor_spec": {"kind": common.DEFAULT_OUTPUT_PREDICTOR},
         "output_predictor_quantile": "q50",
     }
+
+
+def test_routewise_policy_slo_defaults_to_scenario_slo():
+    scenario = ScenarioConfig(
+        name="slo-test",
+        description="test",
+        providers=[],
+        primary_slo_ms=1234.0,
+    )
+    presets = {
+        "rw": {
+            "policy": "RouteWisePolicy",
+            "params": {"hedging": "probability_target", "cost_envelope": (1e-6, 1e-3)},
+        }
+    }
+
+    materialized = common._materialize_routewise_slo(
+        presets,
+        policy_name="rw",
+        scenario=scenario,
+    )
+
+    assert presets["rw"]["params"].get("slo_ms") is None
+    assert materialized["rw"]["params"]["slo_ms"] == 1234.0
+
+
+def test_routewise_policy_slo_preserves_explicit_override():
+    scenario = ScenarioConfig(
+        name="slo-test",
+        description="test",
+        providers=[],
+        primary_slo_ms=1234.0,
+    )
+    presets = {
+        "rw": {
+            "policy": "RouteWisePolicy",
+            "params": {
+                "hedging": "probability_target",
+                "cost_envelope": (1e-6, 1e-3),
+                "slo_ms": 5678.0,
+            },
+        }
+    }
+
+    materialized = common._materialize_routewise_slo(
+        presets,
+        policy_name="rw",
+        scenario=scenario,
+    )
+
+    assert materialized is presets
+    assert materialized["rw"]["params"]["slo_ms"] == 5678.0
 
 
 def test_workload_cost_envelope_uses_cheapest_api_request_cost():

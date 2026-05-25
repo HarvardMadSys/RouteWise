@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.core.cost import (
     concurrency_effective_cost,
     effective_cost as core_effective_cost,
@@ -63,7 +64,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     explorer: bool = True
     p: float = 0.75
     cost_envelope: tuple[float, float] | None = None
-    slo_ms: float = 2000.0
+    slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
     latency_profile_mode: LatencyProfileMode = "observed"

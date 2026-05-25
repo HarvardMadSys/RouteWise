@@ -687,8 +687,13 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
-    materialized = _materialize_workload_cost_envelope(
+    materialized = _materialize_routewise_slo(
         presets,
+        policy_name=policy_name,
+        scenario=scenario,
+    )
+    materialized = _materialize_workload_cost_envelope(
+        materialized,
         policy_name=policy_name,
         scenario=scenario,
         requests=requests,
@@ -705,6 +710,30 @@ def run_policy(
     )
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
+
+
+def _materialize_routewise_slo(
+    presets: dict[str, dict[str, Any]],
+    *,
+    policy_name: str,
+    scenario: ScenarioConfig,
+) -> dict[str, dict[str, Any]]:
+    """Default RouteWise policy SLO to the scenario's primary SLO."""
+    try:
+        preset = presets[policy_name]
+    except KeyError:
+        return presets
+    if preset.get("policy") != "RouteWisePolicy":
+        return presets
+
+    params = dict(preset.get("params", {}))
+    if "slo_ms" in params:
+        return presets
+
+    params["slo_ms"] = float(scenario.primary_slo_ms)
+    patched = dict(presets)
+    patched[policy_name] = {**preset, "params": params}
+    return patched
 
 
 def _materialize_workload_predictor(

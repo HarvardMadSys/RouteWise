@@ -46,6 +46,7 @@ from experiments.simulation.offline_oracle import (
     run_offline_oracle_policy as run_offline_policy,
 )
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -929,7 +930,7 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": f"cost_layer_{family}",
             "artifact_label": f"cost_layer_{family}",
@@ -984,7 +985,7 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
     )
 
 
@@ -1063,7 +1064,7 @@ def _make_quota_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": QUOTA_SCENARIO,
             "artifact_label": label,
@@ -1152,7 +1153,7 @@ def _make_concurrency_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": CONCURRENCY_SCENARIO,
             "artifact_label": label,
@@ -1286,7 +1287,7 @@ def _make_joint_scenario_for_plans(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": JOINT_SCENARIO,
             "artifact_label": label,
