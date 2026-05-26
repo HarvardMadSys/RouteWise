@@ -206,16 +206,20 @@ def send_checkpoint_hedged_request(
             cancel_event=primary_cancel,
         )
 
-    def run_backup(provider: str) -> None:
-        backup_holder["r"] = send_fn(
-            provider=provider,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            ttft_event=backup_ttft,
-            ttft_info=backup_ttft_info,
-            cancel_event=backup_cancel,
-        )
+    def run_backup(dispatch: CheckpointBackupDispatch[str]) -> None:
+        try:
+            backup_holder["r"] = send_fn(
+                provider=dispatch.backup,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                ttft_event=backup_ttft,
+                ttft_info=backup_ttft_info,
+                cancel_event=backup_cancel,
+            )
+        finally:
+            if dispatch.release is not None:
+                dispatch.release()
 
     primary_thread = threading.Thread(target=run_primary, daemon=True)
     schedule_start_ts = time.time()
@@ -259,7 +263,7 @@ def send_checkpoint_hedged_request(
         backup_dispatch_ts = time.time()
         backup_thread = threading.Thread(
             target=run_backup,
-            args=(backup_provider,),
+            args=(backup_dispatch,),
             daemon=True,
         )
         backup_thread.start()

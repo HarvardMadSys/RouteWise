@@ -1650,14 +1650,10 @@ class RealExperimentRunner:
         decision = prepared.decision
 
         if prepared.hedge_checkpoints_sec:
-            backup_capacity_id: int | None = None
-            backup_capacity_lock = threading.Lock()
-
             def _select_checkpoint_backup(
                 elapsed_sec: float,
                 checkpoint_ts: float,
             ) -> CheckpointBackupDispatch[str] | None:
-                nonlocal backup_capacity_id
                 future_checkpoints = tuple(
                     checkpoint
                     for checkpoint in prepared.hedge_checkpoints_sec
@@ -1694,12 +1690,17 @@ class RealExperimentRunner:
                     prepared.backup_cached_input_tokens,
                     prepared.backup_routing_estimated_cost_usd,
                 ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
-                with backup_capacity_lock:
-                    backup_capacity_id = capacity_id
                 return CheckpointBackupDispatch(
                     backup=backup,
                     elapsed_sec=elapsed_sec,
                     success_probability=checkpoint_decision.success_probability,
+                    release=(
+                        lambda provider=backup, capacity_id=capacity_id: policy.release_capacity(
+                            provider,
+                            capacity_id,
+                            time.time(),
+                        )
+                    ),
                 )
 
             try:
@@ -1718,9 +1719,6 @@ class RealExperimentRunner:
                     prepared.primary_capacity_id,
                     time.time(),
                 )
-                with backup_capacity_lock:
-                    capacity_id = backup_capacity_id
-                policy.release_capacity(prepared.backup, capacity_id, time.time())
 
             if hedged.backup_provider is not None and prepared.backup is None:
                 prepared.backup = hedged.backup_provider

@@ -26,6 +26,7 @@ def _success_send(provider: str, ttft_ms: float = 200.0) -> SingleRequestResult:
 
 def test_checkpoint_hedge_dispatches_at_selector_selected_checkpoint() -> None:
     checkpoint_calls: list[tuple[float, float]] = []
+    released: list[str] = []
     sent: list[str] = []
 
     def fake_send(
@@ -57,7 +58,11 @@ def test_checkpoint_hedge_dispatches_at_selector_selected_checkpoint() -> None:
         checkpoint_calls.append((elapsed_sec, checkpoint_ts))
         if elapsed_sec < 0.01:
             return None
-        return CheckpointBackupDispatch(backup="backup", elapsed_sec=elapsed_sec)
+        return CheckpointBackupDispatch(
+            backup="backup",
+            elapsed_sec=elapsed_sec,
+            release=lambda: released.append("backup"),
+        )
 
     hedged = send_checkpoint_hedged_request(
         send_fn=fake_send,
@@ -75,3 +80,4 @@ def test_checkpoint_hedge_dispatches_at_selector_selected_checkpoint() -> None:
     assert hedged.hedge_checkpoint_ts == pytest.approx(checkpoint_calls[0][1])
     assert hedged.backup_dispatch_ts is not None
     assert sent[:2] == ["primary", "backup"]
+    assert released == ["backup"]

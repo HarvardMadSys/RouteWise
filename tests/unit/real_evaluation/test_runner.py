@@ -1574,12 +1574,20 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
 
     charge_calls: list[tuple[str, float]] = []
     original_charge = policy.charge_capacity
+    release_calls: list[tuple[str | None, int | None]] = []
+    original_release = policy.release_capacity
 
     def tracking_charge(provider: str, ts: float, expected_service_sec: float) -> int | None:
         charge_calls.append((provider, ts))
         return original_charge(provider, ts, expected_service_sec)
 
+    def tracking_release(provider: str | None, capacity_id: int | None, now: float) -> None:
+        del now
+        release_calls.append((provider, capacity_id))
+        original_release(provider, capacity_id, time.time())
+
     monkeypatch.setattr(policy, "charge_capacity", tracking_charge)
+    monkeypatch.setattr(policy, "release_capacity", tracking_release)
 
     # Stub the transport: primary fails immediately, backup succeeds.
     def fake_send_via_transport(
@@ -1686,6 +1694,9 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     primary_ts = charge_calls[primary_idx][1]
     backup_ts = charge_calls[backup_idx][1]
     assert backup_ts >= primary_ts
+    released_providers = [provider for provider, _ in release_calls]
+    assert primary_marker in released_providers
+    assert backup_name in released_providers
 
 
 def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
