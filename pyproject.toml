@@ -31,6 +31,7 @@ offline = [
     "matplotlib>=3.8.0",
     "numpy>=1.24.0",
     "pulp>=2.7.0",
+    "pyyaml>=6.0",
     "scipy>=1.11.0",
     "tqdm>=4.65.0",
 ]
@@ -62,6 +63,17 @@ include = [
   "experiments.*",
   "rwsim",
   "rwsim.*",
+]
+
+[tool.setuptools.package-data]
+experiments = [
+  "offline_stage/configs/*.yaml",
+  "real_evaluation/data/*.json",
+  "simulation/latency_profiles/*.json",
+  "simulation/latency_profiles/*.npz",
+  "simulation/latency_profiles/*.yaml",
+  "simulation/presets.yaml",
+  "subscription_plans.yaml",
 ]
 
 [tool.pytest.ini_options]
