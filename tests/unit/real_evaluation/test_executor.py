@@ -8,6 +8,7 @@ import pytest
 
 from experiments.real_evaluation.executor import send_checkpoint_hedged_request
 from experiments.real_evaluation.transports import SingleRequestResult
+from rwsim.core import CheckpointBackupDispatch
 
 
 def _success_send(provider: str, ttft_ms: float = 200.0) -> SingleRequestResult:
@@ -23,7 +24,7 @@ def _success_send(provider: str, ttft_ms: float = 200.0) -> SingleRequestResult:
     )
 
 
-def test_checkpoint_hedge_dispatches_at_callback_selected_checkpoint() -> None:
+def test_checkpoint_hedge_dispatches_at_selector_selected_checkpoint() -> None:
     checkpoint_calls: list[tuple[float, float]] = []
     sent: list[str] = []
 
@@ -49,15 +50,20 @@ def test_checkpoint_hedge_dispatches_at_callback_selected_checkpoint() -> None:
             ttft_event.set()
         return _success_send(provider, ttft_ms=5.0)
 
-    def checkpoint_fn(elapsed_sec: float, checkpoint_ts: float) -> str | None:
+    def select_checkpoint_backup(
+        elapsed_sec: float,
+        checkpoint_ts: float,
+    ) -> CheckpointBackupDispatch[str] | None:
         checkpoint_calls.append((elapsed_sec, checkpoint_ts))
-        return "backup" if elapsed_sec >= 0.01 else None
+        if elapsed_sec < 0.01:
+            return None
+        return CheckpointBackupDispatch(backup="backup", elapsed_sec=elapsed_sec)
 
     hedged = send_checkpoint_hedged_request(
         send_fn=fake_send,
         primary_provider="primary",
         hedge_checkpoints_sec=(0.01, 0.02),
-        checkpoint_fn=checkpoint_fn,
+        checkpoint_backup_selector=select_checkpoint_backup,
         prompt="x",
         max_tokens=8,
         timeout=5,

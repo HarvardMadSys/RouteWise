@@ -8,8 +8,8 @@ profile storage.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from rwsim.const import (
     DISPATCH_OVERHEAD_MS,
@@ -73,6 +73,29 @@ class BackupCandidate(Generic[ProviderT]):
     def feasible(self) -> bool:
         """Return whether this candidate satisfies the success target."""
         return self.success_probability >= self.success_target - EPS
+
+
+@dataclass(frozen=True)
+class CheckpointBackupDispatch(Generic[ProviderT]):
+    """Concrete backup selected at one in-flight hedge checkpoint."""
+
+    backup: ProviderT
+    elapsed_sec: float
+    success_probability: float | None = None
+    release: Callable[[], None] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class CheckpointBackupSelector(Protocol[ProviderT]):
+    """Select a backup dispatch at one in-flight hedge checkpoint."""
+
+    def __call__(
+        self,
+        elapsed_sec: float,
+        checkpoint_ts: float,
+    ) -> CheckpointBackupDispatch[ProviderT] | None:
+        """Return a concrete backup dispatch, or None to wait/skip."""
+        ...
 
 
 def combined_success_probability(
@@ -151,6 +174,8 @@ __all__ = [
     "HEDGE_CHECKPOINT_START_FRACTION",
     "HEDGE_SUCCESS_TARGET",
     "BackupCandidate",
+    "CheckpointBackupDispatch",
+    "CheckpointBackupSelector",
     "best_backup_success_probability",
     "combined_success_probability",
     "has_feasible_backup",

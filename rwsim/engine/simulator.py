@@ -17,10 +17,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rwsim.const import DISPATCH_OVERHEAD_MS
+from rwsim.core import CheckpointBackupDispatch
 from rwsim.engine.state import SimulationState
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
 from rwsim.policies.prefix_cache import cached_input_tokens
-from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
 if TYPE_CHECKING:
@@ -181,7 +182,7 @@ class Simulator:
         final_provider = primary.name
         final_ttft_ms = primary_ttft_ms
         hedge_triggered = False
-        hedge_dispatch: HedgeDispatch | None = None
+        checkpoint_backup_dispatch: CheckpointBackupDispatch[str] | None = None
         backup_ttft_ms: float | None = None
         backup_observed_at: float | None = None
         backup_start_time: float | None = None
@@ -202,12 +203,17 @@ class Simulator:
             if elapsed_ms >= primary_ttft_ms:
                 break
             state.now = now + float(elapsed)
-            hedge_dispatch = policy.tick(request, decision, float(elapsed), state)
-            if hedge_dispatch is not None:
+            tick_dispatch = policy.tick(request, decision, float(elapsed), state)
+            if tick_dispatch is not None:
+                checkpoint_backup_dispatch = CheckpointBackupDispatch(
+                    backup=tick_dispatch.backup_provider,
+                    elapsed_sec=float(elapsed),
+                    metadata=tick_dispatch.metadata,
+                )
                 break
 
-        if hedge_dispatch is not None:
-            backup = providers[hedge_dispatch.backup_provider]
+        if checkpoint_backup_dispatch is not None:
+            backup = providers[checkpoint_backup_dispatch.backup]
             dispatch_time = state.now
             backup_start_time = dispatch_time + self.dispatch_overhead_ms / 1000.0
             backup_rng = provider_rngs[backup.name]
@@ -274,7 +280,11 @@ class Simulator:
                 "primary_ttft_ms": primary_ttft_ms,
                 "primary_observed_at": primary_observed_at,
                 "primary_full_service_end_at": primary_full_service_end_at,
-                "hedge_provider": hedge_dispatch.backup_provider if hedge_dispatch else None,
+                "hedge_provider": (
+                    checkpoint_backup_dispatch.backup
+                    if checkpoint_backup_dispatch
+                    else None
+                ),
                 "hedge_delay_ms": hedge_delay_ms,
                 "backup_ttft_ms": backup_ttft_ms,
                 "backup_observed_at": backup_observed_at,

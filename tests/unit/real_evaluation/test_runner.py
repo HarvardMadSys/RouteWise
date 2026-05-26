@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.inventory import (
     InventoryConfig,
     ProviderSpec,
@@ -19,7 +20,6 @@ from experiments.real_evaluation.inventory import (
     load_inventory,
     subscription_fixed_cost_for_inventory,
 )
-from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -1675,7 +1675,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     )
 
     # Both primary and backup must have been charged. Order: primary first
-    # (route-time), then backup (dispatch-time, via callback).
+    # (route-time), then backup (dispatch-time, via checkpoint selector).
     charged_providers = [c[0] for c in charge_calls]
     assert primary_marker in charged_providers
     assert backup_name in charged_providers

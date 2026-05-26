@@ -4,12 +4,40 @@ from __future__ import annotations
 
 import routewise.core as public_core
 from rwsim import schemas
+from rwsim.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
 from rwsim.core.types import HedgeDispatch, RoutingDecision
 
 
 def test_routewise_core_exports_decision_types() -> None:
     assert public_core.RoutingDecision is RoutingDecision
     assert public_core.HedgeDispatch is HedgeDispatch
+
+
+def test_routewise_core_exports_checkpoint_backup_contracts() -> None:
+    assert public_core.CheckpointBackupDispatch is CheckpointBackupDispatch
+    assert public_core.CheckpointBackupSelector is CheckpointBackupSelector
+
+    released = False
+
+    def release() -> None:
+        nonlocal released
+        released = True
+
+    dispatch = public_core.CheckpointBackupDispatch(
+        backup="backup",
+        elapsed_sec=0.75,
+        success_probability=0.99,
+        release=release,
+        metadata={"reason": "probability_target"},
+    )
+
+    assert dispatch.backup == "backup"
+    assert dispatch.elapsed_sec == 0.75
+    assert dispatch.success_probability == 0.99
+    assert dispatch.metadata == {"reason": "probability_target"}
+    assert dispatch.release is not None
+    dispatch.release()
+    assert released is True
 
 
 def test_rwsim_schemas_reexports_public_decision_types() -> None:

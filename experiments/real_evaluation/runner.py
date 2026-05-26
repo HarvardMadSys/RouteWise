@@ -37,6 +37,7 @@ from typing import Any
 import requests
 
 from experiments.real_evaluation.executor import (
+    CheckpointBackupDispatch,
     HedgedResult,
     send_checkpoint_hedged_request,
     send_request,
@@ -1652,7 +1653,10 @@ class RealExperimentRunner:
             backup_capacity_id: int | None = None
             backup_capacity_lock = threading.Lock()
 
-            def _checkpoint_backup(elapsed_sec: float, checkpoint_ts: float) -> str | None:
+            def _select_checkpoint_backup(
+                elapsed_sec: float,
+                checkpoint_ts: float,
+            ) -> CheckpointBackupDispatch[str] | None:
                 nonlocal backup_capacity_id
                 future_checkpoints = tuple(
                     checkpoint
@@ -1692,14 +1696,18 @@ class RealExperimentRunner:
                 ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
                 with backup_capacity_lock:
                     backup_capacity_id = capacity_id
-                return backup
+                return CheckpointBackupDispatch(
+                    backup=backup,
+                    elapsed_sec=elapsed_sec,
+                    success_probability=checkpoint_decision.success_probability,
+                )
 
             try:
                 hedged = send_checkpoint_hedged_request(
                     send_fn=self._send_via_transport,
                     primary_provider=decision.primary or "",
                     hedge_checkpoints_sec=prepared.hedge_checkpoints_sec,
-                    checkpoint_fn=_checkpoint_backup,
+                    checkpoint_backup_selector=_select_checkpoint_backup,
                     prompt=prepared.prompt,
                     max_tokens=req.max_tokens,
                     timeout=self.timeout_sec,
