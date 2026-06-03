@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import copy
+from itertools import pairwise
+
 import pytest
 
+from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
+from rwsim.core.hedging import BackupCandidate, hedge_checkpoints_for_slo
+from rwsim.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
 from rwsim.engine.state import SimulationState
 from rwsim.policies import build_policy, routewise as routewise_module
 from rwsim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
-    _cost_tiebroken_objective,
-    _hedge_checkpoints_for_slo,
-    _normalize_weights,
     _same_cost_shortcut_weights,
-    _solve_lp,
     concurrency_shadow_price,
 )
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
@@ -189,14 +191,14 @@ def test_routewise_declares_in_flight_hedge_checkpoints():
 
 
 def test_routewise_hedge_checkpoints_spaced_by_2_5_percent_of_slo() -> None:
-    checkpoints = _hedge_checkpoints_for_slo(2000.0)
+    checkpoints = hedge_checkpoints_for_slo(2000.0)
 
     assert checkpoints[0] == pytest.approx(0.5)
     assert checkpoints[-1] == pytest.approx(1.8)
     assert len(checkpoints) == 27
     assert all(
         right - left == pytest.approx(0.05)
-        for left, right in zip(checkpoints, checkpoints[1:])
+        for left, right in pairwise(checkpoints)
     )
 
 
@@ -243,6 +245,47 @@ def test_routewise_hedging_selects_backup_by_success_probability():
 
     assert dispatch is not None
     assert dispatch.backup_provider == "expensive_but_safe"
+
+
+def test_routewise_explorer_does_not_randomize_backup_selection():
+    policy = RouteWisePolicy(
+        hedging="probability_target",
+        explorer=True,
+        p=0.75,
+        seed=7,
+        slo_ms=2000.0,
+        cost_envelope=(1e-6, 1e-3),
+    )
+    infeasible = BackupCandidate(
+        provider=TieredProvider(
+            name="cheap_but_too_slow",
+            cost_per_token=1e-6,
+            ttft_dist=Uniform(1400.0, 3000.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+        success_probability=0.50,
+        marginal_cost=1e-6,
+        true_mean_ms=2200.0,
+    )
+    feasible = BackupCandidate(
+        provider=TieredProvider(
+            name="expensive_but_safe",
+            cost_per_token=10e-6,
+            ttft_dist=Uniform(100.0, 200.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        ),
+        success_probability=0.995,
+        marginal_cost=10e-6,
+        true_mean_ms=150.0,
+    )
+    before = copy.deepcopy(policy.rng.bit_generator.state)
+
+    selected = policy._select_backup_candidate([infeasible, feasible])
+
+    assert selected is feasible
+    assert policy.rng.bit_generator.state == before
 
 
 def test_routewise_uses_cost_tiebreak_when_latency_objective_is_equal():
@@ -299,20 +342,19 @@ def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
     p_value: float,
 ) -> None:
     names = ["fast", "medium", "slow"]
-    objective = _cost_tiebroken_objective(latencies, costs)
+    objective = cost_tiebroken_objective(latencies, costs)
     c_min = min(costs)
     c_max = max(costs)
-    success, vector = _solve_lp(
-        objective=objective,
-        upper_constraint=costs,
-        upper_bound=c_min + p_value * (c_max - c_min),
+    result = solve_budget_lp(
+        [
+            BudgetLPCandidate(name, objective=objective[index], effective_cost=costs[index])
+            for index, name in enumerate(names)
+        ],
+        budget=c_min + p_value * (c_max - c_min),
     )
 
-    assert success
-    assert vector is not None
-    assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == (
-        _normalize_weights(names, vector)
-    )
+    assert result.feasible
+    assert _same_cost_shortcut_weights(names, objective=objective, costs=costs) == result.weights
 
 
 def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,9 +385,9 @@ def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatc
     )
 
     def fail_solve_lp(*args, **kwargs):
-        raise AssertionError("_solve_lp should not run for same-cost providers")
+        raise AssertionError("solve_budget_lp should not run for same-cost providers")
 
-    monkeypatch.setattr(routewise_module, "_solve_lp", fail_solve_lp)
+    monkeypatch.setattr(routewise_module, "solve_budget_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 
@@ -456,6 +498,34 @@ def test_routewise_configured_latency_profile_ignores_observations() -> None:
 def test_routewise_requires_explicit_cost_envelope():
     with pytest.raises(ValueError, match="requires an explicit cost_envelope"):
         RouteWisePolicy(hedging=False, explorer=False, p=0.75, seed=7)
+
+
+def test_routewise_uses_point_predictor_for_route_time_cost():
+    providers = [
+        TieredProvider(
+            name="api",
+            cost_per_token=1e-6,
+            input_cost_per_token=1e-6,
+            output_cost_per_token=1e-6,
+            ttft_dist=Uniform(90.0, 110.0),
+            tps_dist=Uniform(100.0, 200.0),
+            tier=ProviderTier.S_A,
+        )
+    ]
+    state = SimulationState.from_providers({provider.name: provider for provider in providers})
+    request = Request(id=1, timestamp=0.0, request_tokens=100, response_tokens=50, total_tokens=150)
+    policy = RouteWisePolicy(
+        hedging=False,
+        explorer=False,
+        p=0.75,
+        seed=7,
+        cost_envelope=(1e-6, 1e-3),
+        output_predictor=BucketMeanOutputPredictor(),
+    )
+
+    decision = policy.route(request, state)
+
+    assert decision.metadata["routing_estimated_cost_usd"] == pytest.approx(600e-6)
 
 
 def test_routewise_fixed_cost_envelope_keeps_quota_price_request_independent():

@@ -176,7 +176,6 @@ def make_routewise_presets(
     include_hedging: bool = False,
     cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build section-local policy presets with explorer disabled.
 
@@ -201,7 +200,6 @@ def make_routewise_presets(
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
-            params["output_predictor_quantile"] = output_predictor_quantile
         presets[routewise_lp_policy_name(value)] = {
             "policy": "RouteWisePolicy",
             "params": params,
@@ -215,7 +213,6 @@ def make_routewise_presets(
             }
             if predictor_spec is not None:
                 hedging_params["output_predictor_spec"] = dict(predictor_spec)
-                hedging_params["output_predictor_quantile"] = output_predictor_quantile
             presets[routewise_hedging_policy_name(value)] = {
                 "policy": "RouteWisePolicy",
                 "params": hedging_params,
@@ -687,8 +684,13 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
-    materialized = _materialize_workload_cost_envelope(
+    materialized = _materialize_routewise_slo(
         presets,
+        policy_name=policy_name,
+        scenario=scenario,
+    )
+    materialized = _materialize_workload_cost_envelope(
+        materialized,
         policy_name=policy_name,
         scenario=scenario,
         requests=requests,
@@ -705,6 +707,30 @@ def run_policy(
     )
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
+
+
+def _materialize_routewise_slo(
+    presets: dict[str, dict[str, Any]],
+    *,
+    policy_name: str,
+    scenario: ScenarioConfig,
+) -> dict[str, dict[str, Any]]:
+    """Default RouteWise policy SLO to the scenario's primary SLO."""
+    try:
+        preset = presets[policy_name]
+    except KeyError:
+        return presets
+    if preset.get("policy") != "RouteWisePolicy":
+        return presets
+
+    params = dict(preset.get("params", {}))
+    if "slo_ms" in params:
+        return presets
+
+    params["slo_ms"] = float(scenario.primary_slo_ms)
+    patched = dict(presets)
+    patched[policy_name] = {**preset, "params": params}
+    return patched
 
 
 def _materialize_workload_predictor(

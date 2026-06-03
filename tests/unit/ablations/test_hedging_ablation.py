@@ -16,9 +16,9 @@ from experiments.ablations.hedging.presets import (
     production_baseline_policy_name,
 )
 from routewise_cli.main import ABLATION_COMMANDS, main as routewise_main
+from rwsim.core.hedging import BackupCandidate
 from rwsim.engine.simulator import Simulator
 from rwsim.engine.state import SimulationState
-from rwsim.policies.hedging import BackupCandidate
 from rwsim.policies.routewise import RouteWisePolicy
 from rwsim.schemas import Request, RoutingDecision
 from rwsim.world.capacity import ProviderTier

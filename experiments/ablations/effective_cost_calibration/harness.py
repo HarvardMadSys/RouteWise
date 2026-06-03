@@ -33,8 +33,8 @@ from rwsim.engine.simulator import Simulator
 from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
+    from rwsim.core.cost import ScarcityCurve
     from rwsim.metrics import Run
-    from rwsim.policies.effective_cost_kernel import ScarcityCurve
     from rwsim.schemas import Request
 
 SECTION_NAME = "effective-cost-calibration"

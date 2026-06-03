@@ -1,10 +1,5 @@
 """Effective-cost formula ablation package."""
 
-from rwsim.policies.effective_cost_kernel import (
-    SCARCITY_CURVES,
-    ScarcityCurve,
-    scarcity_price,
-)
 from experiments.ablations.effective_cost.policy import LPOnlyAblationPolicy
 from experiments.ablations.effective_cost.presets import (
     CONCURRENCY_ONLY_QUOTA_CURVE,
@@ -16,6 +11,11 @@ from experiments.ablations.effective_cost.presets import (
     make_ablation_presets,
     make_concurrency_ablation_presets,
     parse_ablation_policy_name,
+)
+from rwsim.core.cost import (
+    SCARCITY_CURVES,
+    ScarcityCurve,
+    scarcity_price,
 )
 
 __all__ = [

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.inventory import (
     InventoryConfig,
     ProviderSpec,
@@ -19,7 +20,6 @@ from experiments.real_evaluation.inventory import (
     load_inventory,
     subscription_fixed_cost_for_inventory,
 )
-from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.policies import (
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
@@ -1574,12 +1574,20 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
 
     charge_calls: list[tuple[str, float]] = []
     original_charge = policy.charge_capacity
+    release_calls: list[tuple[str | None, int | None]] = []
+    original_release = policy.release_capacity
 
     def tracking_charge(provider: str, ts: float, expected_service_sec: float) -> int | None:
         charge_calls.append((provider, ts))
         return original_charge(provider, ts, expected_service_sec)
 
+    def tracking_release(provider: str | None, capacity_id: int | None, now: float) -> None:
+        del now
+        release_calls.append((provider, capacity_id))
+        original_release(provider, capacity_id, time.time())
+
     monkeypatch.setattr(policy, "charge_capacity", tracking_charge)
+    monkeypatch.setattr(policy, "release_capacity", tracking_release)
 
     # Stub the transport: primary fails immediately, backup succeeds.
     def fake_send_via_transport(
@@ -1675,7 +1683,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     )
 
     # Both primary and backup must have been charged. Order: primary first
-    # (route-time), then backup (dispatch-time, via callback).
+    # (route-time), then backup (dispatch-time, via checkpoint selector).
     charged_providers = [c[0] for c in charge_calls]
     assert primary_marker in charged_providers
     assert backup_name in charged_providers
@@ -1686,6 +1694,9 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     primary_ts = charge_calls[primary_idx][1]
     backup_ts = charge_calls[backup_idx][1]
     assert backup_ts >= primary_ts
+    released_providers = [provider for provider, _ in release_calls]
+    assert primary_marker in released_providers
+    assert backup_name in released_providers
 
 
 def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
@@ -1856,6 +1867,48 @@ def test_non_hedged_greedy_cost_falls_back_to_next_provider_on_429(monkeypatch) 
     assert row.status == "success"
     assert row.rate_limited is True
     assert row.retry_count == 1
+    rec.close()
+
+
+def test_dispatch_populates_model_from_inventory(monkeypatch) -> None:
+    """The runner must fill ``model`` from the run-level inventory, not a spec
+    attribute that does not exist (drift audit gap 1)."""
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    expected_model = runner.inventory.openrouter_model_id
+    assert expected_model  # inventory carries a non-empty model id
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8),
+        req_index=0,
+    )
+
+    assert rec._rows[0].model == expected_model
+    assert rec.to_run().records[0].model == expected_model
     rec.close()
 
 

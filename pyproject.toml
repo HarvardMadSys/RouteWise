@@ -3,23 +3,47 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "routewise-simulator"
+name = "routewise"
 version = "0.1.0"
-description = "RouteWise synthetic simulator and experiment harness"
+description = "RouteWise core routing algorithms, simulator, and experiment harnesses"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "RouteWise Authors" }]
-dependencies = [
-    "matplotlib>=3.8.0",
+dependencies = []
+
+[project.optional-dependencies]
+sim = [
     "numpy>=1.24.0",
     "pandas>=2.0.0",
     "pulp>=2.7.0",
+    "pyyaml>=6.0",
+    "scipy>=1.11.0",
+    "tqdm>=4.65.0",
+]
+real-eval = [
+    "numpy>=1.24.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
     "requests>=2.31.0",
+]
+offline = [
+    "matplotlib>=3.8.0",
+    "numpy>=1.24.0",
+    "pulp>=2.7.0",
+    "pyyaml>=6.0",
     "scipy>=1.11.0",
-    "tabulate>=0.9.0",
+    "tqdm>=4.65.0",
+]
+plots = [
+    "matplotlib>=3.8.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+]
+scripts = [
+    "numpy>=1.24.0",
+    "requests>=2.31.0",
+    "scipy>=1.11.0",
     "tqdm>=4.65.0",
 ]
 
@@ -31,12 +55,25 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = [
+  "routewise",
+  "routewise.*",
   "routewise_cli",
   "routewise_cli.*",
   "experiments",
   "experiments.*",
   "rwsim",
   "rwsim.*",
+]
+
+[tool.setuptools.package-data]
+experiments = [
+  "offline_stage/configs/*.yaml",
+  "real_evaluation/data/*.json",
+  "simulation/latency_profiles/*.json",
+  "simulation/latency_profiles/*.npz",
+  "simulation/latency_profiles/*.yaml",
+  "simulation/presets.yaml",
+  "subscription_plans.yaml",
 ]
 
 [tool.pytest.ini_options]
@@ -108,8 +145,17 @@ match-dir = "(?!tests|test|.venv|data).*"
 
 [dependency-groups]
 dev = [
-  "ruff>=0.5.0",
-  "pydocstyle>=6.3.0",
-  "pre-commit>=3.6.0",
+  "matplotlib>=3.8.0",
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "pulp>=2.7.0",
   "pytest>=8.0.0",
+  "pydocstyle>=6.3.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0",
+  "requests>=2.31.0",
+  "ruff>=0.5.0",
+  "scipy>=1.11.0",
+  "tqdm>=4.65.0",
+  "pre-commit>=3.6.0",
 ]

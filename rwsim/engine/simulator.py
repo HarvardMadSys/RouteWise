@@ -9,16 +9,19 @@ but are not used by the simulator's main capacity model.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from rwsim.const import DISPATCH_OVERHEAD_MS
+from rwsim.core import CheckpointBackupDispatch
 from rwsim.engine.state import SimulationState
 from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
 from rwsim.policies.prefix_cache import cached_input_tokens
-from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
 if TYPE_CHECKING:
@@ -30,7 +33,13 @@ if TYPE_CHECKING:
 
 
 _HEDGE_REQUEST_ID_OFFSET = 10_000_000
-_DISPATCH_OVERHEAD_MS = 50.0
+
+
+@dataclass(frozen=True)
+class _FallbackAdmission:
+    provider: Provider
+    ttft_ms: float
+    service_time: float
 
 
 @dataclass
@@ -39,7 +48,7 @@ class Simulator:
 
     scenario: ScenarioConfig
     seed: int = 42
-    dispatch_overhead_ms: float = _DISPATCH_OVERHEAD_MS
+    dispatch_overhead_ms: float = DISPATCH_OVERHEAD_MS
     retain_records: bool = True
 
     def run(
@@ -64,12 +73,25 @@ class Simulator:
         aggregator = RunAggregator(
             policy=policy_name,
             scenario_name=self.scenario.name,
-            source="simulation",
+            source="sim",
             retain_records=self.retain_records,
         )
 
+        prev_trace_time: float | None = None
         for request in requests:
-            state.now = float(request.timestamp)
+            now = float(request.timestamp)
+            # Garbage-collect capacity ledger entries that completed before
+            # the previous outer trace timestamp. The hedge tick loop inside
+            # _execute_request may temporarily advance state.now to future
+            # checkpoints; using prev_trace_time as the watermark (strictly
+            # earlier than any subsequent query) keeps GC safe under such
+            # non-monotonic queries.
+            if prev_trace_time is not None and now >= prev_trace_time:
+                for provider in providers.values():
+                    if provider.concurrency is not None:
+                        provider.concurrency.gc_before(prev_trace_time)
+
+            state.now = now
             decision = policy.route(request, state)
             outcome = self._execute_request(
                 request,
@@ -92,6 +114,8 @@ class Simulator:
             user_id = _request_user_id(request)
             if user_id is not None and not outcome.rejected:
                 state.user_last_provider[user_id] = outcome.final_provider
+
+            prev_trace_time = now
 
         return aggregator.finalize()
 
@@ -119,7 +143,13 @@ class Simulator:
         )
 
         if not _can_admit(primary, now, primary_service_time):
-            fallback = _fallback_provider(providers.values(), now)
+            fallback = _fallback_admission(
+                providers.values(),
+                now,
+                request.response_tokens or 1,
+                provider_rngs,
+                exclude={primary.name},
+            )
             if fallback is None:
                 return RoutingOutcome(
                     request_id=request.id,
@@ -130,16 +160,9 @@ class Simulator:
                     rejected=True,
                     error="no_capacity",
                 )
-            primary = fallback
-            primary_rng = provider_rngs[primary.name]
-            primary_ttft_ms = primary.sample_ttft(primary_rng, now)
-            primary_service_time = _sample_service_time(
-                primary,
-                primary_rng,
-                now,
-                request.response_tokens or 1,
-                primary_ttft_ms,
-            )
+            primary = fallback.provider
+            primary_ttft_ms = fallback.ttft_ms
+            primary_service_time = fallback.service_time
 
         primary_cached_input_tokens = cached_input_tokens(primary, request, state)
         primary.account_request(request.id, now, primary_service_time)
@@ -148,68 +171,102 @@ class Simulator:
             now,
             cached_input_tokens=primary_cached_input_tokens,
         )
+        primary_cancel_cost_usd = primary.marginal_prefill_cost_for_request(
+            request,
+            now,
+            cached_input_tokens=primary_cached_input_tokens,
+        )
+        primary_uncanceled_cost_usd = primary_cost_usd
         billed_cost = primary_cost_usd
 
         final_provider = primary.name
         final_ttft_ms = primary_ttft_ms
         hedge_triggered = False
-        hedge_dispatch: HedgeDispatch | None = None
+        checkpoint_backup_dispatch: CheckpointBackupDispatch[str] | None = None
         backup_ttft_ms: float | None = None
         backup_observed_at: float | None = None
+        backup_start_time: float | None = None
+        backup_full_service_end_at: float | None = None
         backup_cost_usd = 0.0
+        backup_cancel_cost_usd = 0.0
+        backup_uncanceled_cost_usd = 0.0
         backup_cached_input_tokens = 0
         hedge_delay_ms: float | None = None
+        primary_observed_at = now + primary_ttft_ms / 1000.0
+        primary_full_service_end_at = now + primary_service_time
+        hedge_loser: str | None = None
+        hedge_cancel_time: float | None = None
+        hedge_loser_canceled = False
 
         for elapsed in sorted(decision.hedge_checkpoints):
             elapsed_ms = float(elapsed) * 1000.0
             if elapsed_ms >= primary_ttft_ms:
                 break
             state.now = now + float(elapsed)
-            hedge_dispatch = policy.tick(request, decision, float(elapsed), state)
-            if hedge_dispatch is not None:
+            tick_dispatch = policy.tick(request, decision, float(elapsed), state)
+            if tick_dispatch is not None:
+                checkpoint_backup_dispatch = CheckpointBackupDispatch(
+                    backup=tick_dispatch.backup_provider,
+                    elapsed_sec=float(elapsed),
+                    metadata=tick_dispatch.metadata,
+                )
                 break
 
-        if hedge_dispatch is not None:
-            backup = providers[hedge_dispatch.backup_provider]
+        if checkpoint_backup_dispatch is not None:
+            backup = providers[checkpoint_backup_dispatch.backup]
             dispatch_time = state.now
+            backup_start_time = dispatch_time + self.dispatch_overhead_ms / 1000.0
             backup_rng = provider_rngs[backup.name]
-            backup_ttft_ms = backup.sample_ttft(backup_rng, dispatch_time)
+            backup_ttft_ms = backup.sample_ttft(backup_rng, backup_start_time)
             backup_service_time = _sample_service_time(
                 backup,
                 backup_rng,
-                dispatch_time,
+                backup_start_time,
                 request.response_tokens or 1,
                 backup_ttft_ms,
             )
-            if _can_admit(backup, dispatch_time, backup_service_time):
+            if _can_admit(backup, backup_start_time, backup_service_time):
                 backup_cached_input_tokens = cached_input_tokens(backup, request, state)
                 backup.account_request(
                     request.id + _HEDGE_REQUEST_ID_OFFSET,
-                    dispatch_time,
+                    backup_start_time,
                     backup_service_time,
                 )
+                backup_full_service_end_at = backup_start_time + backup_service_time
                 backup_cost_usd = backup.marginal_cost_for_request(
                     request,
-                    dispatch_time,
+                    backup_start_time,
                     cached_input_tokens=backup_cached_input_tokens,
                 )
-                billed_cost += backup_cost_usd
-                hedge_delay_ms = (dispatch_time - now) * 1000.0
-                backup_observed_at = dispatch_time + backup_ttft_ms / 1000.0
-                hedged_ttft = (
-                    (dispatch_time - now) * 1000.0 + self.dispatch_overhead_ms + backup_ttft_ms
+                backup_cancel_cost_usd = backup.marginal_prefill_cost_for_request(
+                    request,
+                    backup_start_time,
+                    cached_input_tokens=backup_cached_input_tokens,
                 )
+                backup_uncanceled_cost_usd = backup_cost_usd
+                hedge_delay_ms = (dispatch_time - now) * 1000.0
+                backup_observed_at = backup_start_time + backup_ttft_ms / 1000.0
+                hedged_ttft = (backup_observed_at - now) * 1000.0
                 if hedged_ttft < final_ttft_ms:
                     final_ttft_ms = hedged_ttft
                     final_provider = backup.name
+                    primary_cost_usd = primary_cancel_cost_usd
+                    hedge_loser = "primary"
+                    hedge_cancel_time = backup_observed_at
+                    hedge_loser_canceled = primary.cancel_request(
+                        request.id,
+                        backup_observed_at,
+                    )
+                else:
+                    backup_cost_usd = backup_cancel_cost_usd
+                    hedge_loser = "backup"
+                    hedge_cancel_time = primary_observed_at
+                    hedge_loser_canceled = backup.cancel_request(
+                        request.id + _HEDGE_REQUEST_ID_OFFSET,
+                        primary_observed_at,
+                    )
+                billed_cost = primary_cost_usd + backup_cost_usd
                 hedge_triggered = True
-
-                # TODO(routewise-hedging): model cancellation after the first
-                # visible token wins the hedge race. Today both primary and
-                # backup consume their full modeled service time and billed
-                # cost. A cancel-aware simulator should truncate loser
-                # concurrency occupancy at winner first-token time and record
-                # both no-cancel and cancel-adjusted costs.
 
         state.now = now
         return RoutingOutcome(
@@ -221,16 +278,31 @@ class Simulator:
             hedge_triggered=hedge_triggered,
             metadata={
                 "primary_ttft_ms": primary_ttft_ms,
-                "primary_observed_at": now + primary_ttft_ms / 1000.0,
-                "hedge_provider": hedge_dispatch.backup_provider if hedge_dispatch else None,
+                "primary_observed_at": primary_observed_at,
+                "primary_full_service_end_at": primary_full_service_end_at,
+                "hedge_provider": (
+                    checkpoint_backup_dispatch.backup
+                    if checkpoint_backup_dispatch
+                    else None
+                ),
                 "hedge_delay_ms": hedge_delay_ms,
                 "backup_ttft_ms": backup_ttft_ms,
                 "backup_observed_at": backup_observed_at,
+                "backup_start_time": backup_start_time,
+                "backup_full_service_end_at": backup_full_service_end_at,
+                "hedge_loser": hedge_loser,
+                "hedge_cancel_time": hedge_cancel_time,
+                "hedge_loser_canceled": hedge_loser_canceled,
                 "primary_cost_usd": primary_cost_usd,
                 "backup_cost_usd": backup_cost_usd,
+                "primary_cancel_cost_usd": primary_cancel_cost_usd,
+                "backup_cancel_cost_usd": backup_cancel_cost_usd,
+                "primary_uncanceled_cost_usd": primary_uncanceled_cost_usd,
+                "backup_uncanceled_cost_usd": backup_uncanceled_cost_usd,
                 "primary_cached_input_tokens": primary_cached_input_tokens,
                 "backup_cached_input_tokens": backup_cached_input_tokens,
                 "sim_dispatch_overhead_ms": self.dispatch_overhead_ms,
+                "sim_cancel_assumes_provider_cancelable": True,
             },
         )
 
@@ -263,11 +335,12 @@ class Simulator:
                 float(request.timestamp),
             ),
         }
-        if "weights" in decision.metadata:
-            metadata["sim_lp_weights"] = decision.metadata["weights"]
-        if "budget" in decision.metadata:
-            metadata["sim_lp_budget"] = decision.metadata["budget"]
+        # Canonical LP state (promoted from decision metadata; was sim_lp_weights / sim_lp_budget).
+        lp_weights = decision.metadata.get("weights")
+        lp_budget_usd = decision.metadata.get("budget")
         if "c_eff" in decision.metadata:
+            # sim-only oracle quantity (no canonical equivalent — per-provider effective cost
+            # is reproducible only inside the simulator).
             metadata["sim_c_eff"] = decision.metadata["c_eff"]
         for key in (
             "primary_cached_input_tokens",
@@ -279,13 +352,42 @@ class Simulator:
             metadata["sim_true_p99_ms"] = final_provider.true_p99_ms(float(request.timestamp))
         for key in (
             "primary_observed_at",
+            "primary_full_service_end_at",
             "backup_observed_at",
+            "backup_start_time",
+            "backup_full_service_end_at",
+            "hedge_loser",
+            "hedge_cancel_time",
+            "hedge_loser_canceled",
+            "primary_cancel_cost_usd",
+            "backup_cancel_cost_usd",
+            "primary_uncanceled_cost_usd",
+            "backup_uncanceled_cost_usd",
+            "sim_cancel_assumes_provider_cancelable",
             "sim_dispatch_overhead_ms",
         ):
             if key in outcome.metadata:
                 metadata[key] = outcome.metadata[key]
         if outcome.error:
             metadata["sim_error"] = outcome.error
+
+        # Hedging schedule / algorithm metadata (canonical fields).
+        # SIM main path runs probability-target hedging on SLO-relative checkpoints.
+        hedging_active = bool(decision.hedge_checkpoints)
+        hedge_algorithm = "probability_target" if hedging_active else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if hedging_active else None
+
+        # routing_estimated_cost_usd is the LP's decision-time cost estimate
+        # (predicted tokens, not realized). The policy emits it on
+        # RoutingDecision.metadata; outcome.cost_usd is a different (realized)
+        # quantity and must not be substituted here.
+        routing_estimated_cost_usd: float | None = decision.metadata.get(
+            "routing_estimated_cost_usd"
+        )
+        # In SIM the backup is chosen at a hedge checkpoint (tick), not at route
+        # time, so only the primary leg has a route-time estimate.
+        primary_routing_estimated_cost_usd: float | None = routing_estimated_cost_usd
+        backup_routing_estimated_cost_usd: float | None = None
 
         return PerRequestRecord(
             request_id=str(outcome.request_id),
@@ -304,6 +406,9 @@ class Simulator:
             final_tier=_provider_tier_value(final_provider),
             backup_provider=str(backup_name) if backup_name else None,
             backup_tier=_provider_tier_value(backup_provider) if backup_provider else None,
+            model=request.model,
+            source="sim",
+            timestamp_sec=None,
             ttft_ms=float(outcome.ttft_ms),
             e2e_ms=None,
             primary_local_ttft_ms=outcome.metadata.get("primary_ttft_ms"),
@@ -315,9 +420,20 @@ class Simulator:
             total_cost_usd=float(outcome.cost_usd),
             primary_cost_usd=outcome.metadata.get("primary_cost_usd", 0.0),
             backup_cost_usd=backup_cost if outcome.hedge_triggered else None,
+            routing_estimated_cost_usd=routing_estimated_cost_usd,
+            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
+            physical_cost_usd=None,
+            primary_physical_cost_usd=None,
+            backup_physical_cost_usd=None,
             hedge_triggered=outcome.hedge_triggered,
             hedge_delay_ms=outcome.metadata.get("hedge_delay_ms"),
             hedge_winner=hedge_winner,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
+            lp_weights=lp_weights,
+            lp_budget_usd=lp_budget_usd,
+            lp_status=decision.metadata.get("lp_status"),
             status=Status.REJECTED if outcome.rejected else Status.SUCCESS,
             error_class=outcome.error,
             metadata=metadata,
@@ -392,18 +508,40 @@ def _can_admit(provider: Provider, now: float, service_time: float) -> bool:
     return provider.is_available(now)
 
 
-def _fallback_provider(providers: Sequence[Provider], now: float) -> Provider | None:
-    available = [provider for provider in providers if provider.is_available(now)]
-    if not available:
-        return None
-    return min(
-        available,
+def _fallback_admission(
+    providers: Sequence[Provider],
+    now: float,
+    output_tokens: int,
+    provider_rngs: dict[str, np.random.Generator],
+    *,
+    exclude: set[str] | None = None,
+) -> _FallbackAdmission | None:
+    excluded = exclude or set()
+    candidates = sorted(
+        (
+            provider
+            for provider in providers
+            if provider.name not in excluded and provider.is_available(now)
+        ),
         key=lambda provider: (
             provider.effective_input_cost_per_token,
             provider.effective_output_cost_per_token,
             provider.true_p50_ms(now),
         ),
     )
+    for provider in candidates:
+        rng = provider_rngs[provider.name]
+        rng_state = copy.deepcopy(rng.bit_generator.state)
+        ttft_ms = provider.sample_ttft(rng, now)
+        service_time = _sample_service_time(provider, rng, now, output_tokens, ttft_ms)
+        if _can_admit(provider, now, service_time):
+            return _FallbackAdmission(
+                provider=provider,
+                ttft_ms=ttft_ms,
+                service_time=service_time,
+            )
+        rng.bit_generator.state = rng_state
+    return None
 
 
 def _request_user_id(request: Request) -> str | None:

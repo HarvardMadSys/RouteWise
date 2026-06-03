@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
+
 if TYPE_CHECKING:
     from rwsim.world.providers import Provider
 
@@ -19,7 +21,7 @@ class ScenarioConfig:
     n_requests: int = 2000
     duration_seconds: float = 3600.0
     arrival_process: str = "poisson"
-    primary_slo_ms: float = 2000.0
+    primary_slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     metadata: dict[str, Any] = field(default_factory=dict)
     slo_thresholds_ms: list[float] = field(
         default_factory=lambda: [1000.0, 2000.0, 3000.0, 5000.0]

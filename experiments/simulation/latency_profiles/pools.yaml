@@ -16,13 +16,6 @@ profiles:
     metadata: minimax_m25_openrouter_24h.json
     price_source: openrouter_endpoint_snapshot
 
-  minimax_m25_or8_1h_effmean:
-    model: minimax/minimax-m2.5
-    source: real_eval_1h_gpu1_or8_effmean_baselines_rw75_20260512_014542_or8_effmean_1h_retry
-    artifact: minimax_m25_or8_1h_effmean.npz
-    metadata: minimax_m25_or8_1h_effmean.json
-    price_source: static_from_inventory
-
   minimax_m25_shared_profile_8h:
     model: minimax/minimax-m2.5
     source: real_eval_minimax_m25_burstgpt_cap10s_shared_profile_8h
@@ -88,32 +81,6 @@ pools:
       - AtlasCloud
       - Chutes
       - SiliconFlow
-
-  minimax_m25_or8_1h_effmean:
-    description: "Real 1h or8 effmean retry run: 8 OpenRouter S_A providers, TTFT pooled across 7 policies."
-    profile: minimax_m25_or8_1h_effmean
-    pricing:
-      source: static
-      # OR endpoint prices captured in the real-eval inventory
-      # experiments/real_evaluation/data/pilot_chutes_direct_or8_top_1h.json
-      default_input_per_m: 0.30
-      default_output_per_m: 1.20
-      overrides:
-        DeepInfra:
-          input_per_m: 0.15
-          output_per_m: 1.15
-        Phala:
-          input_per_m: 0.20
-          output_per_m: 1.38
-    providers:
-      - Friendli
-      - DeepInfra
-      - Novita
-      - Minimax
-      - Phala
-      - SiliconFlow
-      - Nebius
-      - WandB
 
   minimax_m25_shared_profile_8h_api8:
     description: "MiniMax M2.5 cap10s 8h real-eval shared-profile events: true API providers only; excludes __or_auto__/__or_sort_* aggregate baselines."

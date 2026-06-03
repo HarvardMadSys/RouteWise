@@ -46,6 +46,7 @@ from experiments.simulation.offline_oracle import (
     run_offline_oracle_policy as run_offline_policy,
 )
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -636,15 +637,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
@@ -724,7 +719,6 @@ def main(argv: list[str] | None = None) -> int:
         p_values=p_values,
         include_hedging=False,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
     section_runners = {OFFLINE_POLICY: run_offline_policy}
@@ -929,7 +923,7 @@ def _make_api_cost_scenario(family: str) -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": f"cost_layer_{family}",
             "artifact_label": f"cost_layer_{family}",
@@ -984,7 +978,7 @@ def _make_real_world_api_cost_scenario() -> ScenarioConfig:
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
     )
 
 
@@ -1063,7 +1057,7 @@ def _make_quota_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": QUOTA_SCENARIO,
             "artifact_label": label,
@@ -1152,7 +1146,7 @@ def _make_concurrency_scenario_for_plan(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": CONCURRENCY_SCENARIO,
             "artifact_label": label,
@@ -1286,7 +1280,7 @@ def _make_joint_scenario_for_plans(
         ),
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=5000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata={
             "public_scenario": JOINT_SCENARIO,
             "artifact_label": label,

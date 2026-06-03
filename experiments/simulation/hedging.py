@@ -41,6 +41,7 @@ from experiments.simulation.common import (
     write_json,
 )
 from experiments.simulation.latency_profiles import load_pool
+from rwsim.const import HEDGE_SUCCESS_TARGET
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -52,7 +53,10 @@ SECTION_NAME = "hedging"
 
 PUBLIC_SCENARIO_TAG: str = "hedging"
 DEFAULT_ROUTEWISE_P: float = 0.75
-TARGET_SUCCESS_PROBABILITY: float = 0.99
+# Mirror of `rwsim.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
+# `target_success_probability`. Derive (do not redefine) so the value plots
+# and summaries advertise can never drift from the value the algorithm uses.
+TARGET_SUCCESS_PROBABILITY: float = HEDGE_SUCCESS_TARGET
 
 HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
 REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
@@ -216,7 +220,6 @@ def make_policy_presets(
     p_value: float = DEFAULT_ROUTEWISE_P,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build the section-local policy presets for §2.2."""
     from experiments.simulation.common import _normalize_predictor_arg
@@ -236,7 +239,6 @@ def make_policy_presets(
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
-            params["output_predictor_quantile"] = output_predictor_quantile
         return params
 
     return {
@@ -408,8 +410,6 @@ def _hedging_policy_mode(policy_name: str, params: dict[str, Any]) -> str:
 def _backup_selection(params: dict[str, Any]) -> str:
     if not params.get("hedging"):
         return "none"
-    if params.get("explorer"):
-        return "random_non_primary"
     return "probability_target_non_primary"
 
 
@@ -592,15 +592,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
@@ -610,7 +604,6 @@ def main(argv: list[str] | None = None) -> int:
     presets = make_policy_presets(
         p_value,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_value)
     unknown = [policy for policy in policies if policy not in presets]

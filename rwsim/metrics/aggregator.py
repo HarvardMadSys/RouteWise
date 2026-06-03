@@ -24,7 +24,7 @@ class RunAggregator:
 
     policy: str = ""
     scenario_name: str = ""
-    source: str = "simulation"
+    source: str = "sim"
     retain_records: bool = True
     window_sec: float = 300.0
     records: list[PerRequestRecord] = field(default_factory=list)
@@ -90,7 +90,7 @@ def aggregate_records(
     *,
     policy: str = "",
     scenario_name: str = "",
-    source: str = "simulation",
+    source: str = "sim",
 ) -> Run:
     """Build a Run by streaming over an existing record list."""
     aggregator = RunAggregator(

@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from rwsim.policies.effective_cost_kernel import SCARCITY_CURVES, scarcity_price
+from rwsim.core.cost import SCARCITY_CURVES, scarcity_price
 
 
 def test_registered_curve_set_is_intentional() -> None:

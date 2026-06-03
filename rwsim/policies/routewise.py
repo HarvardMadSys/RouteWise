@@ -8,17 +8,28 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
-from rwsim.policies.effective_cost_kernel import scarcity_price
-from rwsim.policies.hedging import (
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
+from rwsim.core.cost import (
+    concurrency_effective_cost,
+    effective_cost as core_effective_cost,
+    quota_effective_cost,
+)
+from rwsim.core.hedging import (
     DISPATCH_OVERHEAD_MS,
     HEDGE_SUCCESS_TARGET,
     BackupCandidate,
-    collect_backup_candidates,
     combined_success_probability,
     has_feasible_backup,
+    hedge_checkpoints_for_slo,
     select_probability_backup,
 )
+from rwsim.core.lp import (
+    LP_EPS,
+    BudgetLPCandidate,
+    cost_tiebroken_objective,
+    solve_budget_lp,
+)
+from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.latency_profiles import (
     LatencyProfileMode,
     LatencyProfileStrategy,
@@ -42,11 +53,7 @@ class OutputPredictor(Protocol):
     def update(self, request: Request) -> None: ...
 
 
-_LP_EPS = 1e-9
-_COST_TIEBREAK_MS = 1e-3
-_HEDGE_CHECKPOINT_START_FRACTION = 0.25
-_HEDGE_CHECKPOINT_END_FRACTION = 0.90
-_HEDGE_CHECKPOINT_INTERVAL_FRACTION = 0.025
+_LP_EPS = LP_EPS
 
 
 @dataclass
@@ -57,12 +64,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     explorer: bool = True
     p: float = 0.75
     cost_envelope: tuple[float, float] | None = None
-    slo_ms: float = 2000.0
+    slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
     latency_profile_mode: LatencyProfileMode = "observed"
     output_predictor: OutputPredictor | None = None
-    output_predictor_quantile: str = "q50"
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
     _latency_profile: LatencyProfileStrategy = field(init=False, repr=False)
@@ -82,11 +88,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 f"got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
-        if self.output_predictor_quantile not in {"q10", "q50", "q90"}:
-            raise ValueError(
-                "output_predictor_quantile must be one of q10, q50, q90; "
-                f"got {self.output_predictor_quantile!r}"
-            )
         self.rng = np.random.default_rng(self.seed)
         self._latency_profile = make_latency_profile_strategy(
             self.latency_profile_mode,
@@ -124,7 +125,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         c_min = min(c_eff.values())
         c_max = max(c_eff.values())
         budget = c_min + self.p * (c_max - c_min)
-        objective = _cost_tiebroken_objective(
+        objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
@@ -135,21 +136,37 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 objective=objective,
                 costs=[c_eff[name] for name in names],
             )
+            lp_status = "single_candidate" if len(names) == 1 else "feasible"
         else:
-            success, vector = _solve_lp(
-                objective=objective,
-                upper_constraint=[c_eff[name] for name in names],
-                upper_bound=budget,
+            result = solve_budget_lp(
+                [
+                    BudgetLPCandidate(
+                        name=name,
+                        objective=objective[index],
+                        effective_cost=c_eff[name],
+                    )
+                    for index, name in enumerate(names)
+                ],
+                budget=budget,
             )
-            weights = _normalize_weights(names, vector) if success and vector is not None else {}
+            weights = result.weights if result.feasible else {}
+            # budget = c_min + p*(c_max - c_min) with p in [0, 1], so budget >= c_min
+            # and the min-cost provider is always within budget. An empty solve is
+            # therefore a solver fallback, not an over-budget infeasibility: the
+            # fallback below picks the (feasible) min-cost provider.
+            lp_status = "feasible"
         if not weights:
             best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
             weights = {best.name: 1.0}
+            lp_status = "feasible"
 
         primary_name = _sample_weighted(weights, self.rng)
         hedge_checkpoints = ()
         if self.hedging:
-            hedge_checkpoints = _hedge_checkpoints_for_slo(self.slo_ms)
+            hedge_checkpoints = hedge_checkpoints_for_slo(self.slo_ms)
+
+        primary_provider = next(p for p in providers if p.name == primary_name)
+        routing_estimated_cost_usd = self._routing_dollar_cost(primary_provider, request, state)
 
         return RoutingDecision(
             primary_provider=primary_name,
@@ -160,6 +177,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 "budget": budget,
                 "L": L,
                 "U": U,
+                "lp_status": lp_status,
+                "routing_estimated_cost_usd": routing_estimated_cost_usd,
             },
         )
 
@@ -188,7 +207,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
         future_feasible = self._has_future_feasible_backup(
             primary,
-            selected,
             request,
             decision,
             elapsed,
@@ -244,10 +262,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if self.output_predictor is None or provider.tier != ProviderTier.S_A:
             return effective_cost(provider, request, now, U=U, L=L, state=state)
         prediction = self.output_predictor.predict(request)
-        predicted_response_tokens = max(
-            float(getattr(prediction, self.output_predictor_quantile)),
-            0.0,
-        )
+        predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
         request_tokens = int(getattr(request, "request_tokens", 0) or 0)
         cached_tokens = 0
         if state is not None:
@@ -258,6 +273,46 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             request_tokens=request_tokens,
             response_tokens=predicted_response_tokens,
             cached_input_tokens=cached_tokens,
+        )
+
+    def _routing_dollar_cost(
+        self,
+        provider: Provider,
+        request: Request,
+        state: SimulationState | None,
+    ) -> float | None:
+        """Decision-time dollar token cost using predicted output tokens.
+
+        This is the routing-time estimate, not the realized cost. It uses only
+        information visible at routing time: the predictor output, or the trace's
+        ``estimated_response_tokens``. It never uses the actual generated
+        ``response_tokens`` — substituting that would make the estimate equal the
+        realized cost. Returns ``None`` when no routing-time estimate exists.
+
+        Mirrors real-eval's ``routing_cache_diagnostics`` /
+        ``cache_aware_request_cost_usd``: raw token-priced dollars regardless of
+        tier, so SIM and real-eval expose the same quantity.
+        """
+        if self.output_predictor is not None:
+            prediction = self.output_predictor.predict(request)
+            predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
+        else:
+            predicted = getattr(request, "estimated_response_tokens", None)
+            if predicted is None:
+                return None
+            predicted_response_tokens = float(predicted)
+        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
+        cached_tokens = 0
+        if state is not None:
+            from rwsim.policies.prefix_cache import cached_input_tokens
+
+            cached_tokens = cached_input_tokens(provider, request, state)
+        return float(
+            provider.token_cost(
+                request_tokens=request_tokens,
+                response_tokens=predicted_response_tokens,
+                cached_input_tokens=cached_tokens,
+            )
         )
 
     def _ensure_profiles(self, providers: dict[str, Provider]) -> None:
@@ -284,46 +339,45 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         *,
         elapsed_ms: float,
     ) -> list[BackupCandidate]:
-        return collect_backup_candidates(
-            state.providers.values(),
-            primary,
-            request,
-            now=state.now,
-            elapsed_ms=elapsed_ms,
-            slo_ms=self.slo_ms,
-            cdf_ms=lambda provider, value_ms: self._cdf_ms(
-                provider,
-                value_ms,
-                state.now,
-            ),
-            success_target=HEDGE_SUCCESS_TARGET,
-            dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
-            marginal_cost=lambda provider: cache_aware_marginal_cost(
-                provider,
-                request,
-                state,
-                now=state.now,
-            ),
-        )
+        candidates: list[BackupCandidate] = []
+        for provider in state.providers.values():
+            if provider.name == primary.name or not provider.is_available(state.now):
+                continue
+            candidates.append(
+                BackupCandidate(
+                    provider=provider,
+                    success_probability=combined_success_probability(
+                        lambda value_ms: self._cdf_ms(primary, value_ms, state.now),
+                        lambda value_ms, backup=provider: self._cdf_ms(
+                            backup,
+                            value_ms,
+                            state.now,
+                        ),
+                        elapsed_ms=elapsed_ms,
+                        slo_ms=self.slo_ms,
+                        dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+                    ),
+                    marginal_cost=cache_aware_marginal_cost(
+                        provider,
+                        request,
+                        state,
+                        now=state.now,
+                    ),
+                    true_mean_ms=provider.true_mean_ms(state.now),
+                    success_target=HEDGE_SUCCESS_TARGET,
+                )
+            )
+        return candidates
 
     def _select_backup_candidate(
         self,
         candidates: list[BackupCandidate],
     ) -> BackupCandidate | None:
-        if not candidates:
-            return None
-        if self.explorer:
-            # TODO(routewise-hedging-ablation): replace this coarse random
-            # fallback with an explicit random/spread backup-selection mode for
-            # hedge-as-probe experiments. The default hedging path below stays
-            # probability-driven and optimizes the current request's SLO success.
-            return candidates[int(self.rng.integers(0, len(candidates)))]
         return select_probability_backup(candidates)
 
     def _has_future_feasible_backup(
         self,
         primary: Provider,
-        selected: BackupCandidate,
         request: Request,
         decision: RoutingDecision,
         elapsed: float,
@@ -333,23 +387,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             if future_elapsed <= elapsed + _LP_EPS:
                 continue
             future_ms = future_elapsed * 1000.0
-            if self.explorer:
-                future = combined_success_probability(
-                    lambda provider, value_ms: self._cdf_ms(
-                        provider,
-                        value_ms,
-                        state.now,
-                    ),
-                    primary,
-                    selected.provider,
-                    elapsed_ms=future_ms,
-                    slo_ms=self.slo_ms,
-                    dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
-                )
-                if future >= HEDGE_SUCCESS_TARGET - _LP_EPS:
-                    return True
-                continue
-
             candidates = self._collect_backup_candidates(
                 primary,
                 request,
@@ -381,7 +418,7 @@ def quota_shadow_price(
         return 0.0
     if provider.quota is None:
         return 0.0
-    return scarcity_price("exp_lu", provider.quota.fraction_used(now), L=L, U=U)
+    return quota_effective_cost(provider.quota.fraction_used(now), L=L, U=U)
 
 
 def concurrency_shadow_price(
@@ -393,12 +430,12 @@ def concurrency_shadow_price(
     alpha: float = 1.0,
 ) -> float:
     """Zero marginal shadow price for reusable concurrency capacity."""
-    del now, U, L, alpha
+    del now, alpha
     if provider.tier != ProviderTier.S_C:
         return 0.0
     if provider.concurrency is None:
         return 0.0
-    return 0.0
+    return concurrency_effective_cost(None, L=L, U=U)
 
 
 def effective_cost(
@@ -426,101 +463,45 @@ def effective_cost(
     tier = provider.tier
     if tier == ProviderTier.S_A:
         if state is not None:
-            return cache_aware_marginal_cost(provider, request, state, now=now)
-        return provider.marginal_cost_for_request(request, now)
+            request_cost = cache_aware_marginal_cost(provider, request, state, now=now)
+        else:
+            request_cost = provider.marginal_cost_for_request(request, now)
+        return core_effective_cost(
+            "api",
+            request_cost_usd=request_cost,
+            L=L,
+            U=U,
+        )
     if tier == ProviderTier.S_Q:
-        return quota_shadow_price(provider, now, U=U, L=L)
+        return core_effective_cost(
+            "quota",
+            quota_fraction_used=(
+                None if provider.quota is None else provider.quota.fraction_used(now)
+            ),
+            L=L,
+            U=U,
+        )
     if tier == ProviderTier.S_C:
-        return concurrency_shadow_price(provider, now, U=U, L=L, alpha=concurrency_alpha)
+        del concurrency_alpha
+        return core_effective_cost(
+            "concurrency",
+            concurrency_utilization=None,
+            L=L,
+            U=U,
+        )
     raise ValueError(f"Unsupported provider tier for RouteWise effective cost: {tier!r}")
 
 
-def _solve_lp(
-    objective: list[float],
-    *,
-    upper_constraint: list[float],
-    upper_bound: float,
-) -> tuple[bool, np.ndarray | None]:
-    """Solve the RouteWise simplex LP without invoking a generic solver.
+def _predicted_output_tokens_from_prediction(prediction: Any) -> float:
+    """Extract the route-time point estimate from a predictor result."""
 
-    The LP has one equality constraint (sum of weights is 1) and one budget
-    inequality.  Its optimum is therefore either a single provider whose cost is
-    within budget, or a mixture of two providers that lies exactly on the budget
-    boundary.  Enumerating those candidates is equivalent to solving the LP and
-    avoids paying scipy/HiGHS setup cost for every routed request.
-    """
-    n = len(objective)
-    if n == 0 or n != len(upper_constraint):
-        return False, None
-
-    obj = np.asarray(objective, dtype=float)
-    costs = np.asarray(upper_constraint, dtype=float)
-    if not np.all(np.isfinite(obj)) or not np.all(np.isfinite(costs)):
-        return False, None
-
-    best_vector: np.ndarray | None = None
-    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
-
-    def consider(vector: np.ndarray) -> None:
-        nonlocal best_key, best_vector
-        expected_cost = float(np.dot(costs, vector))
-        if expected_cost > upper_bound + _LP_EPS:
-            return
-        value = float(np.dot(obj, vector))
-        support = int(np.count_nonzero(vector > _LP_EPS))
-        rounded = tuple(round(float(part), 12) for part in vector)
-        key = (value, expected_cost, support, rounded)
-        if best_key is None or key < best_key:
-            best_key = key
-            best_vector = vector
-
-    for index, cost in enumerate(costs):
-        if cost <= upper_bound + _LP_EPS:
-            vector = np.zeros(n, dtype=float)
-            vector[index] = 1.0
-            consider(vector)
-
-    for left in range(n):
-        left_cost = float(costs[left])
-        for right in range(left + 1, n):
-            right_cost = float(costs[right])
-            span = left_cost - right_cost
-            if abs(span) <= _LP_EPS:
-                continue
-            left_weight = (upper_bound - right_cost) / span
-            right_weight = 1.0 - left_weight
-            if left_weight < -_LP_EPS or right_weight < -_LP_EPS:
-                continue
-            left_weight = min(max(left_weight, 0.0), 1.0)
-            right_weight = min(max(right_weight, 0.0), 1.0)
-            vector = np.zeros(n, dtype=float)
-            vector[left] = left_weight
-            vector[right] = right_weight
-            consider(vector)
-
-    if best_vector is None:
-        return False, None
-    return True, best_vector
-
-
-def _cost_tiebroken_objective(
-    latency_objective_ms: list[float],
-    effective_costs: list[float],
-) -> list[float]:
-    """Prefer lower effective cost when LP latency objectives are equal."""
-    if len(latency_objective_ms) != len(effective_costs):
-        raise ValueError("latency objective and cost arrays must have the same length")
-    if not latency_objective_ms:
-        return []
-
-    latencies = np.asarray(latency_objective_ms, dtype=float)
-    costs = np.asarray(effective_costs, dtype=float)
-    cost_span = float(costs.max() - costs.min())
-    if cost_span <= _LP_EPS:
-        return [float(value) for value in latencies]
-
-    normalized_costs = (costs - costs.min()) / cost_span
-    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+    if hasattr(prediction, "tokens"):
+        return max(float(prediction.tokens), 0.0)
+    if hasattr(prediction, "median"):
+        return max(float(prediction.median), 0.0)
+    if hasattr(prediction, "q50"):
+        return max(float(prediction.q50), 0.0)
+    raise TypeError("output predictor must return PointPrediction or a q50-compatible result")
 
 
 def _same_cost_shortcut_weights(
@@ -542,49 +523,11 @@ def _same_cost_shortcut_weights(
     return {best_name: 1.0} if best_name is not None else {}
 
 
-def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
-    weights = {
-        name: float(vector[idx])
-        for idx, name in enumerate(names)
-        if float(vector[idx]) > _LP_EPS
-    }
-    total = sum(weights.values())
-    if total <= 0.0:
-        return {}
-    return {name: value / total for name, value in weights.items()}
-
-
 def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str:
     names = list(weights)
     probs = np.asarray([weights[name] for name in names], dtype=float)
     probs = probs / probs.sum()
     return str(rng.choice(names, p=probs))
-
-
-def _hedge_checkpoints_for_slo(slo_ms: float) -> tuple[float, ...]:
-    """Return dense latest-safe hedge checkpoints in seconds."""
-    slo_ms_f = float(slo_ms)
-    interval_ms = slo_ms_f * _HEDGE_CHECKPOINT_INTERVAL_FRACTION
-    if interval_ms <= 0.0:
-        return ()
-    start_ms = _ceil_to_interval_ms(
-        slo_ms_f * _HEDGE_CHECKPOINT_START_FRACTION,
-        interval_ms,
-    )
-    end_ms = slo_ms_f * _HEDGE_CHECKPOINT_END_FRACTION
-    if start_ms > end_ms + _LP_EPS:
-        return ()
-
-    checkpoints_ms: list[float] = []
-    current_ms = start_ms
-    while current_ms <= end_ms + _LP_EPS:
-        checkpoints_ms.append(current_ms)
-        current_ms += interval_ms
-    return tuple(ms / 1000.0 for ms in checkpoints_ms)
-
-
-def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
-    return math.ceil((value_ms - _LP_EPS) / interval_ms) * interval_ms
 
 
 __all__ = [

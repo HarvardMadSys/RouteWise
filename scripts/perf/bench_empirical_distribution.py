@@ -6,8 +6,7 @@ Run manually after touching ``rwsim/world/empirical.py``:
 
 This is not a pytest test — perf numbers vary across CI runners and we
 don't want a noisy assertion in the default suite. Compare the printed
-numbers against the budgets recorded in
-``docs/EMPIRICAL_DIST_PERF_PLAN.md`` §4.5.
+numbers against the baseline and target values printed at the end.
 """
 
 from __future__ import annotations

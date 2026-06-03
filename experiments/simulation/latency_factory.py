@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 LatencyAnchorKind = Literal["mean", "p50"]
 
 SYNTHETIC_LATENCY_VERSION = "synthetic_latency_v2"
-DEFAULT_LATENCY_ANCHOR_KIND: LatencyAnchorKind = "mean"
+DEFAULT_LATENCY_ANCHOR_KIND: LatencyAnchorKind = "p50"
 DEFAULT_UNIFORM_HALF_WIDTH_RATIO = 0.5
 DEFAULT_NORMAL_SIGMA_RATIO = 0.3
 DEFAULT_LOGNORMAL_SIGMA = 0.5
@@ -118,10 +118,14 @@ def describe_synthetic_latency(spec: SyntheticLatencySpec) -> str:
     """Return a compact human-readable TTFT description for scenario text."""
     family = normalize_synthetic_latency_family(spec.family)
     dist = make_synthetic_ttft(spec)
-    text = f"{family}, {spec.anchor_kind}={spec.anchor_ms:.0f}ms"
     if family == "heavy_tail":
-        text += f", P50={dist.p50():.0f}ms, sigma_log={spec.lognormal_sigma:g}"
-    return text
+        if spec.anchor_kind == "p50":
+            return f"{family}, P50={spec.anchor_ms:.0f}ms, sigma_log={spec.lognormal_sigma:g}"
+        return (
+            f"{family}, mean={spec.anchor_ms:.0f}ms, "
+            f"P50={dist.p50():.0f}ms, sigma_log={spec.lognormal_sigma:g}"
+        )
+    return f"{family}, {spec.anchor_kind}={spec.anchor_ms:.0f}ms"
 
 
 def _lognormal_mu_for_anchor(

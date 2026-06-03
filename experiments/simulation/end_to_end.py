@@ -53,6 +53,7 @@ from experiments.simulation.latency_profiles import (
 )
 from experiments.simulation.provider_profiles import load_provider_pool
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
+from rwsim.const import DEFAULT_PRIMARY_SLO_MS
 from rwsim.world.capacity import ProviderTier
 from rwsim.world.providers import TieredProvider
 from rwsim.world.scenarios import ScenarioConfig
@@ -66,11 +67,9 @@ PUBLIC_SCENARIO_TAG = "end_to_end"
 RW3_SCENARIO_NAME = "end_to_end_rw3"
 COST_TIERED_SCENARIO_NAME = "end_to_end_3sa_cost_tiers"
 RW8_SCENARIO_NAME = "end_to_end_rw8"
-OR8_1H_EFFMEAN_SCENARIO_NAME = "end_to_end_or8_1h_effmean"
 RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
-MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME = "minimax_m25_or8_1h_effmean"
 
 # Match the live real-eval setup: one Chutes quota subscription and one
 # Featherless Premium account, whose ge_70b weighted capacity admits one
@@ -81,7 +80,7 @@ DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_COUNT = 1
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
 DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
-DEFAULT_SLO_MS = 5000.0
+DEFAULT_SLO_MS = DEFAULT_PRIMARY_SLO_MS
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
 _SCENARIO_KWARGS_PRESET_KEY = "__end_to_end_scenario_kwargs__"
@@ -111,7 +110,6 @@ def list_scenarios() -> tuple[str, ...]:
         RW3_SCENARIO_NAME,
         COST_TIERED_SCENARIO_NAME,
         RW8_SCENARIO_NAME,
-        OR8_1H_EFFMEAN_SCENARIO_NAME,
     )
 
 
@@ -206,22 +204,6 @@ def make_scenario(
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
         )
-    if name == OR8_1H_EFFMEAN_SCENARIO_NAME:
-        return _with_prefix_cache_config(
-            _make_end_to_end_scenario(
-                scenario_name=name,
-                pool_name=MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME,
-                api_provider_limit=None,
-                quota_plan_id=quota_plan,
-                quota_count=quota_count,
-                concurrency_plan_id=concurrency_plan,
-                concurrency_count=concurrency_count,
-                model=model,
-                slo_ms=slo_ms,
-            ),
-            enabled=prefix_cache_enabled,
-            cached_input_price_fraction=cached_input_price_fraction,
-        )
     known = ", ".join(list_scenarios())
     raise ValueError(f"unknown end-to-end scenario {name!r}; known: {known}")
 
@@ -281,7 +263,6 @@ def make_policy_presets(
     p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
     slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
@@ -290,7 +271,6 @@ def make_policy_presets(
         include_hedging=True,
         cost_envelope=WORKLOAD_COST_ENVELOPE,
         output_predictor=output_predictor,
-        output_predictor_quantile=output_predictor_quantile,
     )
     for preset in presets.values():
         if preset.get("policy") != "RouteWisePolicy":
@@ -660,7 +640,6 @@ def _enrich_rows_with_end_to_end_metadata(
                 "explorer_enabled": bool(params.get("explorer", False)),
                 "latency_profile_mode": params.get("latency_profile_mode"),
                 "output_predictor": _predictor_name_from_params(params),
-                "output_predictor_quantile": params.get("output_predictor_quantile"),
             }
         )
         enriched.append(merged)
@@ -711,7 +690,6 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "explorer_enabled",
     "latency_profile_mode",
     "output_predictor",
-    "output_predictor_quantile",
     "seeds",
     "n_requests",
     "mean_ttft_ms",
@@ -848,15 +826,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
     parser.add_argument(
         "--output-dir",
@@ -900,7 +872,6 @@ def main(argv: list[str] | None = None) -> int:
     presets = make_policy_presets(
         p_values,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
         slo_ms=args.slo_ms,
     )
     policies = tuple(args.policy) if args.policy else policies_for_section(p_values)

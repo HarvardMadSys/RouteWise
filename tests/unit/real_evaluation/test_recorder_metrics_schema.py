@@ -12,6 +12,43 @@ from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.transports import SingleRequestResult
 
 
+def test_record_from_row_recovers_policy_hedge_identity(tmp_path) -> None:
+    """A body-only policy row must reload as disabled, not guess hedging."""
+    recorder = Recorder(tmp_path)
+    decision = RoutingDecision(primary="primary")
+    primary = SingleRequestResult(
+        ttft_ms=300.0,
+        e2e_ms=600.0,
+        status="success",
+        provider="primary",
+        billed_cost_usd=0.02,
+        physical_cost_usd=0.025,
+    )
+    recorder.write_request(
+        policy="greedy_cost",
+        req_id="r1",
+        ctx_prompt_tokens=100,
+        ctx_max_tokens=50,
+        decision=decision,
+        primary_result=primary,
+        primary_tier="api",
+        final_tier="api",
+        slo_ms=2000.0,
+        ts=100.0,
+        hedge_algorithm="disabled",
+        hedge_schedule=None,
+        ctx_model="qwen/qwen3-235b",
+    )
+
+    # Reload path must recover policy identity from the persisted row instead
+    # of guessing "probability_target" from backup presence (drift audit gap 2).
+    reloaded = recorder._record_from_row(recorder._rows[0])
+    assert reloaded.hedge_algorithm == "disabled"
+    assert reloaded.hedge_schedule is None
+    assert reloaded.model == "qwen/qwen3-235b"
+    recorder.close()
+
+
 def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
     recorder = Recorder(tmp_path)
     decision = RoutingDecision(primary="primary", hedge="backup")
@@ -60,9 +97,18 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
         hedge_checkpoint_ts=100.31,
         backup_dispatch_ts=100.32,
         ts=101.0,
+        hedge_algorithm="probability_target",
+        hedge_schedule="slo_relative_checkpoints",
+        ctx_model="qwen/qwen3-235b",
     )
     run = recorder.to_run()
     record = run.records[0]
+
+    # Policy-level routing identity is persisted on the canonical record.
+    assert record.model == "qwen/qwen3-235b"
+    assert record.hedge_algorithm == "probability_target"
+    assert record.hedge_schedule == "slo_relative_checkpoints"
+    assert record.source == "real_eval"
 
     assert record.ttft_ms == pytest.approx(470.0)
     assert record.e2e_ms == pytest.approx(650.0)
@@ -75,9 +121,9 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
     assert record.slo_violated is False
     assert run.cost_by_tier() == {"api": 0.02, "quota": 0.01}
     assert record.total_cost_usd == 0.03
-    assert record.metadata["real_physical_cost_usd"] == pytest.approx(0.037)
-    assert record.metadata["real_primary_physical_cost_usd"] == pytest.approx(0.025)
-    assert record.metadata["real_backup_physical_cost_usd"] == pytest.approx(0.012)
+    assert record.physical_cost_usd == pytest.approx(0.037)
+    assert record.primary_physical_cost_usd == pytest.approx(0.025)
+    assert record.backup_physical_cost_usd == pytest.approx(0.012)
     assert record.metadata["real_primary_cached_input_tokens"] == 30
     assert record.metadata["real_backup_cached_input_tokens"] == 20
     assert record.metadata["real_hedge_checkpoint_ts"] == pytest.approx(100.31)
@@ -92,6 +138,9 @@ def test_recorder_uses_user_visible_ttft_for_backup_winner(tmp_path) -> None:
 
     with (tmp_path / "requests.csv").open(newline="") as fh:
         csv_row = next(csv.DictReader(fh))
+    assert csv_row["model"] == "qwen/qwen3-235b"
+    assert csv_row["hedge_algorithm"] == "probability_target"
+    assert csv_row["hedge_schedule"] == "slo_relative_checkpoints"
     assert csv_row["hedge_checkpoint_ts"] == "100.310000"
     assert csv_row["primary_start_ts"] == "100.000000"
     assert csv_row["backup_dispatch_ts"] == "100.320000"

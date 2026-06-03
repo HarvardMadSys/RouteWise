@@ -37,6 +37,7 @@ from typing import Any
 import requests
 
 from experiments.real_evaluation.executor import (
+    CheckpointBackupDispatch,
     HedgedResult,
     send_checkpoint_hedged_request,
     send_request,
@@ -55,7 +56,6 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
-    hedge_checkpoints_for_slo,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
@@ -69,6 +69,7 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     build_transport,
 )
+from rwsim.core.hedging import hedge_checkpoints_for_slo
 
 DEFAULT_TIMEOUT_SEC: int = 60
 # Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.
@@ -1467,7 +1468,7 @@ class RealExperimentRunner:
         hedge_delay_sec = float("inf")
         hedge_checkpoints_sec: tuple[float, ...] = ()
         if policy.use_hedge:
-            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
+            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec * 1000.0)
 
         now = time.time()
         try:
@@ -1649,11 +1650,10 @@ class RealExperimentRunner:
         decision = prepared.decision
 
         if prepared.hedge_checkpoints_sec:
-            backup_capacity_id: int | None = None
-            backup_capacity_lock = threading.Lock()
-
-            def _checkpoint_backup(elapsed_sec: float, checkpoint_ts: float) -> str | None:
-                nonlocal backup_capacity_id
+            def _select_checkpoint_backup(
+                elapsed_sec: float,
+                checkpoint_ts: float,
+            ) -> CheckpointBackupDispatch[str] | None:
                 future_checkpoints = tuple(
                     checkpoint
                     for checkpoint in prepared.hedge_checkpoints_sec
@@ -1690,16 +1690,25 @@ class RealExperimentRunner:
                     prepared.backup_cached_input_tokens,
                     prepared.backup_routing_estimated_cost_usd,
                 ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
-                with backup_capacity_lock:
-                    backup_capacity_id = capacity_id
-                return backup
+                return CheckpointBackupDispatch(
+                    backup=backup,
+                    elapsed_sec=elapsed_sec,
+                    success_probability=checkpoint_decision.success_probability,
+                    release=(
+                        lambda provider=backup, capacity_id=capacity_id: policy.release_capacity(
+                            provider,
+                            capacity_id,
+                            time.time(),
+                        )
+                    ),
+                )
 
             try:
                 hedged = send_checkpoint_hedged_request(
                     send_fn=self._send_via_transport,
                     primary_provider=decision.primary or "",
                     hedge_checkpoints_sec=prepared.hedge_checkpoints_sec,
-                    checkpoint_fn=_checkpoint_backup,
+                    checkpoint_backup_selector=_select_checkpoint_backup,
                     prompt=prepared.prompt,
                     max_tokens=req.max_tokens,
                     timeout=self.timeout_sec,
@@ -1710,9 +1719,6 @@ class RealExperimentRunner:
                     prepared.primary_capacity_id,
                     time.time(),
                 )
-                with backup_capacity_lock:
-                    capacity_id = backup_capacity_id
-                policy.release_capacity(prepared.backup, capacity_id, time.time())
 
             if hedged.backup_provider is not None and prepared.backup is None:
                 prepared.backup = hedged.backup_provider
@@ -1970,6 +1976,8 @@ class RealExperimentRunner:
             provider="none",
             error_message=decision.notes or "no_route",
         )
+        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -1979,6 +1987,9 @@ class RealExperimentRunner:
             primary_result=sentinel,
             slo_ms=self.slo_sec * 1000.0,
             ts=ts,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_single(
@@ -2001,6 +2012,8 @@ class RealExperimentRunner:
         # logged as ``tier=quota`` even though OR_DeepInfra is an API
         # provider), which throws off downstream tier-mix analysis.
         final_spec = self._spec_by_name.get(final_provider or "") or spec
+        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
+        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -2016,6 +2029,9 @@ class RealExperimentRunner:
             else None,
             primary_cached_input_tokens=primary_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
+            hedge_algorithm=hedge_algorithm,
+            hedge_schedule=hedge_schedule,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_hedged(
@@ -2052,6 +2068,7 @@ class RealExperimentRunner:
             backup_cached_input_tokens=backup_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
+            ctx_model=self.inventory.openrouter_model_id,
         )
 
     # ------------------------------------------------------------------

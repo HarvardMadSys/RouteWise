@@ -35,18 +35,19 @@ def test_bucket_mean_uses_matching_input_length_bucket() -> None:
     )
     target = _request(10, request_tokens=128, model="different-label")
 
-    assert predictor.predict(target).q50 == pytest.approx(999.0)
+    assert predictor.predict(target).tokens == pytest.approx(999.0)
     assert not predictor.predict(target).is_warmed_up
 
     predictor.update(_request(1, request_tokens=128, response_tokens=100, model="a"))
-    assert predictor.predict(target).q50 == pytest.approx(999.0)
+    assert predictor.predict(target).tokens == pytest.approx(999.0)
 
     predictor.update(_request(2, request_tokens=128, response_tokens=140, model="b"))
     prediction = predictor.predict(target)
 
-    assert prediction.q10 == pytest.approx(120.0)
-    assert prediction.q50 == pytest.approx(120.0)
-    assert prediction.q90 == pytest.approx(120.0)
+    assert prediction.tokens == pytest.approx(120.0)
+    assert not hasattr(prediction, "q10")
+    assert not hasattr(prediction, "q50")
+    assert not hasattr(prediction, "q90")
     assert prediction.is_warmed_up
 
 
@@ -62,7 +63,7 @@ def test_bucket_mean_falls_back_to_global_mean_for_sparse_bucket() -> None:
 
     sparse_bucket_request = _request(4, request_tokens=4096)
 
-    assert predictor.predict(sparse_bucket_request).q50 == pytest.approx(60.0)
+    assert predictor.predict(sparse_bucket_request).tokens == pytest.approx(60.0)
     assert predictor.predict(sparse_bucket_request).is_warmed_up
 
 

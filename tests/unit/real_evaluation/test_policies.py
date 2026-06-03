@@ -12,15 +12,15 @@ from experiments.real_evaluation.inventory import (
     ProviderState,
 )
 from experiments.real_evaluation.policies import (
-    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     UNPROFILED_LATENCY_PENALTY_MS,
     BudgetRangeHedgePolicy,
     BudgetRangePolicy,
+    CapacityUnavailableError,
     RequestContext,
     build_policy,
-    select_safe_cheapest_backup,
+    select_checkpoint_backup,
 )
 from experiments.real_evaluation.shadow_price import (
     concurrency_shadow_price,
@@ -29,6 +29,7 @@ from experiments.real_evaluation.shadow_price import (
     workload_cost_envelope,
 )
 from experiments.real_evaluation.transports import TransportConfig
+from rwsim.core.lp import BudgetLPCandidate, solve_budget_lp
 
 
 def _api_spec(
@@ -100,6 +101,19 @@ def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
     assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
 
 
+def test_real_eval_budget_lp_keeps_small_core_epsilon_weight() -> None:
+    result = solve_budget_lp(
+        [
+            BudgetLPCandidate("main", objective=100.0, effective_cost=1.0),
+            BudgetLPCandidate("tiny", objective=0.0, effective_cost=2.0),
+        ],
+        budget=1.0 + 1e-7,
+    )
+
+    assert result.feasible
+    assert result.weights == pytest.approx({"main": 1.0 - 1e-7, "tiny": 1e-7})
+
+
 def test_budget_range_latency_objective_penalizes_error_attempts() -> None:
     fast_flaky = _api_spec("OR_fast_flaky", 1.0, 0.0)
     steady = _api_spec("OR_steady", 1.0, 0.0)
@@ -155,7 +169,7 @@ def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     assert hedged.use_hedge is True
 
 
-def test_probability_backup_does_not_fall_back_to_low_median_when_infeasible() -> None:
+def test_checkpoint_backup_does_not_fall_back_to_low_median_when_infeasible() -> None:
     primary = _api_spec("OR_Inceptron", 0.24, 0.9)
     low_median_heavy_tail = _api_spec("OR_AtlasCloud", 0.295, 1.2)
     slow_backup = _api_spec("OR_Chutes", 0.118, 0.99)
@@ -171,15 +185,16 @@ def test_probability_backup_does_not_fall_back_to_low_median_when_infeasible() -
         states["OR_AtlasCloud"].profile.add_sample(now, 1000.0)
         states["OR_AtlasCloud"].profile.add_sample(now, 6000.0)
 
-    backup = select_safe_cheapest_backup(
-        "OR_Inceptron",
-        states,
-        RequestContext(10, 8),
+    decision = select_checkpoint_backup(
+        primary="OR_Inceptron",
+        states=states,
+        ctx=RequestContext(10, 8),
         slo_sec=5.0,
         now=now,
+        elapsed_sec=1.0,
     )
 
-    assert backup is None
+    assert decision.backup is None
 
 
 def test_profile_bootstrap_requirement_is_policy_owned() -> None:
@@ -568,7 +583,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
             self._cross_violation = False
             self._race_lock = threading.Lock()
 
-        def predict(self, request):  # noqa: ANN001 - duck typed
+        def predict(self, request):
             with self._race_lock:
                 if self._in_update > 0:
                     self._cross_violation = True
@@ -583,7 +598,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
                     self._in_predict -= 1
             return QuantilePrediction(q10=10.0, q50=10.0, q90=10.0)
 
-        def update(self, request):  # noqa: ANN001 - duck typed
+        def update(self, request):
             with self._race_lock:
                 if self._in_predict > 0:
                     self._cross_violation = True

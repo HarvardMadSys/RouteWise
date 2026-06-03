@@ -34,7 +34,6 @@ version uses the empirical rolling profile.
 
 from __future__ import annotations
 
-import logging
 import math
 import random
 import threading
@@ -42,7 +41,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
-from scipy.optimize import linprog
 
 from experiments.offline_stage.value_estimators import (
     BucketMeanOutputPredictor,
@@ -61,14 +59,25 @@ from experiments.real_evaluation.shadow_price import (
     effective_cost,
     request_marginal_cost,
 )
+from rwsim.core.hedging import (
+    HEDGE_SUCCESS_TARGET,
+    BackupCandidate,
+    combined_success_probability,
+    select_probability_backup,
+)
+from rwsim.core.lp import (
+    LP_EPS,
+    BudgetLPCandidate,
+    cost_tiebroken_objective,
+    solve_budget_lp,
+)
 from rwsim.schemas import Request as _PredictionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-LP_EPS: float = 1e-9
-_COST_TIEBREAK_MS: float = 1e-3
-HEDGE_SUCCESS_TARGET: float = 0.99
+# HEDGE_SUCCESS_TARGET is re-exported above from `rwsim.core.hedging` so the
+# simulator and real-eval share one paper-level RouteWise protocol constant.
 RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
 # Penalty applied to providers with no usable profile data so the LP
@@ -78,9 +87,6 @@ BODY_MEAN_MIN_SAMPLES: int = 5
 # USD, not seconds) — that yielded ~0.1 ms and made unprofiled
 # providers look fastest.
 UNPROFILED_LATENCY_PENALTY_MS: float = 1e9
-_HEDGE_CHECKPOINT_START_FRACTION: float = 0.25
-_HEDGE_CHECKPOINT_END_FRACTION: float = 0.90
-_HEDGE_CHECKPOINT_INTERVAL_FRACTION: float = 0.025
 
 # Sentinel provider names used for OpenRouter's native routing modes. The
 # runner translates these into transport-level config when dispatching.
@@ -208,76 +214,12 @@ def _body_latency_proxy_ms(
     return float("inf"), True
 
 
-def _solve_simplex_lp(
-    objective: Sequence[float],
-    *,
-    upper_constraint: Sequence[float] | None = None,
-    upper_bound: float | None = None,
-) -> tuple[bool, np.ndarray | None]:
-    """Solve ``min c·x  s.t.  a·x <= b,  sum(x) = 1,  x >= 0``."""
-    n = len(objective)
-    if n == 0:
-        return False, None
-    A_ub = None
-    b_ub = None
-    if upper_constraint is not None and upper_bound is not None:
-        A_ub = np.array(upper_constraint, dtype=float).reshape(1, -1)
-        b_ub = np.array([upper_bound], dtype=float)
-    A_eq = np.ones((1, n), dtype=float)
-    b_eq = np.array([1.0], dtype=float)
-    bounds = [(0.0, 1.0) for _ in range(n)]
-    try:
-        result = linprog(
-            c=np.array(objective, dtype=float),
-            A_ub=A_ub,
-            b_ub=b_ub,
-            A_eq=A_eq,
-            b_eq=b_eq,
-            bounds=bounds,
-            method="highs",
-        )
-    except Exception as exc:
-        logging.warning("linprog failed: %s", exc)
-        return False, None
-    if not result.success:
-        return False, None
-    return True, np.asarray(result.x, dtype=float)
-
-
-def _cost_tiebroken_objective(
-    latency_objective_ms: Sequence[float],
-    effective_costs: Sequence[float],
-) -> list[float]:
-    """Prefer lower effective cost when LP latency objectives are equal."""
-    if len(latency_objective_ms) != len(effective_costs):
-        raise ValueError("latency objective and cost arrays must have the same length")
-    if len(latency_objective_ms) == 0:
-        return []
-
-    latencies = np.asarray(latency_objective_ms, dtype=float)
-    costs = np.asarray(effective_costs, dtype=float)
-    cost_span = float(costs.max() - costs.min())
-    if cost_span <= LP_EPS:
-        return [float(value) for value in latencies]
-
-    normalized_costs = (costs - costs.min()) / cost_span
-    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
-
-
-def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
-    raw = {names[i]: float(vector[i]) for i in range(len(names)) if vector[i] > 1e-6}
-    total = sum(raw.values())
-    if total <= 0:
-        return {}
-    return {k: v / total for k, v in raw.items()}
-
-
 # ---------------------------------------------------------------------------
 # Hedging — probability-target backup selection + latest-safe dispatch time.
 # ---------------------------------------------------------------------------
 
 
-def _combined_hedge_success_probability(
+def _profile_combined_success_probability(
     primary_state: ProviderState,
     backup_state: ProviderState,
     *,
@@ -285,143 +227,14 @@ def _combined_hedge_success_probability(
     slo_sec: float,
     now: float,
 ) -> float:
-    """Probability that hedging now keeps the request within SLO.
-
-    Mirrors ``rwsim.policies.hedging.combined_success_probability`` for the
-    real-eval ``ProviderState`` representation.
-    """
-    elapsed_ms = max(0.0, float(elapsed_sec)) * 1000.0
-    slo_ms = slo_sec * 1000.0
-    primary_cdf_t = primary_state.profile.cdf_at(elapsed_ms, now)
-    primary_cdf_slo = primary_state.profile.cdf_at(slo_ms, now)
-    primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
-    if primary_survival_t <= LP_EPS:
-        return 0.0
-
-    p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
-    p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
-    remaining_ms = (slo_sec - float(elapsed_sec)) * 1000.0
-    backup_success = 0.0 if remaining_ms <= 0.0 else backup_state.profile.cdf_at(remaining_ms, now)
-    return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
-
-
-def compute_hedge_time_sec(
-    primary_state: ProviderState,
-    backup_state: ProviderState,
-    slo_sec: float,
-    now: float,
-    *,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    grid_step_sec: float = 0.05,
-) -> float:
-    """Return the latest backup-dispatch wait time meeting target success.
-
-    Searches a uniform grid for the latest ``t`` such that
-
-        P(not violate | wait t) + P(violate | wait t) * P(backup ok in remaining)
-        >= success_target.
-
-    Returns ``math.inf`` if no ``t`` in ``[0, slo_sec]`` meets the target —
-    the runner interprets that as "do not hedge".
-
-    Empirical version of ``rwsim``'s latest-safe probability-target hedging.
-    """
-    latest_safe: float | None = None
-    max_elapsed_sec = max(0.0, slo_sec)
-    grid = np.arange(0.0, max_elapsed_sec + 1e-9, grid_step_sec)
-    if len(grid) == 0:
-        grid = np.array([0.0])
-    for elapsed_sec in grid:
-        combined = _combined_hedge_success_probability(
-            primary_state,
-            backup_state,
-            elapsed_sec=float(elapsed_sec),
-            slo_sec=slo_sec,
-            now=now,
-        )
-        if combined >= success_target:
-            latest_safe = float(elapsed_sec)
-    if latest_safe is not None:
-        return latest_safe
-    return float("inf")
-
-
-def select_safe_cheapest_backup(
-    primary: str,
-    states: dict[str, ProviderState],
-    ctx: RequestContext,
-    slo_sec: float,
-    now: float,
-    *,
-    success_target: float = HEDGE_SUCCESS_TARGET,
-    cost_fn: Callable[[ProviderState], float] | None = None,
-) -> str | None:
-    """Pick the cheapest feasible probability-target backup.
-
-    This is the real-eval adapter of simulator ``select_probability_backup``.
-    A backup is feasible only if some latest-safe dispatch time lets the
-    primary+backup pair satisfy the combined SLO success target. If no backup is
-    feasible, return ``None`` and let the runner keep the request primary-only.
-    """
-    primary_state = states.get(primary)
-    if primary_state is None:
-        return None
-
-    feasible: list[tuple[float, float, float, str, ProviderState]] = []
-    for name, state in states.items():
-        if name == primary or not state.is_available(now):
-            continue
-        hedge_delay_sec = compute_hedge_time_sec(
-            primary_state,
-            state,
-            slo_sec,
-            now,
-            success_target=success_target,
-        )
-        if not math.isfinite(hedge_delay_sec):
-            continue
-        success_probability = _combined_hedge_success_probability(
-            primary_state,
-            state,
-            elapsed_sec=hedge_delay_sec,
-            slo_sec=slo_sec,
-            now=now,
-        )
-        cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
-        mean_ms, _ = _body_latency_proxy_ms(
-            state,
-            now,
-            error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-        )
-        if not math.isfinite(mean_ms):
-            mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        feasible.append((cost, -success_probability, mean_ms, state.spec.name, state))
-    if not feasible:
-        return None
-    feasible.sort(key=lambda item: item[:-1])
-    return feasible[0][-1].spec.name
-
-
-def hedge_checkpoints_for_slo(slo_sec: float) -> tuple[float, ...]:
-    """Return RouteWise hedge checkpoints as SLO-relative elapsed seconds."""
-    slo_ms = max(0.0, float(slo_sec) * 1000.0)
-    interval_ms = slo_ms * _HEDGE_CHECKPOINT_INTERVAL_FRACTION
-    if interval_ms <= 0.0:
-        return ()
-    start_ms = _ceil_to_interval_ms(
-        slo_ms * _HEDGE_CHECKPOINT_START_FRACTION,
-        interval_ms,
+    """Adapt real-eval ProviderState profiles to the core hedging formula."""
+    return combined_success_probability(
+        lambda value_ms: primary_state.profile.cdf_at(value_ms, now),
+        lambda value_ms: backup_state.profile.cdf_at(value_ms, now),
+        elapsed_ms=max(0.0, float(elapsed_sec)) * 1000.0,
+        slo_ms=float(slo_sec) * 1000.0,
+        dispatch_overhead_ms=0.0,
     )
-    end_ms = slo_ms * _HEDGE_CHECKPOINT_END_FRACTION
-    if start_ms > end_ms + LP_EPS:
-        return ()
-
-    checkpoints_ms: list[float] = []
-    current_ms = start_ms
-    while current_ms <= end_ms + LP_EPS:
-        checkpoints_ms.append(current_ms)
-        current_ms += interval_ms
-    return tuple(ms / 1000.0 for ms in checkpoints_ms)
 
 
 def select_checkpoint_backup(
@@ -521,11 +334,11 @@ def _select_checkpoint_candidate(
     success_target: float,
     cost_fn: Callable[[ProviderState], float] | None,
 ) -> tuple[float, float, float, ProviderState] | None:
-    candidates: list[tuple[float, float, float, ProviderState]] = []
+    candidates: list[BackupCandidate[ProviderState]] = []
     for state in states.values():
         if state.spec.name == primary_state.spec.name or not state.is_available(now):
             continue
-        success_probability = _combined_hedge_success_probability(
+        success_probability = _profile_combined_success_probability(
             primary_state,
             state,
             elapsed_sec=elapsed_sec,
@@ -542,11 +355,24 @@ def _select_checkpoint_candidate(
         )
         if not math.isfinite(mean_ms):
             mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        candidates.append((cost, success_probability, mean_ms, state))
-    if not candidates:
+        candidates.append(
+            BackupCandidate(
+                provider=state,
+                success_probability=success_probability,
+                marginal_cost=cost,
+                true_mean_ms=mean_ms,
+                success_target=success_target,
+            )
+        )
+    selected = select_probability_backup(candidates)
+    if selected is None:
         return None
-    candidates.sort(key=lambda item: (item[0], -item[1], item[2], item[3].spec.name))
-    return candidates[0]
+    return (
+        selected.marginal_cost,
+        selected.success_probability,
+        selected.true_mean_ms,
+        selected.provider,
+    )
 
 
 def _checkpoint_candidate_counts(
@@ -564,7 +390,7 @@ def _checkpoint_candidate_counts(
         if state.spec.name == primary_state.spec.name or not state.is_available(now):
             continue
         candidate_count += 1
-        success_probability = _combined_hedge_success_probability(
+        success_probability = _profile_combined_success_probability(
             primary_state,
             state,
             elapsed_sec=elapsed_sec,
@@ -574,10 +400,6 @@ def _checkpoint_candidate_counts(
         if success_probability >= success_target - LP_EPS:
             feasible_count += 1
     return candidate_count, feasible_count
-
-
-def _ceil_to_interval_ms(value_ms: float, interval_ms: float) -> float:
-    return math.ceil((value_ms - LP_EPS) / interval_ms) * interval_ms
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +493,10 @@ class BasePolicy:
         )
         with self._lock:
             prediction = self.output_predictor.predict(stub)
-        return max(1, int(round(prediction.median)))
+        predicted_tokens = (
+            prediction.tokens if hasattr(prediction, "tokens") else prediction.median
+        )
+        return max(1, round(predicted_tokens))
 
     def request_cost_for_spec(self, spec: ProviderSpec, ctx: RequestContext) -> float:
         """Return route-time API cost, optionally using trace-reported cache hit."""
@@ -1249,29 +1074,33 @@ class BudgetRangePolicy(BasePolicy):
         budget = float(c_min + p * (c_max - c_min))
 
         names = [s.spec.name for s in feasible]
-        objective = _cost_tiebroken_objective(
+        objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = _solve_simplex_lp(
-            objective=objective,
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
-        )
-        if success and vector is not None:
-            weights = _normalize_weights(names, vector)
-            if weights:
-                primary = _sample_weighted(weights, rng=random.Random(int(now * 1e6)))
-                return RoutingDecision(
-                    primary=primary,
-                    lp_weights=weights,
-                    lp_status="optimal",
-                    budget_usd=float(budget),
-                    reference_cost_usd=float(c_max),
-                    c_eff_map=c_eff,
-                    tier_mix=_tier_mix_from_weights(weights, self.states),
-                    notes=self.name,
+        result = solve_budget_lp(
+            [
+                BudgetLPCandidate(
+                    name=name,
+                    objective=objective[index],
+                    effective_cost=c_eff[name],
                 )
+                for index, name in enumerate(names)
+            ],
+            budget=budget,
+        )
+        if result.feasible and result.weights:
+            primary = _sample_weighted(result.weights, rng=random.Random(int(now * 1e6)))
+            return RoutingDecision(
+                primary=primary,
+                lp_weights=result.weights,
+                lp_status="optimal",
+                budget_usd=float(budget),
+                reference_cost_usd=float(c_max),
+                c_eff_map=c_eff,
+                tier_mix=_tier_mix_from_weights(result.weights, self.states),
+                notes=self.name,
+            )
 
         return _fallback_in_budget(feasible, c_eff, budget, c_max, fallback_label="range")
 
@@ -1320,23 +1149,28 @@ class BudgetRangePolicy(BasePolicy):
         c_max = max(c_values)
         budget = float(c_min + (self.budget_percentile / 100.0) * (c_max - c_min))
         names = [state.spec.name for state in feasible]
-        objective = _cost_tiebroken_objective(
+        objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
         )
-        success, vector = _solve_simplex_lp(
-            objective=objective,
-            upper_constraint=[c_eff[name] for name in names],
-            upper_bound=budget,
+        result = solve_budget_lp(
+            [
+                BudgetLPCandidate(
+                    name=name,
+                    objective=objective[index],
+                    effective_cost=c_eff[name],
+                )
+                for index, name in enumerate(names)
+            ],
+            budget=budget,
         )
 
         lp_order: list[str] = []
-        if success and vector is not None:
-            weights = _normalize_weights(names, vector)
+        if result.feasible:
             lp_order = [
                 name
                 for name, weight in sorted(
-                    weights.items(),
+                    result.weights.items(),
                     key=lambda item: (-item[1], tbar[item[0]], c_eff[item[0]], item[0]),
                 )
                 if weight > LP_EPS
@@ -1466,7 +1300,6 @@ def build_policy(
 
 
 __all__ = [
-    "CapacityUnavailableError",
     "HEDGE_SUCCESS_TARGET",
     "OR_AUTO_SENTINEL",
     "OR_SORT_COST_SENTINEL",
@@ -1477,6 +1310,7 @@ __all__ = [
     "BasePolicy",
     "BudgetRangeHedgePolicy",
     "BudgetRangePolicy",
+    "CapacityUnavailableError",
     "CheckpointHedgeDecision",
     "ConcurrencyFirstPolicy",
     "GreedyCostPolicy",
@@ -1493,9 +1327,6 @@ __all__ = [
     "RoutingDecision",
     "TierFirstPolicy",
     "build_policy",
-    "compute_hedge_time_sec",
-    "hedge_checkpoints_for_slo",
     "request_cost_for_spec",
     "select_checkpoint_backup",
-    "select_safe_cheapest_backup",
 ]

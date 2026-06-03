@@ -12,12 +12,10 @@ import math
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from experiments.real_evaluation.transports import SingleRequestResult
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from rwsim.core import CheckpointBackupDispatch, CheckpointBackupSelector
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +99,6 @@ class SendFn(Protocol):
     ) -> SingleRequestResult: ...
 
 
-class CheckpointHedgeFn(Protocol):
-    """Callable used to decide whether to dispatch a backup at a checkpoint."""
-
-    def __call__(self, elapsed_sec: float, checkpoint_ts: float) -> str | None: ...
-
-
 @dataclass
 class HedgedResult:
     """Outcome of a hedged dispatch.
@@ -159,7 +151,7 @@ def send_checkpoint_hedged_request(
     send_fn: SendFn,
     primary_provider: str,
     hedge_checkpoints_sec: tuple[float, ...],
-    checkpoint_fn: CheckpointHedgeFn,
+    checkpoint_backup_selector: CheckpointBackupSelector[str],
     prompt: str,
     max_tokens: int,
     timeout: int = 60,
@@ -168,7 +160,7 @@ def send_checkpoint_hedged_request(
 ) -> HedgedResult:
     """Dispatch a primary and evaluate hedge decisions at SLO checkpoints.
 
-    The caller supplies the RouteWise checkpoint schedule and a callback that
+    The caller supplies the RouteWise checkpoint schedule and a selector that
     re-evaluates the probability target using current state to pick a backup
     on the fly.
     """
@@ -214,16 +206,20 @@ def send_checkpoint_hedged_request(
             cancel_event=primary_cancel,
         )
 
-    def run_backup(provider: str) -> None:
-        backup_holder["r"] = send_fn(
-            provider=provider,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            ttft_event=backup_ttft,
-            ttft_info=backup_ttft_info,
-            cancel_event=backup_cancel,
-        )
+    def run_backup(dispatch: CheckpointBackupDispatch[str]) -> None:
+        try:
+            backup_holder["r"] = send_fn(
+                provider=dispatch.backup,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                ttft_event=backup_ttft,
+                ttft_info=backup_ttft_info,
+                cancel_event=backup_cancel,
+            )
+        finally:
+            if dispatch.release is not None:
+                dispatch.release()
 
     primary_thread = threading.Thread(target=run_primary, daemon=True)
     schedule_start_ts = time.time()
@@ -233,6 +229,7 @@ def send_checkpoint_hedged_request(
     hedge_delay_sec: float | None = None
     hedge_checkpoint_ts: float | None = None
     backup_dispatch_ts: float | None = None
+    backup_dispatch: CheckpointBackupDispatch[str] | None = None
     backup_provider: str | None = None
     backup_thread: threading.Thread | None = None
     monitor_thread: threading.Thread | None = None
@@ -252,21 +249,21 @@ def send_checkpoint_hedged_request(
 
         checkpoint_ts = time.time()
         try:
-            selected_backup = checkpoint_fn(checkpoint_sec, checkpoint_ts)
+            backup_dispatch = checkpoint_backup_selector(checkpoint_sec, checkpoint_ts)
         except Exception:
-            logger.warning("checkpoint hedge callback raised", exc_info=True)
-            selected_backup = None
-        if selected_backup is None:
+            logger.warning("checkpoint backup selector raised", exc_info=True)
+            backup_dispatch = None
+        if backup_dispatch is None:
             continue
 
         hedge_triggered = True
-        hedge_delay_sec = checkpoint_sec
+        hedge_delay_sec = backup_dispatch.elapsed_sec
         hedge_checkpoint_ts = checkpoint_ts
-        backup_provider = selected_backup
+        backup_provider = backup_dispatch.backup
         backup_dispatch_ts = time.time()
         backup_thread = threading.Thread(
             target=run_backup,
-            args=(selected_backup,),
+            args=(backup_dispatch,),
             daemon=True,
         )
         backup_thread.start()
@@ -334,7 +331,8 @@ def send_checkpoint_hedged_request(
 
 
 __all__ = [
-    "CheckpointHedgeFn",
+    "CheckpointBackupDispatch",
+    "CheckpointBackupSelector",
     "HedgedResult",
     "SendFn",
     "send_checkpoint_hedged_request",

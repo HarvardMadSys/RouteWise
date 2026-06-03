@@ -6,8 +6,7 @@ have a *target Q10-Q90 band coverage* on the (fast, medium) anchor pair:
     coverage(d_a -> d_b) = |B(d_a) ∩ B(d_b)| / |B(d_a)|
 
 where B(d) = [q10(d), q90(d)] is the central 80% latency band of distribution d.
-This is *asymmetric* (anchored on d_a's band length), as decided in the §2.1
-design discussion (Slack 2026-05-07).
+This is *asymmetric* and anchored on d_a's band length.
 
 Construction (per parametric family, all three providers share one shape ratio
 or one log-space sigma so the family stays self-similar). Synthetic tiers are
