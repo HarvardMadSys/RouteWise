@@ -142,6 +142,7 @@ python tests/golden_capture.py --mode compare
 
 ## Documentation
 
+- `docs/CORE_API.md`: lightweight `routewise.core` library API and integration guide
 - `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
 - `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results
