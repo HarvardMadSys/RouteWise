@@ -35,7 +35,7 @@ class HedgingAblationPolicy(RouteWisePolicy):
     backup_selection: BackupSelection = "probability"
     _backup_rng: np.random.Generator = field(init=False, repr=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, p: float | None = None) -> None:
         if self.dispatch_timing not in DISPATCH_TIMINGS:
             known = ", ".join(DISPATCH_TIMINGS)
             raise ValueError(
@@ -52,7 +52,7 @@ class HedgingAblationPolicy(RouteWisePolicy):
             )
         if self.explorer:
             raise ValueError("HedgingAblationPolicy keeps explorer disabled")
-        super().__post_init__()
+        super().__post_init__(p)
         self._backup_rng = np.random.default_rng(
             int(self.seed) + _BACKUP_RNG_SEED_OFFSET
         )

@@ -25,11 +25,11 @@ def test_latency_layer_scenarios_match_section_contract():
     )
 
 
-def test_latency_layer_policy_set_has_single_routewise_p_value():
+def test_latency_layer_policy_set_has_single_routewise_alpha_value():
     assert latency_layer.policies_for_section() == (
         "random",
         "greedy_latency",
-        "ablation_lp_only_p75",
+        "ablation_lp_only_alpha75",
     )
 
 

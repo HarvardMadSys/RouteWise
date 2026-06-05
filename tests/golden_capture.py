@@ -290,7 +290,7 @@ def _capture_cost_layer_family(repo_root: Path) -> dict[str, Any]:
     )
 
     policy_names = list(policies_for_section(P_SWEEP))
-    presets = make_routewise_presets(p_values=P_SWEEP, include_hedging=False)
+    presets = make_routewise_presets(alpha_values=P_SWEEP, include_hedging=False)
     requests = load_workload(
         dataset="burstgpt",
         max_requests=COST_LAYER_GOLDEN_MAX_REQUESTS,

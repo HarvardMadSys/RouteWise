@@ -53,7 +53,7 @@ def _make_routewise_lp(
     base_costs = np.sort(rng.uniform(0.5e-6, 5e-6, size=n_providers))
     # Latency objectives near 300 ms with realistic spread.
     latencies = rng.uniform(150.0, 600.0, size=n_providers)
-    # p sweep value — pick uniformly to cover the full sweep.
+    # alpha sweep value — pick uniformly to cover the full sweep.
     p_value = float(rng.choice([0.0, 0.25, 0.5, 0.75, 1.0]))
     c_min = float(base_costs.min())
     c_max = float(base_costs.max())

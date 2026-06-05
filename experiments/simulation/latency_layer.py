@@ -10,7 +10,7 @@ Scenario grid: 3 synthetic families x 2 overlap labels, plus one RW3
 real-world scenario = 7 scenarios.
 
 Policies: random, greedy_latency, plus one LP-only RouteWise setting at the
-section default p=0.75. No hedging in §2.1; that lives in §2.2
+section default alpha=0.75. No hedging in §2.1; that lives in §2.2
 (``hedging.py``).
 
 Outputs:
@@ -70,7 +70,7 @@ LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS: float = 5.0
 # Public scenario tag used by metadata / csv groupings.
 PUBLIC_SCENARIO_TAG: str = "latency_layer"
 REAL_WORLD_SCENARIO_NAME: str = "latency_layer_real_world"
-DEFAULT_ROUTEWISE_P: float = 0.75
+DEFAULT_ROUTEWISE_ALPHA: float = 0.75
 
 
 def _scenario_name(family: str, overlap_label: str | None = None) -> str:
@@ -195,12 +195,12 @@ def _make_latency_layer_scenario(
     )
 
 
-def policies_for_section(p_value: float = DEFAULT_ROUTEWISE_P) -> tuple[str, ...]:
+def policies_for_section(alpha_value: float = DEFAULT_ROUTEWISE_ALPHA) -> tuple[str, ...]:
     """Return policies relevant to §2.1 (no hedging, no offline oracle)."""
     return (
         "random",
         "greedy_latency",
-        routewise_lp_policy_name(p_value),
+        routewise_lp_policy_name(alpha_value),
     )
 
 
@@ -379,11 +379,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
-        default=DEFAULT_ROUTEWISE_P,
-        dest="p_value",
-        help=f"Single RouteWise p value for LP-only policy. Defaults to {DEFAULT_ROUTEWISE_P}.",
+        default=DEFAULT_ROUTEWISE_ALPHA,
+        dest="alpha_value",
+        help=f"Single RouteWise alpha value for LP-only policy. Defaults to {DEFAULT_ROUTEWISE_ALPHA}.",
     )
     parser.add_argument(
         "--workload",
@@ -424,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_values = (float(args.p_value),)
+    alpha_values = (float(args.alpha_value),)
 
     selected_scenarios = _select_scenarios(
         explicit_scenarios=tuple(args.scenario) if args.scenario else None,
@@ -434,11 +435,11 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = {name: make_scenario(name) for name in selected_scenarios}
 
     presets = make_routewise_presets(
-        p_values=p_values,
+        alpha_values=alpha_values,
         include_hedging=False,
         output_predictor=args.predictor,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(args.p_value)
+    policies = tuple(args.policy) if args.policy else policies_for_section(args.alpha_value)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))

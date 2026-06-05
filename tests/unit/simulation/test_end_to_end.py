@@ -185,18 +185,18 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
         "greedy_cost",
         "greedy_latency",
         "random",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p75",
-        "ablation_lp_hedging_p0",
-        "ablation_lp_hedging_p75",
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_hedging_alpha0",
+        "ablation_lp_hedging_alpha75",
     )
-    assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
-    assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_only_p75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
-    assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(
+    assert presets["ablation_lp_only_alpha75"]["params"]["hedging"] is False
+    assert presets["ablation_lp_only_alpha75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_only_alpha75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["hedging"] == "probability_target"
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["slo_ms"] == pytest.approx(
         DEFAULT_PRIMARY_SLO_MS
     )
 
@@ -213,9 +213,9 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
             "--p",
             "0.75",
             "--policy",
-            "ablation_lp_only_p75",
+            "ablation_lp_only_alpha75",
             "--policy",
-            "ablation_lp_hedging_p75",
+            "ablation_lp_hedging_alpha75",
             "--seed",
             "42",
             "--max-requests",
@@ -230,21 +230,21 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [
-        "ablation_lp_only_p75",
-        "ablation_lp_hedging_p75",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_hedging_alpha75",
     ]
 
     baseline, hedging_row = rows
     assert baseline["real_world_pool"] == "rw3"
     assert baseline["api_provider_count"] == 1
-    assert baseline["routewise_p"] == 0.75
+    assert baseline["routewise_alpha"] == 0.75
     assert baseline["hedging_enabled"] is False
     assert baseline["explorer_enabled"] is False
     assert baseline["latency_profile_mode"] == "configured"
     assert baseline["prefix_cache_enabled"] is True
     assert baseline["cached_input_price_fraction"] == 0.2
     assert "simulated_429_rate" not in baseline
-    assert hedging_row["routewise_p"] == 0.75
+    assert hedging_row["routewise_alpha"] == 0.75
     assert hedging_row["hedging_enabled"] is True
     assert hedging_row["explorer_enabled"] is False
     assert hedging_row["slo_ms"] == DEFAULT_PRIMARY_SLO_MS
@@ -252,9 +252,9 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
     assert len(csv_rows) == 2
-    assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
+    assert csv_rows[1]["policy"] == "ablation_lp_hedging_alpha75"
     assert csv_rows[1]["real_world_pool"] == "rw3"
-    assert csv_rows[1]["routewise_p"] == "0.75"
+    assert csv_rows[1]["routewise_alpha"] == "0.75"
     assert csv_rows[1]["hedging_enabled"] == "True"
     assert csv_rows[1]["prefix_cache_enabled"] == "True"
     assert csv_rows[1]["cached_input_price_fraction"] == "0.2"

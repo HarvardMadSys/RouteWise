@@ -27,18 +27,18 @@ from plots.style import apply_style
 
 POLICY_ORDER = (
     "offline",
-    "ablation_lp_only_p0",
+    "ablation_lp_only_alpha0",
     "greedy_cost",
-    "ablation_lp_only_p25",
-    "ablation_lp_only_p50",
-    "ablation_lp_only_p75",
-    "ablation_lp_only_p100",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_only_alpha75",
+    "ablation_lp_only_alpha100",
     "random",
 )
 
 MAIN_POLICIES = (
     "offline",
-    "ablation_lp_only_p0",
+    "ablation_lp_only_alpha0",
     "greedy_cost",
     "random",
 )
@@ -46,42 +46,42 @@ MAIN_POLICIES = (
 MARGINAL_POLICIES = (
     "offline",
     "greedy_cost",
-    "ablation_lp_only_p0",
+    "ablation_lp_only_alpha0",
 )
 
 ROUTEWISE_P_POLICIES = (
-    "ablation_lp_only_p0",
-    "ablation_lp_only_p25",
-    "ablation_lp_only_p50",
-    "ablation_lp_only_p75",
-    "ablation_lp_only_p100",
+    "ablation_lp_only_alpha0",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_only_alpha75",
+    "ablation_lp_only_alpha100",
 )
 
 POLICY_LABELS = {
     "offline": "Offline",
-    "ablation_lp_only_p0": "RW p=0",
-    "ablation_lp_only_p25": "RW p=.25",
-    "ablation_lp_only_p50": "RW p=.50",
-    "ablation_lp_only_p75": "RW p=.75",
-    "ablation_lp_only_p100": "RW p=1",
+    "ablation_lp_only_alpha0": "RW alpha=0",
+    "ablation_lp_only_alpha25": "RW alpha=.25",
+    "ablation_lp_only_alpha50": "RW alpha=.50",
+    "ablation_lp_only_alpha75": "RW alpha=.75",
+    "ablation_lp_only_alpha100": "RW alpha=1",
     "greedy_cost": "Greedy",
     "random": "Random",
 }
 
 POLICY_COLORS = {
     "offline": "#555555",
-    "ablation_lp_only_p0": "#9467bd",
-    "ablation_lp_only_p25": "#8c6bb1",
-    "ablation_lp_only_p50": "#6a51a3",
-    "ablation_lp_only_p75": "#54278f",
-    "ablation_lp_only_p100": "#3f007d",
+    "ablation_lp_only_alpha0": "#9467bd",
+    "ablation_lp_only_alpha25": "#8c6bb1",
+    "ablation_lp_only_alpha50": "#6a51a3",
+    "ablation_lp_only_alpha75": "#54278f",
+    "ablation_lp_only_alpha100": "#3f007d",
     "greedy_cost": "#1f77b4",
     "random": "#7f8c8d",
 }
 
 POLICY_LINESTYLES = {
     "offline": "-",
-    "ablation_lp_only_p0": "-.",
+    "ablation_lp_only_alpha0": "-.",
     "greedy_cost": "-",
     "random": "--",
 }
@@ -270,7 +270,7 @@ def plot_total_cost_all_policies(
     *,
     plan: str,
 ) -> None:
-    """Plot every policy so the p-dependent q* shift is visible."""
+    """Plot every policy so the alpha-dependent q* shift is visible."""
     fig, ax = plt.subplots(figsize=(4.25, 2.4))
     all_counts = sorted({_int(row, "subscription_count") for row in rows})
     for policy in _available_policies(rows):
@@ -404,8 +404,8 @@ def plot_p0_cost_decomposition(
     *,
     plan: str,
 ) -> None:
-    """Plot RW p=0 API spillover cost versus fixed subscription cost."""
-    policy_rows = _policy_rows(rows, "ablation_lp_only_p0", plan=plan)
+    """Plot RW alpha=0 API spillover cost versus fixed subscription cost."""
+    policy_rows = _policy_rows(rows, "ablation_lp_only_alpha0", plan=plan)
     if not policy_rows:
         return
 
@@ -429,7 +429,7 @@ def plot_p0_cost_decomposition(
     ax.plot(
         counts,
         total_cost,
-        color=POLICY_COLORS["ablation_lp_only_p0"],
+        color=POLICY_COLORS["ablation_lp_only_alpha0"],
         marker="o",
         label="Total",
     )
@@ -438,7 +438,7 @@ def plot_p0_cost_decomposition(
         [_float(best, "total_cost_usd_per_run")],
         s=50,
         facecolor="white",
-        edgecolor=POLICY_COLORS["ablation_lp_only_p0"],
+        edgecolor=POLICY_COLORS["ablation_lp_only_alpha0"],
         linewidth=1.3,
         zorder=5,
     )
@@ -452,7 +452,7 @@ def plot_p0_cost_decomposition(
     all_counts = sorted({_int(row, "subscription_count") for row in rows})
     ax.set_xlabel("Subscriptions (q)")
     ax.set_ylabel("Cost ($)")
-    ax.set_title("RW p=0 balances API spillover and fixed fee")
+    ax.set_title("RW alpha=0 balances API spillover and fixed fee")
     _set_q_ticks(ax, all_counts)
     ax.grid(True, alpha=0.22)
     ax.legend(frameon=False, loc="upper center", ncols=3, bbox_to_anchor=(0.5, 1.20))
@@ -602,18 +602,18 @@ def plot_distribution_main(
     plt.close(fig)
 
 
-def plot_distribution_routewise_p(
+def plot_distribution_routewise_alpha(
     rows: list[dict[str, str]],
     output_dir: Path,
     *,
     plan: str,
 ) -> None:
-    """Plot distribution robustness for the RouteWise p-sweep policies."""
+    """Plot distribution robustness for the RouteWise alpha-sweep policies."""
     mapping = _distribution_rows_by_family_policy(rows)
     families = [
         family
         for family in LATENCY_FAMILY_ORDER
-        if (family, "ablation_lp_only_p0") in mapping
+        if (family, "ablation_lp_only_alpha0") in mapping
     ]
     fig, ax = plt.subplots(figsize=(3.9, 2.2))
     x = np.arange(len(families))
@@ -641,7 +641,7 @@ def plot_distribution_routewise_p(
     save_figure(
         fig,
         output_dir,
-        f"cost_layer_quota_{plan}_q{q}_distribution_total_cost_routewise_p",
+        f"cost_layer_quota_{plan}_q{q}_distribution_total_cost_routewise_alpha",
         formats=["pdf"],
     )
     plt.close(fig)
@@ -721,7 +721,7 @@ def make_quota_plots(
         ]
         if distribution_rows:
             plot_distribution_main(distribution_rows, output_dir, plan=plan)
-            plot_distribution_routewise_p(distribution_rows, output_dir, plan=plan)
+            plot_distribution_routewise_alpha(distribution_rows, output_dir, plan=plan)
             write_distribution_table(distribution_rows, output_dir, plan=plan)
 
 

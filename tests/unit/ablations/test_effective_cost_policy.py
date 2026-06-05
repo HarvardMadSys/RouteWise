@@ -248,7 +248,7 @@ def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatc
     assert decision.metadata["weights"] == {"api_cheap": 1.0}
 
 
-def test_p_changes_weights_after_latency_profile_observations() -> None:
+def test_alpha_changes_weights_after_latency_profile_observations() -> None:
     providers = [
         make_api_provider(
             "api_cheap",
@@ -265,11 +265,11 @@ def test_p_changes_weights_after_latency_profile_observations() -> None:
     request = _request()
     cost_envelope = (0.0001, 0.001)
 
-    def policy_with_profile(p: float) -> LPOnlyAblationPolicy:
+    def policy_with_profile(alpha: float) -> LPOnlyAblationPolicy:
         policy = LPOnlyAblationPolicy(
             quota_curve="exp_lu",
             concurrency_curve="util_linear_u",
-            p=p,
+            alpha=alpha,
             cost_envelope=cost_envelope,
             seed=7,
         )
@@ -319,12 +319,12 @@ def test_ablation_uses_optimized_rolling_latency_profile_semantics() -> None:
     assert profile.mean(13.0) == pytest.approx(650.0)
 
 
-@pytest.mark.parametrize("p", [-0.1, 1.1])
-def test_rejects_invalid_p(p: float) -> None:
-    with pytest.raises(ValueError, match="p must be in \\[0, 1\\]"):
+@pytest.mark.parametrize("alpha", [-0.1, 1.1])
+def test_rejects_invalid_alpha(alpha: float) -> None:
+    with pytest.raises(ValueError, match="alpha must be in \\[0, 1\\]"):
         LPOnlyAblationPolicy(
             quota_curve="exp_lu",
             concurrency_curve="util_linear_u",
-            p=p,
+            alpha=alpha,
             cost_envelope=(1.0, 2.0),
         )

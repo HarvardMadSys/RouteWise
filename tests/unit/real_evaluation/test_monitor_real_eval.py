@@ -106,7 +106,7 @@ def test_collect_policy_counts_hedge_backup_quota_even_when_primary_wins(
     tmp_path,
 ) -> None:
     monitor = _load_monitor_module()
-    policy_dir = tmp_path / "budget_range_p75_hedge"
+    policy_dir = tmp_path / "budget_range_alpha75_hedge"
     policy_dir.mkdir()
     with (policy_dir / "requests.csv").open("w", newline="", encoding="utf-8") as f:
         fieldnames = [

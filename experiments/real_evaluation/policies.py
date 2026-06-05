@@ -24,8 +24,8 @@ Policy taxonomy:
   - ``QuotaFirstPolicy`` / ``ConcurrencyFirstPolicy`` : tier-priority heuristics
 
 * **Current paper line** (``LP-TTFT-budget`` + ``Hedge-ProbTarget``):
-  - ``BudgetRangeHedgePolicy(p)`` : range-normalized cost budget ``B_p =
-    c_min + p (c_max - c_min)``, probability-target hedge
+  - ``BudgetRangeHedgePolicy(alpha)`` : range-normalized cost budget
+    ``B_alpha = (1 - alpha) c_min + alpha c_max``, probability-target hedge
 
 The ``BudgetRange*`` selector is a hand-port from the retired simulator-grid
 range-budget selector. The simulator version was distribution-aware; this real
@@ -1010,8 +1010,8 @@ class ConcurrencyFirstPolicy(TierFirstPolicy):
 class BudgetRangePolicy(BasePolicy):
     """``LP-RangeBudget`` body router (current paper main method).
 
-    Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_p``
-    where ``B_p = c_min + (p/100) * (c_max - c_min)``.
+    Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_alpha``
+    where ``B_alpha = (1 - alpha) c_min + alpha c_max``.
 
     Hand-ported from the retired simulator-grid range-budget selector. The
     simulator version read distributional means from provider distributions;
@@ -1027,7 +1027,8 @@ class BudgetRangePolicy(BasePolicy):
         specs: list[ProviderSpec],
         slo_ms: float,
         profile_window_sec: float = PROFILE_WINDOW_SEC,
-        budget_percentile: int = 100,
+        budget_alpha_percent: int = 100,
+        budget_percentile: int | None = None,
         prefix_cache_routing: bool = False,
         output_predictor: OutputTokenPredictor | None = None,
     ) -> None:
@@ -1038,10 +1039,15 @@ class BudgetRangePolicy(BasePolicy):
             prefix_cache_routing=prefix_cache_routing,
             output_predictor=output_predictor,
         )
-        if not 0 <= budget_percentile <= 100:
-            raise ValueError(f"budget_percentile must be in [0, 100]; got {budget_percentile}")
-        self.budget_percentile = int(budget_percentile)
-        self.name = f"budget_range_p{self.budget_percentile}{self.name_suffix}"
+        if budget_percentile is not None:
+            budget_alpha_percent = budget_percentile
+        if not 0 <= budget_alpha_percent <= 100:
+            raise ValueError(
+                f"budget_alpha_percent must be in [0, 100]; got {budget_alpha_percent}"
+            )
+        self.budget_alpha_percent = int(budget_alpha_percent)
+        self.budget_percentile = self.budget_alpha_percent
+        self.name = f"budget_range_alpha{self.budget_alpha_percent}{self.name_suffix}"
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         feasible = [s for s in self.states.values() if s.is_available(now)]
@@ -1066,12 +1072,12 @@ class BudgetRangePolicy(BasePolicy):
                 mean_ms = UNPROFILED_LATENCY_PENALTY_MS
             tbar[s.spec.name] = mean_ms
 
-        # Range budget: B_p = c_min + p (c_max - c_min).
+        # Range budget: B_alpha = (1 - alpha) c_min + alpha c_max.
         c_values = list(c_eff.values())
         c_min = min(c_values)
         c_max = max(c_values)
-        p = self.budget_percentile / 100.0
-        budget = float(c_min + p * (c_max - c_min))
+        alpha = self.budget_alpha_percent / 100.0
+        budget = float((1.0 - alpha) * c_min + alpha * c_max)
 
         names = [s.spec.name for s in feasible]
         objective = cost_tiebroken_objective(
@@ -1147,7 +1153,8 @@ class BudgetRangePolicy(BasePolicy):
         c_values = list(c_eff.values())
         c_min = min(c_values)
         c_max = max(c_values)
-        budget = float(c_min + (self.budget_percentile / 100.0) * (c_max - c_min))
+        alpha = self.budget_alpha_percent / 100.0
+        budget = float((1.0 - alpha) * c_min + alpha * c_max)
         names = [state.spec.name for state in feasible]
         objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
@@ -1250,8 +1257,8 @@ def build_policy(
       * Baselines: ``or_auto``, ``or_sort_latency``, ``or_sort_cost``,
         ``greedy_cost``, ``greedy_latency``, ``random``, ``quota_first``,
         ``concurrency_first``
-      * Paper line: ``budget_range_p<PP>`` and
-        ``budget_range_p<PP>_hedge`` (PP in ``[0, 100]``)
+      * Paper line: ``budget_range_alpha<PP>`` and
+        ``budget_range_alpha<PP>_hedge`` (PP in ``[0, 100]``)
     """
     common = {
         "specs": specs,
@@ -1283,18 +1290,30 @@ def build_policy(
     if name == "concurrency_first":
         return ConcurrencyFirstPolicy(**common)
 
+    if name.startswith("budget_range_alpha") and name.endswith("_hedge"):
+        try:
+            alpha = int(name[len("budget_range_alpha") : -len("_hedge")])
+        except ValueError as exc:
+            raise ValueError(f"Bad budget_range name: {name!r}") from exc
+        return BudgetRangeHedgePolicy(**common, budget_alpha_percent=alpha)
+    if name.startswith("budget_range_alpha"):
+        try:
+            alpha = int(name[len("budget_range_alpha") :])
+        except ValueError as exc:
+            raise ValueError(f"Bad budget_range name: {name!r}") from exc
+        return BudgetRangePolicy(**common, budget_alpha_percent=alpha)
     if name.startswith("budget_range_p") and name.endswith("_hedge"):
         try:
-            p = int(name[len("budget_range_p") : -len("_hedge")])
+            alpha = int(name[len("budget_range_p") : -len("_hedge")])
         except ValueError as exc:
             raise ValueError(f"Bad budget_range name: {name!r}") from exc
-        return BudgetRangeHedgePolicy(**common, budget_percentile=p)
+        return BudgetRangeHedgePolicy(**common, budget_alpha_percent=alpha)
     if name.startswith("budget_range_p"):
         try:
-            p = int(name[len("budget_range_p") :])
+            alpha = int(name[len("budget_range_p") :])
         except ValueError as exc:
             raise ValueError(f"Bad budget_range name: {name!r}") from exc
-        return BudgetRangePolicy(**common, budget_percentile=p)
+        return BudgetRangePolicy(**common, budget_alpha_percent=alpha)
 
     raise ValueError(f"Unknown policy name: {name!r}")
 

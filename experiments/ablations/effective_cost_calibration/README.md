@@ -52,7 +52,7 @@ quota plan:        chutes
 subscription count q*: 16
 latency family:    heavy_tail
 curve shape:       exp_lu
-LP p value:        0.5
+LP alpha value:    0.5
 seed:              42
 ```
 
@@ -335,4 +335,3 @@ code.
 If `provider_mix` contains `api_mid` or `api_expensive`, the run is not the
 clean calibration surface and should not be used for the main paper-facing
 claim.
-

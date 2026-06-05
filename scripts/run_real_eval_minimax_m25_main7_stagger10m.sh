@@ -18,7 +18,7 @@ cd "$ROOT"
 : "${INVENTORY:=experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_true24h.json}"
 : "${OUTPUT_BASE:=outputs/real_eval/real_eval_minimax_m25_burstgpt_true24h_main7_stagger10m_${RUN_ID}}"
 
-: "${POLICY_LIST:=budget_range_p75_hedge budget_range_p75 greedy_latency or_sort_latency or_auto or_sort_cost greedy_cost}"
+: "${POLICY_LIST:=budget_range_alpha75_hedge budget_range_alpha75 greedy_latency or_sort_latency or_auto or_sort_cost greedy_cost}"
 : "${STAGGER_SEC:=600}"
 : "${STAGGER_ALL_POLICIES:=1}"
 

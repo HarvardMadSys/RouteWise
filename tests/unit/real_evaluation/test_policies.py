@@ -155,17 +155,17 @@ def test_greedy_latency_penalizes_error_attempts() -> None:
 
 def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     """Real eval should expose the same first two simulator layers:
-    LP-only ``budget_range_p*`` and LP+hedge ``budget_range_p*_hedge``."""
+    LP-only ``budget_range_alpha*`` and LP+hedge ``budget_range_alpha*_hedge``."""
     specs = [_api_spec("OR_x", 0.3, 1.2)]
 
-    lp_only = build_policy("budget_range_p75", specs=specs, slo_ms=2000.0)
-    hedged = build_policy("budget_range_p75_hedge", specs=specs, slo_ms=2000.0)
+    lp_only = build_policy("budget_range_alpha75", specs=specs, slo_ms=2000.0)
+    hedged = build_policy("budget_range_alpha75_hedge", specs=specs, slo_ms=2000.0)
 
     assert isinstance(lp_only, BudgetRangePolicy)
-    assert lp_only.name == "budget_range_p75"
+    assert lp_only.name == "budget_range_alpha75"
     assert lp_only.use_hedge is False
     assert isinstance(hedged, BudgetRangeHedgePolicy)
-    assert hedged.name == "budget_range_p75_hedge"
+    assert hedged.name == "budget_range_alpha75_hedge"
     assert hedged.use_hedge is True
 
 
@@ -201,8 +201,8 @@ def test_profile_bootstrap_requirement_is_policy_owned() -> None:
     specs = [_api_spec("OR_x", 0.3, 1.2)]
 
     needs_profile = [
-        "budget_range_p75",
-        "budget_range_p75_hedge",
+        "budget_range_alpha75",
+        "budget_range_alpha75_hedge",
         "greedy_latency",
         "or_greedy_latency",
         "quota_first",

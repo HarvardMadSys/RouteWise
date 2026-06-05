@@ -38,7 +38,7 @@ def test_repeated_qstar_expands_one_scenario_per_q() -> None:
     q_values = (2, 4, 8, 12, 16)
 
     scenarios = harness.make_scenarios(qstar=q_values)
-    presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, p_values=(0.0,))
+    presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, alpha_values=(0.0,))
 
     assert tuple(scenarios) == tuple(f"quota__plan=chutes__n={value}" for value in q_values)
     assert len(scenarios) * len(presets) * 1 == 20
@@ -53,7 +53,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     )
     presets = make_concurrency_ablation_presets(
         concurrency_curves=DEFAULT_CONCURRENCY_CURVES,
-        p_values=(0.0,),
+        alpha_values=(0.0,),
     )
 
     assert tuple(scenarios) == tuple(
@@ -223,8 +223,8 @@ def test_policies_for_phase_b_default_concurrency_curve_grid() -> None:
 
 
 def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None:
-    presets = make_ablation_presets(curves=("exp_lu",), p_values=(0.5,))
-    preset = presets["effective_cost__q=exp_lu__c=constant_l__p50"]
+    presets = make_ablation_presets(curves=("exp_lu",), alpha_values=(0.5,))
+    preset = presets["effective_cost__q=exp_lu__c=constant_l__alpha50"]
 
     assert preset["policy"] == "LPOnlyAblationPolicy"
     assert preset["params"]["cost_envelope"] == common.WORKLOAD_COST_ENVELOPE
@@ -233,12 +233,12 @@ def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None
 def test_phase_b_presets_sweep_concurrency_curve_only() -> None:
     presets = make_concurrency_ablation_presets(
         concurrency_curves=("util_linear_u", "exp_lu"),
-        p_values=(0.0,),
+        alpha_values=(0.0,),
     )
 
     assert tuple(presets) == (
-        "effective_cost__q=exp_lu__c=util_linear_u__p0",
-        "effective_cost__q=exp_lu__c=exp_lu__p0",
+        "effective_cost__q=exp_lu__c=util_linear_u__alpha0",
+        "effective_cost__q=exp_lu__c=exp_lu__alpha0",
     )
     for preset in presets.values():
         assert preset["policy"] == "LPOnlyAblationPolicy"

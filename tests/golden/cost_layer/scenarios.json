@@ -2,16 +2,16 @@
   "family": "cost_layer",
   "golden_scope": "smoke",
   "max_requests": 32,
-  "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+  "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
   "policy_order": [
     "greedy_cost",
     "random",
     "offline",
-    "ablation_lp_only_p0",
-    "ablation_lp_only_p25",
-    "ablation_lp_only_p50",
-    "ablation_lp_only_p75",
-    "ablation_lp_only_p100"
+    "ablation_lp_only_alpha0",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_only_alpha75",
+    "ablation_lp_only_alpha100"
   ],
   "scenarios": {
     "concurrency__plan=featherless_premium__n=1__model=sharegpt": {
@@ -21,7 +21,7 @@
       "n_requests": 2000,
       "name": "concurrency__plan=featherless_premium__n=1__model=sharegpt",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 6.704166666666668e-05,
@@ -130,7 +130,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014496458333333332,
@@ -245,7 +245,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0007701041666666668,
@@ -357,7 +357,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0011611145833333332,
@@ -472,7 +472,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0011611145833333332,
@@ -920,16 +920,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -1003,7 +1003,7 @@
       "n_requests": 2000,
       "name": "concurrency__plan=featherless_premium__n=2__model=sharegpt",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -1104,7 +1104,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -1217,7 +1217,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0005605312499999999,
@@ -1327,7 +1327,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -1440,7 +1440,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -1870,16 +1870,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -1953,7 +1953,7 @@
       "n_requests": 2000,
       "name": "concurrency__plan=featherless_premium__n=3__model=sharegpt",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -2054,7 +2054,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -2167,7 +2167,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0005605312499999999,
@@ -2277,7 +2277,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -2390,7 +2390,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -2820,16 +2820,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -2903,7 +2903,7 @@
       "n_requests": 2000,
       "name": "concurrency__plan=featherless_premium__n=4__model=sharegpt",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -3004,7 +3004,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -3117,7 +3117,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0005605312499999999,
@@ -3227,7 +3227,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -3340,7 +3340,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0014126145833333332,
@@ -3770,16 +3770,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -3853,7 +3853,7 @@
       "n_requests": 2000,
       "name": "cost_layer_heavy_tail",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0019705,
@@ -3951,7 +3951,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0033435416666666665,
@@ -4057,7 +4057,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002637447916666667,
@@ -4163,7 +4163,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0031435937499999997,
@@ -4269,7 +4269,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0031220416666666666,
@@ -4678,16 +4678,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -4747,7 +4747,7 @@
       "n_requests": 2000,
       "name": "cost_layer_normal",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0019705,
@@ -4772,7 +4772,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "11f440c8b23c3c97e5cd475f31410a1f48a0cd92d5c4a0697c2b0d9150ae4184"
+                "ttft_ms": "fd4ae437a01f577cb2a4fef067e88c61b72a8d23b8ddec55d007b0a14e0e7d2f"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -4798,7 +4798,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8a98433ea6f93d8dc92080bc9c22084f8451745bef85df517aace244a0e8aa6e"
+                "ttft_ms": "e355c942a4a9a2d459f5559214c262ca66e306b8b60688b9da03e5368805d160"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -4824,7 +4824,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "0bdf9648221d24710c86155c72f7d493ae1233f109954a2ea5059d64f0890a98"
+                "ttft_ms": "cc2017734a3c43fdaf9869f0a2963490633d927c8ede6d8f1e090322fa20b446"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -4845,7 +4845,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0033158541666666666,
@@ -4872,7 +4872,7 @@
                 "provider": "510392fd84afde8d30f619afbe0b025388d3974bd7ac063fa1f67be387cb2cec",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "857fc2f146b798fad78f7c02bb33960b3e39cb740fbbba21cc8cb550469b641f"
+                "ttft_ms": "fa124d0dafe570b2d34644dfbce9282124495b61bd2702230857f21da5ac8e55"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0038799999999999998,
@@ -4900,7 +4900,7 @@
                 "provider": "dbd08133c4f65cebb08664a106f6519a3e43779f27d5f972939da4ebd3ea2cb2",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "fbf6aa5e8e6c5f53e8bd771c132db53aede22827371ae9fca624ff6ac6d14e3f"
+                "ttft_ms": "7dece38fe2b589c756d66b326bff6278eeff313960fa4cff26ae64dff580b4cc"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.002608,
@@ -4928,7 +4928,7 @@
                 "provider": "6fbef93e979f10ba356124d8c69d174dc3cd1261df083f7f7437adde8babce3e",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "c0901e0d34cf2ba1e7b0a1ed0538f5cf24bb6ae33badb796fd1d20a5a606208f"
+                "ttft_ms": "eda27c7cf5ecdc03801df373bb47875a271d8bc542cf6471b9f19f3bad3c9af2"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0034595625,
@@ -4951,7 +4951,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0028321875,
@@ -4978,7 +4978,7 @@
                 "provider": "48526a9039a04f6bf88e633befc92a5712672ca656fa4b858bf1a3d4c7cf2b25",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "6d614171a5f691b618070be4d410dd915c99c6d7883fb2e8ffc9006f6dd30c2f"
+                "ttft_ms": "60fef86479b048129e2f5e5fd9b4721fade84226457d7ef825f14fde3120a2e6"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0029702500000000002,
@@ -5006,7 +5006,7 @@
                 "provider": "9aea36e6f6290411c9f352a532755e0df89bea32b512878cf3322e2c499e1528",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "554ef44f9a1d522633e685adf6e94e65cedf267b7eb3acc24e226c0c58903ff0"
+                "ttft_ms": "c29725327ea9a8a74cb78f5310345290b91cfb16956fc07c5f9cad710d40558f"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0026232187499999997,
@@ -5034,7 +5034,7 @@
                 "provider": "158db0a59f788994ff5094d9c533e59529cbacf28946893842b7dfcf041424d0",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8a8d17d1d1fe8346f34f99f494eb4201941369af4ce19821fbc893edbc71f207"
+                "ttft_ms": "71fb6d7fe236120d79e7fd32ea963b4edf0cff506ff153a23376268fadb6b748"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00290309375,
@@ -5045,7 +5045,7 @@
                 "slo_violation_rate_5000ms": 0.0
               },
               "p50_ms": 313.4481284224902,
-              "p99_ms": 468.1400320403955,
+              "p99_ms": 468.14003204039557,
               "provider_fractions": {
                 "api_cheap": 0.625,
                 "api_expensive": 0.15625,
@@ -5057,7 +5057,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.003158239583333333,
@@ -5084,7 +5084,7 @@
                 "provider": "4dabc4e21c139b8be1a747048955c80464ee68b37c422ba7ab300060d221c022",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "cdd20207764e6e562c3e6e86ea2f2545705e7bd99e54b15040e0083d3aa3fee0"
+                "ttft_ms": "a00ac7decd285a785cbab6750d9a3c61b2edfc897b0c160d52a03dfb0bd32fba"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00401628125,
@@ -5112,7 +5112,7 @@
                 "provider": "3e63497ce714f5a951e82e8314d2be98d4bdc490b2d48074dff0c0a8fd6cd81a",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "cec422abf43de1fc987b04bb81385846c5fdd08166d95e3f3b57a4053df6a85d"
+                "ttft_ms": "f5783c5d321058ec4b6a6b893e66f3a9758149ee0d4c7bb8ac238a3cb2c63506"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0026093749999999997,
@@ -5140,7 +5140,7 @@
                 "provider": "3e5e73e5e5a413503680240cb5a5842d82cc0d01244935115f47363bd8a54358",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "4cd7f7af42ee125cab8a51510bfcfec1461455bf70b22e191b349972ea1d68cc"
+                "ttft_ms": "275c81372813cb5e801f6f2db43f48d3c5fe337d4829996cacab0f9847acdf3e"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0028490625,
@@ -5163,7 +5163,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.003363416666666667,
@@ -5190,7 +5190,7 @@
                 "provider": "20035c89a832ca688377fc3adb3a86d599fe5b94ed95403382ac55be4aae219d",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "6a06b1244bcded866884148b4014b8af6889f4bb8e6eac722d4c1b2ac8512bb9"
+                "ttft_ms": "b3c87d1b7046e83a8fe615c535fe19f97a175f358e2cd5fdc1101a4d78c7bfda"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.003912062500000001,
@@ -5218,7 +5218,7 @@
                 "provider": "3e63497ce714f5a951e82e8314d2be98d4bdc490b2d48074dff0c0a8fd6cd81a",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "cec422abf43de1fc987b04bb81385846c5fdd08166d95e3f3b57a4053df6a85d"
+                "ttft_ms": "f5783c5d321058ec4b6a6b893e66f3a9758149ee0d4c7bb8ac238a3cb2c63506"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0026093749999999997,
@@ -5246,7 +5246,7 @@
                 "provider": "2f780fad7f3716d65c8cb985dc5f8da60a02af352c9b7a0efc1b78ada255b64f",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "09f0773b06df0abe60fefbdacf042e0204dd31c6a924b224e2de70f06801dc5b"
+                "ttft_ms": "f106fa86ca44f2f15e305ed6e86b424718aa5183838dec08fdb9fd67cabc9267"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0035688125,
@@ -5294,7 +5294,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "11f440c8b23c3c97e5cd475f31410a1f48a0cd92d5c4a0697c2b0d9150ae4184"
+                "ttft_ms": "fd4ae437a01f577cb2a4fef067e88c61b72a8d23b8ddec55d007b0a14e0e7d2f"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -5320,7 +5320,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8a98433ea6f93d8dc92080bc9c22084f8451745bef85df517aace244a0e8aa6e"
+                "ttft_ms": "e355c942a4a9a2d459f5559214c262ca66e306b8b60688b9da03e5368805d160"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -5346,7 +5346,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "0bdf9648221d24710c86155c72f7d493ae1233f109954a2ea5059d64f0890a98"
+                "ttft_ms": "cc2017734a3c43fdaf9869f0a2963490633d927c8ede6d8f1e090322fa20b446"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -5492,7 +5492,7 @@
                 "provider": "2b8af7e8562e9a1b49cb1331fae290ff023ec073c613038c6e50a4b9a734927f",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8779ff30c78555b639c330f97ae9b438f1881b0455790b40dd4fcf6f9b210ba4"
+                "ttft_ms": "c4a3b75cf969b027ec492c30eb4df8791347c3f12a4a314b502b8396cc71544b"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00446815625,
@@ -5520,7 +5520,7 @@
                 "provider": "31a0acc13175d23e3b80fb64c470845d852290fe8631e877115fa0b16a8a2220",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "7b9afba72a5bf00dd6cb9877e9a98a3ac454780e3de2f11b3852ffc604f11d07"
+                "ttft_ms": "4abb61c3d36c250e972ad5ea30be39eb6d4c43d527aeb50848e13ab7518a18ba"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00399365625,
@@ -5548,7 +5548,7 @@
                 "provider": "76a36d5d3c8df060ad63c1ca4aad2a8824af5ea85036c1b821fbb6159fef34f6",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "3b6e9ef9470c108a31ffc02ed80827c2656f0ad05d8a77351cb130b229a72018"
+                "ttft_ms": "2ef320a74bd2ba33576c8560cf6f8b9405f94c602e1adfe04ec859727e82fa56"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0049940625,
@@ -5572,16 +5572,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -5641,7 +5641,7 @@
       "n_requests": 2000,
       "name": "cost_layer_real_world",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0019705,
@@ -5739,7 +5739,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.00479903125,
@@ -5845,7 +5845,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.00284378125,
@@ -5950,7 +5950,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.003082989583333333,
@@ -6056,7 +6056,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0038187708333333333,
@@ -6465,16 +6465,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -6534,7 +6534,7 @@
       "n_requests": 2000,
       "name": "cost_layer_uniform",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0019705,
@@ -6559,7 +6559,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "17365832733e75fbe58e2db9f3c22c4cec36eb51dcfcbc32554838f393123031"
+                "ttft_ms": "177361763ca52ac1b506c676b65a1bf15e5299a295fbbef953e9116a5a89d91a"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -6585,7 +6585,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8fbd8400c37ca035dfb74363e3234ca2b2b590891456b9b1595466a96db0a880"
+                "ttft_ms": "bd64eb57a24516218b0f60c68d3bab430abb53921f9d347d43780c91c886dc44"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -6611,7 +6611,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "782607bb8a7b96cfe07b49184da45503a63e4e69652ec3e2c2d57bca0e3b4d1e"
+                "ttft_ms": "6bb76747285a0acbdc271c9a5fb60316fd7aa44e54d77d340c3f4ac4668d7e20"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -6632,7 +6632,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.004165208333333333,
@@ -6659,7 +6659,7 @@
                 "provider": "63bde3619058338de3043ab36f0a752895478b4bfc7e10f3b147dc7294485117",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "2521756f0f3122a9ba83701e50a117926fc587eee09baf9fcba3eec2b8820fea"
+                "ttft_ms": "970f6b6a41e28936570f191a08207bdc50e882248b2b5010dfca133f82306b87"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00390084375,
@@ -6687,7 +6687,7 @@
                 "provider": "441278d928a452fbcd5957b52ce1231172686d194efe0bd7a7b1b12640f2a525",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "2f44508ce66d7e7e16f43a4148c60de0996544a72f4eb4cf984f1870e2a5502d"
+                "ttft_ms": "e47c5d9e1674a3d3e045e4d1e6a5f2e9d836cd3a369dee210dd15f74003a9341"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00345309375,
@@ -6715,7 +6715,7 @@
                 "provider": "e1d2f27460c4d127a612bc784775ffb0b31442c7e40cb85b9f2da705b0c95b2b",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "0d76698d311efa077feb31ef2c4542e5eb2a3bcbf29efe5078739c8b0507a4d4"
+                "ttft_ms": "0612071ed50bbfe9cb7a9c1311e96a40c815415b6dae6f30989c9b15f76c3e25"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0051416875,
@@ -6738,7 +6738,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0026361458333333337,
@@ -6765,7 +6765,7 @@
                 "provider": "5b2f1a6a5039bf609ac2e016bf82a07cb0d779f1e3abe1b3170b729b18e86962",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "ce6c8c267c4cc9cc22078539d5254a41979a3942edf4f78b914b6c297d1cdfa9"
+                "ttft_ms": "47f99cd7e50fed047b65eeb80500f33c33a6a98af014463ba7bc109ff62ea774"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00243853125,
@@ -6793,7 +6793,7 @@
                 "provider": "96341827625c526473584aecc97d0f695dd2e8d4ee45ec04f0bf4793338a655a",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "d8a60f8134733e5d9048d4bf72f11a6686148f53407b3ee8a1d115aada6eba7f"
+                "ttft_ms": "255ca49665aecf3db77bd772c62e356ad97c0b4157caf838b09756f16d540fd0"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0028995937500000003,
@@ -6821,7 +6821,7 @@
                 "provider": "203593c4ad68ec542a6502d58cd11e528b18680e12311184126f873bf57e91ac",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "1eddc32400f83b6ba5cb8eb8039c3e9da8ae69802b7eeeea49b728d854fa13fc"
+                "ttft_ms": "fb4830a744816d6a6b30a7c348d1b8cb1053775c1d466e7a599aeb04b7d46120"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0025703125,
@@ -6844,7 +6844,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0031905624999999994,
@@ -6871,7 +6871,7 @@
                 "provider": "ddc655fd1af2097b4c92472b2b7f6d0e765995f44a82a1854d3106943c055bd0",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "d779221a6191bc429d56351696e1a00a13fe9694faea5c767f17faa68f7d7a5d"
+                "ttft_ms": "1b5eb7aedbab734256f31ea800b5ae661721c7f702a252beef35b96c251968e9"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.003650375,
@@ -6881,7 +6881,7 @@
                 "slo_violation_rate_3000ms": 0.0,
                 "slo_violation_rate_5000ms": 0.0
               },
-              "p50_ms": 271.2534708043678,
+              "p50_ms": 271.25347080436785,
               "p99_ms": 439.8145886506332,
               "provider_fractions": {
                 "api_cheap": 0.5625,
@@ -6899,7 +6899,7 @@
                 "provider": "c8edde1c074426d4648a9405350a3d3965174e9a4ca124a6c694d7e5d3eb0c59",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "344ad187f016447fb7fa6c9e85028ed5185c2fe7f8d8f4a94d5b2b2ee3683d81"
+                "ttft_ms": "7d41282805916ab23d0194d13f81e694f0457e9727ec41fd0c8f24d1f99913b1"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00278340625,
@@ -6927,7 +6927,7 @@
                 "provider": "2a5a87079237ad862ea81dfda42e0eb44ca21e1c6cadafe4c11cc4bac5c262ed",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "29935e5f7531f34267659f03ef4ae3eb9a0c142f6efc4254e6636bcda7dabb5f"
+                "ttft_ms": "a40eeec75c473320b7e586be8e6fba09016559875df1230f4b292c4c452d8c5e"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00313790625,
@@ -6950,7 +6950,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0035592916666666668,
@@ -6977,7 +6977,7 @@
                 "provider": "20ca5288bac23ed8bcc90faeb44446fa2baada6bca22162e17ebb18662be5ab7",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "b565260f60794ef970d54e09fcec92840620263a510fca7bdde7c18c563e7c6e"
+                "ttft_ms": "1874868b7b766c1f0a29d632d0f899b3a5880256cc3edd9b1d160f69b921dcd7"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0038495937500000006,
@@ -7005,7 +7005,7 @@
                 "provider": "441278d928a452fbcd5957b52ce1231172686d194efe0bd7a7b1b12640f2a525",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "2f44508ce66d7e7e16f43a4148c60de0996544a72f4eb4cf984f1870e2a5502d"
+                "ttft_ms": "e47c5d9e1674a3d3e045e4d1e6a5f2e9d836cd3a369dee210dd15f74003a9341"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00345309375,
@@ -7033,7 +7033,7 @@
                 "provider": "398f5f5d6c960f4606be7615b69bc9da70d2a641b08f1af9a60b07bfbee52d70",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8c54cf357cf7185da89ae6fbc3fe86ebd03fbfa9dc2d0c1ee696ce022e08e4dd"
+                "ttft_ms": "13fc60848a6aef6ccc9040e1d1ed863d1574bf49f026765f3831036720178ec4"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0033751874999999997,
@@ -7081,7 +7081,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "17365832733e75fbe58e2db9f3c22c4cec36eb51dcfcbc32554838f393123031"
+                "ttft_ms": "177361763ca52ac1b506c676b65a1bf15e5299a295fbbef953e9116a5a89d91a"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -7107,7 +7107,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "8fbd8400c37ca035dfb74363e3234ca2b2b590891456b9b1595466a96db0a880"
+                "ttft_ms": "bd64eb57a24516218b0f60c68d3bab430abb53921f9d347d43780c91c886dc44"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -7133,7 +7133,7 @@
                 "provider": "fa418a55bc2318129c1361cf257d3970b1f0485343744583427ae5b81ed306b1",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "782607bb8a7b96cfe07b49184da45503a63e4e69652ec3e2c2d57bca0e3b4d1e"
+                "ttft_ms": "6bb76747285a0acbdc271c9a5fb60316fd7aa44e54d77d340c3f4ac4668d7e20"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0019705,
@@ -7279,7 +7279,7 @@
                 "provider": "2b8af7e8562e9a1b49cb1331fae290ff023ec073c613038c6e50a4b9a734927f",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "c609de15b9019e270645e7a21761b88fb0481cae23347e1b9e1aad2aae6b6242"
+                "ttft_ms": "17e59204c0334cf1b487ac8eb682d819662ff0d64e00d74daf2c67d585c98f64"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00446815625,
@@ -7289,7 +7289,7 @@
                 "slo_violation_rate_3000ms": 0.0,
                 "slo_violation_rate_5000ms": 0.0
               },
-              "p50_ms": 261.92648102314945,
+              "p50_ms": 261.9264810231495,
               "p99_ms": 439.8145886506332,
               "provider_fractions": {
                 "api_cheap": 0.21875,
@@ -7307,7 +7307,7 @@
                 "provider": "31a0acc13175d23e3b80fb64c470845d852290fe8631e877115fa0b16a8a2220",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "d7a713a3f0ab32508c33a8a2c3587f8d4ed7a89afe23ab3f4e6d2e03eb78738f"
+                "ttft_ms": "91592b7e974fef3f40bec2035343136d5b86370bf1d374793eb11c549353df12"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.00399365625,
@@ -7335,7 +7335,7 @@
                 "provider": "76a36d5d3c8df060ad63c1ca4aad2a8824af5ea85036c1b821fbb6159fef34f6",
                 "tier": "d976cffda6df223d8bdc042b1101a38a61347e6d4148c2d8545e44be0c72cb8b",
                 "timestamp": "b1420adfb88b6050532979098c94d55c6f94d8532ebac741e95e9d0defe4c976",
-                "ttft_ms": "898bb37d4c500dec5dcf47c73476899715677b44089c974689af94eb6e454ab8"
+                "ttft_ms": "c9ec654615eb2f6f4538c8bdd38547aceda083bb30b6b0ed058df1411972dee5"
               },
               "hedge_rate": 0.0,
               "mean_cost_usd": 0.0049940625,
@@ -7359,16 +7359,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -7428,7 +7428,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=1",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -7529,7 +7529,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -7645,7 +7645,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -7757,7 +7757,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -7873,7 +7873,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -8306,16 +8306,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -8390,7 +8390,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=2",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -8491,7 +8491,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -8607,7 +8607,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -8719,7 +8719,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -8835,7 +8835,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -9268,16 +9268,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -9352,7 +9352,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=3",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -9453,7 +9453,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -9569,7 +9569,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -9681,7 +9681,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -9797,7 +9797,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -10230,16 +10230,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -10314,7 +10314,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=4",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -10415,7 +10415,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -10531,7 +10531,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -10643,7 +10643,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -10759,7 +10759,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -11192,16 +11192,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -11276,7 +11276,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=5",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -11377,7 +11377,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -11493,7 +11493,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -11605,7 +11605,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -11721,7 +11721,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -12154,16 +12154,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -12238,7 +12238,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=6",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -12339,7 +12339,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -12455,7 +12455,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -12567,7 +12567,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -12683,7 +12683,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -13116,16 +13116,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [
@@ -13200,7 +13200,7 @@
       "n_requests": 2000,
       "name": "quota__plan=chutes__n=8",
       "policies": {
-        "ablation_lp_only_p0": {
+        "ablation_lp_only_alpha0": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0,
@@ -13301,7 +13301,7 @@
             }
           }
         },
-        "ablation_lp_only_p100": {
+        "ablation_lp_only_alpha100": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0021414687499999997,
@@ -13417,7 +13417,7 @@
             }
           }
         },
-        "ablation_lp_only_p25": {
+        "ablation_lp_only_alpha25": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.0010322604166666666,
@@ -13529,7 +13529,7 @@
             }
           }
         },
-        "ablation_lp_only_p50": {
+        "ablation_lp_only_alpha50": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002292208333333333,
@@ -13645,7 +13645,7 @@
             }
           }
         },
-        "ablation_lp_only_p75": {
+        "ablation_lp_only_alpha75": {
           "aggregate": {
             "hedge_rate": 0.0,
             "mean_cost_usd": 0.002113604166666667,
@@ -14078,16 +14078,16 @@
           }
         }
       },
-      "policy_hash": "726f3faf074365f5fa767666c24113bb0f230ec7e9552955b84db51c7195477a",
+      "policy_hash": "260909ea0165e80212c6fed0a25462a2be69588d69a1a70caeeef7ac41c42274",
       "policy_order": [
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p25",
-        "ablation_lp_only_p50",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100"
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha25",
+        "ablation_lp_only_alpha50",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100"
       ],
       "primary_slo_ms": 3000.0,
       "provider_names": [

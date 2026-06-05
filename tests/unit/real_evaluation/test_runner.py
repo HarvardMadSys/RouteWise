@@ -645,7 +645,7 @@ def test_session_is_distinct_across_threads() -> None:
 
 
 def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
 
     def fake_send_via_transport(
         provider: str,
@@ -682,7 +682,7 @@ def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
 
 
 def test_warmup_probes_all_providers_each_round(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     seen: list[str] = []
 
     def fake_send_via_transport(
@@ -714,7 +714,7 @@ def test_warmup_probes_all_providers_each_round(monkeypatch) -> None:
 
 
 def test_warmup_probes_providers_in_parallel(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     providers = [spec.name for spec in runner.inventory.providers]
     barrier = threading.Barrier(len(providers))
     lock = threading.Lock()
@@ -764,7 +764,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     synthetic high-latency sample so the LP can still tentatively rank the
     provider on startup. Replay-time probes are handled separately (see
     ``test_replay_probe_failure_does_not_record_any_sample``)."""
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     bad_provider = runner.inventory.providers[0].name
     calls: dict[str, int] = {}
 
@@ -810,7 +810,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     )
     assert sum(calls.values()) == len(providers)
 
-    state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    state = runner.policies["budget_range_alpha75_hedge"].states[bad_provider]
     now = time.time()
     assert state.profile.sample_count(now) == 1, (
         "warmup failure must still inject one synthetic positive-TTFT sample"
@@ -820,7 +820,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     assert mean == PROBE_FAILURE_FALLBACK_TTFT_MS
 
     for healthy_spec in runner.inventory.providers[1:]:
-        healthy_state = runner.policies["budget_range_p75_hedge"].states[healthy_spec.name]
+        healthy_state = runner.policies["budget_range_alpha75_hedge"].states[healthy_spec.name]
         assert healthy_state.profile.sample_count(now) == 1, (
             "one provider's failure must not abort the warmup round"
         )
@@ -840,7 +840,7 @@ def test_warmup_cadenced_skips_concurrency_limited_provider_in_flight(
       skip-in-flight, so our probe never occupies the only account slot
       while real production traffic also needs it.
     """
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     providers = list(runner.inventory.providers)
     capped_in_flight = next(
         p for p in providers if p.concurrency_limit is not None
@@ -934,7 +934,7 @@ def test_profile_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
     an error sample. Real-request 429s remain the only way a provider gets
     penalized (via the ``error_samples`` path with
     ``RATE_LIMIT_ERROR_PENALTY_MS``)."""
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     bad_provider = runner.inventory.providers[0].name
 
     def fake_send_via_transport(
@@ -972,7 +972,7 @@ def test_profile_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
     runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="shared")
 
     now = time.time()
-    bad_state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    bad_state = runner.policies["budget_range_alpha75_hedge"].states[bad_provider]
     assert bad_state.profile.sample_count(now) == 0, (
         "non-warmup probe failure must not record a synthetic sample"
     )
@@ -983,7 +983,7 @@ def test_profile_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
 
 
 def test_initial_profile_loads_into_all_policy_profiles(tmp_path) -> None:
-    runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_p100"])
+    runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_alpha100"])
     now = time.time()
     profile_path = tmp_path / "initial_profile.json"
     profile_path.write_text(
@@ -1563,8 +1563,8 @@ def test_or_sentinel_excludes_or_routed_chutes_subscription_from_baseline() -> N
 
 def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     """When a checkpoint hedge fires, backup capacity is charged before send."""
-    runner, _ = _build_runner(policy_names=["budget_range_p100_hedge"])
-    policy = runner.policies["budget_range_p100_hedge"]
+    runner, _ = _build_runner(policy_names=["budget_range_alpha100_hedge"])
+    policy = runner.policies["budget_range_alpha100_hedge"]
 
     # Seed every provider with profile data so the LP picks something.
     now = time.time()
@@ -1700,8 +1700,8 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
 
 
 def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p100_hedge"])
-    policy = runner.policies["budget_range_p100_hedge"]
+    runner, rec = _build_runner(policy_names=["budget_range_alpha100_hedge"])
+    policy = runner.policies["budget_range_alpha100_hedge"]
     providers = list(policy.states)
     primary, backup, fallback = providers[:3]
     calls: list[str] = []
@@ -1966,10 +1966,10 @@ def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
     monkeypatch,
 ) -> None:
     runner, rec = _build_runner(
-        policy_names=["budget_range_p100"],
+        policy_names=["budget_range_alpha100"],
         prefix_cache_routing=True,
     )
-    policy = runner.policies["budget_range_p100"]
+    policy = runner.policies["budget_range_alpha100"]
     provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
 
     monkeypatch.setattr(
@@ -2026,10 +2026,10 @@ def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
 
 def test_dispatch_treats_missing_trace_cache_field_as_cold_miss(monkeypatch) -> None:
     runner, rec = _build_runner(
-        policy_names=["budget_range_p100"],
+        policy_names=["budget_range_alpha100"],
         prefix_cache_routing=True,
     )
-    policy = runner.policies["budget_range_p100"]
+    policy = runner.policies["budget_range_alpha100"]
     provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
 
     monkeypatch.setattr(

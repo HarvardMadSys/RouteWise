@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
@@ -62,7 +62,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
     hedging: str | bool = "probability_target"
     explorer: bool = True
-    p: float = 0.75
+    alpha: float = 0.75
+    p: InitVar[float | None] = None
     cost_envelope: tuple[float, float] | None = None
     slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     seed: int = 0
@@ -73,9 +74,11 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
     _latency_profile: LatencyProfileStrategy = field(init=False, repr=False)
 
-    def __post_init__(self) -> None:
-        if not 0.0 <= self.p <= 1.0:
-            raise ValueError(f"RouteWise p must be in [0, 1], got {self.p}")
+    def __post_init__(self, p: float | None = None) -> None:
+        if p is not None:
+            self.alpha = float(p)
+        if not 0.0 <= self.alpha <= 1.0:
+            raise ValueError(f"RouteWise alpha must be in [0, 1], got {self.alpha}")
         if self.cost_envelope is None:
             raise ValueError(
                 "RouteWisePolicy requires an explicit cost_envelope. "
@@ -124,7 +127,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         names = [provider.name for provider in providers]
         c_min = min(c_eff.values())
         c_max = max(c_eff.values())
-        budget = c_min + self.p * (c_max - c_min)
+        budget = (1.0 - self.alpha) * c_min + self.alpha * c_max
         objective = cost_tiebroken_objective(
             [tbar[name] for name in names],
             [c_eff[name] for name in names],
@@ -150,10 +153,10 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 budget=budget,
             )
             weights = result.weights if result.feasible else {}
-            # budget = c_min + p*(c_max - c_min) with p in [0, 1], so budget >= c_min
-            # and the min-cost provider is always within budget. An empty solve is
-            # therefore a solver fallback, not an over-budget infeasibility: the
-            # fallback below picks the (feasible) min-cost provider.
+            # budget = (1-alpha)*c_min + alpha*c_max with alpha in [0, 1], so
+            # budget >= c_min and the min-cost provider is always within budget.
+            # An empty solve is therefore a solver fallback, not an over-budget
+            # infeasibility: the fallback below picks the feasible min-cost provider.
             lp_status = "feasible"
         if not weights:
             best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
@@ -175,6 +178,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 "weights": weights,
                 "c_eff": c_eff,
                 "budget": budget,
+                "alpha": self.alpha,
                 "L": L,
                 "U": U,
                 "lp_status": lp_status,

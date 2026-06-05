@@ -158,12 +158,15 @@ def calibration_policy_name(
     spec: EnvelopeSpec,
     *,
     quota_curve: ScarcityCurve = DEFAULT_QUOTA_CURVE,
-    p: float = DEFAULT_P_VALUES[0],
+    alpha: float = DEFAULT_P_VALUES[0],
+    p: float | None = None,
 ) -> str:
     """Return a stable policy name for one calibration spec."""
+    if p is not None:
+        alpha = p
     return (
         "effective_cost_calibration__"
-        f"{spec.label}__q={quota_curve}__{common.p_label(p)}"
+        f"{spec.label}__q={quota_curve}__{common.alpha_label(alpha)}"
     )
 
 
@@ -171,22 +174,22 @@ def make_calibration_presets(
     *,
     specs: tuple[EnvelopeSpec, ...] | None = None,
     quota_curve: ScarcityCurve = DEFAULT_QUOTA_CURVE,
-    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_P_VALUES,
     concurrency_curve: ScarcityCurve = DEFAULT_CONCURRENCY_CURVE,
 ) -> dict[str, dict[str, Any]]:
     """Build ablation-local preset metadata for envelope calibration sweeps."""
     if specs is None:
         specs = calibration_specs()
     presets: dict[str, dict[str, Any]] = {}
-    for p in p_values:
+    for alpha in alpha_values:
         for spec in specs:
-            name = calibration_policy_name(spec, quota_curve=quota_curve, p=p)
+            name = calibration_policy_name(spec, quota_curve=quota_curve, alpha=alpha)
             presets[name] = {
                 "policy": "LPOnlyAblationPolicy",
                 "params": {
                     "quota_curve": quota_curve,
                     "concurrency_curve": concurrency_curve,
-                    "p": float(p),
+                    "alpha": float(alpha),
                     "cost_envelope_spec": spec,
                 },
             }
@@ -510,11 +513,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Quota scarcity curve to hold fixed. Defaults to {DEFAULT_QUOTA_CURVE}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"LP budget p value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
+        dest="alpha_values",
+        help=f"LP budget alpha value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
     )
     parser.add_argument(
         "--subscription-plan",
@@ -569,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
         api_references=api_references,
         percentile_envelopes=percentile_envelopes,
     )
-    p_values = tuple(args.p_values) if args.p_values else DEFAULT_P_VALUES
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
     qstar_values = (
         tuple(args.qstar_values) if args.qstar_values else (curve_harness.DEFAULT_QSTAR,)
     )
@@ -581,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
     presets = make_calibration_presets(
         specs=specs,
         quota_curve=args.curve,
-        p_values=p_values,
+        alpha_values=alpha_values,
     )
     policies = tuple(presets)
     output_dir = args.output_dir or DEFAULT_OUTPUT_DIR

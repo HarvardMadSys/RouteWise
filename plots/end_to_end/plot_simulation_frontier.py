@@ -71,11 +71,11 @@ TABLE_POLICIES = (
 )
 ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75, 1.0)
 ROUTEWISE_FIGURE_POLICIES = (
-    "ablation_lp_only_p0",
-    "ablation_lp_only_p25",
-    "ablation_lp_only_p50",
-    "ablation_lp_only_p75",
-    "ablation_lp_only_p100",
+    "ablation_lp_only_alpha0",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_only_alpha75",
+    "ablation_lp_only_alpha100",
 )
 CDF_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
@@ -198,7 +198,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=None,
         help=(
-            "RouteWise policies to show in compact frontier figures. "
+            "RouteWise alphaolicies to show in compact frontier figures. "
             "Defaults to the simulator alpha sweep."
         ),
     )
@@ -390,10 +390,10 @@ def frontier_points(rows: list[Row]) -> list[FrontierPoint]:
 def selected_frontier_points(
     rows: list[Row],
     baseline_policies: list[str] | None = None,
-    routewise_policies: list[str] | None = None,
+    routewise_alphaolicies: list[str] | None = None,
 ) -> list[FrontierPoint]:
     baselines = set(baseline_policies or BASELINE_ORDER)
-    routewise = set(routewise_policies or ROUTEWISE_FIGURE_POLICIES)
+    routewise = set(routewise_alphaolicies or ROUTEWISE_FIGURE_POLICIES)
     return [
         point
         for point in frontier_points(rows)
@@ -406,7 +406,7 @@ def plot_frontier(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_policies: list[str] | None = None,
+    routewise_alphaolicies: list[str] | None = None,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
@@ -418,7 +418,7 @@ def plot_frontier(
             "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
         }
     plot_mean_ttft_frontier(
-        selected_frontier_points(rows, mean_baselines, routewise_policies),
+        selected_frontier_points(rows, mean_baselines, routewise_alphaolicies),
         output_path,
         **kwargs,
     )
@@ -428,10 +428,10 @@ def plot_slo(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_policies: list[str] | None = None,
+    routewise_alphaolicies: list[str] | None = None,
 ) -> None:
     plot_slo_frontier(
-        selected_frontier_points(rows, baseline_policies, routewise_policies),
+        selected_frontier_points(rows, baseline_policies, routewise_alphaolicies),
         output_path,
     )
 
@@ -747,12 +747,12 @@ def write_table(rows: list[Row], output_path: Path) -> None:
         lines.append(_format_table_row(row))
     lines.append(r"\midrule")
     for alpha in ROUTEWISE_TABLE_ALPHAS:
-        policy = f"ablation_lp_only_p{int(alpha * 100)}"
+        policy = f"ablation_lp_only_alpha{int(alpha * 100)}"
         row = by_policy[policy]
         lines.append(_format_table_row(row))
     lines.append(r"\midrule")
     for alpha in ROUTEWISE_TABLE_ALPHAS:
-        policy = f"ablation_lp_hedging_p{int(alpha * 100)}"
+        policy = f"ablation_lp_hedging_alpha{int(alpha * 100)}"
         row = by_policy[policy]
         lines.append(_format_table_row(row))
     output_path.parent.mkdir(parents=True, exist_ok=True)

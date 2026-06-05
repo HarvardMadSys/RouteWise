@@ -253,14 +253,14 @@ def make_scenario(
 
 
 def policies_for_section(
-    p_values: tuple[float, ...] = P_SWEEP,
+    alpha_values: tuple[float, ...] = P_SWEEP,
 ) -> tuple[str, ...]:
     """Return policies relevant to cost-layer experiments."""
     return (
         "greedy_cost",
         "random",
         OFFLINE_POLICY,
-        *(routewise_lp_policy_name(value) for value in p_values),
+        *(routewise_lp_policy_name(value) for value in alpha_values),
     )
 
 
@@ -529,11 +529,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"RouteWise p value. Repeat to sweep. Defaults to {P_SWEEP}.",
+        dest="alpha_values",
+        help=f"RouteWise alpha value. Repeat to sweep. Defaults to {P_SWEEP}.",
     )
     parser.add_argument(
         "--subscription-plan",
@@ -643,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_values = tuple(args.p_values) if args.p_values else P_SWEEP
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else P_SWEEP
     selected_public_scenarios = (
         tuple(args.scenario) if args.scenario else _DEFAULT_SCENARIO_NAMES
     )
@@ -716,11 +717,11 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     presets = make_routewise_presets(
-        p_values=p_values,
+        alpha_values=alpha_values,
         include_hedging=False,
         output_predictor=args.predictor,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
+    policies = tuple(args.policy) if args.policy else policies_for_section(alpha_values)
     section_runners = {OFFLINE_POLICY: run_offline_policy}
     known_policies = set(presets) | set(section_runners)
     unknown = [policy for policy in policies if policy not in known_policies]

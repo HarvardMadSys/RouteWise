@@ -50,7 +50,7 @@ fi
 TRACE="${TRACE:-data/real_eval/burstgpt_day2_h17_8h.jsonl}"
 INVENTORY="${INVENTORY:-experiments/real_evaluation/data/pilot_chutes_direct_or8_top_8h.json}"
 # Optional comma-separated overrides:
-#   POLICY_INVENTORY_MAP="greedy_cost=path_a.json,random=path_a.json,budget_range_p75_hedge=path_b.json"
+#   POLICY_INVENTORY_MAP="greedy_cost=path_a.json,random=path_a.json,budget_range_alpha75_hedge=path_b.json"
 # Policies not listed here use INVENTORY.
 POLICY_INVENTORY_MAP="${POLICY_INVENTORY_MAP:-}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
@@ -116,7 +116,7 @@ if [[ "$QUOTA_PROVIDER" != "chutes" && "$QUOTA_PROVIDER" != "minimax" && "$QUOTA
   exit 2
 fi
 
-DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
+DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_alpha0_hedge budget_range_alpha25_hedge budget_range_alpha50_hedge budget_range_alpha75_hedge budget_range_alpha100_hedge or_auto or_sort_latency or_sort_cost"
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
 

@@ -46,10 +46,10 @@ def make_scenario(name: str) -> ScenarioConfig:
 
 def policies_for_ablation(
     *,
-    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_P_VALUES,
 ) -> tuple[str, ...]:
     """Return default hedging ablation policies."""
-    return tuple(make_ablation_presets(p_values=p_values))
+    return tuple(make_ablation_presets(alpha_values=alpha_values))
 
 
 def build_ablation_policy(
@@ -149,11 +149,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Policy to run. Repeat to run multiple. Defaults to the core ablation grid.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"RouteWise p value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
+        dest="alpha_values",
+        help=f"RouteWise alpha value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
     )
     parser.add_argument(
         "--seed",
@@ -191,12 +192,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_values = tuple(args.p_values) if args.p_values else DEFAULT_P_VALUES
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
     scenarios = {
         name: make_scenario(name)
         for name in (tuple(args.scenario) if args.scenario else list_scenarios())
     }
-    presets = make_ablation_presets(p_values=p_values)
+    presets = make_ablation_presets(alpha_values=alpha_values)
     policies = tuple(args.policy) if args.policy else tuple(presets)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
@@ -277,7 +278,7 @@ def _enrich_rows(
         meta = dict(scenario.metadata or {})
         preset = presets[row["policy"]]
         params = dict(preset["params"])
-        dispatch_timing, backup_selection, p_value = parse_ablation_policy_name(row["policy"])
+        dispatch_timing, backup_selection, alpha_value = parse_ablation_policy_name(row["policy"])
         merged = dict(row)
         merged.update(
             {
@@ -288,7 +289,7 @@ def _enrich_rows(
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
-                "routewise_p": float(params.get("p", p_value)),
+                "routewise_alpha": float(params.get("alpha", alpha_value)),
                 "dispatch_timing": dispatch_timing,
                 "backup_selection": backup_selection,
                 "backup_selection_semantics": (
@@ -299,7 +300,7 @@ def _enrich_rows(
                 "explorer_enabled": False,
                 "learns_from_backup": False,
                 "latency_profile_mode": params.get("latency_profile_mode", "observed"),
-                "production_baseline_policy": production_baseline_policy_name(p=p_value),
+                "production_baseline_policy": production_baseline_policy_name(alpha=alpha_value),
                 "cost_multiplier_basis": _COST_MULTIPLIER_BASIS,
             }
         )
@@ -309,12 +310,12 @@ def _enrich_rows(
         (row["scenario"], parse_ablation_policy_name(row["policy"])[2]): row
         for row in enriched
         if row["policy"] == production_baseline_policy_name(
-            p=parse_ablation_policy_name(row["policy"])[2]
+            alpha=parse_ablation_policy_name(row["policy"])[2]
         )
     }
     for row in enriched:
-        p_value = parse_ablation_policy_name(row["policy"])[2]
-        baseline = baselines.get((row["scenario"], p_value))
+        alpha_value = parse_ablation_policy_name(row["policy"])[2]
+        baseline = baselines.get((row["scenario"], alpha_value))
         _add_production_deltas(row, baseline)
     return enriched
 
@@ -365,7 +366,7 @@ _CSV_FIELDNAMES: tuple[str, ...] = (
     "backup_selection",
     "backup_selection_semantics",
     "production_baseline_policy",
-    "routewise_p",
+    "routewise_alpha",
     "slo_ms",
     "target_success_probability",
     "explorer_enabled",

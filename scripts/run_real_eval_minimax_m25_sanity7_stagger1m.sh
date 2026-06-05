@@ -3,7 +3,7 @@ set -euo pipefail
 
 # MiniMax M2.5 real-eval sanity run after the hedge-cancel profile fix:
 # - same BurstGPT cap10s trace and MiniMax OR+subscription inventory as the
-#   previous 8h/p-sweep run
+#   previous 8h/alpha-sweep run
 # - seven sanity policies: OR baselines, greedy baselines, p75 hedge/no-hedge
 # - one minute launch stagger across every policy
 #
@@ -17,7 +17,7 @@ cd "$ROOT"
 : "${INVENTORY:=experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_top_24h.json}"
 : "${OUTPUT_BASE:=outputs/real_eval/real_eval_minimax_m25_fixed_cancel_sanity7_stagger1m_${RUN_ID}}"
 
-: "${POLICY_LIST:=or_auto or_sort_latency or_sort_cost greedy_latency greedy_cost budget_range_p75_hedge budget_range_p75}"
+: "${POLICY_LIST:=or_auto or_sort_latency or_sort_cost greedy_latency greedy_cost budget_range_alpha75_hedge budget_range_alpha75}"
 : "${STAGGER_SEC:=60}"
 : "${STAGGER_ALL_POLICIES:=1}"
 

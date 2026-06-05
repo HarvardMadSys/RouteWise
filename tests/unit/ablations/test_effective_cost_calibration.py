@@ -133,7 +133,7 @@ def test_calibration_policy_name_encodes_reference_envelope_curve_and_p() -> Non
     spec = EnvelopeSpec(api_reference="mean_api", percentile_envelope="p25_p75")
 
     assert harness.calibration_policy_name(spec, quota_curve="exp_lu", p=0.5) == (
-        "effective_cost_calibration__ref=mean_api__env=p25_p75__q=exp_lu__p50"
+        "effective_cost_calibration__ref=mean_api__env=p25_p75__q=exp_lu__alpha50"
     )
 
 
@@ -163,7 +163,7 @@ def test_build_calibration_policy_materializes_envelope() -> None:
         ],
     )
     spec = EnvelopeSpec(api_reference="max_api", percentile_envelope="min_max")
-    presets = harness.make_calibration_presets(specs=(spec,), p_values=(0.5,))
+    presets = harness.make_calibration_presets(specs=(spec,), alpha_values=(0.5,))
     policy_name = next(iter(presets))
 
     policy = harness.build_calibration_policy(
@@ -187,7 +187,7 @@ def test_enrich_calibration_rows_adds_numeric_envelope_columns() -> None:
         ],
     )
     spec = EnvelopeSpec(api_reference="max_api", percentile_envelope="min_max")
-    presets = harness.make_calibration_presets(specs=(spec,), p_values=(0.5,))
+    presets = harness.make_calibration_presets(specs=(spec,), alpha_values=(0.5,))
     policy_name = next(iter(presets))
 
     enriched, records = harness.enrich_calibration_rows(

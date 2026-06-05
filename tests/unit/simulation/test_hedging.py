@@ -22,17 +22,17 @@ def test_hedging_scenarios_match_section_contract():
 
 def test_hedging_policy_set_uses_hedging_only_routewise():
     assert hedging.policies_for_section() == (
-        "ablation_lp_only_p75",
-        "ablation_lp_hedging_p75",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_hedging_alpha75",
     )
 
     presets = hedging.make_policy_presets()
-    assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
-    assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_only_p75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
-    assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_only_alpha75"]["params"]["hedging"] is False
+    assert presets["ablation_lp_only_alpha75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_only_alpha75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["hedging"] == "probability_target"
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_alpha75"]["params"]["latency_profile_mode"] == "configured"
 
 
 def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
@@ -90,8 +90,8 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [
-        "ablation_lp_only_p75",
-        "ablation_lp_hedging_p75",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_hedging_alpha75",
     ]
 
     baseline, hedging_row = rows
@@ -117,7 +117,7 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
     assert len(csv_rows) == 2
-    assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
+    assert csv_rows[1]["policy"] == "ablation_lp_hedging_alpha75"
     assert csv_rows[1]["backup_selection"] == "probability_target_non_primary"
     assert csv_rows[1]["latency_profile_mode"] == "configured"
     assert csv_rows[1]["slo_ms"] == "500.0"

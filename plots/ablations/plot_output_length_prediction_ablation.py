@@ -24,28 +24,28 @@ DEFAULT_INPUT_DIR = Path(
 )
 
 POLICY_ORDER = (
-    "ablation_lp_only_p0",
-    "ablation_lp_only_p25",
-    "ablation_lp_only_p50",
-    "ablation_lp_hedging_p0",
-    "ablation_lp_hedging_p25",
-    "ablation_lp_hedging_p50",
+    "ablation_lp_only_alpha0",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_hedging_alpha0",
+    "ablation_lp_hedging_alpha25",
+    "ablation_lp_hedging_alpha50",
 )
 POLICY_LABELS = {
-    "ablation_lp_only_p0": "LP p=0",
-    "ablation_lp_only_p25": "LP p=.25",
-    "ablation_lp_only_p50": "LP p=.5",
-    "ablation_lp_hedging_p0": "Hedge p=0",
-    "ablation_lp_hedging_p25": "Hedge p=.25",
-    "ablation_lp_hedging_p50": "Hedge p=.5",
+    "ablation_lp_only_alpha0": "LP alpha=0",
+    "ablation_lp_only_alpha25": "LP alpha=.25",
+    "ablation_lp_only_alpha50": "LP alpha=.5",
+    "ablation_lp_hedging_alpha0": "Hedge alpha=0",
+    "ablation_lp_hedging_alpha25": "Hedge alpha=.25",
+    "ablation_lp_hedging_alpha50": "Hedge alpha=.5",
 }
 POLICY_COLORS = {
-    "ablation_lp_only_p0": "#1f77b4",
-    "ablation_lp_only_p25": "#2ca02c",
-    "ablation_lp_only_p50": "#ff7f0e",
-    "ablation_lp_hedging_p0": "#1f77b4",
-    "ablation_lp_hedging_p25": "#2ca02c",
-    "ablation_lp_hedging_p50": "#ff7f0e",
+    "ablation_lp_only_alpha0": "#1f77b4",
+    "ablation_lp_only_alpha25": "#2ca02c",
+    "ablation_lp_only_alpha50": "#ff7f0e",
+    "ablation_lp_hedging_alpha0": "#1f77b4",
+    "ablation_lp_hedging_alpha25": "#2ca02c",
+    "ablation_lp_hedging_alpha50": "#ff7f0e",
 }
 
 
@@ -256,7 +256,7 @@ def _plot_mix_shift(rows: list[dict[str, Any]], output_dir: Path) -> None:
     keys = ("api_mix", "quota_mix", "concurrency_mix")
     colors = ("#4c78a8", "#72b7b2", "#f58518")
     fig, axes = plt.subplots(1, 3, figsize=(6.6, 2.65), sharey=True)
-    for ax, policy in zip(axes, ("ablation_lp_only_p0", "ablation_lp_hedging_p0", "ablation_lp_hedging_p50"), strict=True):
+    for ax, policy in zip(axes, ("ablation_lp_only_alpha0", "ablation_lp_hedging_alpha0", "ablation_lp_hedging_alpha50"), strict=True):
         selected = [row for row in _policy_rows(rows, policy) if row["prediction_error_pct"] in errors]
         bottoms = np.zeros(len(selected))
         x = np.arange(len(selected))

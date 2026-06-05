@@ -94,12 +94,12 @@ def _select(df: pd.DataFrame, policy: str) -> pd.Series:
 
 
 def _routewise_rows(df: pd.DataFrame, base_cost: float) -> pd.DataFrame:
-    rows = df[df["policy"].str.startswith("ablation_lp_only_p")].copy()
+    rows = df[df["policy"].str.startswith("ablation_lp_only_alpha")].copy()
     if rows.empty:
         raise ValueError("summary has no LP-only RouteWise rows")
-    rows = rows.sort_values("routewise_p").reset_index(drop=True)
+    rows = rows.sort_values("routewise_alpha").reset_index(drop=True)
     rows["norm_cost"] = rows["total_cost_usd"] / base_cost
-    rows["alpha_label"] = rows["routewise_p"].map(_format_alpha)
+    rows["alpha_label"] = rows["routewise_alpha"].map(_format_alpha)
     return rows
 
 
@@ -216,7 +216,7 @@ def _plot_panel(
         solid_capstyle="round",
     )
 
-    key_mask = _key_alpha_mask(sweep["routewise_p"])
+    key_mask = _key_alpha_mask(sweep["routewise_alpha"])
     ax.scatter(
         xs[key_mask],
         ys[key_mask],
@@ -228,7 +228,7 @@ def _plot_panel(
     )
     label_positions = _label_positions(metric)
     for _, row in sweep[key_mask].iterrows():
-        alpha = float(row["routewise_p"])
+        alpha = float(row["routewise_alpha"])
         x = float(row["norm_cost"])
         y = float(row[metric.column]) * metric.scale
         xytext = label_positions.get(alpha, (x + 0.01, y))
@@ -308,11 +308,11 @@ def _plot_slo_bar_panel(
     costs: list[float] = []
     colors: list[str] = []
     for alpha in key_alphas:
-        match = sweep[np.isclose(sweep["routewise_p"].to_numpy(dtype=float), alpha)]
+        match = sweep[np.isclose(sweep["routewise_alpha"].to_numpy(dtype=float), alpha)]
         if match.empty:
             continue
         row = match.iloc[0]
-        labels.append(f"RouteWise-{_format_alpha(float(row['routewise_p']))}")
+        labels.append(f"RouteWise-{_format_alpha(float(row['routewise_alpha']))}")
         values.append(float(row[metric.column]) * metric.scale)
         costs.append(float(row["total_cost_usd"]) / base_cost)
         colors.append(ROUTEWISE_TEAL)

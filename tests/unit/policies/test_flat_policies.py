@@ -329,7 +329,7 @@ def test_routewise_uses_cost_tiebreak_when_latency_objective_is_equal():
 
 
 @pytest.mark.parametrize(
-    ("latencies", "costs", "p_value"),
+    ("latencies", "costs", "alpha_value"),
     [
         ([100.0, 300.0, 1000.0], [1.0, 1.0, 1.0], 0.75),
         ([100.0, 100.0, 1000.0], [1.0, 1.0, 1.0], 0.75),
@@ -339,7 +339,7 @@ def test_routewise_uses_cost_tiebreak_when_latency_objective_is_equal():
 def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
     latencies: list[float],
     costs: list[float],
-    p_value: float,
+    alpha_value: float,
 ) -> None:
     names = ["fast", "medium", "slow"]
     objective = cost_tiebroken_objective(latencies, costs)
@@ -350,7 +350,7 @@ def test_routewise_same_cost_shortcut_matches_lp_tiebreak(
             BudgetLPCandidate(name, objective=objective[index], effective_cost=costs[index])
             for index, name in enumerate(names)
         ],
-        budget=c_min + p_value * (c_max - c_min),
+        budget=c_min + alpha_value * (c_max - c_min),
     )
 
     assert result.feasible
@@ -569,7 +569,7 @@ def test_routewise_concurrency_shadow_price_is_zero():
     assert empty_price == loaded_price == pytest.approx(0.0)
 
 
-def test_routewise_prefers_quota_for_high_value_request_with_fixed_envelope():
+def test_routewise_alpharefers_quota_for_high_value_request_with_fixed_envelope():
     providers = _quota_and_api_providers()
     state = SimulationState.from_providers({provider.name: provider for provider in providers})
     short = Request(id=1, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)

@@ -88,16 +88,16 @@ def policies_for_phase(
     phase: str = PHASE_QUOTA,
     curves: tuple[ScarcityCurve, ...] = DEFAULT_QUOTA_CURVES,
     concurrency_curves: tuple[ScarcityCurve, ...] = DEFAULT_CONCURRENCY_CURVES,
-    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_P_VALUES,
 ) -> tuple[str, ...]:
     """Return default policies for one phase."""
     _require_supported_phase(phase)
     if phase == PHASE_QUOTA:
-        return tuple(make_ablation_presets(curves=curves, p_values=p_values).keys())
+        return tuple(make_ablation_presets(curves=curves, alpha_values=alpha_values).keys())
     return tuple(
         make_concurrency_ablation_presets(
             concurrency_curves=concurrency_curves,
-            p_values=p_values,
+            alpha_values=alpha_values,
         ).keys()
     )
 
@@ -199,11 +199,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Quota curve to run. Repeat to compare curves. Defaults to all Phase A curves.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"LP budget p value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
+        dest="alpha_values",
+        help=f"LP budget alpha value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
     )
     parser.add_argument(
         "--concurrency-curve",
@@ -289,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     _require_supported_phase(args.phase)
-    p_values = tuple(args.p_values) if args.p_values else DEFAULT_P_VALUES
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
     qstar_values = tuple(args.qstar_values) if args.qstar_values else (DEFAULT_QSTAR,)
     concurrency_counts = (
         tuple(args.concurrency_counts) if args.concurrency_counts else DEFAULT_CONCURRENCY_COUNTS
@@ -305,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.phase == PHASE_QUOTA:
         curves = tuple(args.curve) if args.curve else DEFAULT_QUOTA_CURVES
-        presets = make_ablation_presets(curves=curves, p_values=p_values)
+        presets = make_ablation_presets(curves=curves, alpha_values=alpha_values)
     elif args.phase == PHASE_CONCURRENCY:
         concurrency_curves = (
             tuple(args.concurrency_curves)
@@ -314,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         presets = make_concurrency_ablation_presets(
             concurrency_curves=concurrency_curves,
-            p_values=p_values,
+            alpha_values=alpha_values,
         )
     else:
         _require_supported_phase(args.phase)

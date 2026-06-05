@@ -40,7 +40,7 @@ def test_long_inter_arrival_gap_not_skipped() -> None:
         rec = Recorder(tmp)
         runner = RealExperimentRunner(
             inventory=inventory,
-            policy_names=["budget_range_p100_hedge"],
+            policy_names=["budget_range_alpha100_hedge"],
             recorder=rec,
             slo_ms=inventory.primary_slo_ms,
         )
@@ -158,7 +158,7 @@ def test_duration_cap_stops_replay() -> None:
         rec = Recorder(tmp)
         runner = RealExperimentRunner(
             inventory=inventory,
-            policy_names=["budget_range_p100_hedge"],
+            policy_names=["budget_range_alpha100_hedge"],
             recorder=rec,
             slo_ms=inventory.primary_slo_ms,
         )

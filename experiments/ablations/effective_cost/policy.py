@@ -8,7 +8,7 @@ fields to the production RouteWisePolicy surface.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -43,16 +43,21 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
 
     quota_curve: ScarcityCurve
     concurrency_curve: ScarcityCurve
-    p: float
     cost_envelope: tuple[float, float]
+    alpha: float = 0.75
+    p: InitVar[float | None] = None
     seed: int = 0
     profile_window_sec: float = 15 * 60.0
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
 
-    def __post_init__(self) -> None:
-        if not 0.0 <= self.p <= 1.0:
-            raise ValueError(f"LPOnlyAblationPolicy p must be in [0, 1], got {self.p}")
+    def __post_init__(self, p: float | None = None) -> None:
+        if p is not None:
+            self.alpha = float(p)
+        if not 0.0 <= self.alpha <= 1.0:
+            raise ValueError(
+                f"LPOnlyAblationPolicy alpha must be in [0, 1], got {self.alpha}"
+            )
         L, U = (float(self.cost_envelope[0]), float(self.cost_envelope[1]))
         if not (math.isfinite(L) and math.isfinite(U) and 0.0 < L < U):
             raise ValueError(
@@ -90,12 +95,12 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         names = [provider.name for provider in providers]
         c_min = min(c_eff.values())
         c_max = max(c_eff.values())
-        budget = c_min + self.p * (c_max - c_min)
+        budget = (1.0 - self.alpha) * c_min + self.alpha * c_max
 
         latency_objective = [tbar[name] for name in names]
         effective_costs = [c_eff[name] for name in names]
-        if self.p <= _LP_EPS:
-            weights = _p_zero_weights(
+        if self.alpha <= _LP_EPS:
+            weights = _alpha_zero_weights(
                 names,
                 latency_objective=latency_objective,
                 effective_costs=effective_costs,
@@ -136,7 +141,7 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
                 "U": U,
                 "quota_curve": self.quota_curve,
                 "concurrency_curve": self.concurrency_curve,
-                "p": self.p,
+                "alpha": self.alpha,
             },
         )
 
@@ -213,14 +218,14 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         return provider.true_mean_ms(now)
 
 
-def _p_zero_weights(
+def _alpha_zero_weights(
     names: list[str],
     *,
     latency_objective: list[float],
     effective_costs: list[float],
     budget: float,
 ) -> dict[str, float]:
-    """Return the p=0 LP optimum without running the generic enumerator."""
+    """Return the alpha=0 LP optimum without running the generic enumerator."""
     objective = cost_tiebroken_objective(latency_objective, effective_costs)
     best_key: tuple[float, float, int, tuple[float, ...]] | None = None
     best_name: str | None = None

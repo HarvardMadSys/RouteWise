@@ -31,15 +31,15 @@ def test_presets_define_core_hedging_ablation_grid() -> None:
     presets = make_ablation_presets()
 
     assert tuple(presets) == (
-        "hedging__dispatch=latest_safe__backup=probability__p75",
-        "hedging__dispatch=earliest_safe__backup=probability__p75",
-        "hedging__dispatch=latest_safe__backup=random_feasible__p75",
+        "hedging__dispatch=latest_safe__backup=probability__alpha75",
+        "hedging__dispatch=earliest_safe__backup=probability__alpha75",
+        "hedging__dispatch=latest_safe__backup=random_feasible__alpha75",
     )
     assert production_baseline_policy_name() == (
-        "hedging__dispatch=latest_safe__backup=probability__p75"
+        "hedging__dispatch=latest_safe__backup=probability__alpha75"
     )
     assert parse_ablation_policy_name(
-        "hedging__dispatch=earliest_safe__backup=random_feasible__p25"
+        "hedging__dispatch=earliest_safe__backup=random_feasible__alpha25"
     ) == ("earliest_safe", "random_feasible", 0.25)
     assert presets[production_baseline_policy_name()]["params"]["backup_selection"] == (
         "probability"
@@ -254,7 +254,7 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> N
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == list(
-        make_ablation_presets(p_values=DEFAULT_P_VALUES)
+        make_ablation_presets(alpha_values=DEFAULT_P_VALUES)
     )
     assert rows[0]["dispatch_timing"] == "latest_safe"
     assert rows[0]["backup_selection"] == "probability"

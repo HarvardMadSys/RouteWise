@@ -54,7 +54,8 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
 OUTPUT_DIR = ROOT_DIR / "outputs" / "simulation"
 
-P_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
+ALPHA_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
+P_SWEEP = ALPHA_SWEEP
 COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
 OUTPUT_COST_MULTIPLIER = 5.0
 DEFAULT_CACHED_INPUT_PRICE_FRACTION = 0.2
@@ -152,27 +153,40 @@ class SingleModelOutputPredictor:
         return replace(request, model=self.model)
 
 
-def p_label(value: float) -> str:
-    """Return a stable policy-name suffix for one p-sweep value."""
+def alpha_label(value: float) -> str:
+    """Return a stable policy-name suffix for one alpha-sweep value."""
     pct = round(float(value) * 100)
     if abs(float(value) - pct / 100.0) > 1e-9:
-        raise ValueError(f"p values must be percent-like decimals, got {value!r}")
+        raise ValueError(f"alpha values must be percent-like decimals, got {value!r}")
+    return f"alpha{pct}"
+
+
+def p_label(value: float) -> str:
+    """Deprecated alias for :func:`alpha_label`."""
+    return alpha_label(value)
+
+
+def _legacy_p_label(value: float) -> str:
+    pct = round(float(value) * 100)
+    if abs(float(value) - pct / 100.0) > 1e-9:
+        raise ValueError(f"alpha values must be percent-like decimals, got {value!r}")
     return f"p{pct}"
 
 
-def routewise_lp_policy_name(p_value: float) -> str:
-    """Return the simulator policy name for LP-only RouteWise at one p value."""
-    return f"ablation_lp_only_{p_label(p_value)}"
+def routewise_lp_policy_name(alpha_value: float) -> str:
+    """Return the simulator policy name for LP-only RouteWise at one alpha value."""
+    return f"ablation_lp_only_{alpha_label(alpha_value)}"
 
 
-def routewise_hedging_policy_name(p_value: float) -> str:
-    """Return the simulator policy name for LP+hedging RouteWise at one p value."""
-    return f"ablation_lp_hedging_{p_label(p_value)}"
+def routewise_hedging_policy_name(alpha_value: float) -> str:
+    """Return the simulator policy name for LP+hedging RouteWise at one alpha value."""
+    return f"ablation_lp_hedging_{alpha_label(alpha_value)}"
 
 
 def make_routewise_presets(
     *,
-    p_values: tuple[float, ...] = P_SWEEP,
+    alpha_values: tuple[float, ...] = P_SWEEP,
+    p_values: tuple[float, ...] | None = None,
     include_hedging: bool = False,
     cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
@@ -191,11 +205,13 @@ def make_routewise_presets(
         "greedy_latency": {"policy": "BaselinePolicy", "params": {"mode": "greedy_latency"}},
         "random": {"policy": "BaselinePolicy", "params": {"mode": "random"}},
     }
-    for value in p_values:
+    if p_values is not None:
+        alpha_values = p_values
+    for value in alpha_values:
         params: dict[str, Any] = {
             "hedging": False,
             "explorer": False,
-            "p": float(value),
+            "alpha": float(value),
             "cost_envelope": cost_envelope,
         }
         if predictor_spec is not None:
@@ -204,11 +220,15 @@ def make_routewise_presets(
             "policy": "RouteWisePolicy",
             "params": params,
         }
+        presets[f"ablation_lp_only_{_legacy_p_label(value)}"] = {
+            "policy": "RouteWisePolicy",
+            "params": dict(params),
+        }
         if include_hedging:
             hedging_params: dict[str, Any] = {
                 "hedging": "probability_target",
                 "explorer": False,
-                "p": float(value),
+                "alpha": float(value),
                 "cost_envelope": cost_envelope,
             }
             if predictor_spec is not None:
@@ -216,6 +236,10 @@ def make_routewise_presets(
             presets[routewise_hedging_policy_name(value)] = {
                 "policy": "RouteWisePolicy",
                 "params": hedging_params,
+            }
+            presets[f"ablation_lp_hedging_{_legacy_p_label(value)}"] = {
+                "policy": "RouteWisePolicy",
+                "params": dict(hedging_params),
             }
     return presets
 
@@ -1810,12 +1834,14 @@ __all__ = [
     "DEFAULT_WORKLOAD",
     "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
+    "ALPHA_SWEEP",
     "P_SWEEP",
     "WORKLOAD_CHOICES",
     "WORKLOAD_COST_ENVELOPE",
     "SectionCell",
     "SectionCellResult",
     "WorkloadTraceInfo",
+    "alpha_label",
     "concurrency_saturated_in_trace",
     "ensure_workload_cache",
     "load_workload",

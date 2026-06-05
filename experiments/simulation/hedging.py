@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 SECTION_NAME = "hedging"
 
 PUBLIC_SCENARIO_TAG: str = "hedging"
-DEFAULT_ROUTEWISE_P: float = 0.75
+DEFAULT_ROUTEWISE_ALPHA: float = 0.75
 # Mirror of `rwsim.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
 # `target_success_probability`. Derive (do not redefine) so the value plots
 # and summaries advertise can never drift from the value the algorithm uses.
@@ -208,32 +208,32 @@ def _make_real_world_pool_scenario(
     )
 
 
-def policies_for_section(p_value: float = DEFAULT_ROUTEWISE_P) -> tuple[str, ...]:
+def policies_for_section(alpha_value: float = DEFAULT_ROUTEWISE_ALPHA) -> tuple[str, ...]:
     """Return the §2.2 policy pair: LP-only baseline and hedging-only RouteWise."""
     return (
-        routewise_lp_policy_name(p_value),
-        routewise_hedging_policy_name(p_value),
+        routewise_lp_policy_name(alpha_value),
+        routewise_hedging_policy_name(alpha_value),
     )
 
 
 def make_policy_presets(
-    p_value: float = DEFAULT_ROUTEWISE_P,
+    alpha_value: float = DEFAULT_ROUTEWISE_ALPHA,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
 ) -> dict[str, dict[str, Any]]:
     """Build the section-local policy presets for §2.2."""
     from experiments.simulation.common import _normalize_predictor_arg
 
-    p = float(p_value)
-    lp_name = routewise_lp_policy_name(p)
-    hedging_name = routewise_hedging_policy_name(p)
+    alpha = float(alpha_value)
+    lp_name = routewise_lp_policy_name(alpha)
+    hedging_name = routewise_hedging_policy_name(alpha)
     predictor_spec = _normalize_predictor_arg(output_predictor)
 
     def _params(*, hedging: str | bool) -> dict[str, Any]:
         params: dict[str, Any] = {
             "hedging": hedging,
             "explorer": False,
-            "p": p,
+            "alpha": alpha,
             "cost_envelope": WORKLOAD_COST_ENVELOPE,
             "latency_profile_mode": "configured",
         }
@@ -340,7 +340,7 @@ def _enrich_rows_with_hedging_metadata(
     scenarios: dict[str, ScenarioConfig],
     presets: dict[str, dict[str, Any]],
     *,
-    p_value: float,
+    alpha_value: float,
 ) -> list[dict[str, Any]]:
     """Fold scenario/policy metadata and LP-only deltas into summary rows."""
     enriched: list[dict[str, Any]] = []
@@ -368,7 +368,7 @@ def _enrich_rows_with_hedging_metadata(
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
-                "routewise_p": float(params.get("p", p_value)),
+                "routewise_alpha": float(params.get("alpha", alpha_value)),
                 "hedging_enabled": bool(params.get("hedging")),
                 "explorer_enabled": bool(params.get("explorer")),
                 "hedging_policy_mode": _hedging_policy_mode(row["policy"], params),
@@ -387,7 +387,7 @@ def _enrich_rows_with_hedging_metadata(
             merged[key] = meta.get(key)
         enriched.append(merged)
 
-    baseline_policy = routewise_lp_policy_name(p_value)
+    baseline_policy = routewise_lp_policy_name(alpha_value)
     baselines = {
         row["scenario"]: row
         for row in enriched
@@ -478,7 +478,7 @@ _HEDGING_CSV_FIELDNAMES: tuple[str, ...] = (
     "backup_selection",
     "learns_from_backup",
     "latency_profile_mode",
-    "routewise_p",
+    "routewise_alpha",
     "slo_ms",
     "target_success_probability",
     "seeds",
@@ -553,11 +553,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
-        default=DEFAULT_ROUTEWISE_P,
-        dest="p_value",
-        help=f"Single RouteWise p value for §2.2 policies. Defaults to {DEFAULT_ROUTEWISE_P}.",
+        default=DEFAULT_ROUTEWISE_ALPHA,
+        dest="alpha_value",
+        help=f"Single RouteWise alpha value for §2.2 policies. Defaults to {DEFAULT_ROUTEWISE_ALPHA}.",
     )
     parser.add_argument(
         "--workload",
@@ -598,14 +599,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_value = float(args.p_value)
+    alpha_value = float(args.alpha_value)
     selected_scenarios = tuple(args.scenario) if args.scenario else list_scenarios()
     scenarios = {name: make_scenario(name) for name in selected_scenarios}
     presets = make_policy_presets(
-        p_value,
+        alpha_value,
         output_predictor=args.predictor,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(p_value)
+    policies = tuple(args.policy) if args.policy else policies_for_section(alpha_value)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
@@ -631,7 +632,7 @@ def main(argv: list[str] | None = None) -> int:
         rows,
         scenarios,
         presets,
-        p_value=p_value,
+        alpha_value=alpha_value,
     )
     write_json(args.output_dir / "summary.json", enriched_rows)
     _write_hedging_summary_csv(args.output_dir / "summary.csv", enriched_rows)
@@ -648,7 +649,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
-    "DEFAULT_ROUTEWISE_P",
+    "DEFAULT_ROUTEWISE_ALPHA",
     "HEAVY_TAIL_SCENARIO_NAME",
     "PUBLIC_SCENARIO_TAG",
     "REAL_WORLD_SCENARIO_NAME",

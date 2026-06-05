@@ -50,11 +50,11 @@ from plots.end_to_end.frontier_plotting import (
 )
 from plots.style import apply_style
 
-ROUTEWISE_PREFIX = "budget_range_p"
+ROUTEWISE_PREFIX = "budget_range_alpha"
 ROUTEWISE_HEDGE_SUFFIX = "_hedge"
 ROUTEWISE_FRONTIER_PLOT_ALPHA = 0.25
 DEFAULT_FIGURE_POLICIES = (
-    "budget_range_p25_hedge",
+    "budget_range_alpha25_hedge",
     "greedy_cost",
     "greedy_latency",
     "or_auto",
@@ -1096,7 +1096,7 @@ def main() -> int:
         attr="ttft_mean_ms",
         ylabel="Mean TTFT (s)",
         xlabel=args.x_label,
-        routewise_alphas=tuple(args.routewise_plot_alphas),
+        routewise_alphas=tuple(args.routewise_alphalot_alphas),
     )
     plot_metric_frontier(
         summaries,
@@ -1104,7 +1104,7 @@ def main() -> int:
         attr="slo_violation_rate",
         ylabel="SLO violations (%)",
         xlabel=args.x_label,
-        routewise_alphas=tuple(args.routewise_plot_alphas),
+        routewise_alphas=tuple(args.routewise_alphalot_alphas),
     )
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)

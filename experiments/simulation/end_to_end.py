@@ -12,7 +12,7 @@ hedging:
 - ``end_to_end_rw8``: the selected eight-provider MiniMax M2.5 OpenRouter
   on-demand pool plus the same quota and concurrency providers.
 
-The policy dimension carries the no-hedge / hedging comparison and the ``p``
+The policy dimension carries the no-hedge / hedging comparison and the ``alpha``
 sweep. Explorer is intentionally disabled in the simulator; drift/profile
 freshness belongs to the live-evaluation harness.
 """
@@ -79,7 +79,7 @@ DEFAULT_QUOTA_COUNT = 1
 DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_COUNT = 1
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
-DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
+DEFAULT_ROUTEWISE_ALPHA_VALUES = P_SWEEP
 DEFAULT_SLO_MS = DEFAULT_PRIMARY_SLO_MS
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
@@ -247,27 +247,27 @@ def _with_prefix_cache_config(
 
 
 def policies_for_section(
-    p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_ROUTEWISE_ALPHA_VALUES,
 ) -> tuple[str, ...]:
-    """Return §3 simulator baselines plus LP-only and LP+hedging p sweeps."""
+    """Return §3 simulator baselines plus LP-only and LP+hedging alpha sweeps."""
     return (
         "greedy_cost",
         "greedy_latency",
         "random",
-        *(routewise_lp_policy_name(value) for value in p_values),
-        *(routewise_hedging_policy_name(value) for value in p_values),
+        *(routewise_lp_policy_name(value) for value in alpha_values),
+        *(routewise_hedging_policy_name(value) for value in alpha_values),
     )
 
 
 def make_policy_presets(
-    p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_ROUTEWISE_ALPHA_VALUES,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
     slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
     presets = make_routewise_presets(
-        p_values=p_values,
+        alpha_values=alpha_values,
         include_hedging=True,
         cost_envelope=WORKLOAD_COST_ENVELOPE,
         output_predictor=output_predictor,
@@ -635,7 +635,7 @@ def _enrich_rows_with_end_to_end_metadata(
                 "cached_input_price_fraction": meta.get("cached_input_price_fraction"),
                 "cached_input_price_source": meta.get("cached_input_price_source"),
                 "slo_ms": meta.get("slo_ms"),
-                "routewise_p": params.get("p"),
+                "routewise_alpha": params.get("alpha"),
                 "hedging_enabled": bool(params.get("hedging", False)),
                 "explorer_enabled": bool(params.get("explorer", False)),
                 "latency_profile_mode": params.get("latency_profile_mode"),
@@ -685,7 +685,7 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "concurrency_latency_profile_provider",
     "api_latency_family",
     "policy",
-    "routewise_p",
+    "routewise_alpha",
     "hedging_enabled",
     "explorer_enabled",
     "latency_profile_mode",
@@ -746,7 +746,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--policy",
         action="append",
-        help="Policy to run. Repeat to run multiple. Defaults to baselines + p sweep.",
+        help="Policy to run. Repeat to run multiple. Defaults to baselines + alpha sweep.",
     )
     parser.add_argument(
         "--seed",
@@ -755,11 +755,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"RouteWise p value. Repeat to sweep. Defaults to {DEFAULT_ROUTEWISE_P_VALUES}.",
+        dest="alpha_values",
+        help=f"RouteWise alpha value. Repeat to sweep. Defaults to {DEFAULT_ROUTEWISE_ALPHA_VALUES}.",
     )
     parser.add_argument(
         "--quota-plan",
@@ -853,7 +854,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_values = tuple(args.p_values) if args.p_values else DEFAULT_ROUTEWISE_P_VALUES
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_ROUTEWISE_ALPHA_VALUES
     selected_scenarios = tuple(args.scenario) if args.scenario else list_scenarios()
     scenarios = {
         name: make_scenario(
@@ -870,11 +871,11 @@ def main(argv: list[str] | None = None) -> int:
         for name in selected_scenarios
     }
     presets = make_policy_presets(
-        p_values,
+        alpha_values,
         output_predictor=args.predictor,
         slo_ms=args.slo_ms,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
+    policies = tuple(args.policy) if args.policy else policies_for_section(alpha_values)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
@@ -950,7 +951,7 @@ __all__ = [
     "DEFAULT_CONCURRENCY_PLAN",
     "DEFAULT_QUOTA_COUNT",
     "DEFAULT_QUOTA_PLAN",
-    "DEFAULT_ROUTEWISE_P_VALUES",
+    "DEFAULT_ROUTEWISE_ALPHA_VALUES",
     "PUBLIC_SCENARIO_TAG",
     "RW3_SCENARIO_NAME",
     "RW8_SCENARIO_NAME",
