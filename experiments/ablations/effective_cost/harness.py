@@ -16,13 +16,21 @@ from experiments.ablations.effective_cost.presets import (
     make_concurrency_ablation_presets,
 )
 from experiments.simulation import common, cost_layer
+from experiments.simulation.latency_factory import (
+    SyntheticLatencySpec,
+    describe_synthetic_latency,
+    synthetic_latency_metadata,
+)
+from experiments.simulation.latency_profiles import load_pooled_distribution
+from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
 from rwsim.engine.simulator import Simulator
+from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
+from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
     from rwsim.core.cost import ScarcityCurve
     from rwsim.metrics import Run
     from rwsim.schemas import Request
-    from rwsim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "effective-cost-ablation"
 PHASE_QUOTA = "quota"
@@ -48,7 +56,8 @@ def make_scenarios(
     *,
     phase: str = PHASE_QUOTA,
     subscription_plan: str = DEFAULT_SUBSCRIPTION_PLAN,
-    qstar: int | tuple[int, ...] = DEFAULT_QSTAR,
+    quota_limit: int | tuple[int, ...] | None = None,
+    qstar: int | tuple[int, ...] | None = None,
     latency_family: str = DEFAULT_LATENCY_FAMILY,
     concurrency_plan: str = DEFAULT_CONCURRENCY_PLAN,
     concurrency_count: int | tuple[int, ...] = DEFAULT_CONCURRENCY_COUNTS,
@@ -58,13 +67,16 @@ def make_scenarios(
     _require_supported_phase(phase)
     scenarios: dict[str, ScenarioConfig] = {}
     if phase == PHASE_QUOTA:
-        for value in _positive_unique_values("qstar", qstar):
-            label = cost_layer.quota_artifact_label(
+        for value in _quota_limit_values(
+            subscription_plan=subscription_plan,
+            quota_limit=quota_limit,
+            qstar=qstar,
+        ):
+            scenario = _make_quota_limit_scenario_for_plan(
                 subscription_plan,
                 value,
                 latency_family=latency_family,
             )
-            scenario = cost_layer.make_scenario(label)
             scenarios[scenario.name] = scenario
     elif phase == PHASE_CONCURRENCY:
         for value in _positive_unique_values("concurrency_count", concurrency_count):
@@ -80,6 +92,14 @@ def make_scenarios(
 
 def make_scenario(name: str) -> ScenarioConfig:
     """Rebuild an ablation scenario from its stable artifact label."""
+    parsed_quota_limit = _parse_quota_limit_artifact_label(name)
+    if parsed_quota_limit is not None:
+        plan_id, quota_limit, latency_family = parsed_quota_limit
+        return _make_quota_limit_scenario_for_plan(
+            plan_id,
+            quota_limit,
+            latency_family=latency_family,
+        )
     return cost_layer.make_scenario(name)
 
 
@@ -222,11 +242,24 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Quota subscription plan id. Defaults to {DEFAULT_SUBSCRIPTION_PLAN}.",
     )
     parser.add_argument(
+        "--quota-limit",
+        type=int,
+        action="append",
+        dest="quota_limits",
+        help=(
+            "Aggregate quota request limit to assign to the fixed one-plan quota "
+            "provider. Repeat to sweep. Defaults to the old q*=16 equivalent."
+        ),
+    )
+    parser.add_argument(
         "--qstar",
         type=int,
         action="append",
         dest="qstar_values",
-        help=f"Quota subscription count q*. Repeat to sweep. Defaults to {DEFAULT_QSTAR}.",
+        help=(
+            "Deprecated: quota subscription multiplier used only to derive "
+            f"quota-limit = qstar * plan quota. Defaults to {DEFAULT_QSTAR}."
+        ),
     )
     parser.add_argument(
         "--concurrency-plan",
@@ -291,13 +324,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _require_supported_phase(args.phase)
     alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
-    qstar_values = tuple(args.qstar_values) if args.qstar_values else (DEFAULT_QSTAR,)
+    quota_limits = tuple(args.quota_limits) if args.quota_limits else None
+    qstar_values = tuple(args.qstar_values) if args.qstar_values else None
     concurrency_counts = (
         tuple(args.concurrency_counts) if args.concurrency_counts else DEFAULT_CONCURRENCY_COUNTS
     )
     scenarios = make_scenarios(
         phase=args.phase,
         subscription_plan=args.subscription_plan,
+        quota_limit=quota_limits,
         qstar=qstar_values,
         latency_family=args.latency_family,
         concurrency_plan=args.concurrency_plan,
@@ -391,6 +426,243 @@ def _require_supported_phase(phase: str) -> None:
         raise ValueError(f"unknown effective-cost ablation phase {phase!r}; known: {known}")
 
 
+def quota_limit_artifact_label(
+    plan_id: str,
+    quota_limit: int,
+    *,
+    latency_family: str = DEFAULT_LATENCY_FAMILY,
+) -> str:
+    """Return the stable artifact label for one fixed-plan quota-limit cell."""
+    label = f"quota_limit__plan={plan_id}__quota={quota_limit}"
+    if latency_family != DEFAULT_LATENCY_FAMILY:
+        label += f"__latency={latency_family}"
+    return label
+
+
+def _parse_quota_limit_artifact_label(name: str) -> tuple[str, int, str] | None:
+    prefix = "quota_limit__plan="
+    marker = "__quota="
+    if not name.startswith(prefix) or marker not in name:
+        return None
+    plan_part, rest = name.removeprefix(prefix).rsplit(marker, 1)
+    quota_part, latency_family = _split_quota_limit_and_latency(rest)
+    try:
+        quota_limit = int(quota_part)
+    except ValueError as exc:
+        raise ValueError(f"invalid quota-limit artifact label {name!r}") from exc
+    if quota_limit <= 0:
+        raise ValueError(f"invalid quota-limit artifact label {name!r}: quota must be > 0")
+    return plan_part, quota_limit, latency_family
+
+
+def _split_quota_limit_and_latency(value: str) -> tuple[str, str]:
+    marker = "__latency="
+    if marker not in value:
+        return value, DEFAULT_LATENCY_FAMILY
+    quota_part, latency_family = value.split(marker, 1)
+    if latency_family not in ("uniform", "normal", "heavy_tail", "real_world"):
+        raise ValueError(f"unknown quota latency family {latency_family!r}")
+    return quota_part, latency_family
+
+
+def _quota_limit_values(
+    *,
+    subscription_plan: str,
+    quota_limit: int | tuple[int, ...] | None,
+    qstar: int | tuple[int, ...] | None,
+) -> tuple[int, ...]:
+    if quota_limit is not None and qstar is not None:
+        raise ValueError("provide either quota_limit or qstar, not both")
+    if quota_limit is not None:
+        return _positive_unique_values("quota_limit", quota_limit)
+
+    qstar_values = _positive_unique_values(
+        "qstar",
+        DEFAULT_QSTAR if qstar is None else qstar,
+    )
+    base_quota = _primary_quota_requests(_load_quota_plan(subscription_plan))
+    return tuple(base_quota * value for value in qstar_values)
+
+
+def _make_quota_limit_scenario_for_plan(
+    plan_id: str,
+    quota_limit: int,
+    *,
+    latency_family: str = DEFAULT_LATENCY_FAMILY,
+) -> ScenarioConfig:
+    if quota_limit <= 0:
+        raise ValueError(f"quota_limit must be > 0, got {quota_limit}")
+    if latency_family not in ("uniform", "normal", "heavy_tail", "real_world"):
+        raise ValueError(f"unknown quota latency family {latency_family!r}")
+    plan = _load_quota_plan(plan_id)
+    if "cost_layer_quota" not in plan.eligible_sections:
+        raise ValueError(
+            f"subscription plan {plan.plan_id!r} is not eligible for effective-cost quota runs"
+        )
+
+    base_quota = _primary_quota_requests(plan)
+    quota_multiplier = quota_limit / float(base_quota)
+    ttft_dist = load_pooled_distribution("rw8_pooled") if latency_family == "real_world" else None
+    synthetic_family = DEFAULT_LATENCY_FAMILY if ttft_dist is not None else latency_family
+    providers = [
+        common.make_quota_provider(
+            f"{plan.plan_id}_quota",
+            plan=plan,
+            subscription_count=1,
+            latency_family=synthetic_family,
+        ),
+        common.make_api_provider(
+            "api_cheap",
+            cost_per_million_tokens=common.COST_RATIO_PER_MILLION[0],
+            latency_family=synthetic_family,
+        ),
+        common.make_api_provider(
+            "api_mid",
+            cost_per_million_tokens=common.COST_RATIO_PER_MILLION[1],
+            latency_family=synthetic_family,
+        ),
+        common.make_api_provider(
+            "api_expensive",
+            cost_per_million_tokens=common.COST_RATIO_PER_MILLION[2],
+            latency_family=synthetic_family,
+        ),
+    ]
+    providers[0].quota = _quota_state_for_limit(
+        plan,
+        quota_limit=quota_limit,
+        quota_multiplier=quota_multiplier,
+    )
+    if ttft_dist is not None:
+        for provider in providers:
+            provider.ttft_dist = ttft_dist
+
+    label = quota_limit_artifact_label(
+        plan.plan_id,
+        quota_limit,
+        latency_family=latency_family,
+    )
+    quota_windows = _quota_window_metadata(
+        plan,
+        quota_limit=quota_limit,
+        quota_multiplier=quota_multiplier,
+    )
+    quota_window_text = ", ".join(
+        f"{window['aggregate_quota_requests']:g}/{window['quota_window_sec']:g}s"
+        for window in quota_windows
+    )
+    latency_text = (
+        "real-world pooled rw8_pooled"
+        if latency_family == "real_world"
+        else describe_synthetic_latency(
+            SyntheticLatencySpec(
+                family=latency_family,
+                anchor_ms=common.COST_LAYER_LATENCY_ANCHOR_MS,
+            )
+        )
+    )
+    latency_metadata = (
+        {}
+        if latency_family == "real_world"
+        else synthetic_latency_metadata(
+            SyntheticLatencySpec(
+                family=latency_family,
+                anchor_ms=common.COST_LAYER_LATENCY_ANCHOR_MS,
+            )
+        )
+    )
+    return ScenarioConfig(
+        name=label,
+        description=(
+            f"Effective-cost quota-limit ablation: {plan.display_name} with one "
+            f"subscription fixed cost and direct quota limit {quota_window_text}, "
+            "fixed cheap/mid/expensive on-demand fallback providers, "
+            f"TTFT={latency_text}."
+        ),
+        providers=providers,
+        arrival_process="trace",
+        primary_slo_ms=cost_layer.DEFAULT_PRIMARY_SLO_MS,
+        metadata={
+            "public_scenario": PHASE_QUOTA,
+            "artifact_label": label,
+            "subscription_plan": plan.plan_id,
+            "subscription_plan_display_name": plan.display_name,
+            "subscription_count": 1,
+            "quota_limit": quota_limit,
+            "quota_multiplier": quota_multiplier,
+            "quota_base_requests_per_subscription": base_quota,
+            "latency_family": latency_family,
+            **latency_metadata,
+            "quota_windows": quota_windows,
+        },
+    )
+
+
+def _load_quota_plan(plan_id: str) -> SubscriptionPlan:
+    plans = load_subscription_plans()
+    try:
+        plan = plans[plan_id]
+    except KeyError as exc:
+        known = ", ".join(sorted(plans))
+        raise ValueError(f"unknown subscription plan {plan_id!r}; known plans: {known}") from exc
+    if plan.tier != "quota":
+        raise ValueError(f"subscription plan {plan.plan_id!r} is not a quota plan")
+    return plan
+
+
+def _primary_quota_requests(plan: SubscriptionPlan) -> int:
+    if not plan.quota_windows:
+        raise ValueError(f"subscription plan {plan.plan_id!r} has no quota windows")
+    return int(plan.quota_windows[0].quota_requests)
+
+
+def _quota_state_for_limit(
+    plan: SubscriptionPlan,
+    *,
+    quota_limit: int,
+    quota_multiplier: float,
+) -> QuotaState | MultiWindowQuotaState:
+    windows = tuple(
+        QuotaState(
+            size=(
+                int(quota_limit)
+                if index == 0
+                else _scaled_quota_size(window.quota_requests, quota_multiplier)
+            ),
+            window_sec=window.quota_window_sec,
+        )
+        for index, window in enumerate(plan.quota_windows)
+    )
+    return windows[0] if len(windows) == 1 else MultiWindowQuotaState(windows)
+
+
+def _quota_window_metadata(
+    plan: SubscriptionPlan,
+    *,
+    quota_limit: int,
+    quota_multiplier: float,
+) -> list[dict[str, float | int | str]]:
+    return [
+        {
+            "name": window.name,
+            "quota_requests": window.quota_requests,
+            "quota_window_sec": window.quota_window_sec,
+            "aggregate_quota_requests": (
+                int(quota_limit)
+                if index == 0
+                else _scaled_quota_size(
+                    window.quota_requests,
+                    quota_multiplier,
+                )
+            ),
+        }
+        for index, window in enumerate(plan.quota_windows)
+    ]
+
+
+def _scaled_quota_size(quota_requests: int, quota_multiplier: float) -> int:
+    return max(1, round(int(quota_requests) * float(quota_multiplier)))
+
+
 def _positive_unique_values(name: str, values: int | tuple[int, ...]) -> tuple[int, ...]:
     values = (values,) if isinstance(values, int) else values
     if not values:
@@ -421,6 +693,7 @@ __all__ = [
     "make_scenario",
     "make_scenarios",
     "policies_for_phase",
+    "quota_limit_artifact_label",
     "run_ablation_policy",
     "run_effective_cost_cell",
 ]

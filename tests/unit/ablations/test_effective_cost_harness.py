@@ -19,29 +19,47 @@ from experiments.simulation import common
 from rwsim.world.capacity import ProviderTier
 
 
-def test_default_phase_a_scenario_is_locked_to_qstar_16_heavy_tail() -> None:
+def test_default_phase_a_scenario_uses_direct_quota_limit_heavy_tail() -> None:
     scenarios = harness.make_scenarios()
 
-    assert tuple(scenarios) == ("quota__plan=chutes__n=16",)
-    scenario = scenarios["quota__plan=chutes__n=16"]
+    assert tuple(scenarios) == ("quota_limit__plan=chutes__quota=80000",)
+    scenario = scenarios["quota_limit__plan=chutes__quota=80000"]
     assert scenario.metadata["public_scenario"] == "quota"
     assert scenario.metadata["subscription_plan"] == "chutes"
-    assert scenario.metadata["subscription_count"] == 16
+    assert scenario.metadata["subscription_count"] == 1
+    assert scenario.metadata["quota_limit"] == 80000
+    assert scenario.metadata["quota_multiplier"] == 16.0
     assert scenario.metadata["latency_family"] == "heavy_tail"
+    assert scenario.providers[0].quota.size == 80000
     assert {provider.tier for provider in scenario.providers} == {
         ProviderTier.S_Q,
         ProviderTier.S_A,
     }
 
 
-def test_repeated_qstar_expands_one_scenario_per_q() -> None:
-    q_values = (2, 4, 8, 12, 16)
+def test_repeated_quota_limit_expands_one_scenario_per_limit() -> None:
+    quota_limits = (10_000, 20_000, 40_000, 60_000, 80_000)
 
-    scenarios = harness.make_scenarios(qstar=q_values)
+    scenarios = harness.make_scenarios(quota_limit=quota_limits)
     presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, alpha_values=(0.0,))
 
-    assert tuple(scenarios) == tuple(f"quota__plan=chutes__n={value}" for value in q_values)
+    assert tuple(scenarios) == tuple(
+        f"quota_limit__plan=chutes__quota={value}" for value in quota_limits
+    )
     assert len(scenarios) * len(presets) * 1 == 20
+
+
+def test_repeated_qstar_is_compatibility_alias_for_quota_limits() -> None:
+    q_values = (2, 4, 8)
+
+    scenarios = harness.make_scenarios(qstar=q_values)
+
+    assert tuple(scenarios) == (
+        "quota_limit__plan=chutes__quota=10000",
+        "quota_limit__plan=chutes__quota=20000",
+        "quota_limit__plan=chutes__quota=40000",
+    )
+    assert {scenario.metadata["subscription_count"] for scenario in scenarios.values()} == {1}
 
 
 def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
@@ -72,7 +90,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     }
 
 
-def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path) -> None:
+def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path) -> None:
     captured = {}
 
     def fake_run_section(**kwargs):
@@ -92,16 +110,16 @@ def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path)
                 "constant_l",
                 "--curve",
                 "constant_u",
-                "--qstar",
-                "2",
-                "--qstar",
-                "4",
-                "--qstar",
-                "8",
-                "--qstar",
-                "12",
-                "--qstar",
-                "16",
+                "--quota-limit",
+                "10000",
+                "--quota-limit",
+                "20000",
+                "--quota-limit",
+                "40000",
+                "--quota-limit",
+                "60000",
+                "--quota-limit",
+                "80000",
                 "--p",
                 "0",
                 "--seed",
@@ -114,11 +132,11 @@ def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path)
     )
 
     assert tuple(captured["scenarios"]) == (
-        "quota__plan=chutes__n=2",
-        "quota__plan=chutes__n=4",
-        "quota__plan=chutes__n=8",
-        "quota__plan=chutes__n=12",
-        "quota__plan=chutes__n=16",
+        "quota_limit__plan=chutes__quota=10000",
+        "quota_limit__plan=chutes__quota=20000",
+        "quota_limit__plan=chutes__quota=40000",
+        "quota_limit__plan=chutes__quota=60000",
+        "quota_limit__plan=chutes__quota=80000",
     )
     assert len(captured["policies"]) == 4
     assert captured["seeds"] == (42,)
@@ -265,8 +283,9 @@ def test_deferred_phases_raise(phase: str) -> None:
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
-        ({"qstar": (2, 2)}, "qstar sweep values must be unique"),
-        ({"qstar": (0,)}, "qstar must be > 0"),
+        ({"quota_limit": (10_000, 10_000)}, "quota_limit sweep values must be unique"),
+        ({"quota_limit": (0,)}, "quota_limit must be > 0"),
+        ({"quota_limit": (10_000,), "qstar": (2,)}, "provide either quota_limit or qstar"),
         (
             {"phase": harness.PHASE_CONCURRENCY, "concurrency_count": (8, 8)},
             "concurrency_count sweep values must be unique",

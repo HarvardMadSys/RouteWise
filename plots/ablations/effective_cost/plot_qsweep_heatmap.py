@@ -26,7 +26,7 @@ DEFAULT_INPUT_DIRS = (
     Path("outputs/ablations/effective_cost_phaseA_qsweep_constants"),
 )
 DEFAULT_OUTPUT_DIR = Path("outputs/ablations/effective_cost_phaseA_qsweep_merged")
-DEFAULT_Q_VALUES = (2, 4, 8, 12, 16)
+DEFAULT_Q_VALUES = (10_000, 20_000, 40_000, 60_000, 80_000)
 CURVE_ORDER = ("constant_l", "exp_lu", "linear_lu", "constant_u")
 CURVE_LABELS = {
     "constant_l": "constant L",
@@ -57,11 +57,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Workload used to compute binding-day fraction.",
     )
     parser.add_argument(
+        "--quota-limit",
+        type=int,
+        action="append",
+        dest="q_values",
+        help=f"Expected quota limit. Repeat to override defaults {DEFAULT_Q_VALUES}.",
+    )
+    parser.add_argument(
         "--q",
         type=int,
         action="append",
         dest="q_values",
-        help=f"Expected q value. Repeat to override defaults {DEFAULT_Q_VALUES}.",
+        help="Deprecated alias for --quota-limit.",
     )
     parser.add_argument(
         "--curve",
@@ -165,7 +172,7 @@ def _normalize_rows(
                 "scenario": raw["scenario"],
                 "policy": raw["policy"],
                 "curve": quota_curve,
-                "q": int(float(raw["subscription_count"])),
+                "q": _quota_limit(raw),
                 "total_cost_usd_per_run": float(raw["total_cost_usd_per_run"]),
                 "api_cost_usd_per_run": float(raw["api_cost_usd_per_run"]),
                 "subscription_fixed_cost_usd_per_run": float(
@@ -235,7 +242,7 @@ def _binding_day_rows(q_values: tuple[int, ...], *, workload: str) -> list[dict[
     return [
         {
             "q": q,
-            "binding_day_fraction": sum(count > q * 5000 for count in counts) / 30.0,
+            "binding_day_fraction": sum(count > q for count in counts) / 30.0,
         }
         for q in q_values
     ]
@@ -296,7 +303,7 @@ def _plot_percent_delta_heatmap(
     bar_ax.bar(range(len(q_values)), binding, color="#666666", width=0.62)
     bar_ax.set_xticks(range(len(q_values)))
     bar_ax.set_xticklabels([str(q) for q in q_values])
-    bar_ax.set_xlabel("Subscriptions (q)")
+    bar_ax.set_xlabel("Quota limit (requests/day)")
     bar_ax.set_ylabel("binding\nfraction")
     bar_ax.set_ylim(0.0, 1.0)
     bar_ax.grid(True, axis="y", alpha=0.24)
@@ -330,7 +337,7 @@ def _plot_quota_fraction_heatmap(
     ax.set_yticklabels([CURVE_LABELS[curve] for curve in curves])
     ax.set_xticks(range(len(q_values)))
     ax.set_xticklabels([str(q) for q in q_values])
-    ax.set_xlabel("Subscriptions (q)")
+    ax.set_xlabel("Quota limit (requests/day)")
     ax.set_title("Quota request fraction", pad=5)
     for row_idx, _curve in enumerate(curves):
         for col_idx, _q in enumerate(q_values):
@@ -379,6 +386,13 @@ def _quota_fraction(row: dict[str, str]) -> float:
         for provider, fraction in provider_mix.items()
         if "quota" in provider or "chutes" in provider
     )
+
+
+def _quota_limit(row: dict[str, str]) -> int:
+    raw_quota_limit = row.get("quota_limit")
+    if raw_quota_limit not in (None, ""):
+        return int(float(raw_quota_limit))
+    return int(float(row["subscription_count"]))
 
 
 def _parse_mapping(value: str) -> dict[str, float]:

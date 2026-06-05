@@ -982,6 +982,34 @@ def quota_fits_in_trace(
     return True
 
 
+def quota_windows_fit_in_trace(
+    quota_windows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    requests: list[Request],
+) -> bool:
+    """Return whether explicit aggregate quota windows cover the trace."""
+    if not requests:
+        return True
+    trace_start = float(requests[0].timestamp)
+    for quota_window in quota_windows:
+        try:
+            capacity = int(quota_window["aggregate_quota_requests"])
+            quota_window_sec = float(quota_window["quota_window_sec"])
+        except KeyError as exc:
+            raise ValueError(
+                f"quota window metadata missing {exc.args[0]!r}: {quota_window!r}"
+            ) from exc
+        if capacity <= 0:
+            return False
+        counts: dict[int, int] = {}
+        for request in requests:
+            window_id = int((float(request.timestamp) - trace_start) // quota_window_sec)
+            counts[window_id] = counts.get(window_id, 0) + 1
+        if any(count > capacity for count in counts.values()):
+            return False
+    return True
+
+
 def concurrency_saturated_in_trace(
     plan: SubscriptionPlan,
     *,
@@ -1099,6 +1127,8 @@ def _subscription_summary_fields(
         "subscription_plan": plan_id,
         "subscription_plan_display_name": None,
         "subscription_count": metadata.get("subscription_count"),
+        "quota_limit": metadata.get("quota_limit"),
+        "quota_multiplier": metadata.get("quota_multiplier"),
         "concurrency_plan": concurrency_plan_id,
         "concurrency_plan_display_name": metadata.get("concurrency_plan_display_name"),
         "concurrency_count": metadata.get("concurrency_count"),
@@ -1221,7 +1251,8 @@ def _subscription_summary_fields(
                     quota_plan.cost_claim_allowed and concurrency_plan.cost_claim_allowed
                 ),
                 "trace_paper_grade": quota_paper_grade and concurrency_paper_grade,
-                "quota_fits_in_trace": quota_fits_in_trace(
+                "quota_fits_in_trace": _quota_fits_in_trace_from_metadata(
+                    metadata,
                     quota_plan,
                     subscription_count=quota_count,
                     requests=requests,
@@ -1276,8 +1307,11 @@ def _subscription_summary_fields(
                 "subscription_plan": plan.plan_id,
                 "subscription_plan_display_name": plan.display_name,
                 "subscription_count": count,
+                "quota_limit": metadata.get("quota_limit"),
+                "quota_multiplier": metadata.get("quota_multiplier"),
                 "trace_paper_grade": trace_paper_grade,
-                "quota_fits_in_trace": quota_fits_in_trace(
+                "quota_fits_in_trace": _quota_fits_in_trace_from_metadata(
+                    metadata,
                     plan,
                     subscription_count=count,
                     requests=requests,
@@ -1314,6 +1348,26 @@ def _subscription_summary_fields(
             }
         )
     return fields
+
+
+def _quota_fits_in_trace_from_metadata(
+    metadata: dict[str, Any],
+    plan: SubscriptionPlan,
+    *,
+    subscription_count: int,
+    requests: list[Request],
+) -> bool:
+    quota_windows = metadata.get("quota_windows")
+    if isinstance(quota_windows, list) and all(
+        isinstance(item, dict) and "aggregate_quota_requests" in item
+        for item in quota_windows
+    ):
+        return quota_windows_fit_in_trace(quota_windows, requests=requests)
+    return quota_fits_in_trace(
+        plan,
+        subscription_count=subscription_count,
+        requests=requests,
+    )
 
 
 def summarize_runs(
@@ -1710,6 +1764,8 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "subscription_plan",
         "subscription_plan_display_name",
         "subscription_count",
+        "quota_limit",
+        "quota_multiplier",
         "concurrency_plan",
         "concurrency_plan_display_name",
         "concurrency_count",
@@ -1827,6 +1883,7 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
 
 
 __all__ = [
+    "ALPHA_SWEEP",
     "COST_LAYER_LATENCY_ANCHOR_MS",
     "COST_RATIO_PER_MILLION",
     "DEFAULT_CACHED_INPUT_PRICE_FRACTION",
@@ -1834,7 +1891,6 @@ __all__ = [
     "DEFAULT_WORKLOAD",
     "OUTPUT_COST_MULTIPLIER",
     "OUTPUT_DIR",
-    "ALPHA_SWEEP",
     "P_SWEEP",
     "WORKLOAD_CHOICES",
     "WORKLOAD_COST_ENVELOPE",
@@ -1852,6 +1908,7 @@ __all__ = [
     "make_ttft_distribution",
     "p_label",
     "quota_fits_in_trace",
+    "quota_windows_fit_in_trace",
     "routewise_hedging_policy_name",
     "routewise_lp_policy_name",
     "run_policy",
