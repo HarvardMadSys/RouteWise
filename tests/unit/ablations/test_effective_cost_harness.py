@@ -46,7 +46,7 @@ def test_repeated_quota_limit_expands_one_scenario_per_limit() -> None:
     assert tuple(scenarios) == tuple(
         f"quota_limit__plan=chutes__quota={value}" for value in quota_limits
     )
-    assert len(scenarios) * len(presets) * 1 == 20
+    assert len(scenarios) * len(presets) * 1 == 25
 
 
 def test_repeated_qstar_is_compatibility_alias_for_quota_limits() -> None:
@@ -77,7 +77,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     assert tuple(scenarios) == tuple(
         f"concurrency__plan=featherless_premium__n={value}__model=sharegpt" for value in counts
     )
-    assert len(scenarios) * len(presets) * 1 == 32
+    assert len(scenarios) * len(presets) * 1 == 40
     scenario = scenarios["concurrency__plan=featherless_premium__n=12__model=sharegpt"]
     assert scenario.metadata["public_scenario"] == "concurrency"
     assert scenario.metadata["concurrency_plan"] == "featherless_premium"
@@ -102,6 +102,8 @@ def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp
     assert (
         harness.main(
             [
+                "--curve",
+                "constant_0",
                 "--curve",
                 "exp_lu",
                 "--curve",
@@ -138,11 +140,11 @@ def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp
         "quota_limit__plan=chutes__quota=60000",
         "quota_limit__plan=chutes__quota=80000",
     )
-    assert len(captured["policies"]) == 4
+    assert len(captured["policies"]) == 5
     assert captured["seeds"] == (42,)
     assert captured["retain_records"] is False
     assert all(parse_ablation_policy_name(policy)[2] == 0.0 for policy in captured["policies"])
-    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 20
+    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 25
 
 
 def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
@@ -180,6 +182,8 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
                 "--concurrency-count",
                 "16",
                 "--concurrency-curve",
+                "constant_0",
+                "--concurrency-curve",
                 "exp_lu",
                 "--concurrency-curve",
                 "linear_lu",
@@ -214,7 +218,7 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
     assert {item[2] for item in parsed} == {0.0}
     assert captured["seeds"] == (42,)
     assert captured["retain_records"] is False
-    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 32
+    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 40
 
 
 def test_policies_for_phase_default_curve_grid() -> None:

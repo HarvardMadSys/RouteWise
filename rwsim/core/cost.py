@@ -14,6 +14,7 @@ ScarcityCurve = Literal[
     "exp_lu",
     "linear_lu",
     "util_linear_u",
+    "constant_0",
     "constant_l",
     "constant_u",
 ]
@@ -23,6 +24,7 @@ SCARCITY_CURVES: tuple[ScarcityCurve, ...] = (
     "exp_lu",
     "linear_lu",
     "util_linear_u",
+    "constant_0",
     "constant_l",
     "constant_u",
 )
@@ -126,6 +128,8 @@ def scarcity_price(
     if curve == "util_linear_u":
         _validate_positive("U", U, curve=curve)
         return U * _clamp(x)
+    if curve == "constant_0":
+        return 0.0
     if curve == "constant_l":
         _validate_positive("L", L, curve=curve)
         return L

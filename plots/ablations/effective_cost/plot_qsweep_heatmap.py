@@ -1,4 +1,4 @@
-"""Plot effective-cost q-sweep heatmaps."""
+"""Plot effective-cost quota-limit ablation line figures."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import ast
 import csv
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,6 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 from experiments.ablations.effective_cost.presets import parse_ablation_policy_name
 from experiments.simulation import common
@@ -27,12 +27,20 @@ DEFAULT_INPUT_DIRS = (
 )
 DEFAULT_OUTPUT_DIR = Path("outputs/ablations/effective_cost_phaseA_qsweep_merged")
 DEFAULT_Q_VALUES = (10_000, 20_000, 40_000, 60_000, 80_000)
-CURVE_ORDER = ("constant_l", "exp_lu", "linear_lu", "constant_u")
+CURVE_ORDER = ("constant_0", "exp_lu", "linear_lu", "constant_l", "constant_u")
 CURVE_LABELS = {
+    "constant_0": "constant 0",
     "constant_l": "constant L",
     "exp_lu": "exp L-U",
     "linear_lu": "linear L-U",
     "constant_u": "constant U",
+}
+CURVE_COLORS = {
+    "constant_0": "#9467bd",
+    "constant_l": "#1f77b4",
+    "exp_lu": "#2ca02c",
+    "linear_lu": "#ff7f0e",
+    "constant_u": "#d62728",
 }
 
 
@@ -84,15 +92,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Expected p value. Defaults to 0.",
     )
     parser.add_argument(
-        "--color-limit-pct",
-        type=float,
-        default=20.0,
-        help="Symmetric heatmap color limit in percent. Defaults to +/-20.",
-    )
-    parser.add_argument(
-        "--skip-quota-fraction",
+        "--skip-utilization-plot",
         action="store_true",
-        help="Skip the optional quota-request-fraction appendix heatmap.",
+        help="Skip the quota subscription-utilization line plot.",
     )
     args = parser.parse_args(argv)
 
@@ -113,16 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     _write_csv(args.output_dir / "effective_cost_qsweep_binding_days.csv", binding_rows)
 
     figure_dir = args.output_dir / "figures"
-    _plot_percent_delta_heatmap(
-        percent_rows,
-        binding_rows,
-        q_values=q_values,
-        curves=curves,
-        output_dir=figure_dir,
-        color_limit_pct=float(args.color_limit_pct),
-    )
-    if not args.skip_quota_fraction:
-        _plot_quota_fraction_heatmap(
+    _plot_total_cost_curves(rows, q_values=q_values, curves=curves, output_dir=figure_dir)
+    if not args.skip_utilization_plot:
+        _plot_subscription_utilization_curves(
             rows,
             q_values=q_values,
             curves=curves,
@@ -167,18 +162,25 @@ def _normalize_rows(
         quota_curve, _, p_value = parse_ablation_policy_name(raw["policy"])
         if abs(p_value - expected_p) > 1e-9:
             raise ValueError(f"expected p={expected_p}, got p={p_value} for policy {raw['policy']}")
+        quota_limit = _quota_limit(raw)
+        quota_fraction = _quota_fraction(raw)
         rows.append(
             {
                 "scenario": raw["scenario"],
                 "policy": raw["policy"],
                 "curve": quota_curve,
-                "q": _quota_limit(raw),
+                "q": quota_limit,
                 "total_cost_usd_per_run": float(raw["total_cost_usd_per_run"]),
                 "api_cost_usd_per_run": float(raw["api_cost_usd_per_run"]),
                 "subscription_fixed_cost_usd_per_run": float(
                     raw["subscription_fixed_cost_usd_per_run"]
                 ),
-                "quota_request_fraction": _quota_fraction(raw),
+                "quota_request_fraction": quota_fraction,
+                "subscription_utilization": _quota_subscription_utilization(
+                    raw,
+                    quota_limit=quota_limit,
+                    quota_fraction=quota_fraction,
+                ),
                 "mean_ttft_ms": float(raw["mean_ttft_ms"]),
                 "p99_ms": float(raw["p99_ms"]),
                 "slo_violation_rate": float(raw["slo_violation_rate"]),
@@ -248,132 +250,107 @@ def _binding_day_rows(q_values: tuple[int, ...], *, workload: str) -> list[dict[
     ]
 
 
-def _plot_percent_delta_heatmap(
-    percent_rows: list[dict[str, Any]],
-    binding_rows: list[dict[str, Any]],
-    *,
-    q_values: tuple[int, ...],
-    curves: tuple[str, ...],
-    output_dir: Path,
-    color_limit_pct: float,
-) -> None:
-    _apply_effective_cost_style()
-    matrix = _matrix(
-        percent_rows,
-        curves=curves,
-        q_values=q_values,
-        value_key="delta_pct_vs_exp_lu",
-    )
-    clipped = np.clip(matrix, -color_limit_pct, color_limit_pct)
-    binding = [float(row["binding_day_fraction"]) for row in binding_rows]
-
-    fig = plt.figure(figsize=(4.8, 3.0))
-    grid = fig.add_gridspec(2, 1, height_ratios=(4.0, 1.15), hspace=0.08)
-    ax = fig.add_subplot(grid[0])
-    bar_ax = fig.add_subplot(grid[1], sharex=ax)
-
-    image = ax.imshow(
-        clipped,
-        aspect="auto",
-        cmap="RdBu_r",
-        vmin=-color_limit_pct,
-        vmax=color_limit_pct,
-    )
-    ax.set_yticks(range(len(curves)))
-    ax.set_yticklabels([CURVE_LABELS[curve] for curve in curves])
-    ax.set_xticks(range(len(q_values)))
-    ax.tick_params(axis="x", labelbottom=False)
-    ax.set_title("Total cost delta vs exp L-U (%)", pad=5)
-    for row_idx, _curve in enumerate(curves):
-        for col_idx, _q in enumerate(q_values):
-            value = matrix[row_idx, col_idx]
-            text_color = "white" if abs(value) >= 0.65 * color_limit_pct else "black"
-            ax.text(
-                col_idx,
-                row_idx,
-                f"{value:+.1f}",
-                ha="center",
-                va="center",
-                color=text_color,
-                fontsize=7,
-            )
-    colorbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.025)
-    colorbar.set_label("delta (%)", rotation=270, labelpad=10)
-
-    bar_ax.bar(range(len(q_values)), binding, color="#666666", width=0.62)
-    bar_ax.set_xticks(range(len(q_values)))
-    bar_ax.set_xticklabels([str(q) for q in q_values])
-    bar_ax.set_xlabel("Quota limit (requests/day)")
-    bar_ax.set_ylabel("binding\nfraction")
-    bar_ax.set_ylim(0.0, 1.0)
-    bar_ax.grid(True, axis="y", alpha=0.24)
-
-    save_figure(
-        fig,
-        output_dir,
-        "effective_cost_qsweep_percent_delta_heatmap",
-        formats=["pdf", "png"],
-    )
-    plt.close(fig)
-
-
-def _plot_quota_fraction_heatmap(
+def _plot_total_cost_curves(
     rows: list[dict[str, Any]],
     *,
     q_values: tuple[int, ...],
     curves: tuple[str, ...],
     output_dir: Path,
 ) -> None:
-    _apply_effective_cost_style()
-    matrix = _matrix(
+    _plot_curve_lines(
         rows,
+        x_values=q_values,
         curves=curves,
-        q_values=q_values,
-        value_key="quota_request_fraction",
+        y_key="total_cost_usd_per_run",
+        ylabel="Total cost ($)",
+        xlabel="Quota limit (requests/day)",
+        title="Quota ablation total cost",
+        output_dir=output_dir,
+        filename="effective_cost_quota_total_cost_curves",
+        mark_min=True,
     )
-    fig, ax = plt.subplots(figsize=(4.8, 2.35))
-    image = ax.imshow(matrix, aspect="auto", cmap="viridis", vmin=0.0, vmax=1.0)
-    ax.set_yticks(range(len(curves)))
-    ax.set_yticklabels([CURVE_LABELS[curve] for curve in curves])
-    ax.set_xticks(range(len(q_values)))
-    ax.set_xticklabels([str(q) for q in q_values])
-    ax.set_xlabel("Quota limit (requests/day)")
-    ax.set_title("Quota request fraction", pad=5)
-    for row_idx, _curve in enumerate(curves):
-        for col_idx, _q in enumerate(q_values):
-            value = matrix[row_idx, col_idx]
-            ax.text(
-                col_idx,
-                row_idx,
-                f"{value:.2f}",
-                ha="center",
-                va="center",
-                color="white" if value >= 0.5 else "black",
-                fontsize=7,
+
+
+def _plot_subscription_utilization_curves(
+    rows: list[dict[str, Any]],
+    *,
+    q_values: tuple[int, ...],
+    curves: tuple[str, ...],
+    output_dir: Path,
+) -> None:
+    _plot_curve_lines(
+        rows,
+        x_values=q_values,
+        curves=curves,
+        y_key="subscription_utilization",
+        ylabel="Subscription utilization",
+        xlabel="Quota limit (requests/day)",
+        title="Quota subscription utilization",
+        output_dir=output_dir,
+        filename="effective_cost_quota_subscription_utilization_curves",
+        y_min=0.0,
+        y_max=1.05,
+        mark_min=False,
+    )
+
+
+def _plot_curve_lines(
+    rows: list[dict[str, Any]],
+    *,
+    x_values: tuple[int, ...],
+    curves: tuple[str, ...],
+    y_key: str,
+    ylabel: str,
+    xlabel: str,
+    title: str,
+    output_dir: Path,
+    filename: str,
+    y_min: float | None = None,
+    y_max: float | None = None,
+    mark_min: bool = False,
+) -> None:
+    _apply_effective_cost_style()
+    fig, ax = plt.subplots(figsize=(5.6, 3.2))
+    for curve in curves:
+        curve_rows = _rows_for_curve(rows, curve)
+        xs = [row["q"] for row in curve_rows]
+        ys = [row[y_key] for row in curve_rows]
+        color = CURVE_COLORS[curve]
+        ax.plot(
+            xs,
+            ys,
+            marker="o",
+            color=color,
+            linewidth=1.55,
+            markersize=3.8,
+            label=CURVE_LABELS[curve],
+        )
+        if mark_min and curve_rows:
+            best = min(curve_rows, key=lambda row: row[y_key])
+            ax.scatter(
+                [best["q"]],
+                [best[y_key]],
+                marker="*",
+                s=72,
+                color=color,
+                edgecolor="white",
+                linewidth=0.6,
+                zorder=5,
             )
-    colorbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.025)
-    colorbar.set_label("fraction", rotation=270, labelpad=10)
-    save_figure(
-        fig,
-        output_dir,
-        "effective_cost_qsweep_quota_fraction_heatmap",
-        formats=["pdf", "png"],
-    )
+    ax.set_xticks(list(x_values))
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, pad=5)
+    if y_min is not None or y_max is not None:
+        ax.set_ylim(bottom=y_min, top=y_max)
+    ax.grid(True, alpha=0.24)
+    ax.legend(frameon=False, ncols=2, loc="best")
+    save_figure(fig, output_dir, filename, formats=["pdf", "png"])
     plt.close(fig)
 
 
-def _matrix(
-    rows: list[dict[str, Any]],
-    *,
-    curves: tuple[str, ...],
-    q_values: tuple[int, ...],
-    value_key: str,
-) -> np.ndarray:
-    value_by_curve_q = {(str(row["curve"]), int(row["q"])): float(row[value_key]) for row in rows}
-    return np.asarray(
-        [[value_by_curve_q[(curve, q)] for q in q_values] for curve in curves],
-        dtype=float,
-    )
+def _rows_for_curve(rows: list[dict[str, Any]], curve: str) -> list[dict[str, Any]]:
+    return sorted([row for row in rows if row["curve"] == curve], key=lambda row: row["q"])
 
 
 def _quota_fraction(row: dict[str, str]) -> float:
@@ -386,6 +363,21 @@ def _quota_fraction(row: dict[str, str]) -> float:
         for provider, fraction in provider_mix.items()
         if "quota" in provider or "chutes" in provider
     )
+
+
+def _quota_subscription_utilization(
+    row: dict[str, str],
+    *,
+    quota_limit: int,
+    quota_fraction: float,
+) -> float:
+    n_requests = int(float(row["n_requests"]))
+    trace_days = float(row.get("trace_days") or 0.0)
+    observed_days = max(1, math.ceil(trace_days))
+    capacity = float(quota_limit) * observed_days
+    if capacity <= 0.0:
+        return 0.0
+    return min(max(quota_fraction * n_requests / capacity, 0.0), 1.0)
 
 
 def _quota_limit(row: dict[str, str]) -> int:
@@ -422,6 +414,7 @@ def _apply_effective_cost_style() -> None:
             "axes.titlesize": 9,
             "xtick.labelsize": 7,
             "ytick.labelsize": 7,
+            "legend.fontsize": 6.4,
             "figure.dpi": 150,
             "savefig.dpi": 300,
             "savefig.pad_inches": 0.02,

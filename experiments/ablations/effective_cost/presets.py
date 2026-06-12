@@ -10,12 +10,14 @@ from rwsim.core.cost import SCARCITY_CURVES, ScarcityCurve
 DEFAULT_ALPHA_VALUES = (0.5,)
 DEFAULT_P_VALUES = DEFAULT_ALPHA_VALUES
 DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (
+    "constant_0",
     "exp_lu",
     "linear_lu",
     "constant_l",
     "constant_u",
 )
 DEFAULT_CONCURRENCY_CURVES: tuple[ScarcityCurve, ...] = (
+    "constant_0",
     "exp_lu",
     "linear_lu",
     "constant_l",

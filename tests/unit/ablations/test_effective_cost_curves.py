@@ -14,6 +14,7 @@ def test_registered_curve_set_is_intentional() -> None:
         "exp_lu",
         "linear_lu",
         "util_linear_u",
+        "constant_0",
         "constant_l",
         "constant_u",
     )
@@ -43,6 +44,7 @@ def test_util_linear_u_matches_former_concurrency_formula() -> None:
 
 @pytest.mark.parametrize("x", [0.0, 0.25, 0.5, 0.75, 1.0])
 def test_constant_curves_ignore_scarcity(x: float) -> None:
+    assert scarcity_price("constant_0", x, L=2.5, U=100.0) == pytest.approx(0.0)
     assert scarcity_price("constant_l", x, L=2.5, U=100.0) == pytest.approx(2.5)
     assert scarcity_price("constant_u", x, L=2.5, U=100.0) == pytest.approx(100.0)
 
