@@ -12,7 +12,7 @@ from experiments.ablations.effective_cost.presets import (
     DEFAULT_CONCURRENCY_CURVES,
     DEFAULT_QUOTA_CURVES,
 )
-from plots.ablations.effective_cost import plot_concurrency_heatmap, plot_qsweep_heatmap
+from plots.ablations.effective_cost import plot_concurrency_lines, plot_quota_lines
 
 DEFAULT_OUTPUT_ROOT = Path("outputs/ablations/effective_cost")
 DEFAULT_QUOTA_LIMITS = (10_000, 20_000, 40_000, 60_000, 80_000)
@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--baseline-summary",
         type=Path,
-        default=plot_concurrency_heatmap.DEFAULT_BASELINE_SUMMARY,
+        default=plot_concurrency_lines.DEFAULT_BASELINE_SUMMARY,
         help="Baseline summary.csv used by concurrency plots.",
     )
     parser.add_argument("--skip-run", action="store_true", help="Only run plotting/manifest steps.")
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_run:
             harness.main(_quota_run_args(args, quota_dir, config))
         if not args.skip_plot:
-            plot_qsweep_heatmap.main(_quota_plot_args(args, quota_dir, config))
+            plot_quota_lines.main(_quota_plot_args(args, quota_dir, config))
         manifest["outputs"]["quota"] = _phase_outputs(quota_dir)
 
     if harness.PHASE_CONCURRENCY in phases:
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_run:
             harness.main(_concurrency_run_args(args, concurrency_dir, config))
         if not args.skip_plot:
-            plot_concurrency_heatmap.main(_concurrency_plot_args(args, concurrency_dir, config))
+            plot_concurrency_lines.main(_concurrency_plot_args(args, concurrency_dir, config))
         manifest["outputs"]["concurrency"] = _phase_outputs(concurrency_dir)
 
     manifest_path = args.output_root / "manifest.json"

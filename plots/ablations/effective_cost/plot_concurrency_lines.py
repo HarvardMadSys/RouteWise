@@ -1,4 +1,4 @@
-"""Plot effective-cost quota-limit ablation line figures."""
+"""Plot effective-cost concurrency ablation line figures."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import argparse
 import ast
 import csv
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,17 +16,23 @@ if __package__ in {None, ""}:
 import matplotlib.pyplot as plt
 
 from experiments.ablations.effective_cost.presets import parse_ablation_policy_name
-from experiments.simulation import common
 from plots.helpers import save_figure
 from plots.style import apply_style
 
 DEFAULT_INPUT_DIRS = (
-    Path("outputs/ablations/effective_cost_phaseA_qsweep_exp_linear"),
-    Path("outputs/ablations/effective_cost_phaseA_qsweep_constants"),
+    Path("outputs/ablations/effective_cost_phaseB_concurrency_core"),
+    Path("outputs/ablations/effective_cost_phaseB_concurrency_sanity"),
 )
-DEFAULT_OUTPUT_DIR = Path("outputs/ablations/effective_cost_phaseA_qsweep_merged")
-DEFAULT_Q_VALUES = (10_000, 20_000, 40_000, 60_000, 80_000)
-CURVE_ORDER = ("constant_0", "exp_lu", "linear_lu", "constant_l", "constant_u")
+DEFAULT_BASELINE_SUMMARY = Path("outputs/simulation/cost_layer_1_3_featherless_main/summary.csv")
+DEFAULT_OUTPUT_DIR = Path("outputs/ablations/effective_cost_phaseB_concurrency_merged")
+DEFAULT_COUNTS = (6, 8, 10, 11, 12, 13, 14, 16)
+CURVE_ORDER = (
+    "constant_0",
+    "exp_lu",
+    "linear_lu",
+    "constant_l",
+    "constant_u",
+)
 CURVE_LABELS = {
     "constant_0": "constant 0",
     "constant_l": "constant L",
@@ -50,7 +55,13 @@ def main(argv: list[str] | None = None) -> int:
         "--input-dir",
         type=Path,
         action="append",
-        help="Input output directory containing summary.csv. Repeat for split runs.",
+        help="Input ablation output directory containing summary.csv. Repeat for split runs.",
+    )
+    parser.add_argument(
+        "--baseline-summary",
+        type=Path,
+        default=DEFAULT_BASELINE_SUMMARY,
+        help="Deprecated; kept for compatibility with older pipeline commands.",
     )
     parser.add_argument(
         "--output-dir",
@@ -59,24 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Merged output directory. Defaults to {DEFAULT_OUTPUT_DIR}.",
     )
     parser.add_argument(
-        "--workload",
-        default="burstgpt",
-        choices=("burstgpt", "sharegpt_burstgpt"),
-        help="Workload used to compute binding-day fraction.",
-    )
-    parser.add_argument(
-        "--quota-limit",
+        "--n",
         type=int,
         action="append",
-        dest="q_values",
-        help=f"Expected quota limit. Repeat to override defaults {DEFAULT_Q_VALUES}.",
-    )
-    parser.add_argument(
-        "--q",
-        type=int,
-        action="append",
-        dest="q_values",
-        help="Deprecated alias for --quota-limit.",
+        dest="counts",
+        help=f"Expected concurrency count. Repeat to override defaults {DEFAULT_COUNTS}.",
     )
     parser.add_argument(
         "--curve",
@@ -94,44 +92,47 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-utilization-plot",
         action="store_true",
-        help="Skip the quota subscription-utilization line plot.",
+        help="Skip the concurrency subscription-utilization line plot.",
     )
     args = parser.parse_args(argv)
 
     input_dirs = tuple(args.input_dir or DEFAULT_INPUT_DIRS)
-    q_values = tuple(args.q_values or DEFAULT_Q_VALUES)
+    counts = tuple(args.counts or DEFAULT_COUNTS)
     curves = tuple(args.curves or CURVE_ORDER)
 
     raw_rows = _load_summaries(input_dirs)
-    rows = _normalize_rows(raw_rows, expected_p=float(args.p))
-    _validate_grid(rows, q_values=q_values, curves=curves)
+    rows = _normalize_ablation_rows(raw_rows, expected_p=float(args.p))
+    _validate_grid(rows, counts=counts, curves=curves)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(args.output_dir / "summary.csv", raw_rows)
-
-    percent_rows = _percent_delta_rows(rows, q_values=q_values, curves=curves)
-    binding_rows = _binding_day_rows(q_values, workload=args.workload)
-    _write_csv(args.output_dir / "effective_cost_qsweep_percent_delta.csv", percent_rows)
-    _write_csv(args.output_dir / "effective_cost_qsweep_binding_days.csv", binding_rows)
+    percent_rows = _percent_delta_rows(rows, counts=counts, curves=curves)
+    _write_csv(args.output_dir / "effective_cost_concurrency_percent_delta.csv", percent_rows)
 
     figure_dir = args.output_dir / "figures"
-    _plot_total_cost_curves(rows, q_values=q_values, curves=curves, output_dir=figure_dir)
+    _plot_total_cost_curves(rows, counts=counts, curves=curves, output_dir=figure_dir)
     if not args.skip_utilization_plot:
         _plot_subscription_utilization_curves(
             rows,
-            q_values=q_values,
+            counts=counts,
             curves=curves,
             output_dir=figure_dir,
         )
+    _plot_subscription_request_share_curves(
+        rows,
+        counts=counts,
+        curves=curves,
+        output_dir=figure_dir,
+    )
 
     print(
         json.dumps(
             {
+                "curves": list(curves),
                 "input_dirs": [str(path) for path in input_dirs],
                 "output_dir": str(args.output_dir),
+                "counts": list(counts),
                 "rows": len(rows),
-                "q_values": list(q_values),
-                "curves": list(curves),
             },
             sort_keys=True,
         )
@@ -142,65 +143,64 @@ def main(argv: list[str] | None = None) -> int:
 def _load_summaries(input_dirs: tuple[Path, ...]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for input_dir in input_dirs:
-        path = input_dir / "summary.csv"
-        if not path.exists():
-            raise FileNotFoundError(path)
-        with path.open(newline="") as handle:
-            rows.extend(csv.DictReader(handle))
+        rows.extend(_load_summary_file(input_dir / "summary.csv"))
     if not rows:
-        raise ValueError("no summary rows loaded")
+        raise ValueError("no ablation summary rows loaded")
     return rows
 
 
-def _normalize_rows(
+def _load_summary_file(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _normalize_ablation_rows(
     raw_rows: list[dict[str, str]],
     *,
     expected_p: float,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for raw in raw_rows:
-        quota_curve, _, p_value = parse_ablation_policy_name(raw["policy"])
+        _, concurrency_curve, p_value = parse_ablation_policy_name(raw["policy"])
         if abs(p_value - expected_p) > 1e-9:
             raise ValueError(f"expected p={expected_p}, got p={p_value} for policy {raw['policy']}")
-        quota_limit = _quota_limit(raw)
-        quota_fraction = _quota_fraction(raw)
-        rows.append(
-            {
-                "scenario": raw["scenario"],
-                "policy": raw["policy"],
-                "curve": quota_curve,
-                "q": quota_limit,
-                "total_cost_usd_per_run": float(raw["total_cost_usd_per_run"]),
-                "api_cost_usd_per_run": float(raw["api_cost_usd_per_run"]),
-                "subscription_fixed_cost_usd_per_run": float(
-                    raw["subscription_fixed_cost_usd_per_run"]
-                ),
-                "quota_request_fraction": quota_fraction,
-                "subscription_utilization": _quota_subscription_utilization(
-                    raw,
-                    quota_limit=quota_limit,
-                    quota_fraction=quota_fraction,
-                ),
-                "mean_ttft_ms": float(raw["mean_ttft_ms"]),
-                "p99_ms": float(raw["p99_ms"]),
-                "slo_violation_rate": float(raw["slo_violation_rate"]),
-            }
-        )
+        rows.append(_row_payload(raw, label=concurrency_curve))
     return rows
+
+
+def _row_payload(raw: dict[str, str], *, label: str) -> dict[str, Any]:
+    return {
+        "label": label,
+        "scenario": raw["scenario"],
+        "policy": raw["policy"],
+        "n": int(float(raw["concurrency_count"])),
+        "total_cost_usd_per_run": float(raw["total_cost_usd_per_run"]),
+        "api_cost_usd_per_run": float(raw["api_cost_usd_per_run"]),
+        "subscription_fixed_cost_usd_per_run": float(raw["subscription_fixed_cost_usd_per_run"]),
+        "concurrency_request_fraction": _concurrency_fraction(raw),
+        "subscription_utilization": float(raw["mean_concurrency_utilization"]),
+        "mean_concurrency_utilization": float(raw["mean_concurrency_utilization"]),
+        "peak_used_concurrency_cost": float(raw["peak_used_concurrency_cost"]),
+        "mean_ttft_ms": float(raw["mean_ttft_ms"]),
+        "p99_ms": float(raw["p99_ms"]),
+        "slo_violation_rate": float(raw["slo_violation_rate"]),
+    }
 
 
 def _validate_grid(
     rows: list[dict[str, Any]],
     *,
-    q_values: tuple[int, ...],
+    counts: tuple[int, ...],
     curves: tuple[str, ...],
 ) -> None:
-    expected = {(curve, q) for curve in curves for q in q_values}
-    observed = {(str(row["curve"]), int(row["q"])) for row in rows}
+    expected = {(curve, count) for curve in curves for count in counts}
+    observed = {(str(row["label"]), int(row["n"])) for row in rows}
     missing = sorted(expected - observed)
     extra = sorted(observed - expected)
     if missing or extra:
-        raise ValueError(f"unexpected q-sweep grid; missing={missing}, extra={extra}")
+        raise ValueError(f"unexpected concurrency grid; missing={missing}, extra={extra}")
     if len(rows) != len(expected):
         raise ValueError(f"expected {len(expected)} rows, got {len(rows)}")
 
@@ -208,21 +208,23 @@ def _validate_grid(
 def _percent_delta_rows(
     rows: list[dict[str, Any]],
     *,
-    q_values: tuple[int, ...],
+    counts: tuple[int, ...],
     curves: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    row_by_curve_q = {(row["curve"], row["q"]): row for row in rows}
-    baseline_by_q = {q: row_by_curve_q[("exp_lu", q)]["total_cost_usd_per_run"] for q in q_values}
+    row_by_curve_n = {(row["label"], row["n"]): row for row in rows}
+    baseline_by_n = {
+        n: row_by_curve_n[("exp_lu", n)]["total_cost_usd_per_run"] for n in counts
+    }
     output = []
     for curve in curves:
-        for q in q_values:
-            row = row_by_curve_q[(curve, q)]
-            baseline = baseline_by_q[q]
+        for n in counts:
+            row = row_by_curve_n[(curve, n)]
+            baseline = baseline_by_n[n]
             total = row["total_cost_usd_per_run"]
             output.append(
                 {
                     "curve": curve,
-                    "q": q,
+                    "n": n,
                     "total_cost_usd_per_run": total,
                     "baseline_total_cost_usd_per_run": baseline,
                     "delta_pct_vs_exp_lu": (total - baseline) / baseline * 100.0,
@@ -231,42 +233,23 @@ def _percent_delta_rows(
     return output
 
 
-def _binding_day_rows(q_values: tuple[int, ...], *, workload: str) -> list[dict[str, Any]]:
-    requests = common.load_workload(dataset=workload)
-    if not requests:
-        raise ValueError("cannot compute binding days for an empty workload")
-    trace_start = float(requests[0].timestamp)
-    counts = [0] * 30
-    for request in requests:
-        day = int((float(request.timestamp) - trace_start) // 86400.0)
-        if 0 <= day < len(counts):
-            counts[day] += 1
-    return [
-        {
-            "q": q,
-            "binding_day_fraction": sum(count > q for count in counts) / 30.0,
-        }
-        for q in q_values
-    ]
-
-
 def _plot_total_cost_curves(
     rows: list[dict[str, Any]],
     *,
-    q_values: tuple[int, ...],
+    counts: tuple[int, ...],
     curves: tuple[str, ...],
     output_dir: Path,
 ) -> None:
     _plot_curve_lines(
         rows,
-        x_values=q_values,
+        x_values=counts,
         curves=curves,
         y_key="total_cost_usd_per_run",
         ylabel="Total cost ($)",
-        xlabel="Quota limit (requests/day)",
-        title="Quota ablation total cost",
+        xlabel="Featherless Premium accounts (n)",
+        title="Concurrency ablation total cost",
         output_dir=output_dir,
-        filename="effective_cost_quota_total_cost_curves",
+        filename="effective_cost_concurrency_total_cost_curves",
         mark_min=True,
     )
 
@@ -274,20 +257,43 @@ def _plot_total_cost_curves(
 def _plot_subscription_utilization_curves(
     rows: list[dict[str, Any]],
     *,
-    q_values: tuple[int, ...],
+    counts: tuple[int, ...],
     curves: tuple[str, ...],
     output_dir: Path,
 ) -> None:
     _plot_curve_lines(
         rows,
-        x_values=q_values,
+        x_values=counts,
         curves=curves,
         y_key="subscription_utilization",
         ylabel="Subscription utilization",
-        xlabel="Quota limit (requests/day)",
-        title="Quota subscription utilization",
+        xlabel="Featherless Premium accounts (n)",
+        title="Concurrency subscription utilization",
         output_dir=output_dir,
-        filename="effective_cost_quota_subscription_utilization_curves",
+        filename="effective_cost_concurrency_subscription_utilization_curves",
+        y_min=0.0,
+        y_max=1.05,
+        mark_min=False,
+    )
+
+
+def _plot_subscription_request_share_curves(
+    rows: list[dict[str, Any]],
+    *,
+    counts: tuple[int, ...],
+    curves: tuple[str, ...],
+    output_dir: Path,
+) -> None:
+    _plot_curve_lines(
+        rows,
+        x_values=counts,
+        curves=curves,
+        y_key="concurrency_request_fraction",
+        ylabel="Subscription request share",
+        xlabel="Featherless Premium accounts (n)",
+        title="Concurrency subscription request share",
+        output_dir=output_dir,
+        filename="effective_cost_concurrency_subscription_request_share_curves",
         y_min=0.0,
         y_max=1.05,
         mark_min=False,
@@ -312,8 +318,8 @@ def _plot_curve_lines(
     _apply_effective_cost_style()
     fig, ax = plt.subplots(figsize=(5.6, 3.2))
     for curve in curves:
-        curve_rows = _rows_for_curve(rows, curve)
-        xs = [row["q"] for row in curve_rows]
+        curve_rows = _rows_for_label(rows, curve)
+        xs = [row["n"] for row in curve_rows]
         ys = [row[y_key] for row in curve_rows]
         color = CURVE_COLORS[curve]
         ax.plot(
@@ -328,7 +334,7 @@ def _plot_curve_lines(
         if mark_min and curve_rows:
             best = min(curve_rows, key=lambda row: row[y_key])
             ax.scatter(
-                [best["q"]],
+                [best["n"]],
                 [best[y_key]],
                 marker="*",
                 s=72,
@@ -349,42 +355,23 @@ def _plot_curve_lines(
     plt.close(fig)
 
 
-def _rows_for_curve(rows: list[dict[str, Any]], curve: str) -> list[dict[str, Any]]:
-    return sorted([row for row in rows if row["curve"] == curve], key=lambda row: row["q"])
+def _rows_for_label(rows: list[dict[str, Any]], label: str) -> list[dict[str, Any]]:
+    return sorted(
+        [row for row in rows if row["label"] == label],
+        key=lambda row: row["n"],
+    )
 
 
-def _quota_fraction(row: dict[str, str]) -> float:
+def _concurrency_fraction(row: dict[str, str]) -> float:
     tier_mix = _parse_mapping(row["tier_mix"])
-    if "quota" in tier_mix:
-        return tier_mix["quota"]
+    if "concurrency" in tier_mix:
+        return tier_mix["concurrency"]
     provider_mix = _parse_mapping(row["provider_mix"])
     return sum(
         fraction
         for provider, fraction in provider_mix.items()
-        if "quota" in provider or "chutes" in provider
+        if "concurrency" in provider or "featherless" in provider
     )
-
-
-def _quota_subscription_utilization(
-    row: dict[str, str],
-    *,
-    quota_limit: int,
-    quota_fraction: float,
-) -> float:
-    n_requests = int(float(row["n_requests"]))
-    trace_days = float(row.get("trace_days") or 0.0)
-    observed_days = max(1, math.ceil(trace_days))
-    capacity = float(quota_limit) * observed_days
-    if capacity <= 0.0:
-        return 0.0
-    return min(max(quota_fraction * n_requests / capacity, 0.0), 1.0)
-
-
-def _quota_limit(row: dict[str, str]) -> int:
-    raw_quota_limit = row.get("quota_limit")
-    if raw_quota_limit not in (None, ""):
-        return int(float(raw_quota_limit))
-    return int(float(row["subscription_count"]))
 
 
 def _parse_mapping(value: str) -> dict[str, float]:
