@@ -16,7 +16,6 @@ DEFAULT_QUOTA_CURVES: tuple[ScarcityCurve, ...] = (
     "constant_u",
 )
 DEFAULT_CONCURRENCY_CURVES: tuple[ScarcityCurve, ...] = (
-    "util_linear_u",
     "exp_lu",
     "linear_lu",
     "constant_l",

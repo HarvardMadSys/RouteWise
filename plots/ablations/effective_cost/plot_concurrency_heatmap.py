@@ -31,21 +31,18 @@ CURVE_ORDER = (
     "constant_l",
     "exp_lu",
     "linear_lu",
-    "legacy_linear_u",
     "constant_u",
 )
 CURVE_LABELS = {
     "constant_l": "constant L",
     "exp_lu": "exp L-U",
     "linear_lu": "linear L-U",
-    "legacy_linear_u": "legacy U*u",
     "constant_u": "constant U",
 }
 CURVE_COLORS = {
     "constant_l": "#1f77b4",
     "exp_lu": "#2ca02c",
     "linear_lu": "#ff7f0e",
-    "legacy_linear_u": "#9467bd",
     "constant_u": "#d62728",
     "offline": "#555555",
     "greedy_cost": "#111111",
@@ -255,7 +252,7 @@ def _percent_delta_rows(
 ) -> list[dict[str, Any]]:
     row_by_curve_n = {(row["label"], row["n"]): row for row in rows}
     baseline_by_n = {
-        n: row_by_curve_n[("legacy_linear_u", n)]["total_cost_usd_per_run"] for n in counts
+        n: row_by_curve_n[("exp_lu", n)]["total_cost_usd_per_run"] for n in counts
     }
     output = []
     for curve in curves:
@@ -269,7 +266,7 @@ def _percent_delta_rows(
                     "n": n,
                     "total_cost_usd_per_run": total,
                     "baseline_total_cost_usd_per_run": baseline,
-                    "delta_pct_vs_legacy_linear_u": (total - baseline) / baseline * 100.0,
+                    "delta_pct_vs_exp_lu": (total - baseline) / baseline * 100.0,
                 }
             )
     return output
@@ -288,7 +285,7 @@ def _plot_percent_delta_heatmap(
         percent_rows,
         labels=curves,
         counts=counts,
-        value_key="delta_pct_vs_legacy_linear_u",
+        value_key="delta_pct_vs_exp_lu",
     )
     clipped = np.clip(matrix, -color_limit_pct, color_limit_pct)
 
@@ -305,7 +302,7 @@ def _plot_percent_delta_heatmap(
     ax.set_xticks(range(len(counts)))
     ax.set_xticklabels([str(count) for count in counts])
     ax.set_xlabel("Featherless Premium accounts (n)")
-    ax.set_title("Total cost delta vs legacy U*u (%)", pad=5)
+    ax.set_title("Total cost delta vs exp L-U (%)", pad=5)
     for row_idx, _curve in enumerate(curves):
         for col_idx, _count in enumerate(counts):
             value = matrix[row_idx, col_idx]

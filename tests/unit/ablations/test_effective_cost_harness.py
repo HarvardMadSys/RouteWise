@@ -77,7 +77,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     assert tuple(scenarios) == tuple(
         f"concurrency__plan=featherless_premium__n={value}__model=sharegpt" for value in counts
     )
-    assert len(scenarios) * len(presets) * 1 == 40
+    assert len(scenarios) * len(presets) * 1 == 32
     scenario = scenarios["concurrency__plan=featherless_premium__n=12__model=sharegpt"]
     assert scenario.metadata["public_scenario"] == "concurrency"
     assert scenario.metadata["concurrency_plan"] == "featherless_premium"
@@ -180,8 +180,6 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
                 "--concurrency-count",
                 "16",
                 "--concurrency-curve",
-                "util_linear_u",
-                "--concurrency-curve",
                 "exp_lu",
                 "--concurrency-curve",
                 "linear_lu",
@@ -216,7 +214,7 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
     assert {item[2] for item in parsed} == {0.0}
     assert captured["seeds"] == (42,)
     assert captured["retain_records"] is False
-    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 40
+    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 32
 
 
 def test_policies_for_phase_default_curve_grid() -> None:
