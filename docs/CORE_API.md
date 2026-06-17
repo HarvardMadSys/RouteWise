@@ -3,6 +3,12 @@
 This document describes the stable, lightweight RouteWise library surface:
 `routewise.core`.
 
+If you are looking for the proposed public library interface (API providers
+only, with no subscription concepts), read
+[API_PROVIDER_INTERFACE.md](API_PROVIDER_INTERFACE.md) first. This document
+covers the lower-level math primitives that exist in the codebase today; the
+interface document describes the user-facing surface planned on top of them.
+
 `routewise.core` contains pure routing math and small data contracts. It does
 not import the simulator, experiment harnesses, plotting code, live-provider
 transports, or production gateway integrations.
