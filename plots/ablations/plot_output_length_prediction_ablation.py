@@ -33,12 +33,23 @@ POLICY_ORDER = (
 )
 POLICY_LABELS = {
     "ablation_lp_only_alpha0": "LP alpha=0",
-    "ablation_lp_only_alpha25": "LP alpha=.25",
-    "ablation_lp_only_alpha50": "LP alpha=.5",
+    "ablation_lp_only_alpha25": "LP alpha=0.25",
+    "ablation_lp_only_alpha50": "LP alpha=0.5",
     "ablation_lp_hedging_alpha0": "Hedge alpha=0",
-    "ablation_lp_hedging_alpha25": "Hedge alpha=.25",
-    "ablation_lp_hedging_alpha50": "Hedge alpha=.5",
+    "ablation_lp_hedging_alpha25": "Hedge alpha=0.25",
+    "ablation_lp_hedging_alpha50": "Hedge alpha=0.5",
 }
+# Legend column order: pair LP (solid) and Hedge (dashed) of the same alpha in
+# one column. With matplotlib's column-major fill and ncols=3, consecutive
+# entries fill each column top-to-bottom.
+LEGEND_ORDER = (
+    "ablation_lp_only_alpha0",
+    "ablation_lp_hedging_alpha0",
+    "ablation_lp_only_alpha25",
+    "ablation_lp_hedging_alpha25",
+    "ablation_lp_only_alpha50",
+    "ablation_lp_hedging_alpha50",
+)
 POLICY_COLORS = {
     "ablation_lp_only_alpha0": "#1f77b4",
     "ablation_lp_only_alpha25": "#2ca02c",
@@ -207,10 +218,11 @@ def _worst_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None:
     _apply_output_length_style()
     fig, ax = plt.subplots(figsize=(5.2, 2.8))
+    handles: dict[str, Any] = {}
     for policy in POLICY_ORDER:
         policy_rows = _policy_rows(rows, policy)
         linestyle = "--" if "hedging" in policy else "-"
-        ax.plot(
+        (handles[policy],) = ax.plot(
             [row["prediction_error_pct"] for row in policy_rows],
             [row["total_cost_delta_pct"] for row in policy_rows],
             marker="o",
@@ -221,8 +233,16 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
     ax.axhline(0.0, color="#444444", linewidth=0.8, alpha=0.65)
     ax.set_xlabel("Output-token prediction bias (%)")
     ax.set_ylabel("Total cost delta (%)")
-    ax.set_title("Cost sensitivity to output-length bias", pad=5)
-    ax.legend(frameon=False, ncols=3, loc="upper left", columnspacing=0.9, handlelength=1.7)
+    ax.set_ylim(-6.0, 6.0)
+    ax.legend(
+        [handles[policy] for policy in LEGEND_ORDER],
+        [POLICY_LABELS[policy] for policy in LEGEND_ORDER],
+        frameon=False,
+        ncols=3,
+        loc="upper left",
+        columnspacing=0.9,
+        handlelength=2.6,
+    )
     ax.grid(True, alpha=0.24)
     save_figure(fig, output_dir, "output_length_prediction_cost_delta_lines", ["pdf", "png"])
     plt.close(fig)
