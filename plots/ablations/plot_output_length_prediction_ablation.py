@@ -32,12 +32,12 @@ POLICY_ORDER = (
     "ablation_lp_hedging_alpha50",
 )
 POLICY_LABELS = {
-    "ablation_lp_only_alpha0": "LP alpha=0",
-    "ablation_lp_only_alpha25": "LP alpha=0.25",
-    "ablation_lp_only_alpha50": "LP alpha=0.5",
-    "ablation_lp_hedging_alpha0": "Hedge alpha=0",
-    "ablation_lp_hedging_alpha25": "Hedge alpha=0.25",
-    "ablation_lp_hedging_alpha50": "Hedge alpha=0.5",
+    "ablation_lp_only_alpha0": "LP α=0",
+    "ablation_lp_only_alpha25": "LP α=0.25",
+    "ablation_lp_only_alpha50": "LP α=0.5",
+    "ablation_lp_hedging_alpha0": "Hedge α=0",
+    "ablation_lp_hedging_alpha25": "Hedge α=0.25",
+    "ablation_lp_hedging_alpha50": "Hedge α=0.5",
 }
 # Legend column order: pair LP (solid) and Hedge (dashed) of the same alpha in
 # one column. With matplotlib's column-major fill and ncols=3, consecutive
@@ -217,7 +217,7 @@ def _worst_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None:
     _apply_output_length_style()
-    fig, ax = plt.subplots(figsize=(5.2, 2.8))
+    fig, ax = plt.subplots(figsize=(2.3, 1.95))
     handles: dict[str, Any] = {}
     for policy in POLICY_ORDER:
         policy_rows = _policy_rows(rows, policy)
@@ -231,7 +231,7 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
             label=POLICY_LABELS[policy],
         )
     ax.axhline(0.0, color="#444444", linewidth=0.8, alpha=0.65)
-    ax.set_xlabel("Output-token prediction bias (%)")
+    ax.set_xlabel("Length prediction bias (%)")
     ax.set_ylabel("Total cost delta (%)")
     ax.set_ylim(-6.0, 6.0)
     ax.legend(
@@ -239,12 +239,22 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
         [POLICY_LABELS[policy] for policy in LEGEND_ORDER],
         frameon=False,
         ncols=3,
-        loc="upper left",
-        columnspacing=0.9,
-        handlelength=2.6,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        bbox_transform=fig.transFigure,
+        columnspacing=0.4,
+        handlelength=1.3,
+        handletextpad=0.25,
     )
     ax.grid(True, alpha=0.24)
-    save_figure(fig, output_dir, "output_length_prediction_cost_delta_lines", ["pdf", "png"])
+    fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
+    save_figure(
+        fig,
+        output_dir,
+        "output_length_prediction_cost_delta_lines",
+        ["pdf", "png"],
+        full_canvas=True,
+    )
     plt.close(fig)
 
 
@@ -382,14 +392,14 @@ def _apply_output_length_style() -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 8,
-            "axes.labelsize": 8,
-            "axes.titlesize": 9,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
-            "legend.fontsize": 7,
-            "lines.linewidth": 1.45,
-            "lines.markersize": 3.8,
+            "font.size": 6.5,
+            "axes.labelsize": 6.5,
+            "axes.titlesize": 6.5,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "legend.fontsize": 6.5,
+            "lines.linewidth": 1.1,
+            "lines.markersize": 3.0,
             "axes.linewidth": 0.8,
             "grid.linewidth": 0.5,
             "savefig.pad_inches": 0.02,

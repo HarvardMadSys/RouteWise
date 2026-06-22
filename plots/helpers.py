@@ -13,6 +13,8 @@ def save_figure(
     output_dir: Path,
     name: str,
     formats: list[str] | None = None,
+    *,
+    full_canvas: bool = False,
 ) -> None:
     """Save figure in multiple formats.
 
@@ -21,6 +23,10 @@ def save_figure(
         output_dir: Output directory.
         name: Base filename (without extension).
         formats: List of formats (default: ['png']).
+        full_canvas: Save at the exact figure size instead of a tight bounding
+            box. Use this when several figures must share identical pixel
+            dimensions (e.g. a row of panels in the paper); the caller is then
+            responsible for reserving margins so nothing is clipped.
     """
     if formats is None:
         formats = ["png"]
@@ -28,9 +34,10 @@ def save_figure(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    save_kwargs = {"bbox_inches": fig.bbox_inches, "pad_inches": 0.0} if full_canvas else {}
     for fmt in formats:
         path = output_dir / f"{name}.{fmt}"
-        fig.savefig(path)
+        fig.savefig(path, **save_kwargs)
         print(f"Saved: {path}")
 
 

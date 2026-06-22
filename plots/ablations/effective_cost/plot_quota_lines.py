@@ -331,7 +331,7 @@ def _plot_curve_lines(
     y_max: float | None = None,
 ) -> None:
     _apply_effective_cost_style()
-    fig, ax = plt.subplots(figsize=(5.6, 3.2))
+    fig, ax = plt.subplots(figsize=(2.3, 1.95))
     for curve in curves:
         curve_rows = _rows_for_curve(rows, curve)
         xs = [row["q"] for row in curve_rows]
@@ -342,18 +342,31 @@ def _plot_curve_lines(
             ys,
             marker="o",
             color=color,
-            linewidth=1.55,
-            markersize=3.8,
+            linewidth=1.1,
+            markersize=3.0,
             label=CURVE_LABELS[curve],
         )
     ax.set_xticks(list(x_values))
+    ax.set_xticklabels(
+        [f"{value // 1000}k" if value % 1000 == 0 else str(value) for value in x_values]
+    )
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if y_min is not None or y_max is not None:
         ax.set_ylim(bottom=y_min, top=y_max)
     ax.grid(True, alpha=0.24)
-    ax.legend(frameon=False, ncols=2, loc="best")
-    save_figure(fig, output_dir, filename, formats=["pdf", "png"])
+    ax.legend(
+        frameon=False,
+        ncols=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        bbox_transform=fig.transFigure,
+        columnspacing=0.6,
+        handlelength=1.4,
+        handletextpad=0.3,
+    )
+    fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
+    save_figure(fig, output_dir, filename, formats=["pdf", "png"], full_canvas=True)
     plt.close(fig)
 
 
@@ -417,12 +430,12 @@ def _apply_effective_cost_style() -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 8,
-            "axes.labelsize": 8,
-            "axes.titlesize": 9,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
-            "legend.fontsize": 6.4,
+            "font.size": 6.5,
+            "axes.labelsize": 6.5,
+            "axes.titlesize": 6.5,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "legend.fontsize": 6.5,
             "figure.dpi": 150,
             "savefig.dpi": 300,
             "savefig.pad_inches": 0.02,
