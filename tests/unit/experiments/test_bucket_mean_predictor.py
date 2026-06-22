@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
+from experiments.offline_stage.value_estimators import (
+    BucketMeanOutputPredictor,
+    ScaledOutputPredictor,
+)
 from experiments.simulation.common import (
     SingleModelOutputPredictor,
     _build_workload_predictor,
@@ -75,3 +78,41 @@ def test_simulation_predictor_factory_supports_bucket_mean() -> None:
 
     assert isinstance(predictor, BucketMeanOutputPredictor)
     assert not isinstance(predictor, SingleModelOutputPredictor)
+
+
+def test_scaled_output_predictor_scales_point_predictions() -> None:
+    base = BucketMeanOutputPredictor(default_output_tokens=100.0)
+    predictor = ScaledOutputPredictor(base, multiplier=1.5)
+
+    prediction = predictor.predict(_request(1, request_tokens=128))
+
+    assert prediction.tokens == pytest.approx(150.0)
+    assert not prediction.is_warmed_up
+
+
+def test_simulation_predictor_factory_supports_scaled_oracle() -> None:
+    spec = _normalize_predictor_arg("scaled:oracle:1.25")
+
+    assert spec == {"kind": "scaled", "base": {"kind": "oracle"}, "multiplier": 1.25}
+    predictor = _build_workload_predictor(spec, requests=[])
+    prediction = predictor.predict(_request(1, request_tokens=128, response_tokens=80))
+
+    assert isinstance(predictor, ScaledOutputPredictor)
+    assert prediction.q10 == pytest.approx(100.0)
+    assert prediction.q50 == pytest.approx(100.0)
+    assert prediction.q90 == pytest.approx(100.0)
+
+
+def test_simulation_predictor_factory_supports_scaled_fixed_predictor() -> None:
+    spec = _normalize_predictor_arg("scaled:fixed:20:0.5")
+
+    predictor = _build_workload_predictor(spec, requests=[])
+    prediction = predictor.predict(_request(1, request_tokens=128, response_tokens=80))
+
+    assert isinstance(predictor, ScaledOutputPredictor)
+    assert prediction.q50 == pytest.approx(10.0)
+
+
+def test_scaled_predictor_rejects_negative_multiplier() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        _normalize_predictor_arg("scaled:oracle:-0.1")

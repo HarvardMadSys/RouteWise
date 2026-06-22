@@ -246,11 +246,9 @@ def _plot_total_cost_curves(
         curves=curves,
         y_key="total_cost_usd_per_run",
         ylabel="Total cost ($)",
-        xlabel="Featherless Premium accounts (n)",
-        title="Concurrency ablation total cost",
+        xlabel="Concurrency slots (n)",
         output_dir=output_dir,
         filename="effective_cost_concurrency_total_cost_curves",
-        mark_min=True,
     )
 
 
@@ -267,13 +265,11 @@ def _plot_subscription_utilization_curves(
         curves=curves,
         y_key="subscription_utilization",
         ylabel="Subscription utilization",
-        xlabel="Featherless Premium accounts (n)",
-        title="Concurrency subscription utilization",
+        xlabel="Concurrency slots (n)",
         output_dir=output_dir,
         filename="effective_cost_concurrency_subscription_utilization_curves",
         y_min=0.0,
         y_max=1.05,
-        mark_min=False,
     )
 
 
@@ -290,13 +286,11 @@ def _plot_subscription_request_share_curves(
         curves=curves,
         y_key="concurrency_request_fraction",
         ylabel="Subscription request share",
-        xlabel="Featherless Premium accounts (n)",
-        title="Concurrency subscription request share",
+        xlabel="Concurrency slots (n)",
         output_dir=output_dir,
         filename="effective_cost_concurrency_subscription_request_share_curves",
         y_min=0.0,
         y_max=1.05,
-        mark_min=False,
     )
 
 
@@ -308,12 +302,10 @@ def _plot_curve_lines(
     y_key: str,
     ylabel: str,
     xlabel: str,
-    title: str,
     output_dir: Path,
     filename: str,
     y_min: float | None = None,
     y_max: float | None = None,
-    mark_min: bool = False,
 ) -> None:
     _apply_effective_cost_style()
     fig, ax = plt.subplots(figsize=(5.6, 3.2))
@@ -331,22 +323,9 @@ def _plot_curve_lines(
             markersize=3.8,
             label=CURVE_LABELS[curve],
         )
-        if mark_min and curve_rows:
-            best = min(curve_rows, key=lambda row: row[y_key])
-            ax.scatter(
-                [best["n"]],
-                [best[y_key]],
-                marker="*",
-                s=72,
-                color=color,
-                edgecolor="white",
-                linewidth=0.6,
-                zorder=5,
-            )
     ax.set_xticks(list(x_values))
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.set_title(title, pad=5)
     if y_min is not None or y_max is not None:
         ax.set_ylim(bottom=y_min, top=y_max)
     ax.grid(True, alpha=0.24)

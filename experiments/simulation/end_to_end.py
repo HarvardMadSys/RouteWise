@@ -217,12 +217,9 @@ def _with_prefix_cache_config(
     """Apply provider-local prefix-cache accounting to one §3 scenario."""
     if cached_input_price_fraction < 0.0:
         raise ValueError(
-            "cached input price fraction must be non-negative, got "
-            f"{cached_input_price_fraction!r}"
+            f"cached input price fraction must be non-negative, got {cached_input_price_fraction!r}"
         )
-    use_fraction_fallback = (
-        scenario.metadata.get("api_price_source") != "metadata_openrouter_price"
-    )
+    use_fraction_fallback = scenario.metadata.get("api_price_source") != "metadata_openrouter_price"
     scenario.metadata["prefix_cache_enabled"] = bool(enabled)
     scenario.metadata["cached_input_price_fraction"] = (
         cached_input_price_fraction if use_fraction_fallback else None
@@ -462,9 +459,7 @@ def _make_end_to_end_scenario(
         f"{window.quota_requests * quota_count:g}/{window.quota_window_sec:g}s"
         for window in quota_plan.quota_windows
     )
-    capacity_units = int(concurrency_plan.concurrency_allotment or 0) * int(
-        concurrency_count
-    )
+    capacity_units = int(concurrency_plan.concurrency_allotment or 0) * int(concurrency_count)
     description = (
         f"§3 end-to-end {pool_name.upper()}: {len(api_providers)} empirical "
         f"OpenRouter API provider(s), {quota_plan.display_name} x{quota_count} "
@@ -566,9 +561,7 @@ def _validate_plan_count(plan: SubscriptionPlan, count: int, *, field: str) -> N
 
 def _validate_end_to_end_eligibility(plan: SubscriptionPlan) -> None:
     if "end_to_end" not in plan.eligible_sections:
-        raise ValueError(
-            f"plan {plan.plan_id!r} is not eligible for end-to-end runs"
-        )
+        raise ValueError(f"plan {plan.plan_id!r} is not eligible for end-to-end runs")
 
 
 def _subscription_latency_profile_key(plan_id: str) -> str | None:
@@ -650,9 +643,18 @@ def _predictor_name_from_params(params: dict[str, Any]) -> str | None:
     spec = params.get("output_predictor_spec")
     if not isinstance(spec, dict):
         return None
+    return _predictor_name_from_spec(spec)
+
+
+def _predictor_name_from_spec(spec: dict[str, Any]) -> str | None:
     kind = str(spec.get("kind") or "")
     if kind == "constant":
         return f"constant_{spec.get('calibration', 'mean')}"
+    if kind == "scaled":
+        base = spec.get("base")
+        base_name = _predictor_name_from_spec(base) if isinstance(base, dict) else str(base)
+        multiplier = float(spec.get("multiplier", 1.0))
+        return f"scaled:{base_name}:{multiplier:g}"
     return kind or None
 
 
@@ -900,9 +902,7 @@ def main(argv: list[str] | None = None) -> int:
         policies=policies,
         presets=presets,
         seeds=tuple(args.seed) if args.seed else DEFAULT_SEEDS,
-        section_runners={
-            policy: _make_serial_runner(policy, presets) for policy in policies
-        },
+        section_runners={policy: _make_serial_runner(policy, presets) for policy in policies},
         workload_dataset=args.workload,
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,

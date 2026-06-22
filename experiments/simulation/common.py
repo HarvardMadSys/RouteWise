@@ -70,6 +70,7 @@ PREDICTOR_KIND_HISTOGRAM = "histogram"
 PREDICTOR_KIND_EMA = "ema"
 PREDICTOR_KIND_BUCKET_MEAN = "bucket_mean"
 PREDICTOR_KIND_CONSTANT = "constant"
+PREDICTOR_KIND_SCALED = "scaled"
 DEFAULT_OUTPUT_PREDICTOR = PREDICTOR_KIND_BUCKET_MEAN
 SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
     PREDICTOR_KIND_NONE,
@@ -85,6 +86,7 @@ SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
     "constant_p75",
     "constant_p90",
     "constant_p99",
+    "scaled:<predictor>:<multiplier>",
 )
 _WORKLOAD_CACHE_VERSION = 1
 
@@ -271,6 +273,21 @@ def _normalize_predictor_arg(
         }
     if lower.startswith("fixed:"):
         return {"kind": PREDICTOR_KIND_CONSTANT, "calibration": lower}
+    if lower.startswith(f"{PREDICTOR_KIND_SCALED}:"):
+        try:
+            _prefix, payload = name.split(":", 1)
+            base_name, multiplier_text = payload.rsplit(":", 1)
+        except ValueError as exc:
+            raise ValueError(
+                f"scaled predictor must use 'scaled:<predictor>:<multiplier>', got {arg!r}"
+            ) from exc
+        multiplier = float(multiplier_text)
+        if multiplier < 0.0:
+            raise ValueError(f"scaled predictor multiplier must be non-negative, got {multiplier}")
+        base = _normalize_predictor_arg(base_name)
+        if base is None:
+            raise ValueError("scaled predictor base cannot be 'none'")
+        return {"kind": PREDICTOR_KIND_SCALED, "base": base, "multiplier": multiplier}
     raise ValueError(
         f"unknown predictor name {arg!r}; expected one of {SUPPORTED_PREDICTOR_KINDS} "
         "or 'fixed:<value>'."
@@ -361,9 +378,7 @@ def make_quota_provider(
             for quota_window in plan.quota_windows
         )
         quota = (
-            quota_windows[0]
-            if len(quota_windows) == 1
-            else MultiWindowQuotaState(quota_windows)
+            quota_windows[0] if len(quota_windows) == 1 else MultiWindowQuotaState(quota_windows)
         )
     else:
         quota = None
@@ -424,8 +439,7 @@ def make_concurrency_provider(
         resolution = plan.resolve_model_class_with_cost(model)
         if resolution is None:
             raise ValueError(
-                f"plan {plan.plan_id!r}: model {model!r} is not supported by "
-                "this concurrency plan"
+                f"plan {plan.plan_id!r}: model {model!r} is not supported by this concurrency plan"
             )
         concurrency = WeightedConcurrencyState(
             capacity_units=int(plan.concurrency_allotment) * int(concurrency_count),
@@ -529,9 +543,7 @@ def _build_workload_cache(
     manifest = _workload_cache_fingerprint(path)
     manifest["n_requests"] = len(requests)
     manifest["cache_size"] = cache_path.stat().st_size
-    tmp_manifest = manifest_path.with_suffix(
-        f".json.tmp.{multiprocessing.current_process().pid}"
-    )
+    tmp_manifest = manifest_path.with_suffix(f".json.tmp.{multiprocessing.current_process().pid}")
     with tmp_manifest.open("w") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
     tmp_manifest.replace(manifest_path)
@@ -642,9 +654,9 @@ def load_workload(
         return list(selected)
     path = _workload_path(dataset)
     cache_path, manifest_path = _workload_cache_paths(path)
-    if (
-        duration_sec is not None or max_requests is not None
-    ) and not _workload_cache_is_valid(path, cache_path, manifest_path):
+    if (duration_sec is not None or max_requests is not None) and not _workload_cache_is_valid(
+        path, cache_path, manifest_path
+    ):
         return _read_jsonl_workload(
             path,
             duration_sec=duration_sec,
@@ -811,6 +823,16 @@ def _build_workload_predictor(
         calibration = str(spec.get("calibration", "mean"))
         value = workload_constant_value(requests, kind=calibration)
         return ConstantOutputPredictor(value=value, label=f"constant_{calibration}")
+    if kind == PREDICTOR_KIND_SCALED:
+        from experiments.offline_stage.value_estimators import ScaledOutputPredictor
+
+        base_spec = spec.get("base")
+        if not isinstance(base_spec, dict):
+            raise ValueError(f"scaled predictor requires a base predictor spec, got {base_spec!r}")
+        return ScaledOutputPredictor(
+            _build_workload_predictor(base_spec, requests=requests),
+            multiplier=float(spec.get("multiplier", 1.0)),
+        )
     raise ValueError(f"unknown predictor spec kind {kind!r}")
 
 
@@ -863,10 +885,7 @@ def workload_cost_envelope(
     floor_ratio: float = 1e-3,
 ) -> tuple[float, float]:
     """Calibrate L/U from cheapest API-equivalent request costs."""
-    values = [
-        _cheapest_api_cost_for_request(providers, request)
-        for request in requests
-    ]
+    values = [_cheapest_api_cost_for_request(providers, request) for request in requests]
     values = [value for value in values if value is not None and value > 0.0]
     return _cost_envelope_from_values(
         values,
@@ -973,8 +992,7 @@ def quota_fits_in_trace(
         counts: dict[int, int] = {}
         for request in requests:
             window_id = int(
-                (float(request.timestamp) - trace_start)
-                // quota_window.quota_window_sec
+                (float(request.timestamp) - trace_start) // quota_window.quota_window_sec
             )
             counts[window_id] = counts.get(window_id, 0) + 1
         if any(count > capacity for count in counts.values()):
@@ -1080,9 +1098,7 @@ def _concurrency_trace_metrics(
     if trace_duration_sec is None:
         trace_duration_sec = workload_trace_info(requests).span_sec
     denominator = capacity_units * max(float(trace_duration_sec), 0.0)
-    mean_utilization = (
-        total_capacity_unit_seconds_used / denominator if denominator > 0.0 else 0.0
-    )
+    mean_utilization = total_capacity_unit_seconds_used / denominator if denominator > 0.0 else 0.0
     return {
         "peak_used_concurrency_cost": peak_used,
         "mean_concurrency_utilization": min(mean_utilization, 1.0),
@@ -1103,10 +1119,7 @@ def _estimated_concurrency_service_time_sec(
     if p50_service_time_ms is not None:
         return max(float(p50_service_time_ms), 0.0) / 1000.0
     response_tokens = request.response_tokens or 1
-    return (
-        COST_LAYER_LATENCY_ANCHOR_MS
-        + (response_tokens / DEFAULT_TPS_P50) * 1000.0
-    ) / 1000.0
+    return (COST_LAYER_LATENCY_ANCHOR_MS + (response_tokens / DEFAULT_TPS_P50) * 1000.0) / 1000.0
 
 
 def _subscription_summary_fields(
@@ -1155,36 +1168,24 @@ def _subscription_summary_fields(
         "api_latency_generation_version": metadata.get("api_latency_generation_version"),
         "api_latency_anchor_kind": metadata.get("api_latency_anchor_kind"),
         "api_latency_anchor_ms": metadata.get("api_latency_anchor_ms"),
-        "api_latency_distribution_mean_ms": metadata.get(
-            "api_latency_distribution_mean_ms"
-        ),
-        "api_latency_distribution_p50_ms": metadata.get(
-            "api_latency_distribution_p50_ms"
-        ),
+        "api_latency_distribution_mean_ms": metadata.get("api_latency_distribution_mean_ms"),
+        "api_latency_distribution_p50_ms": metadata.get("api_latency_distribution_p50_ms"),
         "api_latency_shape": metadata.get("api_latency_shape"),
         "peak_used_concurrency_cost": None,
         "mean_concurrency_utilization": None,
         "concurrency_saturated_in_trace": None,
         "run_count": run_count,
         "api_cost_usd": float(api_cost_usd),
-        "api_cost_usd_per_run": (
-            float(api_cost_usd) / run_count if run_count else float("nan")
-        ),
+        "api_cost_usd_per_run": (float(api_cost_usd) / run_count if run_count else float("nan")),
         "subscription_fixed_cost_usd": 0.0,
         "subscription_fixed_cost_usd_per_run": 0.0,
         "total_cost_usd": float(api_cost_usd),
-        "total_cost_usd_per_run": (
-            float(api_cost_usd) / run_count if run_count else float("nan")
-        ),
+        "total_cost_usd_per_run": (float(api_cost_usd) / run_count if run_count else float("nan")),
         "mean_api_cost_usd": (
-            float(api_cost_usd) / mean_denominator
-            if mean_denominator
-            else float("nan")
+            float(api_cost_usd) / mean_denominator if mean_denominator else float("nan")
         ),
         "mean_total_cost_usd": (
-            float(api_cost_usd) / mean_denominator
-            if mean_denominator
-            else float("nan")
+            float(api_cost_usd) / mean_denominator if mean_denominator else float("nan")
         ),
         "subscription_cost_known": True,
         "cost_claim_allowed": True,
@@ -1235,17 +1236,12 @@ def _subscription_summary_fields(
                 "subscription_fixed_cost_usd": fixed_cost,
                 "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
                 "total_cost_usd": total_cost,
-                "total_cost_usd_per_run": (
-                    total_cost / run_count if run_count else float("nan")
-                ),
+                "total_cost_usd_per_run": (total_cost / run_count if run_count else float("nan")),
                 "mean_total_cost_usd": (
-                    total_cost / mean_denominator
-                    if mean_denominator
-                    else float("nan")
+                    total_cost / mean_denominator if mean_denominator else float("nan")
                 ),
                 "subscription_cost_known": (
-                    quota_plan.subscription_cost_known
-                    and concurrency_plan.subscription_cost_known
+                    quota_plan.subscription_cost_known and concurrency_plan.subscription_cost_known
                 ),
                 "cost_claim_allowed": (
                     quota_plan.cost_claim_allowed and concurrency_plan.cost_claim_allowed
@@ -1257,12 +1253,8 @@ def _subscription_summary_fields(
                     subscription_count=quota_count,
                     requests=requests,
                 ),
-                "peak_used_concurrency_cost": concurrency_metrics[
-                    "peak_used_concurrency_cost"
-                ],
-                "mean_concurrency_utilization": concurrency_metrics[
-                    "mean_concurrency_utilization"
-                ],
+                "peak_used_concurrency_cost": concurrency_metrics["peak_used_concurrency_cost"],
+                "mean_concurrency_utilization": concurrency_metrics["mean_concurrency_utilization"],
                 "concurrency_saturated_in_trace": concurrency_metrics[
                     "concurrency_saturated_in_trace"
                 ],
@@ -1287,13 +1279,9 @@ def _subscription_summary_fields(
         "subscription_fixed_cost_usd": fixed_cost,
         "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
         "total_cost_usd": total_cost,
-        "total_cost_usd_per_run": (
-            total_cost / run_count if run_count else float("nan")
-        ),
+        "total_cost_usd_per_run": (total_cost / run_count if run_count else float("nan")),
         "mean_total_cost_usd": (
-            total_cost / mean_denominator
-            if mean_denominator
-            else float("nan")
+            total_cost / mean_denominator if mean_denominator else float("nan")
         ),
         "subscription_cost_known": plan.subscription_cost_known,
         "cost_claim_allowed": plan.cost_claim_allowed,
@@ -1336,12 +1324,8 @@ def _subscription_summary_fields(
                 "concurrency_plan_display_name": plan.display_name,
                 "concurrency_count": count,
                 "trace_paper_grade": trace_paper_grade,
-                "peak_used_concurrency_cost": concurrency_metrics[
-                    "peak_used_concurrency_cost"
-                ],
-                "mean_concurrency_utilization": concurrency_metrics[
-                    "mean_concurrency_utilization"
-                ],
+                "peak_used_concurrency_cost": concurrency_metrics["peak_used_concurrency_cost"],
+                "mean_concurrency_utilization": concurrency_metrics["mean_concurrency_utilization"],
                 "concurrency_saturated_in_trace": concurrency_metrics[
                     "concurrency_saturated_in_trace"
                 ],
@@ -1359,8 +1343,7 @@ def _quota_fits_in_trace_from_metadata(
 ) -> bool:
     quota_windows = metadata.get("quota_windows")
     if isinstance(quota_windows, list) and all(
-        isinstance(item, dict) and "aggregate_quota_requests" in item
-        for item in quota_windows
+        isinstance(item, dict) and "aggregate_quota_requests" in item for item in quota_windows
     ):
         return quota_windows_fit_in_trace(quota_windows, requests=requests)
     return quota_fits_in_trace(
@@ -1403,9 +1386,7 @@ def summarize_runs(
         "p75_ms": percentile(75),
         "p90_ms": percentile(90),
         "p99_ms": percentile(99),
-        "slo_violation_rate": (
-            aggregate.slo_violated_count / total if total else 0.0
-        ),
+        "slo_violation_rate": (aggregate.slo_violated_count / total if total else 0.0),
         "hedge_rate": (
             aggregate.hedge_triggered_count / aggregate.hedge_total_count
             if aggregate.hedge_total_count
@@ -1436,7 +1417,8 @@ def run_section(
     policies: tuple[str, ...],
     presets: dict[str, dict[str, Any]],
     seeds: tuple[int, ...],
-    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]] | None = None,
+    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]]
+    | None = None,
     parallel_cell_runner: Callable[
         [SectionCell, dict[str, dict[str, Any]], str, float | None, int | None, bool],
         SectionCellResult,
@@ -1474,9 +1456,7 @@ def run_section(
         execution_mode = "serial"
     else:
         if parallel_cell_runner is None:
-            raise ValueError(
-                "parallel run_section requires a section-local parallel_cell_runner"
-            )
+            raise ValueError("parallel run_section requires a section-local parallel_cell_runner")
         ensure_workload_cache(workload_dataset)
         results = _run_section_parallel(
             cells=cells,
@@ -1852,9 +1832,7 @@ def _fraction_map(counts: Counter[str], total: int) -> dict[str, float]:
 def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
     for run in runs:
         if run.aggregate is None:
-            raise ValueError(
-                "run_section requires every run to carry a streaming aggregate"
-            )
+            raise ValueError("run_section requires every run to carry a streaming aggregate")
     aggregate = RunAggregate(
         ttft_histogram=merge_histograms([run.ttft_histogram() for run in runs])
     )
@@ -1865,9 +1843,7 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
             if aggregate.e2e_histogram is None:
                 aggregate.e2e_histogram = source.e2e_histogram.copy()
             else:
-                aggregate.e2e_histogram = aggregate.e2e_histogram.merge(
-                    source.e2e_histogram
-                )
+                aggregate.e2e_histogram = aggregate.e2e_histogram.merge(source.e2e_histogram)
         aggregate.total_cost_usd += source.total_cost_usd
         aggregate.cost_count += source.cost_count
         aggregate.status_counts.update(source.status_counts)
