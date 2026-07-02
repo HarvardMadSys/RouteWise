@@ -87,6 +87,16 @@ class TaskRun:
         vals = [r.latency_ms for r in self.records if r.latency_ms is not None]
         return sum(vals) if vals else None
 
+    @property
+    def mean_llm_latency_ms(self) -> float | None:
+        """Mean gateway-reported latency over requests that reported one.
+
+        Separates "each call got faster" from "the agent made fewer calls",
+        which the total alone conflates.
+        """
+        vals = [r.latency_ms for r in self.records if r.latency_ms is not None]
+        return sum(vals) / len(vals) if vals else None
+
 
 def run_task(
     task: TaskSpec,

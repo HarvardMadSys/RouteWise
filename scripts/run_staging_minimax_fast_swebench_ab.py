@@ -21,8 +21,9 @@ import argparse
 import json
 import os
 import subprocess
+import time
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import sqrt
 from pathlib import Path
@@ -99,6 +100,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-cmd-timeout", type=int, default=300)
     parser.add_argument("--task-timeout", type=int, default=3600)
     parser.add_argument("--stop-on-error", action="store_true")
+    parser.add_argument(
+        "--max-consecutive-failures",
+        type=int,
+        default=3,
+        help="Abort the batch after this many consecutive failed runs (0 disables).",
+    )
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -316,6 +323,7 @@ def run_one(
                 "total_cost_usd": 0.0,
                 "mean_ttft_ms": None,
                 "total_llm_latency_ms": None,
+                "mean_llm_latency_ms": None,
                 "trajectory_path": None,
                 "exit_status": None,
                 "request_summary": {},
@@ -354,10 +362,13 @@ def run_one(
             "total_cost_usd": result.total_cost_usd,
             "mean_ttft_ms": result.mean_ttft_ms,
             "total_llm_latency_ms": result.total_llm_latency_ms,
+            "mean_llm_latency_ms": result.mean_llm_latency_ms,
             "trajectory_path": result.trajectory_path,
             "exit_status": trajectory_exit_status(result.trajectory_path),
             "request_summary": summarize_records(result.records),
-            "records_missing": bool(result.export_error),
+            # an empty export on a successful run means the records were not
+            # persisted yet (or the export missed them), not that none exist
+            "records_missing": bool(result.export_error) or not result.records,
             "export_error": result.export_error,
             "error": error,
         },
@@ -424,6 +435,61 @@ def preflight_admin_export(config: GatewayConfig) -> None:
     )
 
 
+def preflight_policy_chat(config: GatewayConfig, plan: list[PlannedRun]) -> None:
+    """Send one tiny chat per arm and assert its exported routing metadata.
+
+    Catches a dead API key or a mis-wired model alias before any measured run:
+    the routewise arm must carry routewise metadata, the baseline must not.
+    """
+    stamp = int(datetime.now(timezone.utc).timestamp())
+    for policy, model_name in sorted({(run.policy, run.model_name) for run in plan}):
+        model_id = model_name.split("/")[-1]
+        client = GatewayClient(replace(config, model=model_id))
+        session_id = f"preflight-{policy}-{stamp}"
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=10)
+        result = client.chat_completion(
+            [{"role": "user", "content": "Say ok"}], session_id=session_id, max_tokens=8
+        )
+        if result.status_code != 200:
+            raise RuntimeError(
+                f"preflight chat for {policy} ({model_name}) returned "
+                f"{result.status_code}: {str(result.raw)[:200]}"
+            )
+        records = []
+        # the gateway logs rows async after responding; give the insert a moment
+        for _ in range(6):
+            records = client.export_by_session(
+                session_id, start_time=window_start, model_id=model_id
+            )
+            if records:
+                break
+            time.sleep(2)
+        if not records:
+            raise RuntimeError(
+                f"preflight: chat succeeded but no exported record for {session_id}; "
+                "fix the export pipeline before burning runs"
+            )
+        routewise_meta = records[0].routewise or {}
+        if policy == "routewise":
+            if (
+                routewise_meta.get("policy") != "routewise"
+                or routewise_meta.get("lp_status") is None
+                or not (
+                    routewise_meta.get("final_endpoint") or routewise_meta.get("selected_endpoint")
+                )
+            ):
+                raise RuntimeError(
+                    f"preflight: {model_name} did not report routewise routing "
+                    f"metadata (got {routewise_meta or None}); staging alias mis-wired?"
+                )
+        elif routewise_meta.get("policy") == "routewise":
+            raise RuntimeError(
+                f"preflight: baseline {model_name} is routed by routewise; "
+                "the A/B would compare routewise against itself"
+            )
+        print(f"preflight: {policy} ({model_name}) ok", flush=True)
+
+
 def warmup_task_images(plan: list[PlannedRun], *, pull_timeout: int) -> None:
     """Pull every pending task's Docker image before any measured run.
 
@@ -470,19 +536,30 @@ def warmup_task_images(plan: list[PlannedRun], *, pull_timeout: int) -> None:
             print(f"warmup: cached {image}", flush=True)
             continue
         print(f"warmup: pulling {image}", flush=True)
-        # SWE-bench images are amd64-only; be explicit so arm64 hosts pull them too.
-        pulled = subprocess.run(
-            ["docker", "pull", "--platform", "linux/amd64", image],
-            capture_output=True,
-            text=True,
-            timeout=pull_timeout,
-            check=False,
-        )
-        if pulled.returncode != 0:
-            detail = (pulled.stderr or pulled.stdout or "").strip().splitlines()
-            raise RuntimeError(
-                f"warmup pull failed for {image}: {detail[-1] if detail else 'unknown error'}"
-            )
+        last_error: str | None = None
+        for pull_attempt in (1, 2):
+            try:
+                # SWE-bench images are amd64-only; be explicit so arm64 hosts pull them too.
+                pulled = subprocess.run(
+                    ["docker", "pull", "--platform", "linux/amd64", image],
+                    capture_output=True,
+                    text=True,
+                    timeout=pull_timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                last_error = f"timed out after {pull_timeout}s"
+            else:
+                if pulled.returncode == 0:
+                    last_error = None
+                    break
+                detail = (pulled.stderr or pulled.stdout or "").strip().splitlines()
+                last_error = detail[-1] if detail else "unknown error"
+            if pull_attempt == 1:
+                print(f"warmup: retrying {image} ({last_error})", flush=True)
+                time.sleep(5)
+        if last_error is not None:
+            raise RuntimeError(f"warmup pull failed for {image}: {last_error}")
 
 
 def backfill_missing_records(
@@ -514,6 +591,7 @@ def backfill_missing_records(
         row["mean_ttft_ms"] = sum(ttfts) / len(ttfts) if ttfts else None
         latencies = [record.latency_ms for record in records if record.latency_ms is not None]
         row["total_llm_latency_ms"] = sum(latencies) if latencies else None
+        row["mean_llm_latency_ms"] = sum(latencies) / len(latencies) if latencies else None
         row["request_summary"] = summarize_records(records)
         row["records_missing"] = False
         row["export_error"] = None
@@ -530,6 +608,42 @@ def backfill_missing_records(
                     **record_to_public_dict(record),
                 },
             )
+
+
+def rebuild_missing_llm_fields(rows: list[dict[str, Any]], *, request_rows_path: Path) -> None:
+    """Fill LLM-latency fields on checkpoint rows written before those fields existed.
+
+    Rebuilds from request_rows.jsonl so a resumed batch reports every arm over
+    the same run subset instead of only the reruns.
+    """
+    targets = [
+        row
+        for row in rows
+        if has_request_records(row)
+        and ("total_llm_latency_ms" not in row or "mean_llm_latency_ms" not in row)
+    ]
+    if not targets or not request_rows_path.exists():
+        return
+    latencies_by_run: dict[tuple[str, int, str], dict[str, float]] = defaultdict(dict)
+    for line_no, raw in enumerate(request_rows_path.read_text(errors="ignore").splitlines()):
+        if not raw.strip():
+            continue
+        request_row = json.loads(raw)
+        latency = request_row.get("latency_ms")
+        if latency is None:
+            continue
+        key = run_key_from_parts(
+            str(request_row.get("task_id")),
+            int(request_row.get("attempt") or 0),
+            str(request_row.get("policy")),
+        )
+        # backfill may have appended duplicates; keep one value per request id
+        request_id = request_row.get("request_id") or f"line-{line_no}"
+        latencies_by_run[key][str(request_id)] = float(latency)
+    for row in targets:
+        values = list(latencies_by_run.get(run_key(row), {}).values())
+        row["total_llm_latency_ms"] = sum(values) if values else None
+        row["mean_llm_latency_ms"] = sum(values) / len(values) if values else None
 
 
 # Two-tailed 95% Student-t critical values by degrees of freedom (>30 ~ normal).
@@ -634,7 +748,12 @@ def aggregate_summary(run_rows: list[dict[str, Any]], plan: list[PlannedRun]) ->
             "median_total_llm_latency_ms": median(numeric(record_rows, "total_llm_latency_ms"))
             if numeric(record_rows, "total_llm_latency_ms")
             else None,
+            "mean_llm_latency_ms": mean(numeric(record_rows, "mean_llm_latency_ms"))
+            if numeric(record_rows, "mean_llm_latency_ms")
+            else None,
+            "llm_recorded_runs": len(numeric(record_rows, "total_llm_latency_ms")),
             "errors": sum(1 for row in rows if row.get("error")),
+            "nonzero_returncodes": sum(1 for row in rows if row.get("returncode") not in (None, 0)),
             "export_errors": sum(1 for row in rows if row.get("export_error")),
         }
 
@@ -667,6 +786,13 @@ def aggregate_summary(run_rows: list[dict[str, Any]], plan: list[PlannedRun]) ->
                     or baseline.get("total_llm_latency_ms") is None
                 )
                 else routewise["total_llm_latency_ms"] - baseline["total_llm_latency_ms"],
+                "mean_llm_latency_ms_delta": None
+                if (
+                    not both_recorded
+                    or routewise.get("mean_llm_latency_ms") is None
+                    or baseline.get("mean_llm_latency_ms") is None
+                )
+                else routewise["mean_llm_latency_ms"] - baseline["mean_llm_latency_ms"],
                 "requests_delta": None
                 if not both_recorded
                 else routewise["n_requests"] - baseline["n_requests"],
@@ -682,6 +808,7 @@ def aggregate_summary(run_rows: list[dict[str, Any]], plan: list[PlannedRun]) ->
     record_paired = [p for p in paired_deltas if p["cost_usd_delta"] is not None]
     ttft_paired = [p for p in paired_deltas if p["mean_ttft_ms_delta"] is not None]
     llm_paired = [p for p in paired_deltas if p["total_llm_latency_ms_delta"] is not None]
+    mean_llm_paired = [p for p in paired_deltas if p["mean_llm_latency_ms_delta"] is not None]
 
     return {
         "planned_runs": len(plan),
@@ -708,10 +835,18 @@ def aggregate_summary(run_rows: list[dict[str, Any]], plan: list[PlannedRun]) ->
             )
             if llm_paired
             else None,
+            "mean_llm_latency_ms_delta": mean(
+                [p["mean_llm_latency_ms_delta"] for p in mean_llm_paired]
+            )
+            if mean_llm_paired
+            else None,
             "task_level": {
                 "wall_sec_delta": task_level_ci(paired_deltas, "wall_sec_delta"),
                 "total_llm_latency_ms_delta": task_level_ci(
                     paired_deltas, "total_llm_latency_ms_delta"
+                ),
+                "mean_llm_latency_ms_delta": task_level_ci(
+                    paired_deltas, "mean_llm_latency_ms_delta"
                 ),
                 "cost_usd_delta": task_level_ci(paired_deltas, "cost_usd_delta"),
             },
@@ -733,6 +868,7 @@ def run_plan(plan: list[PlannedRun], args: argparse.Namespace, output_dir: Path)
         )
     if not args.skip_preflight:
         preflight_admin_export(config)
+        preflight_policy_chat(config, plan)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     plan_path = output_dir / "run_plan.json"
@@ -774,6 +910,7 @@ def run_plan(plan: list[PlannedRun], args: argparse.Namespace, output_dir: Path)
         pending = [run for run in plan if planned_key(run) not in completed_keys]
         warmup_task_images(pending, pull_timeout=args.pull_timeout)
 
+    consecutive_failures = 0
     for planned in plan:
         if planned_key(planned) in completed_keys:
             print(
@@ -802,13 +939,23 @@ def run_plan(plan: list[PlannedRun], args: argparse.Namespace, output_dir: Path)
         )
         if row.get("error"):
             print(f"  ERROR: {row['error']}", flush=True)
-            if args.stop_on_error:
-                break
         elif row.get("export_error"):
             print(f"  EXPORT WARNING: {row['export_error']}", flush=True)
+        failed = row.get("error") is not None or row.get("returncode") != 0
+        consecutive_failures = consecutive_failures + 1 if failed else 0
+        if failed and args.stop_on_error:
+            break
+        if args.max_consecutive_failures and consecutive_failures >= args.max_consecutive_failures:
+            print(
+                f"aborting: {consecutive_failures} consecutive failed runs "
+                "(tune with --max-consecutive-failures)",
+                flush=True,
+            )
+            break
 
     run_rows = latest_rows(run_rows)
     backfill_missing_records(run_rows, config=config, request_rows_path=request_rows_path)
+    rebuild_missing_llm_fields(run_rows, request_rows_path=request_rows_path)
     run_rows = sorted(run_rows, key=lambda row: int(row.get("index") or 0))
     rewrite_jsonl(task_runs_path, run_rows)
     summary = aggregate_summary(run_rows, plan)

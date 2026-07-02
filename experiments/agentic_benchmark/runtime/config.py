@@ -60,7 +60,13 @@ class GatewayConfig:
     @classmethod
     def from_env(cls, **overrides: object) -> GatewayConfig:
         """Build a config from the environment (load a .env beforehand if needed)."""
-        raw_base = os.environ.get("FREEINFERENCE_BASE_URL", DEFAULT_BASE_URL)
+        # Resolve the effective base_url BEFORE picking the api key, so a
+        # base_url override (e.g. the staging A/B driver) selects the matching
+        # deployment's key rather than the FREEINFERENCE_BASE_URL default's.
+        raw_base = str(
+            overrides.pop("base_url", None)
+            or os.environ.get("FREEINFERENCE_BASE_URL", DEFAULT_BASE_URL)
+        )
         base_url = raw_base.rstrip("/").removesuffix("/v1")
         values: dict[str, object] = {
             "base_url": base_url,
