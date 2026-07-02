@@ -31,6 +31,7 @@ from rwsim.core.lp import (
 )
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.latency_profiles import (
+    DEFAULT_PROFILE_WINDOW_SEC,
     LatencyProfileMode,
     LatencyProfileStrategy,
     RollingLatencyProfile,
@@ -67,7 +68,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     cost_envelope: tuple[float, float] | None = None
     slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     seed: int = 0
-    profile_window_sec: float = 15 * 60.0
+    profile_window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
     latency_profile_mode: LatencyProfileMode = "observed"
     output_predictor: OutputPredictor | None = None
     rng: np.random.Generator = field(init=False, repr=False)

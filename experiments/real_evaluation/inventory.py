@@ -23,9 +23,11 @@ from experiments.real_evaluation.transports import (
     resolve_transport_config,
 )
 from experiments.subscriptions import load_subscription_plans, subscription_fixed_cost_usd
+from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
 from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
 
-PROFILE_WINDOW_SEC: float = 15 * 60.0
+# Shared with the simulator policies; see rwsim.core.latency_profile.
+PROFILE_WINDOW_SEC: float = DEFAULT_PROFILE_WINDOW_SEC
 
 
 @dataclass(frozen=True)
