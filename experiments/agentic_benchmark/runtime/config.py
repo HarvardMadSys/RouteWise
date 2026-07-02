@@ -12,9 +12,13 @@ DEFAULT_BASE_URL = "https://freeinference.org"
 DEFAULT_MODEL = "minimax-m2.5"
 
 # The public key is stored under a few possible names across local .env files.
-_API_KEY_ENV_CANDIDATES = (
+_PROD_API_KEY_ENV_CANDIDATES = (
     "FREEINFERENCE_API_KEY",
     "FreeInference_API_KEY",
+)
+_STAGING_API_KEY_ENV_CANDIDATES = (
+    "FREEINFERENCE_STAGE_API_KEY",
+    "FreeInference_Stage_API_Key",
 )
 # Admin key (for the admin-only X-Route-Pin baseline). ADMIN_TOKEN is a guess;
 # verify it is accepted as a chat-API admin Bearer key before relying on it.
@@ -30,6 +34,13 @@ def _first_env(names: tuple[str, ...]) -> str | None:
         if value:
             return value
     return None
+
+
+def _api_key_from_env(base_url: str) -> str | None:
+    """Return the gateway key matching the configured deployment when possible."""
+    if "staging." in base_url:
+        return _first_env(_STAGING_API_KEY_ENV_CANDIDATES + _PROD_API_KEY_ENV_CANDIDATES)
+    return _first_env(_PROD_API_KEY_ENV_CANDIDATES + _STAGING_API_KEY_ENV_CANDIDATES)
 
 
 @dataclass(frozen=True)
@@ -50,10 +61,11 @@ class GatewayConfig:
     def from_env(cls, **overrides: object) -> GatewayConfig:
         """Build a config from the environment (load a .env beforehand if needed)."""
         raw_base = os.environ.get("FREEINFERENCE_BASE_URL", DEFAULT_BASE_URL)
+        base_url = raw_base.rstrip("/").removesuffix("/v1")
         values: dict[str, object] = {
-            "base_url": raw_base.rstrip("/").removesuffix("/v1"),
+            "base_url": base_url,
             "model": os.environ.get("AGENTIC_MODEL", DEFAULT_MODEL),
-            "api_key": _first_env(_API_KEY_ENV_CANDIDATES),
+            "api_key": _api_key_from_env(base_url),
             "admin_api_key": _first_env(_ADMIN_KEY_ENV_CANDIDATES),
         }
         values.update(overrides)
@@ -64,6 +76,7 @@ class GatewayConfig:
         if not self.api_key:
             raise RuntimeError(
                 "No FreeInference API key found. Set FREEINFERENCE_API_KEY "
-                "(or FreeInference_API_KEY) in the environment or .env."
+                "(or FreeInference_API_KEY). For staging, set "
+                "FREEINFERENCE_STAGE_API_KEY or FreeInference_Stage_API_Key."
             )
         return self.api_key

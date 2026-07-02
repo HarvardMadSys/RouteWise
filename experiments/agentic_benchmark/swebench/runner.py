@@ -58,6 +58,7 @@ class TaskRun:
     finished_at: float
     trajectory_path: str
     records: list[LLMRequestRecord] = field(default_factory=list)
+    export_error: str | None = None
 
     @property
     def wall_sec(self) -> float:
@@ -79,6 +80,12 @@ class TaskRun:
         """Mean TTFT over requests that reported one."""
         vals = [r.ttft_ms for r in self.records if r.ttft_ms is not None]
         return sum(vals) / len(vals) if vals else None
+
+    @property
+    def total_llm_latency_ms(self) -> float | None:
+        """Summed gateway-reported request latency, excluding sandbox/tool time."""
+        vals = [r.latency_ms for r in self.records if r.latency_ms is not None]
+        return sum(vals) if vals else None
 
 
 def run_task(
@@ -114,22 +121,33 @@ def run_task(
         "MSWEA_COST_TRACKING": "ignore_errors",
     }
     cmd = [
-        _mini_extra_bin(), "swebench-single",
-        "-c", _bundled_config(textbased),
-        "-c", str(cfg_path),
+        _mini_extra_bin(),
+        "swebench-single",
+        "-c",
+        _bundled_config(textbased),
+        "-c",
+        str(cfg_path),
         # emulation on arm64 needs longer image-pull and per-command timeouts
-        "-c", f"environment.pull_timeout={pull_timeout}",
-        "-c", f"environment.timeout={env_cmd_timeout}",
+        "-c",
+        f"environment.pull_timeout={pull_timeout}",
+        "-c",
+        f"environment.timeout={env_cmd_timeout}",
     ]
     if textbased:
         cmd += ["--model-class", _TEXTBASED_MODEL_CLASS]
     cmd += [
-        "--subset", task.subset,
-        "--split", task.split,
-        "-i", task.instance_id,
-        "-y", "--exit-immediately",
-        "--cost-limit", str(cost_limit),
-        "-o", str(traj_path),
+        "--subset",
+        task.subset,
+        "--split",
+        task.split,
+        "-i",
+        task.instance_id,
+        "-y",
+        "--exit-immediately",
+        "--cost-limit",
+        str(cost_limit),
+        "-o",
+        str(traj_path),
     ]
 
     window_start = datetime.now(timezone.utc) - timedelta(seconds=10)
@@ -140,9 +158,17 @@ def run_task(
         )
     finished = datetime.now(timezone.utc).timestamp()
 
-    records = GatewayClient(config).export_by_session(
-        session_id, start_time=window_start, model_id=model_name.split("/")[-1]
-    )
+    export_error = None
+    try:
+        records = GatewayClient(config).export_by_session(
+            session_id, start_time=window_start, model_id=model_name.split("/")[-1]
+        )
+    except Exception as exc:
+        # The agent run has already completed at this point. Keep the task result
+        # and let the batch script backfill request rows later instead of
+        # reporting the whole SWE-bench run as failed.
+        records = []
+        export_error = f"{type(exc).__name__}: {exc}"
     return TaskRun(
         instance_id=task.instance_id,
         policy=policy,
@@ -153,4 +179,5 @@ def run_task(
         finished_at=finished,
         trajectory_path=str(traj_path),
         records=records,
+        export_error=export_error,
     )
