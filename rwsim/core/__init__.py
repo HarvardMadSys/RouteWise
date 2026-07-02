@@ -27,6 +27,10 @@ from rwsim.core.hedging import (
     hedge_checkpoints_for_slo,
     select_probability_backup,
 )
+from rwsim.core.latency_profile import (
+    DEFAULT_PROFILE_WINDOW_SEC,
+    RollingLatencyProfile,
+)
 from rwsim.core.lp import (
     LP_EPS,
     BudgetLPCandidate,
@@ -37,6 +41,7 @@ from rwsim.core.lp import (
 from rwsim.core.types import HedgeDispatch, RoutingDecision
 
 __all__ = [
+    "DEFAULT_PROFILE_WINDOW_SEC",
     "DISPATCH_OVERHEAD_MS",
     "HEDGE_SUCCESS_TARGET",
     "LP_EPS",
@@ -50,6 +55,7 @@ __all__ = [
     "CheckpointBackupSelector",
     "EffectiveCostTier",
     "HedgeDispatch",
+    "RollingLatencyProfile",
     "RoutingDecision",
     "ScarcityCurve",
     "combined_success_probability",
