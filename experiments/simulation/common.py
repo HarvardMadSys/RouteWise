@@ -720,6 +720,34 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
+    materialized = materialize_policy_presets(
+        presets,
+        policy_name=policy_name,
+        scenario=scenario,
+        requests=requests,
+    )
+    policy = build_policy(
+        policy_name,
+        presets=materialized,
+        seed=seed,
+    )
+    simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
+    return simulator.run(requests, policy, policy_name=policy_name)
+
+
+def materialize_policy_presets(
+    presets: dict[str, dict[str, Any]],
+    *,
+    policy_name: str,
+    scenario: ScenarioConfig,
+    requests: list[Request],
+) -> dict[str, dict[str, Any]]:
+    """Resolve preset sentinels (SLO, cost envelope, predictor spec) for one policy.
+
+    Section-local harnesses that need the policy instance (rather than going
+    through :func:`run_policy`) should materialize presets with this helper
+    before calling :func:`rwsim.policies.build_policy`.
+    """
     materialized = _materialize_routewise_slo(
         presets,
         policy_name=policy_name,
@@ -731,18 +759,11 @@ def run_policy(
         scenario=scenario,
         requests=requests,
     )
-    materialized = _materialize_workload_predictor(
+    return _materialize_workload_predictor(
         materialized,
         policy_name=policy_name,
         requests=requests,
     )
-    policy = build_policy(
-        policy_name,
-        presets=materialized,
-        seed=seed,
-    )
-    simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
-    return simulator.run(requests, policy, policy_name=policy_name)
 
 
 def _materialize_routewise_slo(
@@ -1407,7 +1428,26 @@ def summarize_runs(
             run_count=len(runs),
         )
     )
+    row.update(_extra_metric_means(runs))
     return row
+
+
+def _extra_metric_means(runs: list[Run]) -> dict[str, float]:
+    """Average optional harness-attached ``run.extra_metrics`` across seeds.
+
+    Section-local runners may attach a flat numeric ``extra_metrics`` dict to a
+    ``Run`` (e.g. profiling diagnostics). Keys surface in ``summary.json``;
+    the fixed-schema ``summary.csv`` ignores them unless a section writes its
+    own csv view.
+    """
+    values_by_key: dict[str, list[float]] = {}
+    for run in runs:
+        extra = getattr(run, "extra_metrics", None) or {}
+        for key, value in extra.items():
+            values_by_key.setdefault(str(key), []).append(float(value))
+    return {
+        key: float(np.mean(values)) for key, values in sorted(values_by_key.items())
+    }
 
 
 def run_section(
@@ -1882,6 +1922,7 @@ __all__ = [
     "make_quota_provider",
     "make_routewise_presets",
     "make_ttft_distribution",
+    "materialize_policy_presets",
     "p_label",
     "quota_fits_in_trace",
     "quota_windows_fit_in_trace",

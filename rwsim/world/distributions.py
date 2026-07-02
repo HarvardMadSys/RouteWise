@@ -39,7 +39,6 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from scipy.special import erfinv as _erfinv
 
-
 # Latency samples below this floor are clipped. Required for ``Normal`` since
 # unclipped Gaussians can produce non-positive values, which break downstream
 # code that assumes positive TTFT/service times. Kept consistent with the
@@ -241,6 +240,57 @@ class LogNormal:
         return 0.5 * (1.0 + math.erf(z))
 
 
+@dataclass(frozen=True)
+class ScaledDistribution:
+    """Multiplicative wrapper around any latency distribution.
+
+    Scales every sample and quantile of ``base`` by ``scale`` while
+    preserving the distribution's shape. Works uniformly across the
+    parametric families and :class:`~rwsim.world.empirical.EmpiricalDistribution`,
+    which makes it the building block for time-varying provider latency
+    (e.g. periodic degradation schedules).
+    """
+
+    base: LatencyDistribution
+    scale: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.scale) or self.scale <= 0.0:
+            raise ValueError(f"ScaledDistribution scale must be finite and > 0 (got {self.scale})")
+
+    def sample(self, rng: np.random.Generator, size: int = 1) -> np.ndarray:
+        """Draw scaled samples from the base distribution."""
+        return self.base.sample(rng, size) * self.scale
+
+    def p50(self) -> float:
+        """Return the analytical P50."""
+        return self.base.p50() * self.scale
+
+    def p95(self) -> float:
+        """Return the analytical P95."""
+        return self.base.p95() * self.scale
+
+    def p99(self) -> float:
+        """Return the analytical P99."""
+        return self.base.p99() * self.scale
+
+    def quantile(self, q: float) -> float:
+        """Return the analytical quantile for ``q`` in ``(0, 1)``."""
+        return self.base.quantile(q) * self.scale
+
+    def mean(self) -> float:
+        """Return the analytical mean."""
+        return self.base.mean() * self.scale
+
+    def std(self) -> float:
+        """Return the analytical standard deviation."""
+        return self.base.std() * self.scale
+
+    def cdf(self, value: float) -> float:
+        """Return the CDF evaluated at ``value``."""
+        return self.base.cdf(value / self.scale)
+
+
 # Alias so scenario configs can read ``HeavyTail(...)`` instead of ``LogNormal(...)``
 # when the intent is "heavy-tailed family" rather than the specific parameterisation.
 HeavyTail = LogNormal
@@ -288,11 +338,12 @@ class LatencyDistribution(Protocol):
 
 
 __all__ = [
-    "HeavyTail",
     "LATENCY_FAMILIES",
+    "MIN_LATENCY_MS",
+    "HeavyTail",
     "LatencyDistribution",
     "LogNormal",
-    "MIN_LATENCY_MS",
     "Normal",
+    "ScaledDistribution",
     "Uniform",
 ]

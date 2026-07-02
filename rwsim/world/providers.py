@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from rwsim.world.capacity import (
@@ -44,9 +46,30 @@ class Provider:
     service_time_dist: LatencyDistribution | None = None
     shift_time: float | None = None
     ttft_dist_after: LatencyDistribution | None = None
+    ttft_shift_schedule: tuple[tuple[float, LatencyDistribution], ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.ttft_shift_schedule is not None:
+            if self.shift_time is not None or self.ttft_dist_after is not None:
+                raise ValueError(
+                    "Provider accepts either ttft_shift_schedule or the legacy "
+                    "shift_time/ttft_dist_after pair, not both."
+                )
+            times = [time_sec for time_sec, _ in self.ttft_shift_schedule]
+            if any(later <= earlier for earlier, later in pairwise(times)):
+                raise ValueError("ttft_shift_schedule must be strictly time-sorted.")
 
     def _active_ttft_dist(self, current_time: float) -> LatencyDistribution:
         """Return the TTFT distribution active at the given simulated time."""
+        if self.ttft_shift_schedule:
+            index = bisect_right(
+                self.ttft_shift_schedule,
+                current_time,
+                key=lambda entry: entry[0],
+            )
+            if index > 0:
+                return self.ttft_shift_schedule[index - 1][1]
+            return self.ttft_dist
         if (
             self.shift_time is not None
             and self.ttft_dist_after is not None
