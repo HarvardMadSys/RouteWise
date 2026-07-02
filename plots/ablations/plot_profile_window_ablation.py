@@ -12,8 +12,6 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib.ticker import FixedLocator, NullFormatter, NullLocator
 
 from plots.helpers import save_figure
 from plots.style import apply_style
@@ -25,7 +23,6 @@ FAMILY_LABELS = {"lp": "LP", "hedge": "LP+Hedge"}
 # One color per environment change period; static gets gray.
 PERIOD_COLOR_CYCLE = ("#1f77b4", "#2ca02c", "#ff7f0e", "#d62728", "#9467bd", "#8c564b")
 STATIC_COLOR = "#7f7f7f"
-ORACLE_LEGEND_COLOR = "#555555"
 
 # (metric key, y-axis label, filename stem, draw oracle reference lines)
 METRIC_PANELS = (
@@ -184,13 +181,26 @@ def _period_label(period_min: float | None) -> str:
     return f"P={period_min:g}m"
 
 
-def _window_log_axis(ax: plt.Axes, window_minutes: list[float]) -> None:
-    """Log x-axis with one plain-number tick per swept window value."""
-    ax.set_xscale("log")
-    ax.xaxis.set_major_locator(FixedLocator(window_minutes))
-    ax.xaxis.set_minor_locator(NullLocator())
-    ax.xaxis.set_minor_formatter(NullFormatter())
-    ax.set_xticklabels([f"{value:g}" for value in window_minutes])
+def _window_axis(
+    ax: plt.Axes,
+    window_minutes: list[float],
+    *,
+    oracle_slot: bool = False,
+) -> None:
+    """Evenly spaced categorical x-axis, one slot per swept window value.
+
+    With ``oracle_slot`` an extra rightmost position labels the
+    configured-mode oracle cells, separated by a light vertical rule.
+    """
+    positions = list(range(len(window_minutes)))
+    labels = [f"{value:g}" for value in window_minutes]
+    if oracle_slot:
+        separator = len(window_minutes) - 0.5
+        ax.axvline(separator, color="#bbbbbb", linewidth=0.6)
+        positions.append(len(window_minutes))
+        labels.append("oracle")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels)
     ax.set_xlabel("Profile window (min)")
 
 
@@ -259,6 +269,9 @@ def _plot_metric_lines(
     _apply_profile_window_style()
     periods = sorted({row["shift_period_min"] or 0.0 for row in rows})
     colors = _period_colors(periods)
+    window_minutes = sorted({row["window_min"] for row in rows if row["window_min"] is not None})
+    position = {window: index for index, window in enumerate(window_minutes)}
+    oracle_position = len(window_minutes)
     fig, ax = plt.subplots(figsize=(2.3, 1.95))
     handles: list[Any] = []
     labels: list[str] = []
@@ -268,7 +281,7 @@ def _plot_metric_lines(
         if not selected:
             continue
         (line,) = ax.plot(
-            [row["window_min"] for row in selected],
+            [position[row["window_min"]] for row in selected],
             [row[metric] for row in selected],
             marker="o",
             color=colors[period],
@@ -290,21 +303,18 @@ def _plot_metric_lines(
                 None,
             )
             if oracle is not None:
-                ax.axhline(
-                    oracle[metric],
+                ax.plot(
+                    [oracle_position],
+                    [oracle[metric]],
+                    marker="o",
                     color=colors[period],
-                    linestyle="--",
-                    linewidth=0.8,
-                    alpha=0.55,
+                    markersize=3.4,
+                    markerfacecolor="white",
+                    markeredgewidth=0.9,
+                    linestyle="none",
                 )
                 drew_oracle = True
-    if drew_oracle:
-        handles.append(
-            Line2D([0], [0], color=ORACLE_LEGEND_COLOR, linestyle="--", linewidth=0.8)
-        )
-        labels.append("oracle")
-    window_minutes = sorted({row["window_min"] for row in rows if row["window_min"] is not None})
-    _window_log_axis(ax, window_minutes)
+    _window_axis(ax, window_minutes, oracle_slot=drew_oracle)
     ax.set_ylabel(ylabel)
     _finish_figure(fig, ax, handles=handles, labels=labels, name=name, output_dir=output_dir)
 
@@ -321,6 +331,8 @@ def _plot_oracle_regret(
     _apply_profile_window_style()
     periods = sorted({row["shift_period_min"] or 0.0 for row in rows})
     colors = _period_colors(periods)
+    window_minutes = sorted({row["window_min"] for row in rows})
+    position = {window: index for index, window in enumerate(window_minutes)}
     fig, ax = plt.subplots(figsize=(2.3, 1.95))
     handles: list[Any] = []
     labels: list[str] = []
@@ -329,7 +341,7 @@ def _plot_oracle_regret(
         if not selected:
             continue
         (line,) = ax.plot(
-            [row["window_min"] for row in selected],
+            [position[row["window_min"]] for row in selected],
             [row["p99_delta_pct"] for row in selected],
             marker="o",
             color=colors[period],
@@ -340,8 +352,7 @@ def _plot_oracle_regret(
         handles.append(line)
         labels.append(_period_label(period))
     ax.axhline(0.0, color="#444444", linewidth=0.8, alpha=0.65)
-    window_minutes = sorted({row["window_min"] for row in rows})
-    _window_log_axis(ax, window_minutes)
+    _window_axis(ax, window_minutes)
     ax.set_ylabel("P99 TTFT regret (%)")
     _finish_figure(fig, ax, handles=handles, labels=labels, name=name, output_dir=output_dir)
 
