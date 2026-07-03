@@ -23,6 +23,9 @@ def build_model_config(
     api_base: str,
     model_name: str = DEFAULT_AGENT_MODEL,
     temperature: float = 0.0,
+    top_p: float = 1.0,
+    top_k: int | None = 1,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """Build the mini-SWE-agent ``model`` config block for one task.
 
@@ -33,15 +36,25 @@ def build_model_config(
         model_name: litellm model name with provider prefix, e.g.
             ``openai/minimax-m2.5`` (baseline) or ``openai/minimax-fast`` (RouteWise).
         temperature: Sampling temperature; pinned to 0 for reproducibility.
+        top_p: Nucleus sampling cap. Keep at 1.0 when top_k is used.
+        top_k: Candidate cap. Sent through OpenAI ``extra_body`` because LiteLLM's
+            OpenAI provider does not treat ``top_k`` as a standard parameter.
+        seed: Provider seed when the upstream supports it.
     """
+    model_kwargs: dict[str, Any] = {
+        "api_base": api_base.rstrip("/").removesuffix("/v1") + "/v1",
+        "temperature": temperature,
+        "top_p": top_p,
+        "extra_headers": {"X-Session-ID": session_id},
+    }
+    if seed is not None:
+        model_kwargs["seed"] = seed
+    if top_k is not None:
+        model_kwargs["extra_body"] = {"top_k": top_k}
     return {
         "model": {
             "model_name": model_name,
-            "model_kwargs": {
-                "api_base": api_base.rstrip("/").removesuffix("/v1") + "/v1",
-                "temperature": temperature,
-                "extra_headers": {"X-Session-ID": session_id},
-            },
+            "model_kwargs": model_kwargs,
             "cost_tracking": "ignore_errors",
         }
     }

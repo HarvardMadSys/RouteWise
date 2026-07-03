@@ -120,6 +120,7 @@ def run_task(
         session_id=session_id,
         api_base=config.base_url,
         model_name=model_name,
+        seed=attempt,
     )
     traj_path = output_dir / "traj" / f"{session_id}.json"
     log_path = output_dir / f"{session_id}.log"
