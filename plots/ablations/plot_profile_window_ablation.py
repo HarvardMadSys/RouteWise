@@ -26,6 +26,8 @@ STATIC_COLOR = "#7f7f7f"
 
 # (metric key, y-axis label, filename stem, draw oracle reference lines)
 METRIC_PANELS = (
+    ("mean_ttft_ms", "Mean TTFT (ms)", "profile_window_mean_lines", True),
+    ("p50_ms", "P50 TTFT (ms)", "profile_window_p50_lines", True),
     ("p99_ms", "P99 TTFT (ms)", "profile_window_p99_lines", True),
     ("slo_violation_rate", "SLO violation rate", "profile_window_slo_lines", True),
     ("total_cost_usd", "Total cost (USD)", "profile_window_cost_lines", True),
