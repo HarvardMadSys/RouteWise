@@ -12,7 +12,8 @@ models per attempt:
     routewise -> openai/minimax-fast
     baseline  -> openai/minimax-fast2
 
-The per-attempt model order alternates to reduce ordering/time-of-day bias.
+Runs are task-blocked, and every attempt uses the fixed order
+``routewise -> baseline`` so each pair is measured in a tight window.
 """
 
 from __future__ import annotations
@@ -134,14 +135,11 @@ def choose_tasks(args: argparse.Namespace) -> list[TaskSpec]:
 
 
 def build_plan(tasks: list[TaskSpec], attempts: int) -> list[PlannedRun]:
-    """Build 2 * attempts * tasks runs with alternating model order."""
+    """Build task-blocked routewise/baseline pairs."""
     plan: list[PlannedRun] = []
-    for attempt in range(1, attempts + 1):
-        policies = list(DEFAULT_POLICIES)
-        if attempt % 2 == 0:
-            policies.reverse()
-        for task in tasks:
-            for policy, model_name in policies:
+    for task in tasks:
+        for attempt in range(1, attempts + 1):
+            for policy, model_name in DEFAULT_POLICIES:
                 plan.append(
                     PlannedRun(
                         index=len(plan) + 1,
@@ -494,8 +492,8 @@ def warmup_task_images(plan: list[PlannedRun], *, pull_timeout: int) -> None:
     """Pull every pending task's Docker image before any measured run.
 
     The first run of a task otherwise pays the multi-GB image pull inside its
-    timed window, and build_plan schedules the routewise arm first on attempt 1,
-    so the cold-pull cost would land on one arm only.
+    timed window, and build_plan schedules the routewise arm first for every
+    attempt, so the cold-pull cost would land on one arm only.
     """
     from datasets import load_dataset
     from minisweagent.run.benchmarks.swebench import (
