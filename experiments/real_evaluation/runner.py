@@ -69,7 +69,7 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     build_transport,
 )
-from rwsim.core.hedging import hedge_checkpoints_for_slo
+from routewise.core.hedging import hedge_checkpoints_for_slo
 
 DEFAULT_TIMEOUT_SEC: int = 60
 # Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.

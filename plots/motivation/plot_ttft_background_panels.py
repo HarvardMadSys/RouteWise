@@ -14,7 +14,6 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from plot_ttft_context_length import DEFAULT_SOURCE_CSV, bucket_values, load_points
 from plot_ttft_duration_share import DEFAULT_PROVIDER_SERIES, load_provider_series
 

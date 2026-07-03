@@ -28,27 +28,27 @@ from experiments.subscriptions import (
     load_subscription_plans,
     subscription_fixed_cost_usd,
 )
-from rwsim.engine.simulator import Simulator
-from rwsim.metrics import RunAggregate
-from rwsim.metrics.histogram import merge_histograms
-from rwsim.policies import build_policy
-from rwsim.schemas import Request
-from rwsim.world.capacity import (
+from routewise.capacity import (
     ConcurrencyState,
     MultiWindowQuotaState,
     ProviderTier,
     QuotaState,
     WeightedConcurrencyState,
 )
-from rwsim.world.distributions import LogNormal
-from rwsim.world.providers import TieredProvider
+from routewise.metrics import RunAggregate
+from routewise.metrics.histogram import merge_histograms
+from routewise.schemas import Request
+from routewise.sim.engine.simulator import Simulator
+from routewise.sim.policies import build_policy
+from routewise.sim.world.distributions import LogNormal
+from routewise.sim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
     from collections import Counter
     from collections.abc import Callable, Mapping
 
-    from rwsim.metrics import Run
-    from rwsim.world.scenarios import ScenarioConfig
+    from routewise.metrics import Run
+    from routewise.sim.world.scenarios import ScenarioConfig
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
@@ -562,9 +562,15 @@ def _workload_path(dataset: str) -> Path:
 @cache
 def _load_cached_trace_workload(dataset: str) -> tuple[Request, ...]:
     """Load a dataset-cache workload and normalize it for simulator replay."""
-    from experiments.simulation.dataset_cache import load_cached
+    from experiments.simulation.dataset_cache import build_cache, load_cached
 
-    requests = tuple(load_cached(dataset))
+    try:
+        requests = tuple(load_cached(dataset))
+    except (AttributeError, EOFError, ImportError, ValueError, pickle.UnpicklingError):
+        # Caches pickled under an older package layout (e.g. pre-rename
+        # ``rwsim.schemas``) fail to unpickle; rebuild from the source trace.
+        build_cache(dataset, force=True)
+        requests = tuple(load_cached(dataset))
     if not requests:
         return ()
     first_timestamp = float(requests[0].timestamp)
@@ -746,7 +752,7 @@ def materialize_policy_presets(
 
     Section-local harnesses that need the policy instance (rather than going
     through :func:`run_policy`) should materialize presets with this helper
-    before calling :func:`rwsim.policies.build_policy`.
+    before calling :func:`routewise.sim.policies.build_policy`.
     """
     materialized = _materialize_routewise_slo(
         presets,

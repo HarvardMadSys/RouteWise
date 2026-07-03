@@ -13,27 +13,27 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from rwsim.core.cost import (
+from routewise.capacity import ProviderTier
+from routewise.core.cost import (
     ScarcityCurve,
     effective_cost as core_effective_cost,
 )
-from rwsim.core.lp import (
+from routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
+from routewise.core.lp import (
     LP_EPS,
     BudgetLPCandidate,
     cost_tiebroken_objective,
     solve_budget_lp,
 )
-from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
-from rwsim.policies.base import NoOpTickMixin
-from rwsim.policies.routewise import RollingLatencyProfile
-from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
-from rwsim.world.capacity import ProviderTier
+from routewise.schemas import Request, RoutingDecision, RoutingOutcome
+from routewise.sim.policies.base import NoOpTickMixin
+from routewise.sim.policies.routewise import RollingLatencyProfile
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from rwsim.engine.state import SimulationState
-    from rwsim.world.providers import Provider
+    from routewise.sim.engine.state import SimulationState
+    from routewise.sim.world.providers import Provider
 
 _LP_EPS = LP_EPS
 

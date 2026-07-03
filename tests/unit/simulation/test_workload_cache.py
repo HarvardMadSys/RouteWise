@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from experiments.simulation import common
-from rwsim.schemas import Request
+from routewise.schemas import Request
 
 
 def _write_jsonl(path, rows):

@@ -4,8 +4,8 @@ import logging
 
 import numpy as np
 
-from rwsim.offline.schemas import Request, RoutingDecision
-from rwsim.offline.strategy import RoutingStrategy
+from routewise.offline.schemas import Request, RoutingDecision
+from routewise.offline.strategy import RoutingStrategy
 
 logger = logging.getLogger(__name__)
 

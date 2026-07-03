@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from rwsim.engine.simulator import _provider_rngs
-from rwsim.world.capacity import ProviderTier
-from rwsim.world.distributions import Uniform
-from rwsim.world.providers import TieredProvider
+from routewise.capacity import ProviderTier
+from routewise.sim.engine.simulator import _provider_rngs
+from routewise.sim.world.distributions import Uniform
+from routewise.sim.world.providers import TieredProvider
 
 
 def _provider(name: str) -> TieredProvider:

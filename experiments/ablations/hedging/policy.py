@@ -14,8 +14,8 @@ from typing import Literal
 
 import numpy as np
 
-from rwsim.core.hedging import BackupCandidate, select_probability_backup
-from rwsim.policies.routewise import RouteWisePolicy
+from routewise.core.hedging import BackupCandidate, select_probability_backup
+from routewise.sim.policies.routewise import RouteWisePolicy
 
 DispatchTiming = Literal["latest_safe", "earliest_safe"]
 BackupSelection = Literal["probability", "random_feasible"]

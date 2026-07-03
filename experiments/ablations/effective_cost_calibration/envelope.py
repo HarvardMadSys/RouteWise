@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from rwsim.world.capacity import ProviderTier
+from routewise.capacity import ProviderTier
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
-    from rwsim.world.providers import Provider
+    from routewise.schemas import Request
+    from routewise.sim.world.providers import Provider
 
 ApiReference = Literal["cheapest_api", "median_api", "mean_api", "max_api"]
 PercentileEnvelope = Literal["p05_p95", "p10_p90", "p25_p75", "min_max"]

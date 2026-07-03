@@ -1,7 +1,7 @@
 """Experiment config packages.
 
 Experiments own reproducible configs and thin runners. Core simulation behavior
-belongs in :mod:`rwsim`.
+belongs in :mod:`routewise.sim`.
 """
 
 from experiments.registry import available_experiments, get_experiment

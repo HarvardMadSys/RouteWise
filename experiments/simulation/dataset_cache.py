@@ -48,8 +48,8 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from rwsim.data import DataLoader, normalize_model_name
-from rwsim.schemas import Request
+from routewise.schemas import Request
+from routewise.sim.data import DataLoader, normalize_model_name
 
 TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
 

@@ -53,13 +53,13 @@ from experiments.simulation.latency_profiles import (
 )
 from experiments.simulation.provider_profiles import load_provider_pool
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
-from rwsim.const import DEFAULT_PRIMARY_SLO_MS
-from rwsim.world.capacity import ProviderTier
-from rwsim.world.providers import TieredProvider
-from rwsim.world.scenarios import ScenarioConfig
+from routewise.capacity import ProviderTier
+from routewise.const import DEFAULT_PRIMARY_SLO_MS
+from routewise.sim.world.providers import TieredProvider
+from routewise.sim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
+    from routewise.schemas import Request
 
 SECTION_NAME = "end-to-end"
 PUBLIC_SCENARIO_TAG = "end_to_end"

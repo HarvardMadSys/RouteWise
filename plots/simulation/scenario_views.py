@@ -29,7 +29,7 @@ from plots.palettes import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from rwsim.metrics import Run
+    from routewise.metrics import Run
 
 
 def _mean_metric(runs: list[Run], fn) -> float:

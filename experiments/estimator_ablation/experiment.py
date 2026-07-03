@@ -11,8 +11,7 @@ from experiments._configs import (
     load_named_scenario,
     summarize_scenario,
 )
-from rwsim.schemas import ScenarioConfig
-
+from routewise.schemas import ScenarioConfig
 
 EXPERIMENT_NAME = "estimator_ablation"
 CONFIG_DIR = Path(__file__).with_name("configs")

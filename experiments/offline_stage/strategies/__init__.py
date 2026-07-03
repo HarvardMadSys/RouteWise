@@ -1,7 +1,7 @@
 """Routing strategies for offline simulation and online decision-making."""
 
 _EXPORT_MODULES = {
-    "RoutingStrategy": "rwsim.offline.strategy",
+    "RoutingStrategy": "routewise.offline.strategy",
     "AllAPIStrategy": "experiments.offline_stage.strategies.all_api",
     "GreedyStrategy": "experiments.offline_stage.strategies.greedy",
     "OptimalStrategy": "experiments.offline_stage.strategies.stage1_optimal",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import unittest
 
-from rwsim.world.capacity import ConcurrencyState, QuotaState, WeightedConcurrencyState
+from routewise.capacity import ConcurrencyState, QuotaState, WeightedConcurrencyState
 
 
 class CapacityStateTest(unittest.TestCase):

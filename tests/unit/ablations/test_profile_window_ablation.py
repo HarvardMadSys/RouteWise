@@ -16,9 +16,9 @@ from experiments.ablations.profile_window.presets import (
     parse_profile_window_policy_name,
     profile_window_policy_name,
 )
-from rwsim.core.latency_profile import RollingLatencyProfile
-from rwsim.world.distributions import LogNormal, ScaledDistribution
-from rwsim.world.providers import Provider
+from routewise.core.latency_profile import RollingLatencyProfile
+from routewise.sim.world.distributions import LogNormal, ScaledDistribution
+from routewise.sim.world.providers import Provider
 
 
 def _provider(name: str = "p") -> Provider:

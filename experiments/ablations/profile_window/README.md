@@ -1,7 +1,7 @@
 # Latency-Profile Window Ablation
 
 Sweeps the RouteWise online latency-profile window length (`profile_window_sec`,
-default 15 min from `rwsim.core.latency_profile.DEFAULT_PROFILE_WINDOW_SEC`)
+default 15 min from `routewise.core.latency_profile.DEFAULT_PROFILE_WINDOW_SEC`)
 against environments whose provider TTFT distributions change periodically.
 The window controls how quickly the router reacts to provider latency changes:
 long windows are stable but slow to adapt; short windows adapt fast but are

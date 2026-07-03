@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
+from routewise.metrics import PerRequestRecord, Run, RunAggregator, Status
 
 
 def test_aggregated_run_matches_exact_record_metrics_for_counts_and_costs() -> None:

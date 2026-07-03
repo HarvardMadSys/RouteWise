@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from experiments.simulation.common import WORKLOAD_COST_ENVELOPE, alpha_label
-from rwsim.core.cost import SCARCITY_CURVES, ScarcityCurve
+from routewise.core.cost import SCARCITY_CURVES, ScarcityCurve
 
 DEFAULT_ALPHA_VALUES = (0.5,)
 DEFAULT_P_VALUES = DEFAULT_ALPHA_VALUES

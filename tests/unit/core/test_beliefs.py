@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from rwsim.core.beliefs import LatencyBeliefs
+from routewise.core.beliefs import LatencyBeliefs
 
 
 @dataclass
@@ -99,7 +99,7 @@ def test_fallback_rate_mixed_queries() -> None:
 
 
 def test_shared_profile_store_is_used() -> None:
-    from rwsim.core.latency_profile import RollingLatencyProfile
+    from routewise.core.latency_profile import RollingLatencyProfile
 
     shared = RollingLatencyProfile(window_sec=100.0)
     beliefs = LatencyBeliefs(window_sec=100.0, profiles={"p": shared})

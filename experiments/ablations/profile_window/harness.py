@@ -22,15 +22,15 @@ from experiments.ablations.profile_window.presets import (
     parse_profile_window_policy_name,
 )
 from experiments.simulation import common, end_to_end
-from rwsim.engine.simulator import Simulator
-from rwsim.policies import build_policy
-from rwsim.world.distributions import ScaledDistribution
+from routewise.sim.engine.simulator import Simulator
+from routewise.sim.policies import build_policy
+from routewise.sim.world.distributions import ScaledDistribution
 
 if TYPE_CHECKING:
-    from rwsim.metrics import Run
-    from rwsim.schemas import Request
-    from rwsim.world.providers import Provider
-    from rwsim.world.scenarios import ScenarioConfig
+    from routewise.metrics import Run
+    from routewise.schemas import Request
+    from routewise.sim.world.providers import Provider
+    from routewise.sim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "profile-window-ablation"
 PUBLIC_SCENARIO_TAG = "profile_window"

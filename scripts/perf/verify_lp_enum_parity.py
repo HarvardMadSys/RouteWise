@@ -3,7 +3,7 @@
 Runs both solvers on the same LP instances drawn from realistic
 RouteWise parameters and compares objective value, expected cost,
 and weight vector. This is a manual parity/performance smoke test for
-rwsim.core.lp.solve_budget_lp.
+routewise.core.lp.solve_budget_lp.
 
 Usage:
     uv run python scripts/perf/verify_lp_enum_parity.py
@@ -16,7 +16,7 @@ import time
 import numpy as np
 from scipy.optimize import linprog
 
-from rwsim.core.lp import (
+from routewise.core.lp import (
     BudgetLPCandidate,
     cost_tiebroken_objective,
     solve_budget_lp,

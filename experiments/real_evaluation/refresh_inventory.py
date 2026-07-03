@@ -41,7 +41,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from rwsim.const import DEFAULT_PRIMARY_SLO_MS
+from routewise.const import DEFAULT_PRIMARY_SLO_MS
 
 OR_ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{model_id}/endpoints"
 

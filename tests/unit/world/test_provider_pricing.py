@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from rwsim.schemas import Request
-from rwsim.world.capacity import ProviderTier, QuotaState
-from rwsim.world.distributions import Uniform
-from rwsim.world.providers import TieredProvider
+from routewise.capacity import ProviderTier, QuotaState
+from routewise.schemas import Request
+from routewise.sim.world.distributions import Uniform
+from routewise.sim.world.providers import TieredProvider
 
 
 def _provider(**kwargs) -> TieredProvider:

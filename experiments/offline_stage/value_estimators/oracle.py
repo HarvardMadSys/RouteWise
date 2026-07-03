@@ -16,7 +16,7 @@ from experiments.offline_stage.value_estimators.base import (
     OutputTokenPredictor,
     QuantilePrediction,
 )
-from rwsim.schemas import Request
+from routewise.schemas import Request
 
 
 class OracleOutputPredictor(OutputTokenPredictor):
