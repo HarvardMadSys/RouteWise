@@ -13,6 +13,7 @@ concurrency state local to this package.
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from experiments.real_evaluation.transports import (
     resolve_transport_config,
 )
 from experiments.subscriptions import load_subscription_plans, subscription_fixed_cost_usd
-from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
+from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC, RollingLatencyProfile
 from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
 
 # Shared with the simulator policies; see rwsim.core.latency_profile.
@@ -315,18 +316,19 @@ class ConcurrencyState:
         self.active = [(rid, deadline) for rid, deadline in self.active if rid != request_id]
 
 
-@dataclass
-class LatencyProfile:
-    """Rolling window of ``(timestamp, ttft_ms)`` with optional error tracking.
+class LatencyProfile(RollingLatencyProfile):
+    """Real-eval profile API over the shared core rolling estimator.
 
-    Supports the empirical-CDF based hedge math (``cdf_at``) and the LP body
-    selector (``mean_ms``). Errors are tracked separately so we can compute
-    rates and treat them as misses in CDF.
+    ``add_sample`` feeds the core :class:`RollingLatencyProfile` machinery so
+    the RouteWise router's latency beliefs learn on the exact profile objects
+    held by :class:`ProviderState`. The historical query methods below keep
+    their pre-router semantics verbatim — in particular they include samples
+    with ``ts > now`` (the core queries are strictly causal). Live feedback
+    always lands in the past, so both readings agree in production; the
+    distinction only shows up for synthetic timestamps in tests and probes.
+
+    Not thread-safe; every caller goes through the owning policy's lock.
     """
-
-    window_sec: float
-    samples: list[tuple[float, float]] = field(default_factory=list)
-    error_samples: list[tuple[float, str]] = field(default_factory=list)
 
     def add_sample(
         self,
@@ -335,14 +337,16 @@ class LatencyProfile:
         error_type: str | None = None,
     ) -> None:
         if error_type is None and ttft_ms > 0:
-            self.samples.append((ts, float(ttft_ms)))
+            super().add_sample(ts, float(ttft_ms))
         elif error_type is not None:
-            self.error_samples.append((ts, error_type))
+            self.add_error(ts, error_type)
 
     def _active_samples(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
-        self.samples = [(ts, v) for ts, v in self.samples if ts >= cutoff]
-        self.error_samples = [(ts, e) for ts, e in self.error_samples if ts >= cutoff]
+        self.samples = deque((ts, v) for ts, v in self.samples if ts >= cutoff)
+        self.error_samples = deque(
+            (ts, error_type) for ts, error_type in self.error_samples if ts >= cutoff
+        )
         return [v for _, v in self.samples]
 
     def sample_count(self, now: float) -> int:

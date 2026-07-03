@@ -15,6 +15,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from experiments.real_evaluation.transports import compute_request_cost_usd
+from rwsim.core.pricing import (
+    cache_discounted_cost_per_million_usd,
+    capped_cached_input_tokens,
+)
 
 if TYPE_CHECKING:
     from experiments.real_evaluation.inventory import ProviderSpec
@@ -30,10 +34,7 @@ def cached_input_tokens(
     Returns 0 when the trace does not report a value; otherwise caps the
     reported value by the prompt length.
     """
-    if trace_cached_input_tokens is None:
-        return 0
-    capped = max(int(trace_cached_input_tokens), 0)
-    return min(max(int(prompt_tokens), 0), capped)
+    return capped_cached_input_tokens(prompt_tokens, trace_cached_input_tokens)
 
 
 def cache_aware_request_cost_usd(
@@ -55,16 +56,17 @@ def cache_aware_request_cost_usd(
             spec.output_price_per_m,
         )
 
-    cached = cached_input_tokens(
+    return cache_discounted_cost_per_million_usd(
         prompt_tokens=prompt_tokens,
-        trace_cached_input_tokens=trace_cached_input_tokens,
+        completion_tokens=completion_tokens,
+        cached_input_tokens=cached_input_tokens(
+            prompt_tokens=prompt_tokens,
+            trace_cached_input_tokens=trace_cached_input_tokens,
+        ),
+        input_price_per_m=spec.input_price_per_m,
+        cached_input_price_per_m=spec.cached_input_price_per_m,
+        output_price_per_m=spec.output_price_per_m,
     )
-    uncached = max(int(prompt_tokens) - cached, 0)
-    return (
-        spec.input_price_per_m * uncached
-        + spec.cached_input_price_per_m * cached
-        + spec.output_price_per_m * max(int(completion_tokens), 0)
-    ) / 1_000_000.0
 
 
 __all__ = [

@@ -43,6 +43,11 @@ class RollingLatencyProfile:
 
     window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
     samples: deque[tuple[float, float]] = field(default_factory=deque)
+    # Failed attempts (429s, timeouts) recorded as (timestamp, error_type).
+    # They carry no TTFT; the penalized-mean and error-counting-CDF queries
+    # fold them in as synthetic worst-case observations.
+    error_samples: deque[tuple[float, str]] = field(default_factory=deque)
+    _error_clock_sec: float = field(default=float("-inf"), init=False, repr=False)
     _mean_pending: list[tuple[float, int, float]] = field(default_factory=list, init=False, repr=False)
     _mean_active: list[tuple[float, int, float]] = field(default_factory=list, init=False, repr=False)
     _mean_sum: float = field(default=0.0, init=False, repr=False)
@@ -107,6 +112,29 @@ class RollingLatencyProfile:
             else:
                 heapq.heappush(self._cdf_pending, item)
 
+    def add_error(self, timestamp: float, error_type: str) -> None:
+        """Record a failed attempt (no TTFT) at ``timestamp``."""
+        self.error_samples.append((float(timestamp), str(error_type)))
+
+    def error_count(self, now: float) -> int:
+        """Number of failed attempts inside the causal window at ``now``."""
+        now = float(now)
+        if now > self._error_clock_sec:
+            self._error_clock_sec = now
+            cutoff = self._error_clock_sec - 2.0 * self.window_sec
+            while self.error_samples and self.error_samples[0][0] < cutoff:
+                self.error_samples.popleft()
+        lo = now - self.window_sec
+        return sum(1 for ts, _ in self.error_samples if lo <= ts <= now)
+
+    def count(self, now: float) -> int:
+        """Number of successful samples inside the causal window at ``now``."""
+        now = float(now)
+        if now < self._mean_clock_sec:
+            return self._sum_count_backwards(now)[1]
+        self._advance_mean_window(now)
+        return self._mean_count
+
     def values(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
         kept: deque[tuple[float, float]] = deque()
@@ -142,6 +170,39 @@ class RollingLatencyProfile:
             return None
         covered = bisect_right(self._cdf_sorted_values, float(value_ms))
         return covered / self._cdf_active_count
+
+    def mean_with_errors(
+        self,
+        now: float,
+        *,
+        error_penalty_ms: float,
+    ) -> float | None:
+        """Mean over successes plus a synthetic latency for failed attempts.
+
+        With zero recorded errors this is exactly :meth:`mean`, so callers
+        that never record errors (the simulator) see bit-identical values.
+        """
+        n_err = self.error_count(now)
+        if n_err == 0:
+            return self.mean(now)
+        now = float(now)
+        if now < self._mean_clock_sec:
+            total, n = self._sum_count_backwards(now)
+        else:
+            self._advance_mean_window(now)
+            total, n = self._mean_sum, self._mean_count
+        return (total + n_err * float(error_penalty_ms)) / (n + n_err)
+
+    def cdf_counting_errors(self, value_ms: float, now: float) -> float | None:
+        """``P(TTFT <= value_ms)`` treating failed attempts as misses.
+
+        With zero recorded errors this is exactly :meth:`cdf`.
+        """
+        n_err = self.error_count(now)
+        if n_err == 0:
+            return self.cdf(value_ms, now)
+        covered, n = self._cdf_counts(float(value_ms), float(now))
+        return covered / (n + n_err)
 
     def _mean_backwards(self, now: float) -> float | None:
         """Answer ``mean`` for a query behind the persistent mean clock."""
@@ -194,6 +255,65 @@ class RollingLatencyProfile:
         if count <= 0:
             return None
         return covered / count
+
+    def _sum_count_backwards(self, now: float) -> tuple[float, int]:
+        """(sum, count) of window samples for a query behind the mean clock.
+
+        Mirrors :meth:`_mean_backwards` but exposes the raw aggregates for
+        the count and penalized-mean queries. Kept separate so the original
+        ``mean`` float paths stay untouched.
+        """
+        stripes = self._backwards_stripes(now, self._mean_clock_sec)
+        if stripes is None:
+            values = [
+                ttft_ms
+                for ts, ttft_ms in self.samples
+                if now - self.window_sec <= ts <= now
+            ]
+            return (float(sum(values)), len(values))
+        drop, restore = stripes
+        total = self._mean_sum
+        count = self._mean_count
+        for _ts, _seq, value in drop:
+            total -= value
+            count -= 1
+        for _ts, _seq, value in restore:
+            total += value
+            count += 1
+        return (total, count)
+
+    def _cdf_counts(self, threshold: float, now: float) -> tuple[int, int]:
+        """(covered, count) of window samples at ``now``.
+
+        Integer twin of :meth:`cdf`; the division in callers is then exactly
+        the one :meth:`cdf` would perform when the error count is zero.
+        """
+        if now < self._cdf_clock_sec:
+            stripes = self._backwards_stripes(now, self._cdf_clock_sec)
+            if stripes is None:
+                values = [
+                    ttft_ms
+                    for ts, ttft_ms in self.samples
+                    if now - self.window_sec <= ts <= now
+                ]
+                return (sum(1 for value in values if value <= threshold), len(values))
+            drop, restore = stripes
+            covered = bisect_right(self._cdf_sorted_values, threshold)
+            count = self._cdf_active_count
+            for _ts, _seq, value in drop:
+                count -= 1
+                if value <= threshold:
+                    covered -= 1
+            for _ts, _seq, value in restore:
+                count += 1
+                if value <= threshold:
+                    covered += 1
+            return (covered, count)
+        if self._cdf_clock_sec == float("-inf"):
+            self._initialize_cdf_window(now)
+        else:
+            self._advance_cdf_window(now)
+        return (bisect_right(self._cdf_sorted_values, threshold), self._cdf_active_count)
 
     def _backwards_stripes(
         self,

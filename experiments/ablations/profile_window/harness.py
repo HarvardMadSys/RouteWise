@@ -24,7 +24,6 @@ from experiments.ablations.profile_window.presets import (
 from experiments.simulation import common, end_to_end
 from rwsim.engine.simulator import Simulator
 from rwsim.policies import build_policy
-from rwsim.policies.latency_profiles import ObservedRollingLatencyProfileStrategy
 from rwsim.world.distributions import ScaledDistribution
 
 if TYPE_CHECKING:
@@ -196,9 +195,9 @@ def run_profile_window_policy(
     policy = build_policy(policy_name, presets=materialized, seed=seed)
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     run = simulator.run(requests, policy, policy_name=policy_name)
-    strategy = getattr(policy, "_latency_profile", None)
-    if isinstance(strategy, ObservedRollingLatencyProfileStrategy):
-        run.extra_metrics = {"profile_fallback_rate": strategy.fallback_rate()}
+    router = getattr(policy, "router", None)
+    if router is not None and router.beliefs.mode == "observed":
+        run.extra_metrics = {"profile_fallback_rate": router.beliefs.fallback_rate()}
     return run
 
 

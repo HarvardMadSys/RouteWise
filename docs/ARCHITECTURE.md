@@ -1,7 +1,7 @@
 # RouteWise Simulator Architecture
 
 This document describes the current simulator architecture after the flat
-policy refactor.
+policy refactor and the sim/real router unification.
 
 ## Core Boundary
 
@@ -15,6 +15,37 @@ The simulator has three runtime layers:
    state.
 
 Metrics are output types, not execution logic, and live under `rwsim/metrics/`.
+
+## One Algorithm, Two Worlds
+
+The RouteWise algorithm is implemented once, in `rwsim/core/router.py`
+(`RouteWiseRouter`), against the `ProviderView` protocol
+(`rwsim/core/provider_view.py`): a read-only, request-bound snapshot exposing
+only the signals the algorithm consumes (tier, availability, quota fraction,
+route/hedge marginal cost, prior latency beliefs). Rolling-profile learning
+plus prior/penalty fallbacks live in `rwsim/core/beliefs.py`
+(`LatencyBeliefs`). All of it is stdlib-only and exported through
+`routewise.core`.
+
+Each environment supplies a thin adapter:
+
+- **Simulator** (`rwsim/policies/routewise.py`): `_SimProviderView` binds
+  `(Provider, Request, SimulationState)`; priors are the provider's true
+  distribution (oracle fallback / `configured` mode); sampling uses the
+  policy's persistent seeded numpy RNG.
+- **Real eval** (`experiments/real_evaluation/policies.py`):
+  `_RealProviderView` binds `(ProviderState, RequestContext)`; there are no
+  priors (empty windows fall back to a large finite penalty), failed attempts
+  enter the beliefs as 60s error penalties, and sampling uses a per-call
+  time-seeded RNG. Locking, capacity charging, transports, and the recorder
+  boundary stay in the harness.
+
+Environment differences are injected router knobs (sampler, hedge dispatch
+overhead, tie-break mean, penalties), never branches inside the algorithm.
+Quota/concurrency ledger implementations are intentionally NOT unified; they
+stay behind `ProviderView.is_available` / `quota_fraction_used`.
+`tests/unit/core/test_router_env_parity.py` pins both the parity and the
+intended divergences.
 
 ## Target Tree
 
@@ -81,9 +112,10 @@ checkpoints as queue depth, capacity, and observed profiles change.
 - capacity view
 - prefix-cache user/provider memory
 
-Policy-specific quantities stay inside the policy implementation. RouteWise
-shadow prices, latency profiles, LP weights, and hedge/explorer decisions live
-inside `rwsim/policies/routewise.py`.
+Policy-specific quantities stay inside the policy implementation. The
+RouteWise algorithm state (latency beliefs, LP weights, hedge decisions) lives
+in the policy-owned `RouteWiseRouter` (`rwsim/core/router.py`); the
+environment binding lives in `rwsim/policies/routewise.py`.
 
 ## Presets
 
