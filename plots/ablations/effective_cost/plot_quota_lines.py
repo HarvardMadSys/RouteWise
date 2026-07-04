@@ -37,11 +37,15 @@ CURVE_LABELS = {
 }
 CURVE_COLORS = {
     "constant_0": "#9467bd",
-    "constant_l": "#1f77b4",
-    "exp_lu": "#2ca02c",
+    "constant_l": "#2ca02c",
+    "exp_lu": "#1f77b4",
     "linear_lu": "#ff7f0e",
     "constant_u": "#d62728",
 }
+# exp L-U and constant 0 are the headline curves: they close the legend and are
+# drawn last (highlight on top) so overlapping curves cannot hide them.
+LEGEND_ORDER = ("linear_lu", "constant_l", "constant_u", "exp_lu", "constant_0")
+HIGHLIGHT_CURVE = "exp_lu"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -332,12 +336,15 @@ def _plot_curve_lines(
 ) -> None:
     _apply_effective_cost_style()
     fig, ax = plt.subplots(figsize=(2.3, 1.95))
-    for curve in curves:
+    legend_curves = [curve for curve in LEGEND_ORDER if curve in curves]
+    draw_order = sorted(legend_curves, key=lambda curve: curve == HIGHLIGHT_CURVE)
+    handles: dict[str, Any] = {}
+    for curve in draw_order:
         curve_rows = _rows_for_curve(rows, curve)
         xs = [row["q"] for row in curve_rows]
         ys = [row[y_key] for row in curve_rows]
         color = CURVE_COLORS[curve]
-        ax.plot(
+        (handles[curve],) = ax.plot(
             xs,
             ys,
             marker="o",
@@ -356,6 +363,8 @@ def _plot_curve_lines(
         ax.set_ylim(bottom=y_min, top=y_max)
     ax.grid(True, alpha=0.24)
     ax.legend(
+        [handles[curve] for curve in legend_curves],
+        [CURVE_LABELS[curve] for curve in legend_curves],
         frameon=False,
         ncols=3,
         loc="upper center",
