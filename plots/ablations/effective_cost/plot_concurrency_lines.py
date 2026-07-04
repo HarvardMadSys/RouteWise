@@ -47,8 +47,9 @@ CURVE_COLORS = {
     "linear_lu": "#ff7f0e",
     "constant_u": "#d62728",
 }
-# exp L-U and constant 0 are the headline curves: they close the legend and are
-# drawn last (highlight on top) so overlapping curves cannot hide them.
+# Row-first legend reading order: baselines on the top row, the headline
+# curves (exp L-U and constant 0) together on the second row. The per-figure
+# highlight curve is drawn last so overlapping curves cannot hide it.
 LEGEND_ORDER = ("linear_lu", "constant_l", "constant_u", "exp_lu", "constant_0")
 HIGHLIGHT_CURVE = "constant_0"
 
@@ -336,9 +337,10 @@ def _plot_curve_lines(
     if y_min is not None or y_max is not None:
         ax.set_ylim(bottom=y_min, top=y_max)
     ax.grid(True, alpha=0.24)
+    layout_curves = _row_first_legend_order(legend_curves, ncols=3)
     ax.legend(
-        [handles[curve] for curve in legend_curves],
-        [CURVE_LABELS[curve] for curve in legend_curves],
+        [handles[curve] for curve in layout_curves],
+        [CURVE_LABELS[curve] for curve in layout_curves],
         frameon=False,
         ncols=3,
         loc="upper center",
@@ -351,6 +353,12 @@ def _plot_curve_lines(
     fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
     save_figure(fig, output_dir, filename, formats=["pdf", "png"], full_canvas=True)
     plt.close(fig)
+
+
+def _row_first_legend_order(items: list[str], *, ncols: int) -> list[str]:
+    """Reorder entries so matplotlib's column-major legend fill reads row-first."""
+    rows = [items[start : start + ncols] for start in range(0, len(items), ncols)]
+    return [row[col] for col in range(ncols) for row in rows if col < len(row)]
 
 
 def _rows_for_label(rows: list[dict[str, Any]], label: str) -> list[dict[str, Any]]:
