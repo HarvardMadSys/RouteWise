@@ -37,6 +37,7 @@ from plots.end_to_end.frontier_plotting import (
     MIX_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    aligned_panel_geometry,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
@@ -77,8 +78,6 @@ DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_BOXPLOT_POLICIES = tuple(
     policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
 )
-TTFT_PROVIDER_PANEL_FIGSIZE = (3.35, 3.10)
-TTFT_PROVIDER_PANEL_MARGINS = (0.45, 0.98, 0.15, 0.78)
 PROVIDER_DIAGNOSTIC_FIGSIZE = (3.35, 3.22)
 PROVIDER_PRICING_ORDER = (
     "OR_DeepInfra",
@@ -624,19 +623,16 @@ def plot_provider_mix(
             for provider in providers_to_plot
         }
         mix_rows.append(MixRow(label=policy_plot_label(policy), shares=shares))
+    figsize, margins = aligned_panel_geometry(len(mix_rows))
     plot_stacked_mix(
         mix_rows,
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=8.8,
-        font_size=11.2,
-        label_fontsize=12.0,
-        tick_fontsize=10.4,
-        margins=TTFT_PROVIDER_PANEL_MARGINS,
+        margins=margins,
         show_legend=True,
         x_max=102.0,
-        figsize=TTFT_PROVIDER_PANEL_FIGSIZE,
+        figsize=figsize,
     )
 
 
@@ -760,10 +756,10 @@ def plot_provider_latency(
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 10.8,
-            "axes.labelsize": 11.5,
-            "xtick.labelsize": 9.8,
-            "ytick.labelsize": 9.6,
+            "font.size": 10.0,
+            "axes.labelsize": 10.0,
+            "xtick.labelsize": 10.0,
+            "ytick.labelsize": 10.0,
             "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
@@ -784,7 +780,7 @@ def plot_provider_latency(
 
     fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
     y = list(range(len(values_sec)))
-    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.72)
+    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.62)
     ax.set_yticks(y, labels)
     ax.invert_yaxis()
     ax.set_xlabel("Mean TTFT (s)")
@@ -837,10 +833,10 @@ def plot_provider_pricing(
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 10.8,
-            "axes.labelsize": 11.5,
-            "xtick.labelsize": 9.8,
-            "ytick.labelsize": 9.6,
+            "font.size": 10.0,
+            "axes.labelsize": 10.0,
+            "xtick.labelsize": 10.0,
+            "ytick.labelsize": 10.0,
             "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
@@ -943,10 +939,10 @@ def plot_provider_latency_boxplot(
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 10.8,
-            "axes.labelsize": 11.5,
-            "xtick.labelsize": 9.8,
-            "ytick.labelsize": 9.6,
+            "font.size": 10.0,
+            "axes.labelsize": 10.0,
+            "xtick.labelsize": 10.0,
+            "ytick.labelsize": 10.0,
             "figure.figsize": MIX_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
@@ -1110,12 +1106,13 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError(f"{args.input_dir}: no valid TTFT samples for boxplot")
     slo_sec = args.slo_ms / 1000.0
+    figsize, margins = aligned_panel_geometry(len(series))
     plot_common_ttft_boxplot(
         series,
         output_path,
         slo_sec=slo_sec,
-        figsize=TTFT_PROVIDER_PANEL_FIGSIZE,
-        margins=(0.39, 0.99, 0.15, 0.78),
+        figsize=figsize,
+        margins=margins,
     )
 
 
