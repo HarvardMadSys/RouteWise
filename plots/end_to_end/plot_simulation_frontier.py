@@ -106,7 +106,7 @@ FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS = {
     1.0: (12, -1),
 }
 FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
-    "greedy_cost": (8, -10),
+    "greedy_cost": (8, 9),
     "greedy_latency": (0, -15),
 }
 
@@ -198,7 +198,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=None,
         help=(
-            "RouteWise alphaolicies to show in compact frontier figures. "
+            "RouteWise policies to show in compact frontier figures. "
             "Defaults to the simulator alpha sweep."
         ),
     )
@@ -208,9 +208,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_alpha(policy: str) -> float | None:
-    if "_p" not in policy:
+    if "_alpha" not in policy:
         return None
-    suffix = policy.rsplit("_p", 1)[1]
+    suffix = policy.rsplit("_alpha", 1)[1]
     try:
         return int(suffix) / 100.0
     except ValueError:
@@ -390,10 +390,10 @@ def frontier_points(rows: list[Row]) -> list[FrontierPoint]:
 def selected_frontier_points(
     rows: list[Row],
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> list[FrontierPoint]:
     baselines = set(baseline_policies or BASELINE_ORDER)
-    routewise = set(routewise_alphaolicies or ROUTEWISE_FIGURE_POLICIES)
+    routewise = set(routewise_policies or ROUTEWISE_FIGURE_POLICIES)
     return [
         point
         for point in frontier_points(rows)
@@ -406,7 +406,7 @@ def plot_frontier(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
@@ -418,7 +418,7 @@ def plot_frontier(
             "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
         }
     plot_mean_ttft_frontier(
-        selected_frontier_points(rows, mean_baselines, routewise_alphaolicies),
+        selected_frontier_points(rows, mean_baselines, routewise_policies),
         output_path,
         **kwargs,
     )
@@ -428,10 +428,10 @@ def plot_slo(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> None:
     plot_slo_frontier(
-        selected_frontier_points(rows, baseline_policies, routewise_alphaolicies),
+        selected_frontier_points(rows, baseline_policies, routewise_policies),
         output_path,
     )
 
@@ -537,14 +537,15 @@ def plot_provider_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=5,
-        legend_fontsize=8.2,
-        font_size=10.8,
-        label_fontsize=11.5,
-        tick_fontsize=9.8,
-        margins=(0.43, 0.98, 0.18, 0.80),
+        legend_ncols=4,
+        legend_fontsize=8.8,
+        font_size=11.2,
+        label_fontsize=12.0,
+        tick_fontsize=10.4,
+        margins=(0.45, 0.98, 0.16, 0.74),
         show_legend=True,
         x_max=102.0,
+        figsize=(3.35, 3.05),
     )
 
 

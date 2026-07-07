@@ -30,6 +30,7 @@ from pathlib import Path
 from statistics import mean
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb
 
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
@@ -76,6 +77,31 @@ DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_BOXPLOT_POLICIES = tuple(
     policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
 )
+TTFT_PROVIDER_PANEL_FIGSIZE = (3.35, 3.10)
+TTFT_PROVIDER_PANEL_MARGINS = (0.45, 0.98, 0.15, 0.78)
+PROVIDER_DIAGNOSTIC_FIGSIZE = (3.35, 3.22)
+PROVIDER_PRICING_ORDER = (
+    "OR_DeepInfra",
+    "OR_AtlasCloud",
+    "OR_Chutes",
+    "OR_AkashML",
+    "OR_WandB",
+    "OR_Novita",
+    "OR_Phala",
+    "OR_SiliconFlow",
+)
+PROVIDER_DIAGNOSTIC_COLORS = {
+    "MiniMax_Plus_SQ": "#6b4c3b",
+    "Featherless_SC": "#59a14f",
+    "OR_DeepInfra": "#4e79a7",
+    "OR_AtlasCloud": "#f28e2b",
+    "OR_AkashML": "#17becf",
+    "OR_WandB": "#9467bd",
+    "OR_Chutes": "#d62728",
+    "OR_Novita": "#e377c2",
+    "OR_Phala": "#bcbd22",
+    "OR_SiliconFlow": "#7f7f7f",
+}
 
 
 @dataclass(frozen=True)
@@ -178,10 +204,26 @@ def parse_args() -> argparse.Namespace:
         help="Optional output path for a provider mean-TTFT bar PDF.",
     )
     parser.add_argument(
+        "--provider-latency-values-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional JSON list of provider mean TTFT values in seconds. "
+            "When set, --provider-latency-out uses these values instead of "
+            "aggregating request logs."
+        ),
+    )
+    parser.add_argument(
         "--provider-latency-boxplot-out",
         type=Path,
         default=None,
         help="Optional output path for a provider TTFT distribution boxplot PDF.",
+    )
+    parser.add_argument(
+        "--provider-pricing-out",
+        type=Path,
+        default=None,
+        help="Optional output path for a provider input/output pricing bar PDF.",
     )
     parser.add_argument(
         "--cdf-out",
@@ -587,13 +629,14 @@ def plot_provider_mix(
         segments,
         output_path,
         legend_ncols=5,
-        legend_fontsize=8.2,
-        font_size=10.8,
-        label_fontsize=11.5,
-        tick_fontsize=9.8,
-        margins=(0.43, 0.98, 0.18, 0.80),
+        legend_fontsize=8.8,
+        font_size=11.2,
+        label_fontsize=12.0,
+        tick_fontsize=10.4,
+        margins=TTFT_PROVIDER_PANEL_MARGINS,
         show_legend=True,
         x_max=102.0,
+        figsize=TTFT_PROVIDER_PANEL_FIGSIZE,
     )
 
 
@@ -687,47 +730,162 @@ def write_provider_diagnostics_table(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def provider_diagnostic_color(provider: str, idx: int) -> str:
+    return PROVIDER_DIAGNOSTIC_COLORS.get(
+        provider,
+        PROVIDER_MIX_COLORS.get(
+            provider,
+            PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
+        ),
+    )
+
+
+def load_provider_latency_values(path: Path) -> list[tuple[str, float]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    values: list[tuple[str, float]] = []
+    for raw in payload:
+        provider = raw["provider"]
+        value = float(raw["mean_ttft_s"])
+        if not math.isfinite(value):
+            raise ValueError(f"{path}: non-finite mean_ttft_s for {provider}")
+        values.append((provider, value))
+    return values
+
+
 def plot_provider_latency(
     diagnostics: list[ProviderDiagnostics],
     output_path: Path,
+    values_sec: list[tuple[str, float]] | None = None,
 ) -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 7.5,
-            "axes.labelsize": 8,
-            "xtick.labelsize": 6.5,
-            "ytick.labelsize": 6.5,
-            "figure.figsize": (3.35, 2.2),
+            "font.size": 10.8,
+            "axes.labelsize": 11.5,
+            "xtick.labelsize": 9.8,
+            "ytick.labelsize": 9.6,
+            "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
     )
-    items = [item for item in diagnostics if item.n > 0 and not math.isnan(item.mean_ttft_ms)]
-    items = sorted(items, key=lambda item: item.mean_ttft_ms)
-    labels = [provider_mix_legend_label(item.provider) for item in items]
-    values = [item.mean_ttft_ms / 1000.0 for item in items]
+    if values_sec is None:
+        values_sec = [
+            (item.provider, item.mean_ttft_ms / 1000.0)
+            for item in diagnostics
+            if item.n > 0 and not math.isnan(item.mean_ttft_ms)
+        ]
+        values_sec = sorted(values_sec, key=lambda item: item[1])
+    labels = [provider_mix_legend_label(provider) for provider, _ in values_sec]
+    values = [value for _, value in values_sec]
     colors = [
-        PROVIDER_MIX_COLORS.get(
-            item.provider,
-            PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
-        )
-        for idx, item in enumerate(items)
+        provider_diagnostic_color(provider, idx)
+        for idx, (provider, _) in enumerate(values_sec)
     ]
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.2), constrained_layout=False)
-    y = list(range(len(items)))
+    fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
+    y = list(range(len(values_sec)))
     ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.72)
     ax.set_yticks(y, labels)
     ax.invert_yaxis()
     ax.set_xlabel("Mean TTFT (s)")
+    ax.set_xlim(0, max(6.0, max(values) * 1.08))
+    ax.set_xticks([0, 2, 4, 6])
     ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.29, right=0.99, bottom=0.16, top=0.97)
+    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.16, top=0.97)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path)
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
+    plt.close(fig)
+
+
+def lightened_provider_color(color: str, mix: float = 0.55) -> tuple[float, float, float]:
+    base = to_rgb(color)
+    return tuple(channel + (1.0 - channel) * mix for channel in base)
+
+
+def pricing_sort_key(provider: ProviderInfo) -> tuple[int, str]:
+    try:
+        return (PROVIDER_PRICING_ORDER.index(provider.name), provider.name)
+    except ValueError:
+        return (len(PROVIDER_PRICING_ORDER), provider.label)
+
+
+def plot_provider_pricing(
+    providers: dict[str, ProviderInfo],
+    output_path: Path,
+) -> None:
+    items = [
+        provider
+        for provider in providers.values()
+        if provider.tier == "api"
+        and (
+            (provider.input_price_per_m is not None and provider.input_price_per_m > 0.0)
+            or (
+                provider.output_price_per_m is not None
+                and provider.output_price_per_m > 0.0
+            )
+        )
+    ]
+    if not items:
+        raise ValueError("no provider pricing available")
+    items = sorted(items, key=pricing_sort_key)
+
+    apply_style("paper")
+    plt.rcParams.update(
+        {
+            "font.size": 10.8,
+            "axes.labelsize": 11.5,
+            "xtick.labelsize": 9.8,
+            "ytick.labelsize": 9.6,
+            "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
+            "savefig.pad_inches": 0.01,
+        }
+    )
+
+    labels = [provider_mix_legend_label(item.name) for item in items]
+    input_prices = [item.input_price_per_m or 0.0 for item in items]
+    output_prices = [item.output_price_per_m or 0.0 for item in items]
+    colors = [
+        provider_diagnostic_color(item.name, idx)
+        for idx, item in enumerate(items)
+    ]
+
+    fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
+    y = list(range(len(items)))
+    ax.barh(
+        [pos - 0.17 for pos in y],
+        input_prices,
+        color=[lightened_provider_color(color) for color in colors],
+        edgecolor="white",
+        linewidth=0.35,
+        height=0.32,
+    )
+    ax.barh(
+        [pos + 0.17 for pos in y],
+        output_prices,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.35,
+        height=0.32,
+    )
+    ax.set_yticks(y, labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("USD / 1M tokens")
+    ax.set_xlim(0, max(1.55, max(input_prices + output_prices) * 1.08))
+    ax.set_xticks([0, 0.5, 1.0, 1.5])
+    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
+    ax.grid(axis="y", visible=False)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.subplots_adjust(left=0.30, right=0.98, bottom=0.16, top=0.97)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -952,7 +1110,13 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError(f"{args.input_dir}: no valid TTFT samples for boxplot")
     slo_sec = args.slo_ms / 1000.0
-    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
+    plot_common_ttft_boxplot(
+        series,
+        output_path,
+        slo_sec=slo_sec,
+        figsize=TTFT_PROVIDER_PANEL_FIGSIZE,
+        margins=(0.39, 0.99, 0.15, 0.78),
+    )
 
 
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
@@ -1096,7 +1260,7 @@ def main() -> int:
         attr="ttft_mean_ms",
         ylabel="Mean TTFT (s)",
         xlabel=args.x_label,
-        routewise_alphas=tuple(args.routewise_alphalot_alphas),
+        routewise_alphas=tuple(args.routewise_plot_alphas),
     )
     plot_metric_frontier(
         summaries,
@@ -1104,7 +1268,7 @@ def main() -> int:
         attr="slo_violation_rate",
         ylabel="SLO violations (%)",
         xlabel=args.x_label,
-        routewise_alphas=tuple(args.routewise_alphalot_alphas),
+        routewise_alphas=tuple(args.routewise_plot_alphas),
     )
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)
@@ -1131,11 +1295,20 @@ def main() -> int:
         or args.provider_summary_out is not None
         or args.provider_latency_out is not None
         or args.provider_latency_boxplot_out is not None
+        or args.provider_pricing_out is not None
     ):
         diagnostics = provider_diagnostics(args, providers, hint_to_name)
     if args.provider_latency_out is not None and diagnostics is not None:
-        plot_provider_latency(diagnostics, args.provider_latency_out)
+        values_sec = (
+            load_provider_latency_values(args.provider_latency_values_json)
+            if args.provider_latency_values_json is not None
+            else None
+        )
+        plot_provider_latency(diagnostics, args.provider_latency_out, values_sec)
         print(f"wrote {args.provider_latency_out}")
+    if args.provider_pricing_out is not None:
+        plot_provider_pricing(providers, args.provider_pricing_out)
+        print(f"wrote {args.provider_pricing_out}")
     if args.provider_latency_boxplot_out is not None:
         plot_provider_latency_boxplot(
             args,

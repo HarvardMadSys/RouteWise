@@ -21,15 +21,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-COLUMN_FIGSIZE = (3.35, 2.25)
+COLUMN_FIGSIZE = (3.35, 2.45)
 SLO_BAR_FIGSIZE = COLUMN_FIGSIZE
-MIX_FIGSIZE = (3.35, 2.55)
-BASE_FONT_SIZE = 8.9
-LABEL_FONT_SIZE = 9.4
-TICK_FONT_SIZE = 8.3
-ANNOTATION_FONT_SIZE = 7.3
-ROUTEWISE_ANNOTATION_FONT_SIZE = 8.6
-LEGEND_FONT_SIZE = 7.0
+MIX_FIGSIZE = (3.35, 2.70)
+BASE_FONT_SIZE = 9.6
+LABEL_FONT_SIZE = 10.3
+TICK_FONT_SIZE = 9.1
+ANNOTATION_FONT_SIZE = 7.8
+ROUTEWISE_ANNOTATION_FONT_SIZE = 9.0
+LEGEND_FONT_SIZE = 7.6
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -122,11 +122,7 @@ PROVIDER_COLOR_CYCLE = (
     "#d62728",
 )
 PROVIDER_MIX_COLORS = {
-    "OR_Inceptron": "#76b7b2",
-    "OR_Friendli": "#9467bd",
-    "OR_DeepInfra": "#4e79a7",
-    "OR_SambaNova": "#e377c2",
-    "OR_Venice": "#17becf",
+    "OR_DeepInfra": "#2b7bba",
     "MiniMax_Plus_SQ": "#6b4c3b",
     "GLM_OR_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
@@ -626,6 +622,7 @@ def plot_stacked_mix(
     margins: tuple[float, float, float, float] = (0.34, 0.99, 0.16, 0.79),
     show_legend: bool = True,
     x_max: float = 100.0,
+    figsize: tuple[float, float] = MIX_FIGSIZE,
 ) -> None:
     apply_column_figure_style(legend_fontsize=legend_fontsize)
     plt.rcParams.update(
@@ -636,7 +633,7 @@ def plot_stacked_mix(
             "ytick.labelsize": tick_fontsize,
         }
     )
-    fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
     y = list(range(len(rows)))
     left = [0.0] * len(rows)
     handles = []
@@ -680,10 +677,10 @@ def plot_stacked_mix(
             frameon=False,
             ncols=legend_ncols,
             loc="upper center",
-            bbox_to_anchor=(0.57, 0.985),
-            handlelength=0.9,
-            handletextpad=0.28,
-            columnspacing=0.65,
+            bbox_to_anchor=(0.50, 0.985),
+            handlelength=0.8,
+            handletextpad=0.22,
+            columnspacing=0.45,
             labelspacing=0.35,
             borderaxespad=0.0,
         )
@@ -776,11 +773,13 @@ def plot_ttft_boxplot(
     *,
     slo_sec: float = 3.0,
     x_max_sec: float | None = None,
+    figsize: tuple[float, float] = COLUMN_FIGSIZE,
+    margins: tuple[float, float, float, float] = (0.39, 0.99, 0.18, 0.98),
 ) -> None:
     if not series:
         raise ValueError("no boxplot series to plot")
     apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
-    plt.rcParams.update({"figure.figsize": COLUMN_FIGSIZE})
+    plt.rcParams.update({"figure.figsize": figsize})
 
     sorted_samples_sec: list[list[float]] = []
     p95_sec: list[float] = []
@@ -794,7 +793,7 @@ def plot_ttft_boxplot(
         tail = max(valid_p95) if valid_p95 else slo_sec * 1.6
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
     box = ax.boxplot(
         sorted_samples_sec,
         vert=False,
@@ -833,7 +832,12 @@ def plot_ttft_boxplot(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.18, top=0.98)
+    fig.subplots_adjust(
+        left=margins[0],
+        right=margins[1],
+        bottom=margins[2],
+        top=margins[3],
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
