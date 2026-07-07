@@ -35,6 +35,7 @@ from matplotlib.colors import to_rgb
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
     MIX_FIGSIZE,
+    PAPER_PANEL_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
     aligned_panel_geometry,
@@ -78,7 +79,7 @@ DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_BOXPLOT_POLICIES = tuple(
     policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
 )
-PROVIDER_DIAGNOSTIC_FIGSIZE = (3.35, 3.22)
+PROVIDER_DIAGNOSTIC_FIGSIZE = PAPER_PANEL_FIGSIZE
 PROVIDER_PRICING_ORDER = (
     "OR_DeepInfra",
     "OR_AtlasCloud",

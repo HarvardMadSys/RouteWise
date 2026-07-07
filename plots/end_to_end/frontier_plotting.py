@@ -33,13 +33,16 @@ ANNOTATION_FONT_SIZE = 9.0
 ROUTEWISE_ANNOTATION_FONT_SIZE = 9.0
 LEGEND_FONT_SIZE = 10.0
 
+# Every paper panel is authored at this one size so LaTeX can use one
+# identical \includegraphics line for all of them (no per-panel trims or
+# height equalization, which is where clipping bugs creep in).
+PAPER_PANEL_FIGSIZE = (3.35, 3.18)
+
 # Horizontal-category panels that LaTeX places side by side (Fig 6a/6b,
 # Fig 8b/8c/8d) must put the same policy row at the same physical height.
-# All panels of a set share this absolute geometry: rows are laid out on a
-# fixed inch pitch between a fixed bottom band (ticks + xlabel) and a fixed
-# top band (legend on mix panels, blank elsewhere).
-ALIGNED_FIG_WIDTH_IN = 3.35
-ALIGNED_ROW_PITCH_IN = 0.21
+# All panels of a set share this absolute geometry: the rows split the space
+# between a fixed bottom band (ticks + xlabel) and a fixed top band (legend
+# on mix panels, blank elsewhere) evenly.
 ALIGNED_BOTTOM_IN = 0.46
 ALIGNED_TOP_IN = 0.62
 ALIGNED_BAR_THICKNESS = 0.62
@@ -57,14 +60,14 @@ def aligned_panel_geometry(
     ``top_in`` sizes the top band and must be identical across a set; a set
     whose mix legend needs three rows (ncols=4) should pass ~0.78.
     """
-    height = ALIGNED_BOTTOM_IN + n_rows * ALIGNED_ROW_PITCH_IN + top_in
+    height = PAPER_PANEL_FIGSIZE[1]
     margins = (
         left,
         right,
         ALIGNED_BOTTOM_IN / height,
         1.0 - top_in / height,
     )
-    return (ALIGNED_FIG_WIDTH_IN, round(height, 3)), margins
+    return PAPER_PANEL_FIGSIZE, margins
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -482,6 +485,7 @@ def plot_metric_frontier(
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
+    figsize: tuple[float, float] = COLUMN_FIGSIZE,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -504,7 +508,7 @@ def plot_metric_frontier(
     baselines = normalized[split_hedged:]
     routewise_count = len(routewise_no_hedge) + len(routewise_hedged)
 
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=True)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     _plot_routewise_group(
         ax,
         routewise_no_hedge,

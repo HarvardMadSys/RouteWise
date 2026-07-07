@@ -38,6 +38,7 @@ from plots.end_to_end.frontier_plotting import (
     MIX_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    PAPER_PANEL_FIGSIZE,
     TIER_MIX_SEGMENTS,
     aligned_panel_geometry,
     BoxSeries,
@@ -417,12 +418,12 @@ def plot_frontier(
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
-    kwargs = {}
+    kwargs = {"figsize": PAPER_PANEL_FIGSIZE}
     if "freeinference" in output_path.name:
-        kwargs = {
-            "routewise_label_offsets": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
-            "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
-        }
+        kwargs.update(
+            routewise_label_offsets=FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
+            baseline_label_offsets=FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+        )
     plot_mean_ttft_frontier(
         selected_frontier_points(rows, mean_baselines, routewise_policies),
         output_path,
