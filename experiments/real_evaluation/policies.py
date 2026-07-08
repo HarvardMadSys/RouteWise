@@ -2,14 +2,14 @@
 
 ARCHITECTURE NOTE — read before extending.
 
-This module is a **real-eval adapter**, NOT a long-term routing system.
-It exists to let real-online experiments call the same algorithm shapes
-as the simulator without forcing a premature unification of three
-incompatible policy frameworks (``rwsim.policies``, the
-historical simulator-grid sidecar, and these phase6-derived classes). When the
-canonical policy pipeline in ``rwsim.policies`` is mature enough to express
-the live-evaluation harness, this module should be retired or re-grounded
-on it.
+This module is the **real-eval adapter** over the canonical RouteWise
+algorithm in :mod:`rwsim.core.router`. The ``BudgetRange*`` policies bind
+that router to live providers through ``_RealProviderView`` (empirical
+rolling profiles, no oracle priors, per-call time-seeded sampling) and keep
+the world-interaction concerns local: locking, capacity charging, transports,
+OpenRouter sentinels, and the recorder-facing ``RoutingDecision``. The
+simulator binds the same router in :mod:`rwsim.policies.routewise`; algorithm
+changes belong in the core, environment changes belong here.
 
 Policy taxonomy:
 
@@ -26,15 +26,10 @@ Policy taxonomy:
 * **Current paper line** (``LP-TTFT-budget`` + ``Hedge-ProbTarget``):
   - ``BudgetRangeHedgePolicy(alpha)`` : range-normalized cost budget
     ``B_alpha = (1 - alpha) c_min + alpha c_max``, probability-target hedge
-
-The ``BudgetRange*`` selector is a hand-port from the retired simulator-grid
-range-budget selector. The simulator version was distribution-aware; this real
-version uses the empirical rolling profile.
 """
 
 from __future__ import annotations
 
-import math
 import random
 import threading
 from dataclasses import dataclass
@@ -55,22 +50,11 @@ from experiments.real_evaluation.prefix_cache import (
     cache_aware_request_cost_usd,
     cached_input_tokens,
 )
-from experiments.real_evaluation.shadow_price import (
-    effective_cost,
-    request_marginal_cost,
-)
-from rwsim.core.hedging import (
-    HEDGE_SUCCESS_TARGET,
-    BackupCandidate,
-    combined_success_probability,
-    select_probability_backup,
-)
-from rwsim.core.lp import (
-    LP_EPS,
-    BudgetLPCandidate,
-    cost_tiebroken_objective,
-    solve_budget_lp,
-)
+from experiments.real_evaluation.shadow_price import request_marginal_cost
+from rwsim.core.beliefs import LatencyBeliefs
+from rwsim.core.hedging import HEDGE_SUCCESS_TARGET
+from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
+from rwsim.core.router import LPStatus, RouteWiseRouter
 from rwsim.schemas import Request as _PredictionRequest
 
 if TYPE_CHECKING:
@@ -177,6 +161,11 @@ def _sample_weighted(weights: dict[str, float], rng: random.Random) -> str:
     return providers[-1]
 
 
+def _time_seeded_sampler(weights: dict[str, float], now: float) -> str:
+    """LP-weight sampler with the historical per-call time-seeded RNG."""
+    return _sample_weighted(weights, rng=random.Random(int(now * 1e6)))
+
+
 def _tier_mix_from_weights(
     weights: dict[str, float],
     states: dict[str, ProviderState],
@@ -215,26 +204,71 @@ def _body_latency_proxy_ms(
 
 
 # ---------------------------------------------------------------------------
-# Hedging — probability-target backup selection + latest-safe dispatch time.
+# Core-router binding: provider views + real-eval belief configuration.
 # ---------------------------------------------------------------------------
 
 
-def _profile_combined_success_probability(
-    primary_state: ProviderState,
-    backup_state: ProviderState,
-    *,
-    elapsed_sec: float,
-    slo_sec: float,
-    now: float,
-) -> float:
-    """Adapt real-eval ProviderState profiles to the core hedging formula."""
-    return combined_success_probability(
-        lambda value_ms: primary_state.profile.cdf_at(value_ms, now),
-        lambda value_ms: backup_state.profile.cdf_at(value_ms, now),
-        elapsed_ms=max(0.0, float(elapsed_sec)) * 1000.0,
-        slo_ms=float(slo_sec) * 1000.0,
-        dispatch_overhead_ms=0.0,
+@dataclass(frozen=True)
+class _RealProviderView:
+    """ProviderView binding one real-eval provider to one request.
+
+    Priors are ``None``: the real world has no oracle distribution, so empty
+    rolling windows fall back to the unprofiled penalty (means) or 0.0 (CDFs).
+    """
+
+    state: ProviderState
+    cost_fn: Callable[[ProviderState], float]
+
+    @property
+    def name(self) -> str:
+        return self.state.spec.name
+
+    @property
+    def tier(self) -> str:
+        return self.state.spec.tier
+
+    def is_available(self, now: float) -> bool:
+        return self.state.is_available(now)
+
+    def quota_fraction_used(self, now: float) -> float | None:
+        if self.state.quota is None:
+            return None
+        return self.state.quota.fraction_used(now)
+
+    def route_cost_usd(self, now: float) -> float:
+        return self.cost_fn(self.state)
+
+    def hedge_cost_usd(self, now: float) -> float:
+        return self.cost_fn(self.state)
+
+    def prior_ttft_mean_ms(self, now: float) -> float | None:
+        return None
+
+    def prior_ttft_cdf(self, value_ms: float, now: float) -> float | None:
+        return None
+
+
+def _real_eval_beliefs(states: dict[str, ProviderState]) -> LatencyBeliefs:
+    """Beliefs over the exact profile objects held by ``ProviderState``.
+
+    Sharing the objects (not copies) keeps the runner's snapshot/bootstrap
+    paths and the baselines reading ``state.profile`` consistent with what
+    the router learns on.
+    """
+    window_sec = (
+        next(iter(states.values())).profile.window_sec if states else DEFAULT_PROFILE_WINDOW_SEC
     )
+    return LatencyBeliefs(
+        window_sec=window_sec,
+        error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
+        unprofiled_penalty_ms=UNPROFILED_LATENCY_PENALTY_MS,
+        profiles={name: state.profile for name, state in states.items()},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hedging — probability-target backup selection + latest-safe dispatch time.
+# ---------------------------------------------------------------------------
 
 
 def select_checkpoint_backup(
@@ -251,155 +285,43 @@ def select_checkpoint_backup(
 ) -> CheckpointHedgeDecision:
     """Evaluate probability-target hedging at a single checkpoint.
 
-    This mirrors the simulator RouteWise tick semantics: at each checkpoint,
-    score all feasible backups using the conditional SLO success probability.
-    Dispatch the cheapest feasible backup only if no later checkpoint still
-    has a feasible backup; otherwise wait and re-evaluate later.
+    This is the simulator RouteWise tick, verbatim: both environments run
+    :meth:`rwsim.core.router.RouteWiseRouter.checkpoint_backup`. Here the
+    router is bound to the empirical rolling profiles with no oracle prior,
+    zero dispatch overhead, and penalized-belief latency tie-breaks.
     """
     primary_state = states.get(primary)
     if primary_state is None:
         return CheckpointHedgeDecision(backup=None, elapsed_sec=float(elapsed_sec))
 
-    current = _select_checkpoint_candidate(
-        primary_state=primary_state,
-        states=states,
-        ctx=ctx,
-        slo_sec=slo_sec,
-        now=now,
-        elapsed_sec=elapsed_sec,
-        success_target=success_target,
-        cost_fn=cost_fn,
+    router = RouteWiseRouter(
+        alpha=0.0,  # unused by checkpoint evaluation
+        slo_ms=float(slo_sec) * 1000.0,
+        beliefs=_real_eval_beliefs(states),
+        hedging=True,
+        hedge_dispatch_overhead_ms=0.0,
+        hedge_success_target=success_target,
+        hedge_tiebreak_mean="belief",
     )
-    if current is None:
-        candidate_count, feasible_count = _checkpoint_candidate_counts(
-            primary_state=primary_state,
-            states=states,
-            slo_sec=slo_sec,
-            now=now,
-            elapsed_sec=elapsed_sec,
-            success_target=success_target,
-        )
-        return CheckpointHedgeDecision(
-            backup=None,
-            elapsed_sec=float(elapsed_sec),
-            candidate_count=candidate_count,
-            feasible_count=feasible_count,
-        )
-
-    _, success_probability, _, selected = current
-    candidate_count, feasible_count = _checkpoint_candidate_counts(
-        primary_state=primary_state,
-        states=states,
-        slo_sec=slo_sec,
-        now=now,
+    if cost_fn is None:
+        def cost_fn(state: ProviderState) -> float:
+            return request_cost_for_spec(state.spec, ctx)
+    views = [_RealProviderView(state, cost_fn) for state in states.values()]
+    result = router.checkpoint_backup(
+        primary,
+        views,
+        now,
         elapsed_sec=elapsed_sec,
-        success_target=success_target,
+        future_checkpoints_sec=tuple(future_checkpoints_sec),
     )
-    future_feasible = False
-    for future_elapsed in future_checkpoints_sec:
-        if future_elapsed <= elapsed_sec + LP_EPS:
-            continue
-        future = _select_checkpoint_candidate(
-            primary_state=primary_state,
-            states=states,
-            ctx=ctx,
-            slo_sec=slo_sec,
-            now=now,
-            elapsed_sec=future_elapsed,
-            success_target=success_target,
-            cost_fn=cost_fn,
-        )
-        if future is not None:
-            future_feasible = True
-            break
-
     return CheckpointHedgeDecision(
-        backup=None if future_feasible else selected.spec.name,
+        backup=result.backup,
         elapsed_sec=float(elapsed_sec),
-        success_probability=float(success_probability),
-        future_feasible=future_feasible,
-        feasible_count=feasible_count,
-        candidate_count=candidate_count,
+        success_probability=result.success_probability,
+        future_feasible=result.future_feasible,
+        feasible_count=result.feasible_count,
+        candidate_count=result.candidate_count,
     )
-
-
-def _select_checkpoint_candidate(
-    *,
-    primary_state: ProviderState,
-    states: dict[str, ProviderState],
-    ctx: RequestContext,
-    slo_sec: float,
-    now: float,
-    elapsed_sec: float,
-    success_target: float,
-    cost_fn: Callable[[ProviderState], float] | None,
-) -> tuple[float, float, float, ProviderState] | None:
-    candidates: list[BackupCandidate[ProviderState]] = []
-    for state in states.values():
-        if state.spec.name == primary_state.spec.name or not state.is_available(now):
-            continue
-        success_probability = _profile_combined_success_probability(
-            primary_state,
-            state,
-            elapsed_sec=elapsed_sec,
-            slo_sec=slo_sec,
-            now=now,
-        )
-        if success_probability < success_target - LP_EPS:
-            continue
-        cost = cost_fn(state) if cost_fn is not None else request_cost_for_spec(state.spec, ctx)
-        mean_ms, _ = _body_latency_proxy_ms(
-            state,
-            now,
-            error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-        )
-        if not math.isfinite(mean_ms):
-            mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-        candidates.append(
-            BackupCandidate(
-                provider=state,
-                success_probability=success_probability,
-                marginal_cost=cost,
-                true_mean_ms=mean_ms,
-                success_target=success_target,
-            )
-        )
-    selected = select_probability_backup(candidates)
-    if selected is None:
-        return None
-    return (
-        selected.marginal_cost,
-        selected.success_probability,
-        selected.true_mean_ms,
-        selected.provider,
-    )
-
-
-def _checkpoint_candidate_counts(
-    *,
-    primary_state: ProviderState,
-    states: dict[str, ProviderState],
-    slo_sec: float,
-    now: float,
-    elapsed_sec: float,
-    success_target: float,
-) -> tuple[int, int]:
-    candidate_count = 0
-    feasible_count = 0
-    for state in states.values():
-        if state.spec.name == primary_state.spec.name or not state.is_available(now):
-            continue
-        candidate_count += 1
-        success_probability = _profile_combined_success_probability(
-            primary_state,
-            state,
-            elapsed_sec=elapsed_sec,
-            slo_sec=slo_sec,
-            now=now,
-        )
-        if success_probability >= success_target - LP_EPS:
-            feasible_count += 1
-    return candidate_count, feasible_count
 
 
 # ---------------------------------------------------------------------------
@@ -1013,9 +935,10 @@ class BudgetRangePolicy(BasePolicy):
     Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_alpha``
     where ``B_alpha = (1 - alpha) c_min + alpha c_max``.
 
-    Hand-ported from the retired simulator-grid range-budget selector. The
-    simulator version read distributional means from provider distributions;
-    here we use the empirical ``LatencyProfile.mean_ms``.
+    The selector itself is :class:`rwsim.core.router.RouteWiseRouter` — the
+    same code the simulator's ``RouteWisePolicy`` runs. This adapter binds it
+    to the empirical rolling profiles (no oracle priors) and translates
+    ``RouteResult`` into the recorder-facing ``RoutingDecision``.
     """
 
     use_hedge = False
@@ -1048,67 +971,44 @@ class BudgetRangePolicy(BasePolicy):
         self.budget_alpha_percent = int(budget_alpha_percent)
         self.budget_percentile = self.budget_alpha_percent
         self.name = f"budget_range_alpha{self.budget_alpha_percent}{self.name_suffix}"
+        self.router = RouteWiseRouter(
+            alpha=self.budget_alpha_percent / 100.0,
+            slo_ms=float(slo_ms),
+            beliefs=_real_eval_beliefs(self.states),
+            cost_envelope=None,  # installed by set_cost_envelope before routing
+            hedging=self.use_hedge,
+            sampler=_time_seeded_sampler,
+            hedge_dispatch_overhead_ms=0.0,
+            hedge_success_target=HEDGE_SUCCESS_TARGET,
+            hedge_tiebreak_mean="belief",
+        )
 
     def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
         feasible = [s for s in self.states.values() if s.is_available(now)]
         if not feasible:
             return RoutingDecision(primary=None, notes="none_available")
 
-        L, U = self._cost_envelope_or_raise()
-        request_costs = {s.spec.name: self.request_cost_for_state(s, ctx) for s in feasible}
-        c_eff = {
-            s.spec.name: effective_cost(s, request_costs[s.spec.name], now, U=U, L=L)
-            for s in feasible
-        }
-
-        tbar: dict[str, float] = {}
-        for s in feasible:
-            mean_ms, _ = _body_latency_proxy_ms(
-                s,
-                now,
-                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-            )
-            if not math.isfinite(mean_ms):
-                mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-            tbar[s.spec.name] = mean_ms
-
-        # Range budget: B_alpha = (1 - alpha) c_min + alpha c_max.
-        c_values = list(c_eff.values())
-        c_min = min(c_values)
-        c_max = max(c_values)
-        alpha = self.budget_alpha_percent / 100.0
-        budget = float((1.0 - alpha) * c_min + alpha * c_max)
-
-        names = [s.spec.name for s in feasible]
-        objective = cost_tiebroken_objective(
-            [tbar[name] for name in names],
-            [c_eff[name] for name in names],
-        )
-        result = solve_budget_lp(
-            [
-                BudgetLPCandidate(
-                    name=name,
-                    objective=objective[index],
-                    effective_cost=c_eff[name],
-                )
-                for index, name in enumerate(names)
-            ],
-            budget=budget,
-        )
-        if result.feasible and result.weights:
-            primary = _sample_weighted(result.weights, rng=random.Random(int(now * 1e6)))
+        result = self.router.route(self._views(feasible, ctx), now)
+        if result.lp_status is LPStatus.FALLBACK_MIN_COST:
             return RoutingDecision(
-                primary=primary,
+                primary=result.primary,
                 lp_weights=result.weights,
-                lp_status="optimal",
-                budget_usd=float(budget),
-                reference_cost_usd=float(c_max),
-                c_eff_map=c_eff,
-                tier_mix=_tier_mix_from_weights(result.weights, self.states),
-                notes=self.name,
+                lp_status="fallback_in_budget_range",
+                budget_usd=float(result.budget),
+                reference_cost_usd=float(result.c_max),
+                c_eff_map=result.c_eff,
+                notes="fallback_affordable_range",
             )
-
-        return _fallback_in_budget(feasible, c_eff, budget, c_max, fallback_label="range")
+        return RoutingDecision(
+            primary=result.primary,
+            lp_weights=result.weights,
+            lp_status="optimal",
+            budget_usd=float(result.budget),
+            reference_cost_usd=float(result.c_max),
+            c_eff_map=result.c_eff,
+            tier_mix=_tier_mix_from_weights(result.weights, self.states),
+            notes=self.name,
+        )
 
     def rate_limit_fallback_candidates(
         self,
@@ -1130,72 +1030,23 @@ class BudgetRangePolicy(BasePolicy):
         ]
         if not feasible:
             return []
+        return self.router.fallback_order(self._views(feasible, ctx), now)
 
-        L, U = self._cost_envelope_or_raise()
+    def _views(
+        self,
+        states: list[ProviderState],
+        ctx: RequestContext,
+    ) -> list[_RealProviderView]:
+        """Request-bound views; envelope installation is checked here."""
+        self.router.cost_envelope = self._cost_envelope_or_raise()
         request_costs = {
-            state.spec.name: self.request_cost_for_state(state, ctx) for state in feasible
+            state.spec.name: self.request_cost_for_state(state, ctx) for state in states
         }
-        c_eff = {
-            state.spec.name: effective_cost(state, request_costs[state.spec.name], now, U=U, L=L)
-            for state in feasible
-        }
-        tbar: dict[str, float] = {}
-        for state in feasible:
-            mean_ms, _ = _body_latency_proxy_ms(
-                state,
-                now,
-                error_penalty_ms=RATE_LIMIT_ERROR_PENALTY_MS,
-            )
-            if not math.isfinite(mean_ms):
-                mean_ms = UNPROFILED_LATENCY_PENALTY_MS
-            tbar[state.spec.name] = mean_ms
 
-        c_values = list(c_eff.values())
-        c_min = min(c_values)
-        c_max = max(c_values)
-        alpha = self.budget_alpha_percent / 100.0
-        budget = float((1.0 - alpha) * c_min + alpha * c_max)
-        names = [state.spec.name for state in feasible]
-        objective = cost_tiebroken_objective(
-            [tbar[name] for name in names],
-            [c_eff[name] for name in names],
-        )
-        result = solve_budget_lp(
-            [
-                BudgetLPCandidate(
-                    name=name,
-                    objective=objective[index],
-                    effective_cost=c_eff[name],
-                )
-                for index, name in enumerate(names)
-            ],
-            budget=budget,
-        )
+        def cost_fn(state: ProviderState) -> float:
+            return request_costs[state.spec.name]
 
-        lp_order: list[str] = []
-        if result.feasible:
-            lp_order = [
-                name
-                for name, weight in sorted(
-                    result.weights.items(),
-                    key=lambda item: (-item[1], tbar[item[0]], c_eff[item[0]], item[0]),
-                )
-                if weight > LP_EPS
-            ]
-
-        ordered = list(lp_order)
-        seen = set(ordered)
-        remainder = [name for name in names if name not in seen]
-        remainder.sort(
-            key=lambda name: (
-                c_eff[name] > budget + LP_EPS,
-                tbar[name],
-                c_eff[name],
-                name,
-            )
-        )
-        ordered.extend(remainder)
-        return ordered
+        return [_RealProviderView(state, cost_fn) for state in states]
 
 
 class BudgetRangeHedgePolicy(BudgetRangePolicy):
@@ -1203,39 +1054,6 @@ class BudgetRangeHedgePolicy(BudgetRangePolicy):
 
     use_hedge = True
     name_suffix = "_hedge"
-
-
-def _fallback_in_budget(
-    feasible: list[ProviderState],
-    c_eff: dict[str, float],
-    budget: float,
-    reference_cost: float,
-    *,
-    fallback_label: str,
-) -> RoutingDecision:
-    """Shared fallback when the LP fails or returns no positive weights."""
-    affordable = [s for s in feasible if c_eff[s.spec.name] <= budget + LP_EPS]
-    if affordable:
-        choice = min(affordable, key=lambda s: c_eff[s.spec.name])
-        return RoutingDecision(
-            primary=choice.spec.name,
-            lp_weights={choice.spec.name: 1.0},
-            lp_status=f"fallback_in_budget_{fallback_label}",
-            budget_usd=float(budget),
-            reference_cost_usd=float(reference_cost),
-            c_eff_map=c_eff,
-            notes=f"fallback_affordable_{fallback_label}",
-        )
-    choice = min(feasible, key=lambda s: c_eff[s.spec.name])
-    return RoutingDecision(
-        primary=choice.spec.name,
-        lp_weights={choice.spec.name: 1.0},
-        lp_status=f"fallback_no_budget_{fallback_label}",
-        budget_usd=float(budget),
-        reference_cost_usd=float(reference_cost),
-        c_eff_map=c_eff,
-        notes=f"fallback_no_affordable_{fallback_label}",
-    )
 
 
 # ---------------------------------------------------------------------------
