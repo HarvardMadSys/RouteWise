@@ -39,6 +39,11 @@ class RollingLatencyProfile:
     over the small time stripes that differ, using a ts-sorted sample index.
     Queries further than one window behind the clock fall back to a defensive
     full scan.
+
+    Success samples are retained for two windows behind the oldest live query
+    clock (or behind the newest sample until a first query advances a clock),
+    so memory stays bounded on long-lived feeds. That horizon covers every
+    exact query path above; the defensive full scan sees only what remains.
     """
 
     window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
@@ -78,8 +83,8 @@ class RollingLatencyProfile:
     _cdf_active_count: int = field(default=0, init=False, repr=False)
     _cdf_clock_sec: float = field(default=float("-inf"), init=False, repr=False)
     _sample_seq: int = field(default=0, init=False, repr=False)
-    # All samples ordered by (ts, seq), pruned to a two-window horizon behind
-    # the oldest live clock. Serves the bounded backwards-query stripes.
+    # All samples ordered by (ts, seq), pruned to the retention horizon.
+    # Serves the bounded backwards-query stripes.
     _samples_by_ts: list[tuple[float, int, float]] = field(
         default_factory=list,
         init=False,
@@ -97,7 +102,7 @@ class RollingLatencyProfile:
             self._samples_by_ts.append(item)
         else:
             insort(self._samples_by_ts, item)
-        self._prune_sample_index()
+        self._prune_retained_samples()
         if ts <= self._mean_clock_sec:
             if ts >= self._mean_clock_sec - self.window_sec:
                 heapq.heappush(self._mean_active, item)
@@ -343,15 +348,40 @@ class RollingLatencyProfile:
             self._samples_by_ts[restore_lo:restore_hi],
         )
 
-    def _prune_sample_index(self) -> None:
+    def _retention_cutoff(self) -> float:
+        """Oldest timestamp any exact query path can still need.
+
+        Two windows behind the oldest live query clock: the stripe machinery
+        reaches one window behind each clock, and its restore stripe reaches
+        one further. Before any clock advances, the anchor is the newest
+        sample instead, which covers any first query issued within one window
+        of the freshest observation (production queries always are).
+        """
         clocks = [
             clock
             for clock in (self._mean_clock_sec, self._cdf_clock_sec)
             if clock > float("-inf")
         ]
-        if not clocks:
+        if clocks:
+            anchor = min(clocks)
+        elif self._samples_by_ts:
+            anchor = self._samples_by_ts[-1][0]
+        else:
+            return float("-inf")
+        return anchor - 2.0 * self.window_sec
+
+    def _prune_retained_samples(self) -> None:
+        cutoff = self._retention_cutoff()
+        if cutoff == float("-inf"):
             return
-        cutoff = min(clocks) - 2.0 * self.window_sec
+        # The deque is append-ordered; out-of-order stragglers survive until
+        # the entries in front of them expire, which only retains extra.
+        while self.samples and self.samples[0][0] < cutoff:
+            self.samples.popleft()
+        # Only populated beyond one window while no mean query has ever run;
+        # once the clock is live the heap holds future-dated samples only.
+        while self._mean_pending and self._mean_pending[0][0] < cutoff:
+            heapq.heappop(self._mean_pending)
         if len(self._samples_by_ts) < _PRUNE_BATCH or self._samples_by_ts[0][0] >= cutoff:
             return
         keep_from = bisect_left(self._samples_by_ts, cutoff, key=_entry_ts)
