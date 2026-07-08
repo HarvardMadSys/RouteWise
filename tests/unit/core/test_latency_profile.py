@@ -31,6 +31,25 @@ def test_count_backwards_query() -> None:
     assert profile.mean(60.0) == pytest.approx(15.0)
 
 
+def test_cdf_backwards_query_values() -> None:
+    """Pin the stripe-corrected values of plain cdf() behind the clock.
+
+    The queries are chosen so both stripes matter: the drop stripe removes
+    the newest in-window sample and the restore stripe brings back one the
+    persistent window already expired. Simulator hedging feeds on these
+    values via LatencyBeliefs.cdf, so they must be exact, not just crash-free.
+    """
+    profile = _profile_with_samples([(0.0, 10.0), (50.0, 20.0), (120.0, 30.0)])
+    # Forward query advances the cdf clock to 130; window [30, 130] = {20, 30}.
+    assert profile.cdf(25.0, 130.0) == pytest.approx(0.5)
+    # Behind the clock at now=60: window [-40, 60] = {10, 20}.
+    assert profile.cdf(15.0, 60.0) == pytest.approx(0.5)
+    assert profile.cdf(25.0, 60.0) == pytest.approx(1.0)
+    # Further behind at now=40: window [-60, 40] = {10}.
+    assert profile.cdf(15.0, 40.0) == pytest.approx(1.0)
+    assert profile.cdf(5.0, 40.0) == pytest.approx(0.0)
+
+
 def test_error_count_is_windowed() -> None:
     profile = RollingLatencyProfile(window_sec=100.0)
     profile.add_error(10.0, "rate_limit")

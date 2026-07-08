@@ -269,6 +269,36 @@ def test_fallback_order_ranks_lp_weights_then_remainder() -> None:
     assert len(order) == 3
 
 
+def test_fallback_order_full_ranking_with_over_budget_remainder() -> None:
+    """Pin both ranking stages of the 429 failover order.
+
+    At alpha=0.75 the budget is 0.007, the fastest provider is over budget on
+    its own, and the LP mixes it with the mid provider at unequal weights
+    (5/6 vs 1/6), so the LP stage must order by descending weight. The
+    remainder stage must demote the over-budget provider behind the in-budget
+    one even though it has the better latency.
+    """
+    router = make_router(alpha=0.75)
+    fast = FakeView("fast", cost=0.008)
+    mid = FakeView("mid", cost=0.002)
+    cheap = FakeView("cheap", cost=0.001)
+    pricy_quick = FakeView("pricy_quick", cost=0.009)
+    seed_profile(router, "fast", [100.0] * 5)
+    seed_profile(router, "mid", [500.0] * 5)
+    seed_profile(router, "cheap", [900.0] * 5)
+    seed_profile(router, "pricy_quick", [150.0] * 5)
+
+    views = [fast, mid, cheap, pricy_quick]
+    result = router.route(views, now=10.0)
+    assert result.budget == pytest.approx(0.007)
+    assert result.weights["fast"] == pytest.approx(5.0 / 6.0)
+    assert result.weights["mid"] == pytest.approx(1.0 / 6.0)
+
+    # LP support by descending weight, then in-budget cheap (900ms) ahead of
+    # over-budget pricy_quick (150ms).
+    assert router.fallback_order(views, now=10.0) == ["fast", "mid", "cheap", "pricy_quick"]
+
+
 def test_fallback_order_empty_views() -> None:
     router = make_router()
     assert router.fallback_order([], now=0.0) == []
