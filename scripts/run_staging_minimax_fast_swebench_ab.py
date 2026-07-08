@@ -755,9 +755,7 @@ def aggregate_summary(run_rows: list[dict[str, Any]], plan: list[PlannedRun]) ->
             "export_errors": sum(1 for row in rows if row.get("export_error")),
         }
 
-    rows_by_pair = {
-        (row["task"]["instance_id"], row["attempt"], row["policy"]): row for row in run_rows
-    }
+    rows_by_pair = {run_key(row): row for row in run_rows}
     paired_deltas: list[dict[str, Any]] = []
     pair_keys = sorted({(run.task.instance_id, run.attempt) for run in plan})
     for task_id, attempt in pair_keys:
@@ -967,7 +965,7 @@ def run_plan(plan: list[PlannedRun], args: argparse.Namespace, output_dir: Path)
 def main() -> int:
     load_dotenv(Path(".env"))
     args = parse_args()
-    if args.resume and args.output_dir and args.resume != args.output_dir:
+    if args.resume and args.output_dir and args.resume.resolve() != args.output_dir.resolve():
         raise RuntimeError("--resume and --output-dir point to different directories.")
     output_dir = args.resume or args.output_dir or default_output_dir()
     plan_path = output_dir / "run_plan.json"
