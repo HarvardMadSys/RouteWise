@@ -14,6 +14,13 @@ cd "$ROOT"
 
 : "${RUN_ID:=$(date +%Y%m%d_%H%M%S)}"
 : "${TRACE:=data/real_eval/burstgpt_day0_24h_cap10s.jsonl}"
+if [[ ! -f "$TRACE" ]]; then
+  echo "error: trace not found: $TRACE" >&2
+  echo "regenerate it first (see README, Data section):" >&2
+  echo "  python3 scripts/prepare_workload.py --start-day 0 --days 1 --output data/real_eval/burstgpt_day0_24h.jsonl" >&2
+  echo "  python3 scripts/idle_compress_trace.py --source data/real_eval/burstgpt_day0_24h.jsonl --output data/real_eval/burstgpt_day0_24h_cap10s.jsonl" >&2
+  exit 1
+fi
 : "${INVENTORY:=experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_top_24h.json}"
 : "${OUTPUT_BASE:=outputs/real_eval/real_eval_minimax_m25_fixed_cancel_sanity7_stagger1m_${RUN_ID}}"
 

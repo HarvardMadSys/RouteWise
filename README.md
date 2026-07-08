@@ -55,6 +55,21 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
+The real-evaluation replay scripts default to the day0 24h trace and its
+idle-compressed variants under `data/real_eval/`. Regenerate those with:
+
+```bash
+python3 scripts/prepare_workload.py --start-day 0 --days 1 \
+    --output data/real_eval/burstgpt_day0_24h.jsonl
+python3 scripts/idle_compress_trace.py \
+    --source data/real_eval/burstgpt_day0_24h.jsonl \
+    --output data/real_eval/burstgpt_day0_24h_cap10s.jsonl
+python3 scripts/idle_compress_trace.py \
+    --source data/real_eval/burstgpt_day0_24h.jsonl \
+    --output data/real_eval/burstgpt_day0_24h_cap10s_mingap1s.jsonl \
+    --min-gap-sec 1
+```
+
 The real-evaluation harness (the path that issues live provider requests)
 additionally needs credentials. Copy the template and fill in only the
 providers you use:
