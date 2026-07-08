@@ -46,6 +46,15 @@ scripts = [
     "scipy>=1.11.0",
     "tqdm>=4.65.0",
 ]
+agent-benchmark = [
+    # gateway probe, recorder, metrics
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    # agent driver + SWE-bench grading (heavier; needed from the agent-run stage on)
+    "mini-swe-agent>=1.0",
+    "swebench>=3.0",
+]
 
 [project.scripts]
 routewise = "routewise_cli.main:main"
