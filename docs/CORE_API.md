@@ -109,8 +109,8 @@ from routewise.core import (
 )
 ```
 
-The implementation currently lives under `rwsim.core`, but that is an internal
-layout detail. Library users should not import `rwsim.core` directly.
+The import surface above is the stable contract; the internal module layout
+under `routewise.core` may change between releases.
 
 ## Units
 
@@ -456,7 +456,7 @@ def route_request(request, state):
 
 These modules are useful but not part of the stable core library contract:
 
-- `rwsim`: trace-driven simulator and research policies.
+- `routewise.sim`: trace-driven simulator and research policies.
 - `experiments`: paper section runners, ablation harnesses, and live replay.
 - `plots`: figure generation scripts.
 - `hybridInference`: production gateway integration.

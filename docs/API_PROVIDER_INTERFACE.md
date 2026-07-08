@@ -348,7 +348,7 @@ This section addresses RouteWise developers; library users can stop above. The
 interface maps onto `routewise.core` as follows: `route_once()` wraps
 `solve_budget_lp()` with the alpha-to-budget conversion and weight sampling;
 `Router` adds the rolling latency profile and the bucket-mean output-length
-estimator already prototyped in `rwsim` and the production gateway; `hedge_now()`
+estimator already prototyped in `routewise.sim` and the production gateway; `hedge_now()`
 wraps `hedge_checkpoints_for_slo()`, `combined_success_probability()`, and
 `select_probability_backup()`.
 
