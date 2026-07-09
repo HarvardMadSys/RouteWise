@@ -37,11 +37,16 @@ CURVE_LABELS = {
 }
 CURVE_COLORS = {
     "constant_0": "#9467bd",
-    "constant_l": "#1f77b4",
-    "exp_lu": "#2ca02c",
+    "constant_l": "#2ca02c",
+    "exp_lu": "#1f77b4",
     "linear_lu": "#ff7f0e",
     "constant_u": "#d62728",
 }
+# Row-first legend reading order: baselines on the top row, the headline
+# curves (exp L-U and constant 0) together on the second row. The per-figure
+# highlight curve is drawn last so overlapping curves cannot hide it.
+LEGEND_ORDER = ("linear_lu", "constant_l", "constant_u", "exp_lu", "constant_0")
+HIGHLIGHT_CURVE = "exp_lu"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -332,12 +337,15 @@ def _plot_curve_lines(
 ) -> None:
     _apply_effective_cost_style()
     fig, ax = plt.subplots(figsize=(2.3, 1.95))
-    for curve in curves:
+    legend_curves = [curve for curve in LEGEND_ORDER if curve in curves]
+    draw_order = sorted(legend_curves, key=lambda curve: curve == HIGHLIGHT_CURVE)
+    handles: dict[str, Any] = {}
+    for curve in draw_order:
         curve_rows = _rows_for_curve(rows, curve)
         xs = [row["q"] for row in curve_rows]
         ys = [row[y_key] for row in curve_rows]
         color = CURVE_COLORS[curve]
-        ax.plot(
+        (handles[curve],) = ax.plot(
             xs,
             ys,
             marker="o",
@@ -355,7 +363,10 @@ def _plot_curve_lines(
     if y_min is not None or y_max is not None:
         ax.set_ylim(bottom=y_min, top=y_max)
     ax.grid(True, alpha=0.24)
+    layout_curves = _row_first_legend_order(legend_curves, ncols=3)
     ax.legend(
+        [handles[curve] for curve in layout_curves],
+        [CURVE_LABELS[curve] for curve in layout_curves],
         frameon=False,
         ncols=3,
         loc="upper center",
@@ -368,6 +379,12 @@ def _plot_curve_lines(
     fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
     save_figure(fig, output_dir, filename, formats=["pdf", "png"], full_canvas=True)
     plt.close(fig)
+
+
+def _row_first_legend_order(items: list[str], *, ncols: int) -> list[str]:
+    """Reorder entries so matplotlib's column-major legend fill reads row-first."""
+    rows = [items[start : start + ncols] for start in range(0, len(items), ncols)]
+    return [row[col] for col in range(ncols) for row in rows if col < len(row)]
 
 
 def _rows_for_curve(rows: list[dict[str, Any]], curve: str) -> list[dict[str, Any]]:
