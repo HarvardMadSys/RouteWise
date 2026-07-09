@@ -55,6 +55,11 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
+After the package rename, simulator trace caches pickled under the old
+`rwsim.*` layout are rebuilt automatically on first use. If you later check out
+a pre-rename commit, delete the generated `data/*.simcache.pkl` files before
+running simulator jobs from that older code.
+
 The real-evaluation harness (the path that issues live provider requests)
 additionally needs credentials. Copy the template and fill in only the
 providers you use:

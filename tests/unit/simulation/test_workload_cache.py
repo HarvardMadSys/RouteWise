@@ -124,3 +124,36 @@ def test_load_workload_supports_dataset_cache_traces(monkeypatch):
     assert [request.id for request in requests] == [0, 1]
     assert [request.timestamp for request in requests] == [0.0, 5.0]
     assert [request.request_tokens for request in requests] == [10, 11]
+
+
+def test_trace_workload_cache_rebuilds_old_layout_pickles(monkeypatch):
+    """Old ``rwsim`` pickle caches are rebuilt under the new package layout."""
+    cached_requests = (
+        Request(id=11, timestamp=2000.0, request_tokens=30, response_tokens=40),
+        Request(id=12, timestamp=2007.0, request_tokens=31, response_tokens=41),
+    )
+    load_calls = 0
+    build_calls = []
+
+    def load_cached(dataset):
+        nonlocal load_calls
+        load_calls += 1
+        if load_calls == 1:
+            raise ModuleNotFoundError("No module named 'rwsim.schemas'", name="rwsim.schemas")
+        return cached_requests
+
+    def build_cache(dataset, *, force):
+        build_calls.append((dataset, force))
+
+    monkeypatch.setattr(common, "_TRACE_CACHE_WORKLOADS", ("cached_unit",))
+    monkeypatch.setattr("experiments.simulation.dataset_cache.load_cached", load_cached)
+    monkeypatch.setattr("experiments.simulation.dataset_cache.build_cache", build_cache)
+    common._load_cached_trace_workload.cache_clear()
+
+    requests = common.load_workload(dataset="cached_unit")
+
+    assert build_calls == [("cached_unit", True)]
+    assert load_calls == 2
+    assert [request.id for request in requests] == [0, 1]
+    assert [request.timestamp for request in requests] == [0.0, 7.0]
+    assert [request.request_tokens for request in requests] == [30, 31]
