@@ -30,7 +30,8 @@ uv run python scripts/run_profile_window_ablation.py --jobs 8
 ```
 
 Outputs land in `outputs/ablations/profile_window/`: `summary.csv` (enriched
-with `window_min`, `shift_period_min`, `profile_fallback_rate`),
+with `window_min`, `shift_period_min`, `profile_mean_fallback_rate`, and
+`profile_cdf_fallback_rate`),
 `profile_window_delta_summary.csv` (regret vs the same-environment oracle),
 and `figures/`.
 
@@ -38,8 +39,9 @@ and `figures/`.
 
 - `ObservedRollingLatencyProfileStrategy` falls back to the provider's true
   mean when a window is empty — an oracle leak that flatters very small
-  windows on sparse trace stretches. `profile_fallback_rate` in the summary
-  quantifies how often this fired; interpret small-W cells against it.
+  windows on sparse trace stretches. `profile_mean_fallback_rate` and
+  `profile_cdf_fallback_rate` in the summary quantify how often LP mean and
+  hedging CDF queries fell back; interpret small-W cells against them.
 - LP-only at alpha=0 keeps only min-effective-cost providers feasible, so
   latency estimates matter mainly for tie-breaks between the subscription
   providers; the hedging family exercises the profile (mean + CDF) much more.

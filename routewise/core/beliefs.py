@@ -55,10 +55,12 @@ class LatencyBeliefs:
     error_penalty_ms: float = DEFAULT_ERROR_PENALTY_MS
     unprofiled_penalty_ms: float = DEFAULT_UNPROFILED_PENALTY_MS
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict)
-    # Oracle-fallback accounting for the mean queries issued by the LP body
-    # objective; experiment harnesses report this as ``profile_fallback_rate``.
+    # Oracle-fallback accounting. Mean queries drive the LP body objective;
+    # CDF queries drive hedging success probabilities.
     query_counts: dict[str, int] = field(default_factory=dict)
     fallback_counts: dict[str, int] = field(default_factory=dict)
+    cdf_query_counts: dict[str, int] = field(default_factory=dict)
+    cdf_fallback_counts: dict[str, int] = field(default_factory=dict)
 
     def ensure(self, provider_name: str) -> None:
         """Initialize the profile for ``provider_name`` if missing."""
@@ -111,9 +113,11 @@ class LatencyBeliefs:
             if prior is not None:
                 return prior
             return 0.0
+        self.cdf_query_counts[view.name] = self.cdf_query_counts.get(view.name, 0) + 1
         empirical = self.profile(view.name).cdf_counting_errors(value_ms, now)
         if empirical is not None:
             return empirical
+        self.cdf_fallback_counts[view.name] = self.cdf_fallback_counts.get(view.name, 0) + 1
         prior = view.prior_ttft_cdf(value_ms, now)
         if prior is not None:
             return prior
@@ -131,11 +135,26 @@ class LatencyBeliefs:
         return self.unprofiled_penalty_ms
 
     def fallback_rate(self) -> float:
+        """Deprecated alias for :meth:`mean_fallback_rate`."""
+        return self.mean_fallback_rate()
+
+    def mean_fallback_rate(self) -> float:
         """Fraction of mean queries that fell back past the rolling window."""
-        total_queries = sum(self.query_counts.values())
-        if total_queries == 0:
-            return 0.0
-        return sum(self.fallback_counts.values()) / total_queries
+        return _fallback_rate(self.query_counts, self.fallback_counts)
+
+    def cdf_fallback_rate(self) -> float:
+        """Fraction of CDF queries that fell back past the rolling window."""
+        return _fallback_rate(self.cdf_query_counts, self.cdf_fallback_counts)
+
+
+def _fallback_rate(
+    query_counts: dict[str, int],
+    fallback_counts: dict[str, int],
+) -> float:
+    total_queries = sum(query_counts.values())
+    if total_queries == 0:
+        return 0.0
+    return sum(fallback_counts.values()) / total_queries
 
 
 __all__ = [

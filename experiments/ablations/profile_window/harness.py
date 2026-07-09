@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,8 @@ _MAG_MARKER = "__mag="
 
 def shift_artifact_label(period_min: float, magnitude: float) -> str:
     """Return the stable artifact label for one environment cell."""
+    if period_min < 0.0:
+        raise ValueError(f"period_min must be >= 0, got {period_min}")
     period_token = (
         STATIC_PERIOD_TOKEN if period_min <= 0.0 else f"{format_minutes(period_min)}m"
     )
@@ -167,6 +170,8 @@ def make_scenarios(
     """Build all environment scenarios keyed by artifact label."""
     if magnitude <= 1.0:
         raise ValueError(f"magnitude must be > 1 to degrade latency, got {magnitude}")
+    if any(period_min < 0.0 for period_min in period_minutes):
+        raise ValueError(f"period sweep values must be >= 0, got {period_minutes}")
     if len(set(period_minutes)) != len(period_minutes):
         raise ValueError(f"period sweep values must be unique, got {period_minutes}")
     scenarios: dict[str, ScenarioConfig] = {}
@@ -197,7 +202,13 @@ def run_profile_window_policy(
     run = simulator.run(requests, policy, policy_name=policy_name)
     router = getattr(policy, "router", None)
     if router is not None and router.beliefs.mode == "observed":
-        run.extra_metrics = {"profile_fallback_rate": router.beliefs.fallback_rate()}
+        mean_fallback_rate = router.beliefs.mean_fallback_rate()
+        run.extra_metrics = {
+            # Backwards-compatible alias; profile-window plots use the explicit names.
+            "profile_fallback_rate": mean_fallback_rate,
+            "profile_mean_fallback_rate": mean_fallback_rate,
+            "profile_cdf_fallback_rate": router.beliefs.cdf_fallback_rate(),
+        }
     return run
 
 
@@ -208,6 +219,8 @@ def run_profile_window_cell(
     duration_sec: float | None,
     max_requests: int | None,
     retain_records: bool,
+    *,
+    slo_ms: float = end_to_end.DEFAULT_SLO_MS,
 ) -> common.SectionCellResult:
     """Run one scenario-policy-seed cell in a worker process."""
     requests = common.load_workload(
@@ -215,7 +228,7 @@ def run_profile_window_cell(
         duration_sec=duration_sec,
         max_requests=max_requests,
     )
-    scenario = make_scenario(cell.scenario_name, requests=requests)
+    scenario = make_scenario(cell.scenario_name, requests=requests, slo_ms=slo_ms)
     run = run_profile_window_policy(
         scenario,
         requests,
@@ -387,6 +400,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"window sweep values must be unique, got {window_minutes}")
     if any(value <= 0 for value in window_minutes):
         raise SystemExit(f"window minutes must be > 0, got {window_minutes}")
+    if any(value < 0 for value in period_minutes):
+        raise SystemExit(f"period minutes must be >= 0, got {period_minutes}")
 
     requests = common.load_workload(
         dataset=args.workload,
@@ -416,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         section_runners={
             policy: _make_serial_runner(policy, presets) for policy in policies
         },
-        parallel_cell_runner=run_profile_window_cell,
+        parallel_cell_runner=partial(run_profile_window_cell, slo_ms=args.slo_ms),
         workload_dataset=args.workload,
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,

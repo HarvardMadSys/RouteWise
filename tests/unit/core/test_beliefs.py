@@ -43,6 +43,7 @@ def test_observed_mean_uses_window_samples() -> None:
     beliefs.observe("p", 10.0, 300.0)
     view = FakeView("p", prior_mean=999.0)
     assert beliefs.mean_ms(view, 20.0) == pytest.approx(200.0)
+    assert beliefs.mean_fallback_rate() == 0.0
     assert beliefs.fallback_rate() == 0.0
 
 
@@ -53,6 +54,7 @@ def test_observed_mean_falls_back_to_prior_then_penalty() -> None:
     assert beliefs.mean_ms(with_prior, 0.0) == pytest.approx(42.0)
     assert beliefs.mean_ms(without_prior, 0.0) == pytest.approx(1e9)
     # Both queries fell back past the rolling window.
+    assert beliefs.mean_fallback_rate() == 1.0
     assert beliefs.fallback_rate() == 1.0
 
 
@@ -74,6 +76,8 @@ def test_observed_cdf_counts_errors_as_misses_and_prior_fallback() -> None:
     assert beliefs.cdf(cold, 200.0, 10.0) == pytest.approx(0.7)
     no_prior = FakeView("none")
     assert beliefs.cdf(no_prior, 200.0, 10.0) == 0.0
+    assert beliefs.cdf_fallback_rate() == pytest.approx(2.0 / 3.0)
+    assert beliefs.mean_fallback_rate() == 0.0
 
 
 def test_prior_only_mode_ignores_observations() -> None:
@@ -85,6 +89,8 @@ def test_prior_only_mode_ignores_observations() -> None:
     assert beliefs.mean_ms(view, 10.0) == pytest.approx(42.0)
     assert beliefs.cdf(view, 100.0, 10.0) == pytest.approx(0.9)
     # prior_only queries are oracle reads, not profile queries.
+    assert beliefs.mean_fallback_rate() == 0.0
+    assert beliefs.cdf_fallback_rate() == 0.0
     assert beliefs.fallback_rate() == 0.0
 
 
@@ -95,6 +101,7 @@ def test_fallback_rate_mixed_queries() -> None:
     cold = FakeView("cold", prior_mean=10.0)
     beliefs.mean_ms(warm, 10.0)
     beliefs.mean_ms(cold, 10.0)
+    assert beliefs.mean_fallback_rate() == pytest.approx(0.5)
     assert beliefs.fallback_rate() == pytest.approx(0.5)
 
 

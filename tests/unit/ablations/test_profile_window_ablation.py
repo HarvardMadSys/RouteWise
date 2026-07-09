@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from experiments.ablations.profile_window import harness
 from experiments.ablations.profile_window.harness import (
     apply_square_wave,
     build_square_wave_schedule,
@@ -155,6 +156,12 @@ class TestLabels:
     def test_static_label(self) -> None:
         assert shift_artifact_label(0.0, 3.0) == "rw8_shift__period=static__mag=3"
 
+    def test_negative_periods_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="period_min"):
+            shift_artifact_label(-5.0, 3.0)
+        with pytest.raises(ValueError, match="period sweep values"):
+            harness.make_scenarios(period_minutes=(-5.0,), requests=[])
+
     def test_policy_name_round_trip(self) -> None:
         for family, alpha, window in (
             ("lp", 0.0, 15.0),
@@ -196,6 +203,52 @@ class TestPresets:
             include_oracle=False,
         )
         assert not any(name.endswith("_oracle") for name in presets)
+
+
+class TestHarnessWorkers:
+    def test_parallel_cell_forwards_slo_ms(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            harness.common,
+            "load_workload",
+            lambda **kwargs: ["request"],
+        )
+
+        def fake_make_scenario(
+            name: str,
+            *,
+            requests: list[object],
+            slo_ms: float = harness.end_to_end.DEFAULT_SLO_MS,
+        ) -> object:
+            captured["name"] = name
+            captured["requests"] = requests
+            captured["slo_ms"] = slo_ms
+            return object()
+
+        monkeypatch.setattr(harness, "make_scenario", fake_make_scenario)
+        monkeypatch.setattr(
+            harness,
+            "run_profile_window_policy",
+            lambda *args, **kwargs: "run",
+        )
+
+        result = harness.run_profile_window_cell(
+            harness.common.SectionCell("scenario", "policy", 7),
+            {},
+            "burstgpt",
+            None,
+            5,
+            False,
+            slo_ms=123.0,
+        )
+
+        assert captured == {
+            "name": "scenario",
+            "requests": ["request"],
+            "slo_ms": 123.0,
+        }
+        assert result.run == "run"
 
 
 class TestRollingProfileBackwardsQueries:

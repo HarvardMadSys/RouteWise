@@ -31,7 +31,18 @@ METRIC_PANELS = (
     ("p99_ms", "P99 TTFT (ms)", "profile_window_p99_lines", True),
     ("slo_violation_rate", "SLO violation rate", "profile_window_slo_lines", True),
     ("total_cost_usd", "Total cost (USD)", "profile_window_cost_lines", True),
-    ("profile_fallback_rate", "Profile fallback rate", "profile_window_fallback_lines", False),
+    (
+        "profile_mean_fallback_rate",
+        "Mean fallback rate",
+        "profile_window_mean_fallback_lines",
+        False,
+    ),
+    (
+        "profile_cdf_fallback_rate",
+        "CDF fallback rate",
+        "profile_window_cdf_fallback_lines",
+        False,
+    ),
 )
 
 
@@ -117,6 +128,11 @@ def _load_rows(summary_path: Path) -> list[dict[str, Any]]:
                     "mean_total_cost_usd": _float(raw.get("mean_total_cost_usd")),
                     "total_cost_usd": _float(raw.get("total_cost_usd")),
                     "profile_fallback_rate": _float(raw.get("profile_fallback_rate")),
+                    "profile_mean_fallback_rate": _float(
+                        raw.get("profile_mean_fallback_rate")
+                        or raw.get("profile_fallback_rate")
+                    ),
+                    "profile_cdf_fallback_rate": _float(raw.get("profile_cdf_fallback_rate")),
                 }
             )
     if not rows:
