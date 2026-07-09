@@ -7,29 +7,29 @@ policy refactor and the sim/real router unification.
 
 The simulator has three runtime layers:
 
-1. **World** (`rwsim/world/`): provider metadata, latency distributions, quota
+1. **World** (`routewise/sim/world/`): provider metadata, latency distributions, quota
    state, and concurrency state.
-2. **Engine** (`rwsim/engine/`): request loop, admission/accounting, primary
+2. **Engine** (`routewise/sim/engine/`): request loop, admission/accounting, primary
    and backup execution, and in-flight policy callbacks.
-3. **Policy** (`rwsim/policies/`): routing decisions and policy-owned learning
+3. **Policy** (`routewise/sim/policies/`): routing decisions and policy-owned learning
    state.
 
-Metrics are output types, not execution logic, and live under `rwsim/metrics/`.
+Metrics are output types, not execution logic, and live under `routewise/metrics/`.
 
 ## One Algorithm, Two Worlds
 
-The RouteWise algorithm is implemented once, in `rwsim/core/router.py`
+The RouteWise algorithm is implemented once, in `routewise/core/router.py`
 (`RouteWiseRouter`), against the `ProviderView` protocol
-(`rwsim/core/provider_view.py`): a read-only, request-bound snapshot exposing
+(`routewise/core/provider_view.py`): a read-only, request-bound snapshot exposing
 only the signals the algorithm consumes (tier, availability, quota fraction,
 route/hedge marginal cost, prior latency beliefs). Rolling-profile learning
-plus prior/penalty fallbacks live in `rwsim/core/beliefs.py`
+plus prior/penalty fallbacks live in `routewise/core/beliefs.py`
 (`LatencyBeliefs`). All of it is stdlib-only and exported through
 `routewise.core`.
 
 Each environment supplies a thin adapter:
 
-- **Simulator** (`rwsim/policies/routewise.py`): `_SimProviderView` binds
+- **Simulator** (`routewise/sim/policies/routewise.py`): `_SimProviderView` binds
   `(Provider, Request, SimulationState)`; priors are the provider's true
   distribution (oracle fallback / `configured` mode); sampling uses the
   policy's persistent seeded numpy RNG.
@@ -50,38 +50,46 @@ intended divergences.
 ## Target Tree
 
 ```text
-rwsim/
-  schemas.py
-  scenarios.py
-  runner.py
-  data/
-    loader.py
-  engine/
-    simulator.py
-    state.py
+routewise/
+  capacity.py          # quota/concurrency primitives shared by sim + real
+  schemas.py           # Request / RoutingOutcome / scenario config contracts
+  const.py             # protocol constants (SLO, hedge schedule fractions)
+  core/                # the RouteWise algorithm (stdlib-only)
+    router.py
+    provider_view.py
+    beliefs.py
+    lp.py  hedging.py  cost.py  pricing.py  latency_profile.py  types.py
   metrics/
     run.py
-  policies/
-    base.py
-    baselines.py
-    routewise.py
-    __init__.py
-  world/
-    capacity.py
-    distributions.py
-    empirical.py
-    providers.py
+  offline/             # offline-stage primitives
+  sim/                 # the simulated world
     scenarios.py
+    runner.py
+    data/
+      loader.py
+    engine/
+      simulator.py
+      state.py
+    policies/
+      base.py
+      baselines.py
+      routewise.py
+      __init__.py
+    world/
+      distributions.py
+      empirical.py
+      providers.py
+      scenarios.py
 ```
 
 The following old implementation surfaces are intentionally absent:
 
-- `rwsim/strategies/`
-- `rwsim/policies/composer.py`
-- `rwsim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/`
-- `rwsim/world/shadow_price.py`
-- `rwsim/world/workload.py`
-- `rwsim/registry.py`
+- `routewise/sim/strategies/`
+- `routewise/sim/policies/composer.py`
+- `routewise/sim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/`
+- `routewise/sim/world/shadow_price.py`
+- `routewise/sim/world/workload.py`
+- `routewise/sim/registry.py`
 
 ## Policy Contract
 
@@ -114,8 +122,8 @@ checkpoints as queue depth, capacity, and observed profiles change.
 
 Policy-specific quantities stay inside the policy implementation. The
 RouteWise algorithm state (latency beliefs, LP weights, hedge decisions) lives
-in the policy-owned `RouteWiseRouter` (`rwsim/core/router.py`); the
-environment binding lives in `rwsim/policies/routewise.py`.
+in the policy-owned `RouteWiseRouter` (`routewise/core/router.py`); the
+environment binding lives in `routewise/sim/policies/routewise.py`.
 
 ## Presets
 
@@ -128,20 +136,20 @@ The public simulator policy presets are:
 - `ablation_lp_hedging`
 - `routewise`
 
-`rwsim.policies.build_policy()` is the only preset builder. There is no runtime
+`routewise.sim.policies.build_policy()` is the only preset builder. There is no runtime
 compatibility layer for historical strategy names.
 
 ## Workloads
 
-Main simulator experiments are trace-driven. `rwsim/world/` does not generate
+Main simulator experiments are trace-driven. `routewise/sim/world/` does not generate
 request streams. Experiment runners load trace data through
-`experiments.simulation.common.load_workload()` and `rwsim/data/loader.py`.
+`experiments.simulation.common.load_workload()` and `routewise/sim/data/loader.py`.
 
 ## Offline Stage
 
 The older offline/stage experiment remains separate:
 
-- reusable offline primitives live under `rwsim/offline/`
+- reusable offline primitives live under `routewise/offline/`
 - offline experiment strategies live under `experiments/offline_stage/`
 - offline-only predictors live under `experiments/offline_stage/value_estimators/`
 

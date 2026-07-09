@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
-from rwsim.offline.schemas import ProviderConfig, ProviderType
+from routewise.offline.schemas import ProviderConfig, ProviderType
 
 logger = logging.getLogger(__name__)
 

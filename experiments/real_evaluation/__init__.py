@@ -5,7 +5,7 @@ transport-agnostic streaming chat-completion dispatch, hedged execution,
 adapter policies, and a trace-replay runner for evaluating routing
 strategies against live provider APIs.
 
-This package is the real-world counterpart to ``rwsim`` (the simulator).
+This package is the real-world counterpart to ``routewise.sim`` (the simulator).
 The two share algorithm shapes but not implementations: real-eval uses
 empirical rolling profiles where the simulator uses analytical
 distributions.

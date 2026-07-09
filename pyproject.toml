@@ -61,8 +61,6 @@ include = [
   "routewise_cli.*",
   "experiments",
   "experiments.*",
-  "rwsim",
-  "rwsim.*",
 ]
 
 [tool.setuptools.package-data]

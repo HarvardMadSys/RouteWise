@@ -24,7 +24,7 @@ from matplotlib.ticker import (
 
 from plots.helpers import save_figure
 from plots.style import apply_style
-from rwsim.metrics.histogram import TtftHistogram
+from routewise.metrics.histogram import TtftHistogram
 
 SCENARIOS = (
     "cost_layer_uniform",

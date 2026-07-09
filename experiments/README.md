@@ -24,6 +24,6 @@ Earlier latency-phase replay packages were retired; the current paper-facing
 simulator method lives under `simulation/`.
 
 `offline_stage/` owns the paper offline/stage configuration and config loader.
-The reusable offline simulator primitives live in `rwsim/offline/`; the
+The reusable offline simulator primitives live in `routewise/offline/`; the
 remaining stage strategy implementations are being migrated behind
 compatibility wrappers.

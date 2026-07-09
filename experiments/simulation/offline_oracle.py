@@ -68,13 +68,13 @@ from typing import TYPE_CHECKING
 
 import pulp
 
-from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
-from rwsim.world.capacity import ProviderTier
+from routewise.capacity import ProviderTier
+from routewise.metrics import PerRequestRecord, Run, RunAggregator, Status
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
-    from rwsim.world.providers import TieredProvider
-    from rwsim.world.scenarios import ScenarioConfig
+    from routewise.schemas import Request
+    from routewise.sim.world.providers import TieredProvider
+    from routewise.sim.world.scenarios import ScenarioConfig
 
 OFFLINE_POLICY = "offline"
 _DEFAULT_JOINT_EXACT_MAX_REQUESTS = 5_000

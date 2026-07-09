@@ -528,7 +528,7 @@ def _compare_capture_to_golden(
 ) -> list[str]:
     """Re-capture requested families and compare them to golden JSON."""
     diffs: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="rwsim-golden-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="routewise-golden-") as temp_dir:
         temp_root = Path(temp_dir)
         _capture_all(temp_root, families)
         for family in families:

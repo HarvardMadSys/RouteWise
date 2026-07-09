@@ -15,17 +15,17 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from rwsim.engine.simulator import Simulator
-from rwsim.policies.routewise import RouteWisePolicy
-from rwsim.schemas import Request
-from rwsim.world.capacity import (
+from routewise.capacity import (
     ConcurrencyState,
     ProviderTier,
     WeightedConcurrencyState,
 )
-from rwsim.world.distributions import Uniform
-from rwsim.world.providers import TieredProvider
-from rwsim.world.scenarios import ScenarioConfig
+from routewise.schemas import Request
+from routewise.sim.engine.simulator import Simulator
+from routewise.sim.policies.routewise import RouteWisePolicy
+from routewise.sim.world.distributions import Uniform
+from routewise.sim.world.providers import TieredProvider
+from routewise.sim.world.scenarios import ScenarioConfig
 
 
 def _trace(count: int, interval_sec: float = 0.1) -> list[Request]:

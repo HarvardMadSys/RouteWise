@@ -15,9 +15,9 @@ from experiments.ablations.effective_cost_calibration.envelope import (
     workload_cost_envelope,
 )
 from experiments.simulation.common import make_api_provider, make_quota_provider
+from routewise.schemas import Request
+from routewise.sim.world.scenarios import ScenarioConfig
 from routewise_cli.main import ABLATION_COMMANDS
-from rwsim.schemas import Request
-from rwsim.world.scenarios import ScenarioConfig
 
 
 def _requests() -> list[Request]:

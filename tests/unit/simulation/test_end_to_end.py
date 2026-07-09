@@ -8,9 +8,9 @@ import json
 import pytest
 
 from experiments.simulation import end_to_end
+from routewise.capacity import ProviderTier
+from routewise.const import DEFAULT_PRIMARY_SLO_MS
 from routewise_cli.main import main as routewise_main
-from rwsim.const import DEFAULT_PRIMARY_SLO_MS
-from rwsim.world.capacity import ProviderTier
 
 
 def test_end_to_end_scenarios_match_section_contract():

@@ -11,7 +11,7 @@ from experiments.offline_stage.value_estimators.base import (
 )
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
+    from routewise.schemas import Request
 
 
 class ScaledOutputPredictor(OutputTokenPredictor):

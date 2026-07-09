@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import routewise.core as public_core
-from rwsim import schemas
-from rwsim.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
-from rwsim.core.types import HedgeDispatch, RoutingDecision
+from routewise import schemas
+from routewise.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
+from routewise.core.types import HedgeDispatch, RoutingDecision
 
 
 def test_routewise_core_exports_decision_types() -> None:
@@ -40,7 +40,7 @@ def test_routewise_core_exports_checkpoint_backup_contracts() -> None:
     assert released is True
 
 
-def test_rwsim_schemas_reexports_public_decision_types() -> None:
+def test_schemas_reexports_public_decision_types() -> None:
     assert schemas.RoutingDecision is RoutingDecision
     assert schemas.HedgeDispatch is HedgeDispatch
 

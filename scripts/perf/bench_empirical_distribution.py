@@ -1,6 +1,6 @@
 """Microbenchmark for EmpiricalDistribution hot-path methods.
 
-Run manually after touching ``rwsim/world/empirical.py``:
+Run manually after touching ``routewise/sim/world/empirical.py``:
 
     python scripts/perf/bench_empirical_distribution.py
 
@@ -15,7 +15,7 @@ import time
 
 import numpy as np
 
-from rwsim.world.empirical import EmpiricalDistribution
+from routewise.sim.world.empirical import EmpiricalDistribution
 
 
 def _bench_call(label: str, fn, n: int) -> float:

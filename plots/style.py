@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 
-
 PAPER_STYLE = {
     # Font sizes optimized for ICML double-column (3.25in column width)
     "font.size": 14,

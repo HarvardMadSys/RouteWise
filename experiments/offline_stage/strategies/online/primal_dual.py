@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from experiments.offline_stage.strategies.online.base import OnlineStrategy
 from experiments.offline_stage.value_estimators import EMAOutputPredictor, OutputTokenPredictor
-from rwsim.offline.schemas import Request, RoutingDecision
+from routewise.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
 

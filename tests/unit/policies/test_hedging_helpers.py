@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import rwsim.core as core
-from rwsim.core.hedging import (
+import routewise.core as core
+from routewise.core.hedging import (
     BackupCandidate,
     combined_success_probability,
     has_feasible_backup,

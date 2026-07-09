@@ -11,10 +11,10 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from rwsim.world.distributions import LogNormal, Normal, Uniform
+from routewise.sim.world.distributions import LogNormal, Normal, Uniform
 
 if TYPE_CHECKING:
-    from rwsim.world.distributions import LatencyDistribution
+    from routewise.sim.world.distributions import LatencyDistribution
 
 LatencyAnchorKind = Literal["mean", "p50"]
 

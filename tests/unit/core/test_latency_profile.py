@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rwsim.core.latency_profile import RollingLatencyProfile
+from routewise.core.latency_profile import RollingLatencyProfile
 
 
 def _profile_with_samples(

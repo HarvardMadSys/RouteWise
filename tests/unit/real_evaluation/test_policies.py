@@ -29,7 +29,7 @@ from experiments.real_evaluation.shadow_price import (
     workload_cost_envelope,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from rwsim.core.lp import BudgetLPCandidate, solve_budget_lp
+from routewise.core.lp import BudgetLPCandidate, solve_budget_lp
 
 
 def _api_spec(

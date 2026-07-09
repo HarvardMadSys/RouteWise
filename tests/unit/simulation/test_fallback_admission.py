@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from rwsim.engine.simulator import Simulator, _fallback_admission
-from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
-from rwsim.world.capacity import ConcurrencyState, ProviderTier
-from rwsim.world.distributions import Uniform
-from rwsim.world.providers import TieredProvider
-from rwsim.world.scenarios import ScenarioConfig
+from routewise.capacity import ConcurrencyState, ProviderTier
+from routewise.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
+from routewise.sim.engine.simulator import Simulator, _fallback_admission
+from routewise.sim.world.distributions import Uniform
+from routewise.sim.world.providers import TieredProvider
+from routewise.sim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from rwsim.engine.state import SimulationState
+    from routewise.sim.engine.state import SimulationState
 
 
 @dataclass(frozen=True)

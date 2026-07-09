@@ -15,8 +15,8 @@ HEAVY_MODULES = ("numpy", "scipy", "pandas", "matplotlib")
 def test_routewise_core_import_does_not_load_heavy_runtime_dependencies() -> None:
     """Lock the public core import chain to stdlib-only modules.
 
-    This catches accidental eager imports through ``routewise``, ``rwsim``,
-    ``rwsim.const``, or ``rwsim.core``.
+    This catches accidental eager imports through ``routewise``,
+    ``routewise.const``, or ``routewise.core``.
     """
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH")
@@ -47,5 +47,5 @@ print(json.dumps(payload, sort_keys=True))
     )
     payload = json.loads(result.stdout)
 
-    assert payload["solver_module"] == "rwsim.core.lp"
+    assert payload["solver_module"] == "routewise.core.lp"
     assert payload["heavy"] == dict.fromkeys(HEAVY_MODULES, False)

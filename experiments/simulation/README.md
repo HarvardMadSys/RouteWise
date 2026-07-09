@@ -5,7 +5,7 @@ Python module and exposed through `routewise simulator <section>`.
 
 ## Common Setup
 
-Latency families come from `rwsim/world/distributions.py` plus empirical
+Latency families come from `routewise/sim/world/distributions.py` plus empirical
 latency profiles in [`latency_profiles/`](latency_profiles/):
 
 - `uniform`: bounded, no tail.
