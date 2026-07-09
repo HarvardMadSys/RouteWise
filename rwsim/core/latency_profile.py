@@ -42,8 +42,11 @@ class RollingLatencyProfile:
 
     Success samples are retained for two windows behind the oldest live query
     clock (or behind the newest sample until a first query advances a clock),
-    so memory stays bounded on long-lived feeds. That horizon covers every
-    exact query path above; the defensive full scan sees only what remains.
+    so memory stays bounded on long-lived feeds. A clock stalled more than
+    two windows behind the freshest activity stops pinning retention, capping
+    the horizon at four windows; backwards queries around such a stalled
+    clock degrade to the defensive scan rather than answering from pruned
+    stripes. Every other exact query path is covered by the horizon.
     """
 
     window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
@@ -332,12 +335,15 @@ class RollingLatencyProfile:
         ``[now - W, now]``, i.e. the persistent set minus the stripe
         ``(now, clock]`` plus the expired stripe ``[now - W, clock - W)``.
         Returns ``None`` when the query is further than one window behind the
-        clock; the caller must then use the defensive full scan. Queries
-        within that range are always covered by the pruned index, which
-        retains two windows behind the oldest live clock.
+        clock, or when the restore stripe would reach below the retention
+        cutoff (a stalled clock whose surroundings were pruned); the caller
+        must then use the defensive full scan. Fresh clocks are always fully
+        covered by the pruned index.
         """
         window_start = now - self.window_sec
         if now < clock - self.window_sec:
+            return None
+        if window_start < self._retention_cutoff():
             return None
         drop_lo = bisect_right(self._samples_by_ts, now, key=_entry_ts)
         drop_hi = bisect_right(self._samples_by_ts, clock, key=_entry_ts)
@@ -353,22 +359,32 @@ class RollingLatencyProfile:
 
         Two windows behind the oldest live query clock: the stripe machinery
         reaches one window behind each clock, and its restore stripe reaches
-        one further. Before any clock advances, the anchor is the newest
-        sample instead, which covers any first query issued within one window
-        of the freshest observation (production queries always are).
+        one further. A clock more than two windows behind the freshest
+        activity is treated as exactly that far behind — a stalled clock
+        (e.g. cdf touched once by an early hedge checkpoint, then never
+        again) must not pin retention forever, so the cutoff never trails
+        the freshest activity by more than four windows. Before any clock
+        advances, the anchor is the newest sample instead, which covers any
+        first query issued within one window of the freshest observation
+        (production queries always are). Monotone nondecreasing, so the
+        current value is also the historical high-water mark of pruning.
         """
         clocks = [
             clock
             for clock in (self._mean_clock_sec, self._cdf_clock_sec)
             if clock > float("-inf")
         ]
-        if clocks:
-            anchor = min(clocks)
-        elif self._samples_by_ts:
-            anchor = self._samples_by_ts[-1][0]
-        else:
+        anchor = max(clocks, default=float("-inf"))
+        if self._samples_by_ts:
+            anchor = max(anchor, self._samples_by_ts[-1][0])
+        if anchor == float("-inf"):
             return float("-inf")
-        return anchor - 2.0 * self.window_sec
+        if clocks:
+            stale_floor = anchor - 2.0 * self.window_sec
+            base = min(max(clock, stale_floor) for clock in clocks)
+        else:
+            base = anchor
+        return base - 2.0 * self.window_sec
 
     def _prune_retained_samples(self) -> None:
         cutoff = self._retention_cutoff()
@@ -378,10 +394,13 @@ class RollingLatencyProfile:
         # the entries in front of them expire, which only retains extra.
         while self.samples and self.samples[0][0] < cutoff:
             self.samples.popleft()
-        # Only populated beyond one window while no mean query has ever run;
-        # once the clock is live the heap holds future-dated samples only.
+        # The pending heaps hold future-dated samples only while their clock
+        # is fresh; behind a never-advanced or stalled clock they accumulate
+        # everything, so drain them to the same horizon.
         while self._mean_pending and self._mean_pending[0][0] < cutoff:
             heapq.heappop(self._mean_pending)
+        while self._cdf_pending and self._cdf_pending[0][0] < cutoff:
+            heapq.heappop(self._cdf_pending)
         if len(self._samples_by_ts) < _PRUNE_BATCH or self._samples_by_ts[0][0] >= cutoff:
             return
         keep_from = bisect_left(self._samples_by_ts, cutoff, key=_entry_ts)

@@ -152,6 +152,49 @@ def test_long_feed_memory_bounded_before_any_query() -> None:
     assert profile.count(5000.0) == 100
 
 
+def test_stale_cdf_clock_does_not_pin_retention() -> None:
+    """One early cdf query, then a mean-only feed (hedge-policy pattern).
+
+    A cdf clock initialized once and never advanced again must not pin the
+    retention cutoff at its own stale position, and the cdf pending heap —
+    which only drains on cdf queries — must be pruned like the rest.
+    """
+    profile = RollingLatencyProfile(window_sec=100.0)
+    profile.add_sample(0.0, 50.0)
+    profile.cdf(60.0, 0.0)
+    for i in range(1, 5000):
+        profile.add_sample(float(i), 50.0)
+        if i % 10 == 0:
+            profile.mean(float(i))
+    # Stale-clamped horizon: four windows behind the freshest activity.
+    stale_unbatched = 2 * _UNBATCHED_BOUND
+    assert len(profile.samples) <= stale_unbatched
+    assert len(profile._cdf_pending) <= stale_unbatched
+    assert len(profile._mean_pending) <= stale_unbatched
+    assert len(profile._samples_by_ts) <= stale_unbatched + 1024
+    # A cdf query finally arriving near the present is exact: the pruned
+    # pending entries would all have expired from its window anyway.
+    assert profile.cdf(60.0, 5000.0) == pytest.approx(1.0)
+    assert profile.cdf(40.0, 5000.0) == pytest.approx(0.0)
+
+
+def test_backwards_query_around_stalled_clock_degrades_to_none() -> None:
+    """Stripes reaching below the retention cutoff must not silently answer."""
+    profile = RollingLatencyProfile(window_sec=100.0)
+    for i in range(300):
+        profile.add_sample(float(i), 50.0)
+    profile.cdf(60.0, 200.0)
+    for i in range(300, 5000):
+        profile.add_sample(float(i), 50.0)
+        profile.mean(float(i))
+    # The stalled cdf clock's backwards envelope reaches pruned data: fall
+    # back to the defensive scan (empty here), never a stripe answer missing
+    # its restore samples.
+    assert profile.cdf(60.0, 150.0) is None
+    # The live mean clock keeps its full backwards envelope.
+    assert profile.mean(4920.0) == pytest.approx(50.0)
+
+
 def test_backwards_queries_stay_exact_after_long_feed_pruning() -> None:
     fed = [(float(i), float(i % 7)) for i in range(3000)]
     profile = RollingLatencyProfile(window_sec=100.0)
