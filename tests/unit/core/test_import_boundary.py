@@ -12,11 +12,12 @@ ROOT = Path(__file__).resolve().parents[3]
 HEAVY_MODULES = ("numpy", "scipy", "pandas", "matplotlib")
 
 
-def test_routewise_core_import_does_not_load_heavy_runtime_dependencies() -> None:
-    """Lock the public core import chain to stdlib-only modules.
+def test_lightweight_routewise_imports_do_not_load_heavy_runtime_dependencies() -> None:
+    """Lock public shared import chains to stdlib-only modules.
 
-    This catches accidental eager imports through ``routewise``, ``rwsim``,
-    ``rwsim.const``, or ``rwsim.core``.
+    This catches accidental eager imports through ``routewise``,
+    ``routewise.const``, ``routewise.capacity``, ``routewise.schemas``, or
+    ``routewise.core``.
     """
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH")
@@ -29,10 +30,18 @@ def test_routewise_core_import_does_not_load_heavy_runtime_dependencies() -> Non
 import json
 import sys
 
+import routewise
+import routewise.capacity as capacity
+import routewise.const as const
 import routewise.core as core
+import routewise.schemas as schemas
 
 payload = {
     "heavy": {name: name in sys.modules for name in ("numpy", "scipy", "pandas", "matplotlib")},
+    "capacity_tier_module": capacity.ProviderTier.__module__,
+    "const_module": const.DEFAULT_PRIMARY_SLO_MS.__class__.__module__,
+    "request_module": schemas.Request.__module__,
+    "routewise_all": routewise.__all__,
     "solver_module": core.solve_budget_lp.__module__,
 }
 print(json.dumps(payload, sort_keys=True))
@@ -47,5 +56,7 @@ print(json.dumps(payload, sort_keys=True))
     )
     payload = json.loads(result.stdout)
 
-    assert payload["solver_module"] == "rwsim.core.lp"
+    assert payload["capacity_tier_module"] == "routewise.capacity"
+    assert payload["request_module"] == "routewise.schemas"
+    assert payload["solver_module"] == "routewise.core.lp"
     assert payload["heavy"] == dict.fromkeys(HEAVY_MODULES, False)

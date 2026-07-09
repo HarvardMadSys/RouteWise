@@ -2,8 +2,9 @@
 
 RouteWise core routing algorithms plus the trace-driven simulator and
 experiment harnesses used to evaluate multi-provider LLM routing policies.
-The lightweight public API is available from `routewise.core`; simulator and
-experiment harnesses live under `rwsim` and `experiments`.
+The lightweight public API is available from `routewise.core`; the simulator
+lives under `routewise.sim` and the experiment harnesses (including the live
+real-evaluation runner) under `experiments`.
 
 This repository is organized so the pure routing algorithms can be reused
 without pulling in simulator, plotting, or live-provider dependencies. Paper
@@ -54,6 +55,11 @@ python3 scripts/prepare_workload.py --days 30
 python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
+After the package rename, simulator trace caches pickled under the old
+`rwsim.*` layout are rebuilt automatically on first use. If you later check out
+a pre-rename commit, delete the generated `data/*.simcache.pkl` files before
+running simulator jobs from that older code.
+
 The real-evaluation harness (the path that issues live provider requests)
 additionally needs credentials. Copy the template and fill in only the
 providers you use:
@@ -103,10 +109,10 @@ from routewise.core import (
 Simulator API:
 
 ```python
-from rwsim import POLICIES, run_policy
-from rwsim.metrics import PerRequestRecord, Run
-from rwsim.policies import build_policy
-from rwsim.world import Provider, ScenarioConfig
+from routewise.sim import POLICIES, run_policy
+from routewise.metrics import PerRequestRecord, Run
+from routewise.sim.policies import build_policy
+from routewise.sim.world import Provider, ScenarioConfig
 ```
 
 Available policy presets: `greedy_cost`, `greedy_latency`, `random`,
@@ -117,12 +123,14 @@ harness only.
 
 ## Repository layout
 
-- `rwsim/engine/`: request loop, capacity accounting, in-flight hedge ticks
-- `rwsim/world/`: providers, quota and concurrency state, latency distributions
-- `rwsim/data/`: trace workload loaders
-- `rwsim/policies/`: policy presets and implementations
-- `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
-- `experiments/`: paper configs, section runners, ablations, and offline-stage workflows
+- `routewise/core/`: the RouteWise algorithm (stdlib-only; shared by sim and live)
+- `routewise/capacity.py`, `routewise/schemas.py`, `routewise/const.py`: contracts shared by both worlds
+- `routewise/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
+- `routewise/sim/engine/`: request loop, capacity accounting, in-flight hedge ticks
+- `routewise/sim/world/`: providers, latency distributions, drift schedules
+- `routewise/sim/data/`: trace workload loaders
+- `routewise/sim/policies/`: policy presets and implementations
+- `experiments/`: paper configs, section runners, ablations, offline-stage, and the live real-evaluation harness
 - `routewise_cli/`: command-line entry point
 - `scripts/`: data preparation and profiling utilities
 

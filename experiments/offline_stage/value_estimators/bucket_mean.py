@@ -9,7 +9,7 @@ from experiments.offline_stage.value_estimators.base import (
     PointPrediction,
     PredictionContext,
 )
-from rwsim.schemas import Request
+from routewise.schemas import Request
 
 
 @dataclass

@@ -6,7 +6,7 @@ Defines the static specs (read from inventory JSON) and the dynamic state
 Migrated from
 ``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
 lines 97-298. Real experiments share quota capacity primitives with
-``rwsim.world`` while keeping empirical rolling profiles and live-run
+``routewise.sim.world`` while keeping empirical rolling profiles and live-run
 concurrency state local to this package.
 """
 
@@ -24,10 +24,10 @@ from experiments.real_evaluation.transports import (
     resolve_transport_config,
 )
 from experiments.subscriptions import load_subscription_plans, subscription_fixed_cost_usd
-from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC, RollingLatencyProfile
-from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
+from routewise.capacity import MultiWindowQuotaState, QuotaState
+from routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC, RollingLatencyProfile
 
-# Shared with the simulator policies; see rwsim.core.latency_profile.
+# Shared with the simulator policies; see routewise.core.latency_profile.
 PROFILE_WINDOW_SEC: float = DEFAULT_PROFILE_WINDOW_SEC
 
 

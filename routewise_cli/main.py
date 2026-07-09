@@ -1,7 +1,7 @@
 """RouteWise command-line interface.
 
-This package is intentionally outside :mod:`rwsim`: the CLI is an application
-layer that may import both `experiments` and `rwsim`, while the simulator core
+This package is intentionally outside :mod:`routewise.sim`: the CLI is an application
+layer that may import both `experiments` and `routewise.sim`, while the simulator core
 must not depend on experiment recipes.
 """
 

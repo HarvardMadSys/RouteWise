@@ -4,8 +4,8 @@ This is a simple online baseline that uses subscription quota first,
 then falls back to API when quota is exhausted.
 """
 
-from rwsim.offline.schemas import Request, RoutingDecision
-from rwsim.offline.strategy import RoutingStrategy
+from routewise.offline.schemas import Request, RoutingDecision
+from routewise.offline.strategy import RoutingStrategy
 
 
 class GreedyStrategy(RoutingStrategy):

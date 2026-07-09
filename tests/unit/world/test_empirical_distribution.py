@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import yaml
 
-from rwsim.world.empirical import EmpiricalDistribution
+from routewise.sim.world.empirical import EmpiricalDistribution
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILE_DIR = REPO_ROOT / "experiments" / "simulation" / "latency_profiles"

@@ -16,12 +16,12 @@ from experiments.ablations.hedging.presets import (
     production_baseline_policy_name,
 )
 from experiments.simulation import common, hedging as hedging_section
-from rwsim.engine.simulator import Simulator
+from routewise.sim.engine.simulator import Simulator
 
 if TYPE_CHECKING:
-    from rwsim.metrics import Run
-    from rwsim.schemas import Request
-    from rwsim.world.scenarios import ScenarioConfig
+    from routewise.metrics import Run
+    from routewise.schemas import Request
+    from routewise.sim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "hedging-ablation"
 DEFAULT_OUTPUT_DIR = common.OUTPUT_DIR.parent / "ablations" / "hedging"

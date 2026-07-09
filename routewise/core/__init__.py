@@ -1,6 +1,105 @@
-"""Public lightweight RouteWise core API."""
+"""Public RouteWise core APIs.
 
-from __future__ import annotations
+This package is intentionally limited to pure algorithm helpers and shared
+data contracts. Simulator, real-eval, and production harnesses own mutable
+state and side effects.
+"""
 
-from rwsim.core import *  # noqa: F403
-from rwsim.core import __all__ as __all__
+from routewise.core.beliefs import (
+    DEFAULT_ERROR_PENALTY_MS,
+    DEFAULT_UNPROFILED_PENALTY_MS,
+    BeliefMode,
+    LatencyBeliefs,
+)
+from routewise.core.cost import (
+    ROUTEWISE_CONCURRENCY_CURVE,
+    ROUTEWISE_QUOTA_CURVE,
+    SCARCITY_CURVES,
+    EffectiveCostTier,
+    ScarcityCurve,
+    concurrency_effective_cost,
+    effective_cost,
+    quota_effective_cost,
+    scarcity_price,
+)
+from routewise.core.hedging import (
+    DISPATCH_OVERHEAD_MS,
+    HEDGE_SUCCESS_TARGET,
+    BackupCandidate,
+    CheckpointBackupDispatch,
+    CheckpointBackupSelector,
+    combined_success_probability,
+    has_feasible_backup,
+    hedge_checkpoints_for_slo,
+    select_probability_backup,
+)
+from routewise.core.latency_profile import (
+    DEFAULT_PROFILE_WINDOW_SEC,
+    RollingLatencyProfile,
+)
+from routewise.core.lp import (
+    LP_EPS,
+    BudgetLPCandidate,
+    BudgetLPResult,
+    cost_tiebroken_objective,
+    solve_budget_lp,
+)
+from routewise.core.pricing import (
+    cache_discounted_cost_per_million_usd,
+    cache_discounted_token_cost_usd,
+    capped_cached_input_tokens,
+)
+from routewise.core.provider_view import ProviderView
+from routewise.core.router import (
+    CheckpointResult,
+    LPStatus,
+    RouteResult,
+    RouteWiseRouter,
+    argmax_weight_sampler,
+    latest_safe_dispatch_gate,
+)
+from routewise.core.types import HedgeDispatch, RoutingDecision
+
+__all__ = [
+    "DEFAULT_ERROR_PENALTY_MS",
+    "DEFAULT_PROFILE_WINDOW_SEC",
+    "DEFAULT_UNPROFILED_PENALTY_MS",
+    "DISPATCH_OVERHEAD_MS",
+    "HEDGE_SUCCESS_TARGET",
+    "LP_EPS",
+    "ROUTEWISE_CONCURRENCY_CURVE",
+    "ROUTEWISE_QUOTA_CURVE",
+    "SCARCITY_CURVES",
+    "BackupCandidate",
+    "BeliefMode",
+    "BudgetLPCandidate",
+    "BudgetLPResult",
+    "CheckpointBackupDispatch",
+    "CheckpointBackupSelector",
+    "CheckpointResult",
+    "EffectiveCostTier",
+    "HedgeDispatch",
+    "LPStatus",
+    "LatencyBeliefs",
+    "ProviderView",
+    "RollingLatencyProfile",
+    "RouteResult",
+    "RouteWiseRouter",
+    "RoutingDecision",
+    "ScarcityCurve",
+    "argmax_weight_sampler",
+    "cache_discounted_cost_per_million_usd",
+    "cache_discounted_token_cost_usd",
+    "capped_cached_input_tokens",
+    "combined_success_probability",
+    "concurrency_effective_cost",
+    "cost_tiebroken_objective",
+    "effective_cost",
+    "has_feasible_backup",
+    "hedge_checkpoints_for_slo",
+    "latest_safe_dispatch_gate",
+    "quota_effective_cost",
+    "scarcity_price",
+    "select_probability_backup",
+    "solve_budget_lp",
+]

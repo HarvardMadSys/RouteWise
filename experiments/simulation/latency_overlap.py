@@ -43,7 +43,7 @@ from experiments.simulation.latency_factory import (
 )
 
 if TYPE_CHECKING:
-    from rwsim.world.distributions import LatencyDistribution
+    from routewise.sim.world.distributions import LatencyDistribution
 
 
 # ----------------------------------------------------------------------------
@@ -364,7 +364,7 @@ def measure_normal_clip_fraction(d: LatencyDistribution) -> float:
 
     Returns 0.0 for non-Normal distributions.
     """
-    from rwsim.world.distributions import MIN_LATENCY_MS, Normal as _Normal
+    from routewise.sim.world.distributions import MIN_LATENCY_MS, Normal as _Normal
 
     if not isinstance(d, _Normal):
         return 0.0

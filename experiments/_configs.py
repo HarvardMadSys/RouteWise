@@ -6,8 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from rwsim.scenarios import load_scenario_config
-from rwsim.schemas import ScenarioConfig
+from routewise.schemas import ScenarioConfig
+from routewise.sim.scenarios import load_scenario_config
 
 
 def list_config_paths(config_dir: Path) -> tuple[Path, ...]:

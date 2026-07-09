@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rwsim.metrics.histogram import (
+from routewise.metrics.histogram import (
     HISTOGRAM_BIN_COUNT,
     HISTOGRAM_MAX_MS,
     HISTOGRAM_MIN_MS,
