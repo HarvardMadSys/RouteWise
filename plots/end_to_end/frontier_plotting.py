@@ -21,15 +21,53 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-COLUMN_FIGSIZE = (3.35, 2.25)
+COLUMN_FIGSIZE = (3.35, 2.45)
 SLO_BAR_FIGSIZE = COLUMN_FIGSIZE
-MIX_FIGSIZE = (3.35, 2.55)
-BASE_FONT_SIZE = 8.9
-LABEL_FONT_SIZE = 9.4
-TICK_FONT_SIZE = 8.3
-ANNOTATION_FONT_SIZE = 7.3
-ROUTEWISE_ANNOTATION_FONT_SIZE = 8.6
-LEGEND_FONT_SIZE = 7.0
+MIX_FIGSIZE = (3.35, 2.70)
+# EuroSys body text is 10pt and the 3.35in panels are included at
+# ~\columnwidth, so figure text must be authored at 10pt to match.
+BASE_FONT_SIZE = 10.0
+LABEL_FONT_SIZE = 10.0
+TICK_FONT_SIZE = 10.0
+ANNOTATION_FONT_SIZE = 9.0
+ROUTEWISE_ANNOTATION_FONT_SIZE = 9.0
+LEGEND_FONT_SIZE = 10.0
+
+# Every paper panel is authored at this one size so LaTeX can use one
+# identical \includegraphics line for all of them (no per-panel trims or
+# height equalization, which is where clipping bugs creep in).
+PAPER_PANEL_FIGSIZE = (3.35, 3.18)
+
+# Horizontal-category panels that LaTeX places side by side (Fig 6a/6b,
+# Fig 8b/8c/8d) must put the same policy row at the same physical height.
+# All panels of a set share this absolute geometry: the rows split the space
+# between a fixed bottom band (ticks + xlabel) and a fixed top band (legend
+# on mix panels, blank elsewhere) evenly.
+ALIGNED_BOTTOM_IN = 0.46
+ALIGNED_TOP_IN = 0.62
+ALIGNED_BAR_THICKNESS = 0.62
+
+
+def aligned_panel_geometry(
+    n_rows: int,
+    *,
+    left: float = 0.40,
+    right: float = 0.97,
+    top_in: float = ALIGNED_TOP_IN,
+) -> tuple[tuple[float, float], tuple[float, float, float, float]]:
+    """Return (figsize, margins) shared by every panel of an aligned set.
+
+    ``top_in`` sizes the top band and must be identical across a set; a set
+    whose mix legend needs three rows (ncols=4) should pass ~0.78.
+    """
+    height = PAPER_PANEL_FIGSIZE[1]
+    margins = (
+        left,
+        right,
+        ALIGNED_BOTTOM_IN / height,
+        1.0 - top_in / height,
+    )
+    return PAPER_PANEL_FIGSIZE, margins
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -122,11 +160,7 @@ PROVIDER_COLOR_CYCLE = (
     "#d62728",
 )
 PROVIDER_MIX_COLORS = {
-    "OR_Inceptron": "#76b7b2",
-    "OR_Friendli": "#9467bd",
-    "OR_DeepInfra": "#4e79a7",
-    "OR_SambaNova": "#e377c2",
-    "OR_Venice": "#17becf",
+    "OR_DeepInfra": "#2b7bba",
     "MiniMax_Plus_SQ": "#6b4c3b",
     "GLM_OR_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
@@ -451,6 +485,7 @@ def plot_metric_frontier(
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
+    figsize: tuple[float, float] = COLUMN_FIGSIZE,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -473,7 +508,7 @@ def plot_metric_frontier(
     baselines = normalized[split_hedged:]
     routewise_count = len(routewise_no_hedge) + len(routewise_hedged)
 
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=True)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     _plot_routewise_group(
         ax,
         routewise_no_hedge,
@@ -536,6 +571,8 @@ def plot_slo_bar(
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     xlabel: str | None = None,
     ylabel: str | None = None,
+    figsize: tuple[float, float] = SLO_BAR_FIGSIZE,
+    margins: tuple[float, float, float, float] = (0.33, 0.99, 0.16, 0.98),
 ) -> None:
     apply_column_figure_style()
     rows = _ordered_slo_bar_points(
@@ -554,37 +591,55 @@ def plot_slo_bar(
     max_slo = max(slo_values)
     text_pad = max(max_slo * 0.025, 0.12)
 
-    fig, ax = plt.subplots(figsize=SLO_BAR_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
     ax.barh(
         y,
         slo_values,
-        height=0.66,
+        height=ALIGNED_BAR_THICKNESS,
         color=[_slo_bar_color(point) for point in rows],
         edgecolor="white",
         linewidth=0.45,
     )
+    texts = []
     for row_idx, (slo_value, cost) in enumerate(zip(slo_values, costs, strict=True)):
-        ax.text(
-            slo_value + text_pad,
-            row_idx,
-            f"{slo_value:.1f}%  {_normalized_cost_label(cost, cost_baseline)}",
-            va="center",
-            ha="left",
-            fontsize=ANNOTATION_FONT_SIZE,
-            color="#333333",
+        texts.append(
+            ax.text(
+                slo_value + text_pad,
+                row_idx,
+                f"{slo_value:.1f}%  {_normalized_cost_label(cost, cost_baseline)}",
+                va="center",
+                ha="left",
+                fontsize=ANNOTATION_FONT_SIZE,
+                color="#333333",
+            )
         )
 
     ax.set_xlabel("SLO violations (%)")
     ax.set_yticks(y, labels)
-    ax.invert_yaxis()
+    ax.set_ylim(len(rows) - 0.5, -0.5)
     ax.grid(axis="x", linewidth=0.35, alpha=0.35)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    label_room = max(max_slo * 0.38, 2.0)
-    ax.set_xlim(0.0, max_slo + label_room)
-    fig.subplots_adjust(left=0.33, right=0.99, bottom=0.16, top=0.98)
+    fig.subplots_adjust(
+        left=margins[0],
+        right=margins[1],
+        bottom=margins[2],
+        top=margins[3],
+    )
+    # Size the x-axis so every annotation ends inside the axes: with the text
+    # anchored at (value + pad) in data units and its width fixed in inches,
+    # the needed limit solves x_lim >= value + pad + width_frac * x_lim.
+    fig.canvas.draw()
+    axes_width_in = (margins[1] - margins[0]) * figsize[0]
+    x_lim = max_slo + max(max_slo * 0.42, 2.0)
+    for text, slo_value in zip(texts, slo_values, strict=True):
+        width_in = text.get_window_extent().width / fig.dpi
+        width_frac = width_in / axes_width_in
+        if width_frac < 0.9:
+            x_lim = max(x_lim, (slo_value + text_pad) / (1.0 - width_frac - 0.015))
+    ax.set_xlim(0.0, x_lim)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
@@ -619,13 +674,14 @@ def plot_stacked_mix(
     output_path: Path,
     *,
     legend_ncols: int,
-    legend_fontsize: float = 5.8,
+    legend_fontsize: float = LEGEND_FONT_SIZE,
     font_size: float = BASE_FONT_SIZE,
     label_fontsize: float = LABEL_FONT_SIZE,
     tick_fontsize: float = TICK_FONT_SIZE,
     margins: tuple[float, float, float, float] = (0.34, 0.99, 0.16, 0.79),
     show_legend: bool = True,
     x_max: float = 100.0,
+    figsize: tuple[float, float] = MIX_FIGSIZE,
 ) -> None:
     apply_column_figure_style(legend_fontsize=legend_fontsize)
     plt.rcParams.update(
@@ -636,7 +692,7 @@ def plot_stacked_mix(
             "ytick.labelsize": tick_fontsize,
         }
     )
-    fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
     y = list(range(len(rows)))
     left = [0.0] * len(rows)
     handles = []
@@ -649,7 +705,7 @@ def plot_stacked_mix(
             y,
             values,
             left=left,
-            height=0.72,
+            height=ALIGNED_BAR_THICKNESS,
             color=segment.color,
             edgecolor="white",
             linewidth=0.35,
@@ -661,7 +717,7 @@ def plot_stacked_mix(
     ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Requests (%)")
     ax.set_yticks(y, [row.label for row in rows])
-    ax.invert_yaxis()
+    ax.set_ylim(len(rows) - 0.5, -0.5)
     ax.grid(axis="x", color="#9a9a9a", alpha=0.24, linewidth=0.5)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
@@ -680,11 +736,11 @@ def plot_stacked_mix(
             frameon=False,
             ncols=legend_ncols,
             loc="upper center",
-            bbox_to_anchor=(0.57, 0.985),
-            handlelength=0.9,
-            handletextpad=0.28,
-            columnspacing=0.65,
-            labelspacing=0.35,
+            bbox_to_anchor=(0.50, 0.985),
+            handlelength=0.7,
+            handletextpad=0.18,
+            columnspacing=0.4,
+            labelspacing=0.3,
             borderaxespad=0.0,
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -776,11 +832,13 @@ def plot_ttft_boxplot(
     *,
     slo_sec: float = 3.0,
     x_max_sec: float | None = None,
+    figsize: tuple[float, float] = COLUMN_FIGSIZE,
+    margins: tuple[float, float, float, float] = (0.39, 0.99, 0.18, 0.98),
 ) -> None:
     if not series:
         raise ValueError("no boxplot series to plot")
     apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
-    plt.rcParams.update({"figure.figsize": COLUMN_FIGSIZE})
+    plt.rcParams.update({"figure.figsize": figsize})
 
     sorted_samples_sec: list[list[float]] = []
     p95_sec: list[float] = []
@@ -794,14 +852,15 @@ def plot_ttft_boxplot(
         tail = max(valid_p95) if valid_p95 else slo_sec * 1.6
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
-    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
     box = ax.boxplot(
         sorted_samples_sec,
         vert=False,
+        positions=list(range(len(series))),
         patch_artist=True,
         showfliers=False,
         whis=(5, 95),
-        widths=0.6,
+        widths=ALIGNED_BAR_THICKNESS,
         medianprops={"color": "#222222", "linewidth": 1.0},
         whiskerprops={"color": "#555555", "linewidth": 0.8},
         capprops={"color": "#555555", "linewidth": 0.8},
@@ -812,19 +871,23 @@ def plot_ttft_boxplot(
         patch.set_alpha(0.78)
 
     ax.axvline(slo_sec, color="#444444", linestyle=":", linewidth=0.8)
+    # The label sits in the blank band above the axes so it can never
+    # collide with a whisker, regardless of the data range.
     ax.text(
-        slo_sec + 0.08,
-        len(series) + 0.45,
+        slo_sec,
+        1.02,
         f"{slo_sec:g}s SLO",
         color="#444444",
         fontsize=ANNOTATION_FONT_SIZE,
-        ha="left",
+        ha="center",
         va="bottom",
+        transform=ax.get_xaxis_transform(),
+        clip_on=False,
     )
 
     labels = [item.label for item in series]
-    ax.set_yticks(range(1, len(labels) + 1), labels)
-    ax.invert_yaxis()
+    ax.set_yticks(range(len(labels)), labels)
+    ax.set_ylim(len(labels) - 0.5, -0.5)
     ax.set_xlim(0.0, x_max_sec)
     ax.set_xlabel("TTFT (s)")
     ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
@@ -833,7 +896,12 @@ def plot_ttft_boxplot(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.18, top=0.98)
+    fig.subplots_adjust(
+        left=margins[0],
+        right=margins[1],
+        bottom=margins[2],
+        top=margins[3],
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)

@@ -38,7 +38,9 @@ from plots.end_to_end.frontier_plotting import (
     MIX_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    PAPER_PANEL_FIGSIZE,
     TIER_MIX_SEGMENTS,
+    aligned_panel_geometry,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
@@ -83,10 +85,12 @@ CDF_POLICIES = (
     "greedy_latency",
     "random",
 )
+# Random is included so 8c's rows line up one-to-one with 8b/8d.
 BOXPLOT_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
     "greedy_cost",
     "greedy_latency",
+    "random",
 )
 PROVIDER_MIX_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
@@ -106,9 +110,12 @@ FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS = {
     1.0: (12, -1),
 }
 FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
-    "greedy_cost": (8, -10),
+    "greedy_cost": (8, 9),
     "greedy_latency": (0, -15),
 }
+# Fig 8b/8c/8d top band: the 8d legend needs three rows at ncols=4, so the
+# whole aligned set reserves the taller band.
+ALIGNED_PANEL_TOP_IN = 0.78
 
 
 @dataclass(frozen=True)
@@ -198,7 +205,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=None,
         help=(
-            "RouteWise alphaolicies to show in compact frontier figures. "
+            "RouteWise policies to show in compact frontier figures. "
             "Defaults to the simulator alpha sweep."
         ),
     )
@@ -208,9 +215,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_alpha(policy: str) -> float | None:
-    if "_p" not in policy:
+    if "_alpha" not in policy:
         return None
-    suffix = policy.rsplit("_p", 1)[1]
+    suffix = policy.rsplit("_alpha", 1)[1]
     try:
         return int(suffix) / 100.0
     except ValueError:
@@ -390,10 +397,10 @@ def frontier_points(rows: list[Row]) -> list[FrontierPoint]:
 def selected_frontier_points(
     rows: list[Row],
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> list[FrontierPoint]:
     baselines = set(baseline_policies or BASELINE_ORDER)
-    routewise = set(routewise_alphaolicies or ROUTEWISE_FIGURE_POLICIES)
+    routewise = set(routewise_policies or ROUTEWISE_FIGURE_POLICIES)
     return [
         point
         for point in frontier_points(rows)
@@ -406,19 +413,19 @@ def plot_frontier(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
-    kwargs = {}
+    kwargs = {"figsize": PAPER_PANEL_FIGSIZE}
     if "freeinference" in output_path.name:
-        kwargs = {
-            "routewise_label_offsets": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
-            "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
-        }
+        kwargs.update(
+            routewise_label_offsets=FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
+            baseline_label_offsets=FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+        )
     plot_mean_ttft_frontier(
-        selected_frontier_points(rows, mean_baselines, routewise_alphaolicies),
+        selected_frontier_points(rows, mean_baselines, routewise_policies),
         output_path,
         **kwargs,
     )
@@ -428,12 +435,11 @@ def plot_slo(
     rows: list[Row],
     output_path: Path,
     baseline_policies: list[str] | None = None,
-    routewise_alphaolicies: list[str] | None = None,
+    routewise_policies: list[str] | None = None,
 ) -> None:
-    plot_slo_frontier(
-        selected_frontier_points(rows, baseline_policies, routewise_alphaolicies),
-        output_path,
-    )
+    points = selected_frontier_points(rows, baseline_policies, routewise_policies)
+    figsize, margins = aligned_panel_geometry(len(points), top_in=ALIGNED_PANEL_TOP_IN)
+    plot_slo_frontier(points, output_path, figsize=figsize, margins=margins)
 
 
 def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
@@ -451,13 +457,24 @@ def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
     plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3)
 
 
+# Short forms shared with the real-eval provider-mix legend so both figures
+# read the same and the 10pt legend fits the 3.35in column.
+PROVIDER_SHORT_LABELS = {
+    "AtlasCloud": "Atlas",
+    "SiliconFlow": "SFlow",
+    "AkashML": "Akash",
+    "WandB": "W&B",
+}
+
+
 def provider_label(provider: str) -> str:
     if provider.endswith("_quota"):
         return r"$\mathcal{P}_Q$"
     if provider.endswith("_concurrency"):
         return r"$\mathcal{P}_C$"
     if provider.startswith("api_"):
-        return provider.removeprefix("api_").replace("_", " ")
+        name = provider.removeprefix("api_")
+        return PROVIDER_SHORT_LABELS.get(name, name.replace("_", " "))
     return provider.replace("_", " ")
 
 
@@ -533,18 +550,16 @@ def plot_provider_mix(
         )
         for row in selected
     ]
+    figsize, margins = aligned_panel_geometry(len(mix_rows), top_in=ALIGNED_PANEL_TOP_IN)
     plot_stacked_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=5,
-        legend_fontsize=8.2,
-        font_size=10.8,
-        label_fontsize=11.5,
-        tick_fontsize=9.8,
-        margins=(0.43, 0.98, 0.18, 0.80),
+        legend_ncols=4,
+        margins=margins,
         show_legend=True,
         x_max=102.0,
+        figsize=figsize,
     )
 
 
@@ -736,7 +751,14 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError("no histogram-backed series available for boxplot")
     slo_sec = rows[0].slo_ms / 1000.0 if rows else 3.0
-    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
+    figsize, margins = aligned_panel_geometry(len(series), top_in=ALIGNED_PANEL_TOP_IN)
+    plot_common_ttft_boxplot(
+        series,
+        output_path,
+        slo_sec=slo_sec,
+        figsize=figsize,
+        margins=margins,
+    )
 
 
 def write_table(rows: list[Row], output_path: Path) -> None:
