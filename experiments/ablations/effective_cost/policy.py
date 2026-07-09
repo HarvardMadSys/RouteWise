@@ -23,6 +23,7 @@ from rwsim.core.lp import (
     cost_tiebroken_objective,
     solve_budget_lp,
 )
+from rwsim.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
 from rwsim.policies.base import NoOpTickMixin
 from rwsim.policies.routewise import RollingLatencyProfile
 from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
@@ -47,7 +48,7 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
     alpha: float = 0.75
     p: InitVar[float | None] = None
     seed: int = 0
-    profile_window_sec: float = 15 * 60.0
+    profile_window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
 

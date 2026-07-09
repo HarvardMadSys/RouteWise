@@ -674,6 +674,30 @@ def test_observe_response_ignores_missing_completion_tokens() -> None:
     assert cost == pytest.approx(42.0 / 1_000_000.0)
 
 
+def test_latency_profile_memory_bounded_under_legacy_only_queries() -> None:
+    """Baseline-policy pattern: legacy reads never advance the core clocks.
+
+    Before retention pruning, a 24h feed left every sample of the run in the
+    shared profile's ``_mean_pending`` heap and ``_samples_by_ts`` index for
+    profiles only ever read through the legacy methods (median_ms etc.).
+    """
+    from experiments.real_evaluation.inventory import LatencyProfile
+
+    profile = LatencyProfile(window_sec=100.0)
+    for i in range(5000):
+        profile.add_sample(float(i), 50.0)
+        if i % 10 == 0:
+            profile.median_ms(float(i))
+    bound = 2 * 100 + 1024 + 50  # two windows at 1 sample/sec + prune-batch slack
+    assert len(profile._mean_pending) <= bound
+    assert len(profile._samples_by_ts) <= bound
+    assert len(profile.samples) <= bound
+    # Legacy semantics are untouched by the pruning: window [4899, 4999]
+    # holds 101 one-per-second samples.
+    assert profile.median_ms(4999.0) == pytest.approx(50.0)
+    assert profile.sample_count(4999.0) == 101
+
+
 def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:
     slow_alphabetical_first = _api_spec("OR_AtlasCloud", 0.1, 0.1)
     fast_alphabetical_later = _api_spec("OR_Friendli", 10.0, 10.0)

@@ -1,4 +1,12 @@
-"""RouteWise policy and its module-local helpers."""
+"""RouteWise simulator policy: a thin adapter over the core router.
+
+The algorithm itself lives in :mod:`rwsim.core.router`; this module binds it
+to the simulator world. ``_SimProviderView`` closes over
+``(Provider, Request, SimulationState)`` and supplies the environment-specific
+signals: cache-aware/predictor-based request costs, quota fractions, and the
+oracle prior (the provider's configured true distribution) that backs the
+empty-window fallback and the ``configured`` latency-profile mode.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import numpy as np
 
 from rwsim.const import DEFAULT_PRIMARY_SLO_MS
+from rwsim.core.beliefs import LatencyBeliefs
 from rwsim.core.cost import (
     concurrency_effective_cost,
     effective_cost as core_effective_cost,
@@ -18,25 +27,22 @@ from rwsim.core.hedging import (
     DISPATCH_OVERHEAD_MS,
     HEDGE_SUCCESS_TARGET,
     BackupCandidate,
-    combined_success_probability,
-    has_feasible_backup,
-    hedge_checkpoints_for_slo,
     select_probability_backup,
 )
-from rwsim.core.lp import (
-    LP_EPS,
-    BudgetLPCandidate,
-    cost_tiebroken_objective,
-    solve_budget_lp,
+from rwsim.core.router import (
+    LPStatus,
+    RouteWiseRouter,
+    # Re-exported for tests that pin shortcut/LP tie-break equivalence.
+    _same_cost_shortcut_weights as _same_cost_shortcut_weights,
+    latest_safe_dispatch_gate,
 )
 from rwsim.policies.base import NoOpObserveMixin, NoOpTickMixin
 from rwsim.policies.latency_profiles import (
+    DEFAULT_PROFILE_WINDOW_SEC,
     LatencyProfileMode,
-    LatencyProfileStrategy,
     RollingLatencyProfile,
-    make_latency_profile_strategy,
 )
-from rwsim.policies.prefix_cache import cache_aware_marginal_cost
+from rwsim.policies.prefix_cache import cache_aware_marginal_cost, cached_input_tokens
 from rwsim.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
 from rwsim.world.capacity import ProviderTier
 
@@ -53,7 +59,55 @@ class OutputPredictor(Protocol):
     def update(self, request: Request) -> None: ...
 
 
-_LP_EPS = LP_EPS
+@dataclass(frozen=True)
+class _SimProviderView:
+    """ProviderView binding one simulator provider to one request."""
+
+    provider: Provider
+    request: Request
+    state: SimulationState
+    output_predictor: OutputPredictor | None
+
+    @property
+    def name(self) -> str:
+        return self.provider.name
+
+    @property
+    def tier(self) -> str:
+        return self.provider.tier.value
+
+    def is_available(self, now: float) -> bool:
+        return self.provider.is_available(now)
+
+    def quota_fraction_used(self, now: float) -> float | None:
+        if self.provider.quota is None:
+            return None
+        return self.provider.quota.fraction_used(now)
+
+    def route_cost_usd(self, now: float) -> float:
+        """Route-time API cost: predictor-based S_A tokens when available."""
+        provider = self.provider
+        if self.output_predictor is None or provider.tier != ProviderTier.S_A:
+            return cache_aware_marginal_cost(provider, self.request, self.state, now=now)
+        prediction = self.output_predictor.predict(self.request)
+        predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
+        request_tokens = int(getattr(self.request, "request_tokens", 0) or 0)
+        cached_tokens = cached_input_tokens(provider, self.request, self.state)
+        return provider.token_cost(
+            request_tokens=request_tokens,
+            response_tokens=predicted_response_tokens,
+            cached_input_tokens=cached_tokens,
+        )
+
+    def hedge_cost_usd(self, now: float) -> float:
+        """Hedge-backup cost: trace-realized tokens (pre-router behavior)."""
+        return cache_aware_marginal_cost(self.provider, self.request, self.state, now=now)
+
+    def prior_ttft_mean_ms(self, now: float) -> float | None:
+        return self.provider.true_mean_ms(now)
+
+    def prior_ttft_cdf(self, value_ms: float, now: float) -> float | None:
+        return self.provider._active_ttft_dist(now).cdf(value_ms)
 
 
 @dataclass
@@ -67,12 +121,12 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
     cost_envelope: tuple[float, float] | None = None
     slo_ms: float = DEFAULT_PRIMARY_SLO_MS
     seed: int = 0
-    profile_window_sec: float = 15 * 60.0
+    profile_window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
     latency_profile_mode: LatencyProfileMode = "observed"
     output_predictor: OutputPredictor | None = None
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
-    _latency_profile: LatencyProfileStrategy = field(init=False, repr=False)
+    router: RouteWiseRouter = field(init=False, repr=False)
 
     def __post_init__(self, p: float | None = None) -> None:
         if p is not None:
@@ -91,11 +145,32 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
                 f"got L={L}, U={U}"
             )
         self.cost_envelope = (L, U)
+        if self.latency_profile_mode not in ("observed", "configured"):
+            raise ValueError(
+                "unknown latency_profile_mode "
+                f"{self.latency_profile_mode!r}; expected 'observed' or 'configured'"
+            )
         self.rng = np.random.default_rng(self.seed)
-        self._latency_profile = make_latency_profile_strategy(
-            self.latency_profile_mode,
-            window_sec=self.profile_window_sec,
-            profiles=self.profiles,
+        self.router = RouteWiseRouter(
+            alpha=self.alpha,
+            slo_ms=self.slo_ms,
+            beliefs=LatencyBeliefs(
+                window_sec=self.profile_window_sec,
+                mode=(
+                    "prior_only"
+                    if self.latency_profile_mode == "configured"
+                    else "observed"
+                ),
+                profiles=self.profiles,
+            ),
+            cost_envelope=self.cost_envelope,
+            hedging=bool(self.hedging),
+            sampler=self._sample_primary,
+            hedge_dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
+            hedge_success_target=HEDGE_SUCCESS_TARGET,
+            hedge_tiebreak_mean="prior",
+            backup_selector=self._select_backup_candidate,
+            dispatch_gate=self._dispatch_gate,
         )
 
     def route(self, request: Request, state: SimulationState) -> RoutingDecision:
@@ -107,81 +182,29 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         if not providers:
             raise ValueError("No providers configured for RouteWisePolicy.")
 
+        self._sync_router()
+        views = [self._view(provider, request, state) for provider in providers]
+        result = self.router.route(views, state.now)
+
         L, U = self.cost_envelope
-        c_eff = {
-            provider.name: self._effective_cost_for_request(
-                provider,
-                request,
-                state.now,
-                U=U,
-                L=L,
-                state=state,
-            )
-            for provider in providers
-        }
-        tbar = {
-            provider.name: self._latency_objective_ms(provider, state.now)
-            for provider in providers
-        }
-
-        names = [provider.name for provider in providers]
-        c_min = min(c_eff.values())
-        c_max = max(c_eff.values())
-        budget = (1.0 - self.alpha) * c_min + self.alpha * c_max
-        objective = cost_tiebroken_objective(
-            [tbar[name] for name in names],
-            [c_eff[name] for name in names],
-        )
-
-        if c_max - c_min <= _LP_EPS:
-            weights = _same_cost_shortcut_weights(
-                names,
-                objective=objective,
-                costs=[c_eff[name] for name in names],
-            )
-            lp_status = "single_candidate" if len(names) == 1 else "feasible"
-        else:
-            result = solve_budget_lp(
-                [
-                    BudgetLPCandidate(
-                        name=name,
-                        objective=objective[index],
-                        effective_cost=c_eff[name],
-                    )
-                    for index, name in enumerate(names)
-                ],
-                budget=budget,
-            )
-            weights = result.weights if result.feasible else {}
-            # budget = (1-alpha)*c_min + alpha*c_max with alpha in [0, 1], so
-            # budget >= c_min and the min-cost provider is always within budget.
-            # An empty solve is therefore a solver fallback, not an over-budget
-            # infeasibility: the fallback below picks the feasible min-cost provider.
-            lp_status = "feasible"
-        if not weights:
-            best = min(providers, key=lambda provider: (c_eff[provider.name], tbar[provider.name]))
-            weights = {best.name: 1.0}
-            lp_status = "feasible"
-
-        primary_name = _sample_weighted(weights, self.rng)
-        hedge_checkpoints = ()
-        if self.hedging:
-            hedge_checkpoints = hedge_checkpoints_for_slo(self.slo_ms)
-
-        primary_provider = next(p for p in providers if p.name == primary_name)
+        primary_provider = next(p for p in providers if p.name == result.primary)
         routing_estimated_cost_usd = self._routing_dollar_cost(primary_provider, request, state)
 
         return RoutingDecision(
-            primary_provider=primary_name,
-            hedge_checkpoints=hedge_checkpoints,
+            primary_provider=result.primary,
+            hedge_checkpoints=result.hedge_checkpoints_sec,
             metadata={
-                "weights": weights,
-                "c_eff": c_eff,
-                "budget": budget,
+                "weights": result.weights,
+                "c_eff": result.c_eff,
+                "budget": result.budget,
                 "alpha": self.alpha,
                 "L": L,
                 "U": U,
-                "lp_status": lp_status,
+                "lp_status": (
+                    "single_candidate"
+                    if result.lp_status is LPStatus.SINGLE_CANDIDATE
+                    else "feasible"
+                ),
                 "routing_estimated_cost_usd": routing_estimated_cost_usd,
             },
         )
@@ -196,35 +219,23 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         """Re-evaluate probability-target hedging at an in-flight checkpoint."""
         if not self.hedging:
             return None
-        providers = state.providers
-        primary = providers[decision.primary_provider]
-        elapsed_ms = elapsed * 1000.0
-        candidates = self._collect_backup_candidates(
-            primary,
-            request,
-            state,
-            elapsed_ms=elapsed_ms,
+        self._sync_router()
+        views = [
+            self._view(provider, request, state)
+            for provider in state.providers.values()
+        ]
+        result = self.router.checkpoint_backup(
+            decision.primary_provider,
+            views,
+            state.now,
+            elapsed_sec=elapsed,
+            future_checkpoints_sec=decision.hedge_checkpoints,
         )
-        selected = self._select_backup_candidate(candidates)
-        if selected is None or not selected.feasible:
+        if result.backup is None:
             return None
-
-        future_feasible = self._has_future_feasible_backup(
-            primary,
-            request,
-            decision,
-            elapsed,
-            state,
-        )
-        if not self._should_dispatch_now(
-            selected,
-            future_feasible=future_feasible,
-        ):
-            return None
-
         return HedgeDispatch(
-            backup_provider=selected.provider.name,
-            metadata={"combined_success": selected.success_probability},
+            backup_provider=result.backup,
+            metadata={"combined_success": result.success_probability},
         )
 
     def observe(
@@ -236,7 +247,7 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         """Feed observed TTFT samples into policy-owned profiles."""
         if self.output_predictor is not None:
             self.output_predictor.update(request)
-        self._latency_profile.observe(
+        self.router.observe(
             decision.primary_provider,
             outcome.metadata.get("primary_observed_at", 0.0),
             float(outcome.metadata.get("primary_ttft_ms", outcome.ttft_ms)),
@@ -246,38 +257,39 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
             backup_ttft_ms = outcome.metadata.get("backup_ttft_ms")
             backup_observed_at = outcome.metadata.get("backup_observed_at")
             if backup and backup_ttft_ms is not None and backup_observed_at is not None:
-                self._latency_profile.observe(
+                self.router.observe(
                     str(backup),
                     float(backup_observed_at),
                     float(backup_ttft_ms),
                 )
 
-    def _effective_cost_for_request(
+    def _view(
         self,
         provider: Provider,
         request: Request,
-        now: float,
-        *,
-        U: float,
-        L: float,
-        state: SimulationState | None,
-    ) -> float:
-        """Effective cost with optional predictor-based S_A output tokens."""
-        if self.output_predictor is None or provider.tier != ProviderTier.S_A:
-            return effective_cost(provider, request, now, U=U, L=L, state=state)
-        prediction = self.output_predictor.predict(request)
-        predicted_response_tokens = _predicted_output_tokens_from_prediction(prediction)
-        request_tokens = int(getattr(request, "request_tokens", 0) or 0)
-        cached_tokens = 0
-        if state is not None:
-            from rwsim.policies.prefix_cache import cached_input_tokens
-
-            cached_tokens = cached_input_tokens(provider, request, state)
-        return provider.token_cost(
-            request_tokens=request_tokens,
-            response_tokens=predicted_response_tokens,
-            cached_input_tokens=cached_tokens,
+        state: SimulationState,
+    ) -> _SimProviderView:
+        return _SimProviderView(
+            provider=provider,
+            request=request,
+            state=state,
+            output_predictor=self.output_predictor,
         )
+
+    def _sync_router(self) -> None:
+        """Propagate post-init mutations of the public knobs to the router."""
+        router = self.router
+        router.alpha = self.alpha
+        router.slo_ms = self.slo_ms
+        router.cost_envelope = self.cost_envelope
+        router.hedging = bool(self.hedging)
+
+    def _sample_primary(self, weights: dict[str, float], now: float) -> str:
+        del now
+        return _sample_weighted(weights, self.rng)
+
+    def _dispatch_gate(self, selected: BackupCandidate, future_feasible: bool) -> bool:
+        return self._should_dispatch_now(selected, future_feasible=future_feasible)
 
     def _routing_dollar_cost(
         self,
@@ -308,8 +320,6 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         request_tokens = int(getattr(request, "request_tokens", 0) or 0)
         cached_tokens = 0
         if state is not None:
-            from rwsim.policies.prefix_cache import cached_input_tokens
-
             cached_tokens = cached_input_tokens(provider, request, state)
         return float(
             provider.token_cost(
@@ -321,85 +331,14 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
 
     def _ensure_profiles(self, providers: dict[str, Provider]) -> None:
         for name in providers:
-            self._latency_profile.ensure_provider(name)
-
-    def _profile(self, name: str) -> RollingLatencyProfile:
-        return self.profiles.setdefault(
-            name,
-            RollingLatencyProfile(window_sec=self.profile_window_sec),
-        )
-
-    def _latency_objective_ms(self, provider: Provider, now: float) -> float:
-        return self._latency_profile.mean_ms(provider, now)
-
-    def _cdf_ms(self, provider: Provider, value_ms: float, now: float) -> float:
-        return self._latency_profile.cdf_ms(provider, value_ms, now)
-
-    def _collect_backup_candidates(
-        self,
-        primary: Provider,
-        request: Request,
-        state: SimulationState,
-        *,
-        elapsed_ms: float,
-    ) -> list[BackupCandidate]:
-        candidates: list[BackupCandidate] = []
-        for provider in state.providers.values():
-            if provider.name == primary.name or not provider.is_available(state.now):
-                continue
-            candidates.append(
-                BackupCandidate(
-                    provider=provider,
-                    success_probability=combined_success_probability(
-                        lambda value_ms: self._cdf_ms(primary, value_ms, state.now),
-                        lambda value_ms, backup=provider: self._cdf_ms(
-                            backup,
-                            value_ms,
-                            state.now,
-                        ),
-                        elapsed_ms=elapsed_ms,
-                        slo_ms=self.slo_ms,
-                        dispatch_overhead_ms=DISPATCH_OVERHEAD_MS,
-                    ),
-                    marginal_cost=cache_aware_marginal_cost(
-                        provider,
-                        request,
-                        state,
-                        now=state.now,
-                    ),
-                    true_mean_ms=provider.true_mean_ms(state.now),
-                    success_target=HEDGE_SUCCESS_TARGET,
-                )
-            )
-        return candidates
+            self.router.beliefs.ensure(name)
 
     def _select_backup_candidate(
         self,
         candidates: list[BackupCandidate],
     ) -> BackupCandidate | None:
+        """Backup-selection hook; hedging-ablation subclasses override this."""
         return select_probability_backup(candidates)
-
-    def _has_future_feasible_backup(
-        self,
-        primary: Provider,
-        request: Request,
-        decision: RoutingDecision,
-        elapsed: float,
-        state: SimulationState,
-    ) -> bool:
-        for future_elapsed in decision.hedge_checkpoints:
-            if future_elapsed <= elapsed + _LP_EPS:
-                continue
-            future_ms = future_elapsed * 1000.0
-            candidates = self._collect_backup_candidates(
-                primary,
-                request,
-                state,
-                elapsed_ms=future_ms,
-            )
-            if has_feasible_backup(candidates):
-                return True
-        return False
 
     def _should_dispatch_now(
         self,
@@ -407,7 +346,8 @@ class RouteWisePolicy(NoOpTickMixin, NoOpObserveMixin):
         *,
         future_feasible: bool,
     ) -> bool:
-        return selected.feasible and not future_feasible
+        """Dispatch-timing hook; hedging-ablation subclasses override this."""
+        return latest_safe_dispatch_gate(selected, future_feasible)
 
 
 def quota_shadow_price(
@@ -459,10 +399,10 @@ def effective_cost(
                  = psi(z_j) if j in S_Q   (quota opportunity cost)
                  = lambda(u_j) if j in S_C (concurrency opportunity cost)
 
-    Numerically equivalent to the previous additive form
-        marginal + psi + lambda
-    because S_Q / S_C providers are constructed with marginal=0; this
-    refactor only sharpens the semantics so the code mirrors the paper.
+    The routing path applies the same formula through
+    :meth:`rwsim.core.router.RouteWiseRouter._effective_cost` over
+    ``_SimProviderView``; this module-level form is kept for the effective-cost
+    kernel-consistency contract with real-eval and for experiment scripts.
     """
     tier = provider.tier
     if tier == ProviderTier.S_A:
@@ -506,25 +446,6 @@ def _predicted_output_tokens_from_prediction(prediction: Any) -> float:
     if hasattr(prediction, "q50"):
         return max(float(prediction.q50), 0.0)
     raise TypeError("output predictor must return PointPrediction or a q50-compatible result")
-
-
-def _same_cost_shortcut_weights(
-    names: list[str],
-    *,
-    objective: list[float],
-    costs: list[float],
-) -> dict[str, float]:
-    """Return the one-hot LP optimum when every provider has the same cost."""
-    best_name: str | None = None
-    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
-    n = len(names)
-    for index, name in enumerate(names):
-        vector = tuple(1.0 if position == index else 0.0 for position in range(n))
-        key = (float(objective[index]), float(costs[index]), 1, vector)
-        if best_key is None or key < best_key:
-            best_key = key
-            best_name = name
-    return {best_name: 1.0} if best_name is not None else {}
 
 
 def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from rwsim.core.pricing import cache_discounted_token_cost_usd
 from rwsim.world.capacity import (
     ConcurrencyState,
     MultiWindowQuotaState,
@@ -113,14 +114,13 @@ class Provider:
             and self.output_cost_per_token is not None
             and self.cached_input_cost_per_token is not None
         ):
-            request_tokens = float(request_tokens)
-            response_tokens = float(response_tokens)
-            cached_input_tokens = min(cached_input_tokens, request_tokens)
-            uncached_input_tokens = max(request_tokens - cached_input_tokens, 0.0)
-            return (
-                self.input_cost_per_token * uncached_input_tokens
-                + self.cached_input_cost_per_token * cached_input_tokens
-                + self.output_cost_per_token * response_tokens
+            return cache_discounted_token_cost_usd(
+                prompt_tokens=request_tokens,
+                completion_tokens=response_tokens,
+                cached_input_tokens=cached_input_tokens,
+                input_price_per_token=self.input_cost_per_token,
+                cached_input_price_per_token=self.cached_input_cost_per_token,
+                output_price_per_token=self.output_cost_per_token,
             )
         if self.input_cost_per_token is None and self.output_cost_per_token is None:
             if total_tokens is None:

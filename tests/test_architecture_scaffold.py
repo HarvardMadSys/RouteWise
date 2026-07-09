@@ -199,6 +199,34 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             ("self", "request", "decision", "outcome"),
         )
 
+    def test_routewise_algorithm_has_canonical_home(self) -> None:
+        """The RouteWise algorithm lives once, in rwsim.core.router.
+
+        Both environments must delegate to it: the simulator policy and the
+        real-eval BudgetRange policies expose it via a ``router`` attribute,
+        and neither adapter re-implements the LP body orchestration.
+        """
+        import routewise.core as public_core
+        from rwsim.core.beliefs import LatencyBeliefs
+        from rwsim.core.router import RouteWiseRouter
+
+        self.assertEqual(RouteWiseRouter.__module__, "rwsim.core.router")
+        self.assertEqual(LatencyBeliefs.__module__, "rwsim.core.beliefs")
+        self.assertIs(public_core.RouteWiseRouter, RouteWiseRouter)
+
+        # Neither adapter may call the LP solver directly; the router owns
+        # the body orchestration.
+        sim_adapter = (ROOT_DIR / "rwsim" / "policies" / "routewise.py").read_text()
+        real_adapter = (
+            ROOT_DIR / "experiments" / "real_evaluation" / "policies.py"
+        ).read_text()
+        for source, label in ((sim_adapter, "sim"), (real_adapter, "real-eval")):
+            self.assertNotIn(
+                "solve_budget_lp(",
+                source,
+                f"{label} adapter must delegate the budget LP to rwsim.core.router",
+            )
+
     def test_offline_stage_core_has_canonical_home(self) -> None:
         from experiments.offline_stage import DEFAULT_CONFIG_PATH
         from rwsim.offline import CostCalculator, Request
