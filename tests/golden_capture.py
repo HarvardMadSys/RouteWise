@@ -33,7 +33,18 @@ WORKSPACE_ROOT = MAIN_ROOT.parent
 JOINT_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint"
 JOINT_LP_BUDGET_ROOT = WORKSPACE_ROOT / "routewise-simulator-joint-wt-lp-budget"
 DEFAULT_GOLDEN_ROOT = MAIN_ROOT / "tests" / "golden"
-AUDIT_ROOTS = [root for root in [MAIN_ROOT, JOINT_ROOT, JOINT_LP_BUDGET_ROOT] if root.exists()]
+# Labels are pinned rather than derived from directory names so that
+# GREP_AUDIT.md stays byte-identical between the main checkout and git
+# worktrees (e.g. .claude/worktrees/<name>).
+AUDIT_ROOTS = [
+    (label, root)
+    for label, root in [
+        ("RouteWise", MAIN_ROOT),
+        ("routewise-simulator-joint", JOINT_ROOT),
+        ("routewise-simulator-joint-wt-lp-budget", JOINT_LP_BUDGET_ROOT),
+    ]
+    if root.exists()
+]
 
 SEEDS = [42, 43, 44]
 FAMILY_SPECS = {
@@ -377,16 +388,20 @@ def _run_family_worker(family: str, output_root: Path) -> Path:
     return output_path
 
 
-def _gather_grep_hits(root: Path, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+def _gather_grep_hits(label: str, root: Path, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
     """Collect grep hits for an audit regex pattern."""
     hits: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*.py")):
-        if ".git" in path.parts:
+        relpath = path.relative_to(root)
+        # Skipping hidden directories keeps the scan identical between the
+        # main checkout (which contains .venv and nested worktrees under
+        # .claude) and a bare worktree.
+        if any(part.startswith(".") for part in relpath.parts):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         for line in text.splitlines():
             if pattern.search(line):
-                hits.append((str(path.relative_to(WORKSPACE_ROOT)), line.rstrip()))
+                hits.append((f"{label}/{relpath.as_posix()}", line.rstrip()))
     return hits
 
 
@@ -418,7 +433,7 @@ def _write_grep_audit(output_root: Path) -> Path:
     lines = [
         "# Phase 0 Grep Audit",
         "",
-        f"Scope: {', '.join(root.name for root in AUDIT_ROOTS)}.",
+        f"Scope: {', '.join(label for label, _ in AUDIT_ROOTS)}.",
         "",
     ]
 
@@ -426,8 +441,8 @@ def _write_grep_audit(output_root: Path) -> Path:
         lines.append(f"## {title}")
         lines.append("")
         pattern_hits: list[tuple[str, str]] = []
-        for root in AUDIT_ROOTS:
-            pattern_hits.extend(_gather_grep_hits(root, pattern))
+        for label, root in AUDIT_ROOTS:
+            pattern_hits.extend(_gather_grep_hits(label, root, pattern))
         if not pattern_hits:
             lines.append("- No matches found.")
             lines.append("")
