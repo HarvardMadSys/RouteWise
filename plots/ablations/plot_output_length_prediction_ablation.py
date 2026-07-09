@@ -58,6 +58,9 @@ POLICY_COLORS = {
     "ablation_lp_hedging_alpha25": "#2ca02c",
     "ablation_lp_hedging_alpha50": "#ff7f0e",
 }
+# Dense dash pattern for hedging: several on/off cycles fit inside the short
+# legend handle, so dashed stays distinguishable from solid there.
+HEDGE_DASHES = (0, (2.2, 1.2))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -221,7 +224,7 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
     handles: dict[str, Any] = {}
     for policy in POLICY_ORDER:
         policy_rows = _policy_rows(rows, policy)
-        linestyle = "--" if "hedging" in policy else "-"
+        linestyle = HEDGE_DASHES if "hedging" in policy else "-"
         (handles[policy],) = ax.plot(
             [row["prediction_error_pct"] for row in policy_rows],
             [row["total_cost_delta_pct"] for row in policy_rows],
@@ -242,9 +245,10 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
         loc="upper center",
         bbox_to_anchor=(0.5, 0.995),
         bbox_transform=fig.transFigure,
-        columnspacing=0.4,
-        handlelength=1.3,
-        handletextpad=0.25,
+        borderpad=0.1,
+        columnspacing=0.15,
+        handlelength=1.45,
+        handletextpad=0.15,
     )
     ax.grid(True, alpha=0.24)
     fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
