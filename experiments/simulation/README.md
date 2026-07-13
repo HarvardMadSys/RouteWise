@@ -1,7 +1,8 @@
 # Simulation Experiments
 
 Paper-facing simulator harness. Each section is implemented as a dedicated
-Python module and exposed through `routewise simulator <section>`.
+Python module and exposed through the repository-only CLI module:
+`uv run python -m routewise_cli.main simulator <section>`.
 
 ## Common Setup
 
@@ -109,14 +110,14 @@ experiments/simulation/
 List sections:
 
 ```bash
-routewise simulator list
+uv run python -m routewise_cli.main simulator list
 ```
 
 Run a section:
 
 ```bash
-routewise simulator cost-layer
-routewise simulator latency-layer
-routewise simulator hedging
-routewise simulator end-to-end
+uv run python -m routewise_cli.main simulator cost-layer
+uv run python -m routewise_cli.main simulator latency-layer
+uv run python -m routewise_cli.main simulator hedging
+uv run python -m routewise_cli.main simulator end-to-end
 ```

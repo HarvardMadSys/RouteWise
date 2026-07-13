@@ -1,20 +1,18 @@
 # RouteWise
 
-RouteWise core routing algorithms plus the trace-driven simulator and
-experiment harnesses used to evaluate multi-provider LLM routing policies.
-The lightweight public API is available from `routewise.core`; the simulator
-lives under `routewise.sim` and the experiment harnesses (including the live
-real-evaluation runner) under `experiments`.
+RouteWise is a dependency-free Python library for cost-aware, latency-optimized
+routing across multiple LLM API providers. You supply provider prices and
+dispatch the returned attempt with your own HTTP or SDK client; RouteWise
+learns from the outcomes you report.
 
-This repository is organized so the pure routing algorithms can be reused
-without pulling in simulator, plotting, or live-provider dependencies. Paper
-metadata and citation details will be added after the public manuscript entry
-is finalized.
+Package `0.2.0` is an API-provider-only preview. The repository also contains
+the simulator and experiment harnesses used by the paper, but those research
+packages are deliberately not included in the wheel.
 
 ## Requirements
 
 - Python >= 3.10
-- Optional extras in `pyproject.toml` depending on the workflow
+- No runtime dependencies for the published library
 
 ## Installation
 
@@ -24,25 +22,46 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-The base install is intentionally lightweight and supports:
+The base install exposes the public facade directly from `routewise`:
 
 ```python
-from routewise.core import solve_budget_lp, effective_cost
+from routewise import Provider, Router
+
+router = Router(
+    providers=[
+        Provider("fast", price_in=3.0, price_out=15.0),
+        Provider("cheap", price_in=0.15, price_out=0.60),
+    ],
+    alpha=0.25,
+)
+
+decision = router.route(input_tokens=800)
+response = call_your_provider(decision.provider)
+decision.completed(
+    ttft_ms=response.ttft_ms,
+    output_tokens=response.output_tokens,
+)
 ```
 
-Install extras for heavier workflows:
+`Router` makes the decision but performs no network I/O. For a stateless
+one-off decision, use `route_once`:
 
-```bash
-python -m pip install -e ".[sim]"        # simulator
-python -m pip install -e ".[real-eval]"  # live real-evaluation harness
-python -m pip install -e ".[offline]"    # offline optimization studies
-python -m pip install -e ".[plots]"      # plotting scripts
-python -m pip install -e ".[scripts]"    # operational scripts
+```python
+from routewise import Candidate, route_once
+
+result = route_once(
+    [
+        Candidate("fast", cost_usd=0.008, latency_ms=350),
+        Candidate("cheap", cost_usd=0.002, latency_ms=900),
+    ],
+    alpha=0.25,
+)
 ```
 
-For full local development, install all extras or use `uv sync`. The package
-distribution name is now `routewise`; existing editable environments created
-under the old `routewise-simulator` name should be reinstalled.
+For full repository development, including the research harnesses, use
+`uv sync`. The distribution name is `routewise`; existing editable
+environments created under the old `routewise-simulator` name should be
+reinstalled.
 
 ## Data
 
@@ -87,39 +106,41 @@ The pure simulator path does not require any API keys.
 
 ## Running experiments
 
-Install the relevant extra before running a heavier workflow. Simulator section
-commands require:
-
-```bash
-python -m pip install -e ".[sim]"
-```
+The commands below are repository-development workflows and are not part of
+the `0.2.0` wheel. Install the development environment with `uv sync` first.
 
 List the available paper sections and run one:
 
 ```bash
-routewise simulator list
-routewise simulator cost-layer
+uv run python -m routewise_cli.main simulator list
+uv run python -m routewise_cli.main simulator cost-layer
 ```
 
 See `experiments/simulation/README.md` for the full sub-experiment tree.
 
 ## Python API
 
-Lightweight core API:
+Public API-provider facade:
 
 ```python
-from routewise.core import (
-    BackupCandidate,
-    BudgetLPCandidate,
-    HedgeDispatch,
-    RoutingDecision,
-    combined_success_probability,
-    effective_cost,
-    hedge_checkpoints_for_slo,
-    select_probability_backup,
-    solve_budget_lp,
+from routewise import (
+    Attempt,
+    Candidate,
+    Decision,
+    NoProviderError,
+    OutcomeError,
+    Provider,
+    RouteOnceResult,
+    Router,
+    StatsSnapshot,
+    Tuning,
+    ValidationError,
+    route_once,
 )
 ```
+
+Advanced users may import the pure mathematical primitives from
+`routewise.core`.
 
 Simulator API:
 
@@ -138,7 +159,8 @@ harness only.
 
 ## Repository layout
 
-- `routewise/core/`: the RouteWise algorithm (stdlib-only; shared by sim and live)
+- `routewise/`: the public API-provider facade (stdlib-only)
+- `routewise/core/`: advanced RouteWise mathematical primitives
 - `routewise/capacity.py`, `routewise/schemas.py`, `routewise/const.py`: contracts shared by both worlds
 - `routewise/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
 - `routewise/sim/engine/`: request loop, capacity accounting, in-flight hedge ticks
@@ -165,7 +187,8 @@ python tests/golden_capture.py --mode compare
 
 ## Documentation
 
-- `docs/API_PROVIDER_INTERFACE.md`: proposed API-provider-only library interface
+- `docs/API_PROVIDER_INTERFACE.md`: API-provider library contract (English)
+- `docs/API_PROVIDER_INTERFACE.zh-CN.md`: API-provider library contract (Chinese)
 - `docs/CORE_API.md`: lightweight `routewise.core` library API and integration guide
 - `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
