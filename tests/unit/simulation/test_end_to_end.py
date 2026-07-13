@@ -71,12 +71,10 @@ def test_end_to_end_cost_tiered_scenario_uses_synthetic_prices_and_real_latency(
         "api_C_fast_WandB",
     ]
     assert [
-        provider.effective_input_cost_per_token * 1_000_000
-        for provider in scenario.providers[2:]
+        provider.effective_input_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
     ] == [1.0, 2.0, 4.0]
     assert [
-        provider.effective_output_cost_per_token * 1_000_000
-        for provider in scenario.providers[2:]
+        provider.effective_output_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
     ] == [5.0, 10.0, 20.0]
     assert [provider.ttft_dist.label for provider in scenario.providers[2:]] == [
         "qwen3_24h/SiliconFlow",
@@ -118,8 +116,7 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
         "minimax_m25_openrouter_24h/SiliconFlow",
     ]
     assert [
-        provider.effective_input_cost_per_token * 1_000_000
-        for provider in scenario.providers[2:]
+        provider.effective_input_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
     ] == pytest.approx(
         [
             0.24,
@@ -133,8 +130,7 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
         ]
     )
     assert [
-        provider.effective_output_cost_per_token * 1_000_000
-        for provider in scenario.providers[2:]
+        provider.effective_output_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
     ] == pytest.approx(
         [
             0.90,
@@ -158,10 +154,7 @@ def test_end_to_end_prefix_cache_sets_api_cached_input_prices():
 
     assert scenario.metadata["prefix_cache_enabled"] is True
     assert scenario.metadata["cached_input_price_fraction"] is None
-    assert (
-        scenario.metadata["cached_input_price_source"]
-        == "metadata_openrouter_input_cache_read"
-    )
+    assert scenario.metadata["cached_input_price_source"] == "metadata_openrouter_input_cache_read"
     assert scenario.providers[0].cached_input_cost_per_token is None
     assert scenario.providers[1].cached_input_cost_per_token is None
     cached_prices = [
@@ -201,32 +194,35 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
     )
 
 
-def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
+def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require_burstgpt_data):
     output_dir = tmp_path / "end_to_end"
 
-    assert routewise_main(
-        [
-            "simulator",
-            "end-to-end",
-            "--scenario",
-            "end_to_end_rw3",
-            "--p",
-            "0.75",
-            "--policy",
-            "ablation_lp_only_alpha75",
-            "--policy",
-            "ablation_lp_hedging_alpha75",
-            "--seed",
-            "42",
-            "--max-requests",
-            "12",
-            "--prefix-cache-enabled",
-            "--cached-input-price-fraction",
-            "0.2",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        routewise_main(
+            [
+                "simulator",
+                "end-to-end",
+                "--scenario",
+                "end_to_end_rw3",
+                "--p",
+                "0.75",
+                "--policy",
+                "ablation_lp_only_alpha75",
+                "--policy",
+                "ablation_lp_hedging_alpha75",
+                "--seed",
+                "42",
+                "--max-requests",
+                "12",
+                "--prefix-cache-enabled",
+                "--cached-input-price-fraction",
+                "0.2",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [

@@ -115,13 +115,14 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{path} must not import {token!r}")
 
-    def test_routewise_cli_uses_policy_flag(self) -> None:
+    def test_routewise_cli_is_repository_only_and_uses_policy_flag(self) -> None:
         cli = ROOT_DIR / "routewise_cli" / "main.py"
         pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
         source = cli.read_text(encoding="utf-8")
 
         self.assertTrue(cli.exists())
-        self.assertIn('routewise = "routewise_cli.main:main"', pyproject)
+        self.assertNotIn('[project.scripts]', pyproject)
+        self.assertNotIn('routewise = "routewise_cli.main:main"', pyproject)
         self.assertIn("--policy", source)
         self.assertNotIn("--" + "strategy", source)
 

@@ -70,23 +70,26 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     assert rw8_slo4000.metadata["slo_ms"] == pytest.approx(4000.0)
 
 
-def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
+def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require_burstgpt_data):
     output_dir = tmp_path / "hedging"
 
-    assert routewise_main(
-        [
-            "simulator",
-            "hedging",
-            "--scenario",
-            "hedging_heavy_tail",
-            "--seed",
-            "42",
-            "--max-requests",
-            "12",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        routewise_main(
+            [
+                "simulator",
+                "hedging",
+                "--scenario",
+                "hedging_heavy_tail",
+                "--seed",
+                "42",
+                "--max-requests",
+                "12",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [

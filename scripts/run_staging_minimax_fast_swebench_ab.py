@@ -4,7 +4,8 @@
 Default mode is a dry run that prints the planned order only. Add ``--execute``
 to run the full experiment:
 
-    uv run python scripts/run_staging_minimax_fast_swebench_ab.py --execute
+    uv run --python 3.13 --only-group agent-benchmark python \
+        scripts/run_staging_minimax_fast_swebench_ab.py --execute
 
 The default plan is 10 SWE-bench Verified tasks, 10 attempts per task, and two
 models per attempt:
@@ -22,6 +23,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, replace
@@ -30,6 +32,9 @@ from math import sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
 from typing import TYPE_CHECKING, Any
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.agentic_benchmark.runtime.config import GatewayConfig
 from experiments.agentic_benchmark.runtime.gateway import GatewayClient

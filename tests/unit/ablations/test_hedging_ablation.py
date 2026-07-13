@@ -234,23 +234,28 @@ def test_random_feasible_backup_selection_does_not_advance_route_rng() -> None:
     assert probability.route(request, state) == random_feasible.route(request, state)
 
 
-def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> None:
+def test_harness_cli_writes_policy_metadata_and_production_deltas(
+    tmp_path, require_burstgpt_data
+) -> None:
     output_dir = tmp_path / "hedging-ablation"
 
-    assert routewise_main(
-        [
-            "ablation",
-            "hedging",
-            "--scenario",
-            "hedging_heavy_tail",
-            "--seed",
-            "42",
-            "--max-requests",
-            "12",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        routewise_main(
+            [
+                "ablation",
+                "hedging",
+                "--scenario",
+                "hedging_heavy_tail",
+                "--seed",
+                "42",
+                "--max-requests",
+                "12",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == list(
@@ -264,9 +269,7 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> N
     assert rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert rows[0]["p99_delta_vs_production_ms"] == 0.0
     assert rows[2]["backup_selection"] == "random_feasible"
-    assert rows[2]["backup_selection_semantics"] == (
-        "random_among_feasible_non_primary"
-    )
+    assert rows[2]["backup_selection_semantics"] == ("random_among_feasible_non_primary")
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))

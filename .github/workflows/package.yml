@@ -1,0 +1,77 @@
+name: package
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  wheel:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade build pytest ruff
+      - name: Lint the public library surface
+        run: >-
+          ruff check
+          routewise/__init__.py routewise/errors.py routewise/facade.py
+          routewise/stateless.py routewise/_capacity_controller.py
+          routewise/_output_length.py routewise/core scripts/check_wheel.py
+          tests/unit/facade tests/unit/policies/test_hedging_helpers.py
+      - name: Run dependency-free library tests
+        run: >-
+          pytest -q tests/unit/facade tests/unit/core
+          tests/unit/policies/test_hedging_helpers.py
+          --ignore=tests/unit/core/test_router_env_parity.py
+      - run: python -m build --wheel
+      - run: python scripts/check_wheel.py dist/*.whl
+      - run: python -m pip install dist/*.whl
+      - name: Installed-wheel smoke test outside the checkout
+        working-directory: /tmp
+        run: |
+          python - <<'PY'
+          import routewise
+          import sys
+          from routewise import Candidate, Provider, Router, route_once
+
+          result = route_once(
+              [
+                  Candidate("cheap", cost_usd=1.0, latency_ms=100.0),
+                  Candidate("fast", cost_usd=2.0, latency_ms=10.0),
+              ],
+              alpha=0.5,
+              seed=7,
+          )
+          router = Router([Provider("api", price_in=1.0, price_out=2.0)])
+          assert result.provider in result.weights
+          assert router.route(input_tokens=10).provider == "api"
+          assert routewise.__version__ == "0.2.0"
+          assert len(routewise.__all__) == 13
+          assert "experiments" not in sys.modules
+          assert "numpy" not in sys.modules
+          assert "pandas" not in sys.modules
+          assert "routewise.sim" not in sys.modules
+          assert "scipy" not in sys.modules
+          PY
+
+  research-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Check source-checkout compatibility
+        run: >-
+          uv run pytest -q
+          tests/unit/core/test_router_env_parity.py
+          tests/test_architecture_scaffold.py
+          tests/unit/cli/test_optional_extras.py

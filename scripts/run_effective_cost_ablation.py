@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.ablations.effective_cost import harness
 from experiments.ablations.effective_cost.presets import (
@@ -59,8 +63,12 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Number of parallel scenario-policy-seed cells. Defaults to 1.",
     )
-    parser.add_argument("--duration-sec", type=float, help="Optional trace truncation for smoke runs.")
-    parser.add_argument("--max-requests", type=int, help="Optional request-count truncation for smoke runs.")
+    parser.add_argument(
+        "--duration-sec", type=float, help="Optional trace truncation for smoke runs."
+    )
+    parser.add_argument(
+        "--max-requests", type=int, help="Optional request-count truncation for smoke runs."
+    )
     parser.add_argument(
         "--quota-limit",
         type=int,
@@ -100,13 +108,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--skip-run", action="store_true", help="Only run plotting/manifest steps.")
     parser.add_argument("--skip-plot", action="store_true", help="Run ablations without plotting.")
-    parser.add_argument("--dry-run", action="store_true", help="Print planned steps without running them.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print planned steps without running them."
+    )
     args = parser.parse_args(argv)
 
     phases = _selected_phases(args.phase)
     alpha_values = tuple(args.alpha_values or DEFAULT_ALPHA_VALUES)
     if not args.skip_plot and len(alpha_values) != 1:
-        raise ValueError("plotting expects exactly one --p/--alpha value; use --skip-plot for multi-p sweeps")
+        raise ValueError(
+            "plotting expects exactly one --p/--alpha value; use --skip-plot for multi-p sweeps"
+        )
 
     config = {
         "phase": args.phase,
@@ -153,7 +165,9 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest_path = args.output_root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps({"manifest": str(manifest_path), "outputs": manifest["outputs"]}, sort_keys=True))
+    print(
+        json.dumps({"manifest": str(manifest_path), "outputs": manifest["outputs"]}, sort_keys=True)
+    )
     return 0
 
 
@@ -163,23 +177,43 @@ def _selected_phases(phase: str) -> tuple[str, ...]:
     return (phase,)
 
 
-def _quota_run_args(args: argparse.Namespace, output_dir: Path, config: dict[str, Any]) -> list[str]:
-    argv = ["--phase", harness.PHASE_QUOTA, "--workload", args.workload, "--output-dir", str(output_dir)]
+def _quota_run_args(
+    args: argparse.Namespace, output_dir: Path, config: dict[str, Any]
+) -> list[str]:
+    argv = [
+        "--phase",
+        harness.PHASE_QUOTA,
+        "--workload",
+        args.workload,
+        "--output-dir",
+        str(output_dir),
+    ]
     _append_repeated(argv, "--curve", config["quota_curves"])
     _append_repeated(argv, "--quota-limit", config["quota_limits"])
     _append_common_run_args(argv, args, config)
     return argv
 
 
-def _concurrency_run_args(args: argparse.Namespace, output_dir: Path, config: dict[str, Any]) -> list[str]:
-    argv = ["--phase", harness.PHASE_CONCURRENCY, "--workload", args.workload, "--output-dir", str(output_dir)]
+def _concurrency_run_args(
+    args: argparse.Namespace, output_dir: Path, config: dict[str, Any]
+) -> list[str]:
+    argv = [
+        "--phase",
+        harness.PHASE_CONCURRENCY,
+        "--workload",
+        args.workload,
+        "--output-dir",
+        str(output_dir),
+    ]
     _append_repeated(argv, "--concurrency-count", config["concurrency_counts"])
     _append_repeated(argv, "--concurrency-curve", config["concurrency_curves"])
     _append_common_run_args(argv, args, config)
     return argv
 
 
-def _append_common_run_args(argv: list[str], args: argparse.Namespace, config: dict[str, Any]) -> None:
+def _append_common_run_args(
+    argv: list[str], args: argparse.Namespace, config: dict[str, Any]
+) -> None:
     _append_repeated(argv, "--p", config["alpha_values"])
     _append_repeated(argv, "--seed", config["seeds"])
     argv.extend(["--jobs", str(args.jobs)])
@@ -189,15 +223,26 @@ def _append_common_run_args(argv: list[str], args: argparse.Namespace, config: d
         argv.extend(["--max-requests", str(args.max_requests)])
 
 
-def _quota_plot_args(args: argparse.Namespace, output_dir: Path, config: dict[str, Any]) -> list[str]:
-    argv = ["--input-dir", str(output_dir), "--output-dir", str(output_dir), "--workload", args.workload]
+def _quota_plot_args(
+    args: argparse.Namespace, output_dir: Path, config: dict[str, Any]
+) -> list[str]:
+    argv = [
+        "--input-dir",
+        str(output_dir),
+        "--output-dir",
+        str(output_dir),
+        "--workload",
+        args.workload,
+    ]
     _append_repeated(argv, "--quota-limit", config["quota_limits"])
     _append_repeated(argv, "--curve", config["quota_curves"])
     argv.extend(["--p", str(config["alpha_values"][0])])
     return argv
 
 
-def _concurrency_plot_args(args: argparse.Namespace, output_dir: Path, config: dict[str, Any]) -> list[str]:
+def _concurrency_plot_args(
+    args: argparse.Namespace, output_dir: Path, config: dict[str, Any]
+) -> list[str]:
     argv = [
         "--input-dir",
         str(output_dir),

@@ -52,8 +52,14 @@ def test_latency_layer_synthetic_provider_invariants_and_band_targets():
             )
             assert scenario.primary_slo_ms == pytest.approx(DEFAULT_PRIMARY_SLO_MS)
             assert scenario.metadata["mean_anchors_ms"] == [100.0, 300.0, 1000.0]
-            assert len({provider.effective_input_cost_per_token for provider in scenario.providers}) == 1
-            assert len({provider.effective_output_cost_per_token for provider in scenario.providers}) == 1
+            assert (
+                len({provider.effective_input_cost_per_token for provider in scenario.providers})
+                == 1
+            )
+            assert (
+                len({provider.effective_output_cost_per_token for provider in scenario.providers})
+                == 1
+            )
             assert "realised_tvo_fast_medium" not in scenario.metadata
 
         assert no_overlap.metadata["target_band_coverage_fast_medium"] == 0.0
@@ -72,25 +78,28 @@ def test_latency_layer_real_world_is_single_untargeted_scenario():
     assert "latency_layer_real_world_half_overlap" not in latency_layer.list_scenarios()
 
 
-def test_latency_layer_cli_writes_band_metadata_to_json_and_csv(tmp_path):
+def test_latency_layer_cli_writes_band_metadata_to_json_and_csv(tmp_path, require_burstgpt_data):
     output_dir = tmp_path / "latency-layer"
 
-    assert routewise_main(
-        [
-            "simulator",
-            "latency-layer",
-            "--scenario",
-            "latency_layer_uniform_half_overlap",
-            "--policy",
-            "greedy_latency",
-            "--seed",
-            "42",
-            "--max-requests",
-            "10",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        routewise_main(
+            [
+                "simulator",
+                "latency-layer",
+                "--scenario",
+                "latency_layer_uniform_half_overlap",
+                "--policy",
+                "greedy_latency",
+                "--seed",
+                "42",
+                "--max-requests",
+                "10",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert len(rows) == 1
