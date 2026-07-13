@@ -115,13 +115,17 @@ def combined_success_probability(
     primary_cdf_t = primary_cdf_ms(elapsed_ms)
     primary_cdf_slo = primary_cdf_ms(slo_ms)
     primary_survival_t = max(1.0 - primary_cdf_t, 0.0)
+    remaining_ms = slo_ms - elapsed_ms - dispatch_overhead_ms
+    backup_success = 0.0 if remaining_ms <= 0.0 else backup_cdf_ms(remaining_ms)
     if primary_survival_t <= EPS:
-        return 0.0
+        # The empirical profile says the primary should already have finished,
+        # but the caller has observed that it has not.  Let the observation win:
+        # the primary contributes no remaining chance and the hedge succeeds iff
+        # the backup can still meet the SLO.
+        return float(min(max(backup_success, 0.0), 1.0))
 
     p_not_violate = max(primary_cdf_slo - primary_cdf_t, 0.0) / primary_survival_t
     p_violate = max(1.0 - primary_cdf_slo, 0.0) / primary_survival_t
-    remaining_ms = slo_ms - elapsed_ms - dispatch_overhead_ms
-    backup_success = 0.0 if remaining_ms <= 0.0 else backup_cdf_ms(remaining_ms)
     return float(min(max(p_not_violate + p_violate * backup_success, 0.0), 1.0))
 
 

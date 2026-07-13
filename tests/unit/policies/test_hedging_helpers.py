@@ -64,6 +64,18 @@ def test_combined_success_probability_has_zero_backup_when_no_time_remains() -> 
     assert probability == pytest.approx((0.80 - 0.50) / (1.0 - 0.50))
 
 
+def test_combined_success_probability_uses_backup_when_primary_survival_is_zero() -> None:
+    probability = combined_success_probability(
+        lambda _value_ms: 1.0,
+        lambda value_ms: 0.75 if value_ms >= 400.0 else 0.0,
+        elapsed_ms=500.0,
+        slo_ms=1000.0,
+        dispatch_overhead_ms=100.0,
+    )
+
+    assert probability == pytest.approx(0.75)
+
+
 def test_select_probability_backup_prefers_cost_then_probability_then_latency() -> None:
     expensive = BackupCandidate(
         provider=_provider("expensive"),
