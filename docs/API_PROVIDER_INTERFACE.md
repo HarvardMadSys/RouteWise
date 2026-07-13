@@ -1281,7 +1281,8 @@ features.
 | Exports | top level exports exactly `Provider`, `Router`, `Decision`, `Attempt`, `Tuning`, `Candidate`, `route_once`, `RouteOnceResult`, `StatsSnapshot`, `RouteWiseError`, `ValidationError`, `NoProviderError`, `OutcomeError` | passes |
 | Install test | clean-environment install + import + `route_once` smoke, in CI, per release | passes locally on Python 3.10–3.14; CI workflow added |
 | Test suite | fast tests green on a clean checkout | passes locally: 640 passed, 12 explicitly skipped without optional BurstGPT data, 3 slow tests deselected |
-| CI | 3.10–3.14 matrix (pyproject declares `>=3.10` with no upper bound and 3.14 is the current feature series), lint, wheel build | workflow added with separate dependency-free and research-compatibility jobs; awaits first remote run |
+| CI | 3.10–3.14 matrix (pyproject declares `>=3.10` with no upper bound and 3.14 is the current feature series), lint, wheel build | passes on PR #13 with separate dependency-free and research-compatibility jobs |
+| PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | workflow added; PyPI publisher and GitHub environment still require one-time configuration |
 | Metadata | `version = 0.2.0`; library description; README library-first; `[project.urls]`, classifiers, SPDX license; arXiv citation resolved | partial: everything except the arXiv citation is present |
 | PyPI name | `routewise` registered by an actual upload (project page currently 404) | unconfirmed |
 | Working tree | implement from a clean worktree off `origin/main`, not the diverged local `main` | passes: `codex/api-provider-library-v1` in an isolated worktree |

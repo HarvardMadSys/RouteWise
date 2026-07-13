@@ -193,6 +193,7 @@ python tests/golden_capture.py --mode compare
 - `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
 - `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results
+- `docs/RELEASING.md`: trusted PyPI release setup and release procedure
 
 ## License
 
