@@ -5,9 +5,10 @@ here.
 
 ## 0.3.0 - Unreleased
 
-`0.3.0` replaces the experimental hosted-service SDK published as
-`routewise` `0.1.x`--`0.2.0` with RouteWise's local, dependency-free routing
-library.
+`0.3.0` is planned as the first HarvardMadSys RouteWise library release. The
+`routewise` `0.1.x`--`0.2.0` distributions currently on PyPI were published by
+an unaffiliated project and are not part of this changelog. Publication remains
+blocked until control of the PyPI distribution name is resolved.
 
 ### Added
 
@@ -19,13 +20,9 @@ library.
 - A narrow, typed wheel supporting Python 3.10--3.14 with no runtime
   dependencies.
 
-### Breaking changes
+### Package boundary
 
-- Removed the hosted-service `RouteWiseClient` execution layer. RouteWise now
-  returns a routing decision and the caller performs provider I/O.
-- Removed `AuthError` and `AllTiersFailedError` from the package surface.
-- Removed the `requests` dependency.
-- Raised the minimum supported Python version from 3.8 to 3.10.
-
-Applications that still require the hosted-service SDK must pin
-`routewise<0.3` while that service remains supported.
+- RouteWise returns a routing decision and the caller performs provider I/O.
+- The public surface deliberately excludes hosted-client symbols such as
+  `RouteWiseClient`, `AuthError`, and `AllTiersFailedError`.
+- The library has no runtime dependency and requires Python 3.10 or newer.

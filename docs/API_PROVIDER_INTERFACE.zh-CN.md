@@ -142,17 +142,20 @@ RouteWise 不是通用 LLM client（不交付任何提供商专用 SDK），不�
 ## 安装
 
 ```bash
-pip install "routewise>=0.3,<0.4"
+pip install -e .
 ```
 
-initial release（package `0.3.0`）是 API-only preview：只包含决策库本身，
-且不会导入标准库以外的任何内容。版本下限用于避开截至 `0.2.0` 以
-`routewise` 名称发布、但与本接口不兼容的 hosted-service SDK；其中的
-`RouteWiseClient` 不属于本接口。论文的完整系统还包含 quota 与 concurrency
-subscription 的定价；它们属于后续代际，因此本 release 不声称复现完整论文
-结果。execution client（`routewise[client]`，基于 httpx）和 LiteLLM
-routing-strategy plugin（`routewise[litellm]`）计划在后续 release 中作为
-可选 extra 提供；`0.3.0` 不定义任何 extra。参见“范围与路线图”。
+在 PyPI namespace 问题解决之前，只支持从 HarvardMadSys 仓库的可信 checkout
+安装。PyPI 上截至 `0.2.0`、名为 `routewise` 的 release 由无关联项目发布，
+并非本接口的旧版本；请勿为本项目安装这些版本，也不要向其提供 provider
+credential。
+
+计划中的 initial release（package `0.3.0`）是 API-only preview：只包含决策库
+本身，且不会导入标准库以外的任何内容。论文的完整系统还包含 quota 与
+concurrency subscription 的定价；它们属于后续代际，因此本 release 不声称
+复现完整论文结果。execution client（`routewise[client]`，基于 httpx）和
+LiteLLM routing-strategy plugin（`routewise[litellm]`）计划在后续 release 中
+作为可选 extra 提供；`0.3.0` 不定义任何 extra。参见“范围与路线图”。
 
 ## 完整接口
 
@@ -1126,9 +1129,9 @@ CLI 之前，console command 从 wheel 中移除。`0.3.0` 不定义任何 pip e
 | 安装测试 | 每次 release 在干净环境执行 install + import + `route_once` smoke，并纳入 CI | Python 3.10–3.14 本地通过，已加入 CI workflow |
 | 测试套件 | clean checkout 上快速测试全绿 | 本地通过：646 passed；缺少可选 BurstGPT 数据时 12 项明确 skipped；3 项 slow tests deselected |
 | CI | 3.10–3.14 矩阵（pyproject 声明 `>=3.10` 且无上限，3.14 已是当前 feature series）、lint、wheel build | PR #13 已通过，拆分 dependency-free 与 research-compatibility jobs |
-| PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | workflow 已加入；仍需一次性配置 PyPI publisher 与 GitHub environment |
+| PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | 阻塞：GitHub environment 已存在，但 PyPI `routewise` 项目由无关联 owner 控制，目前无法添加 trusted publisher |
 | 元数据 | `version = 0.3.0`；库定位 description；README library-first；`[project.urls]`、classifiers、SPDX license；arXiv 引用 | 除 arXiv 引用外均已完成 |
-| PyPI 项目/版本 | 使用团队已有的 `routewise` 项目；`0.3.0` 未占用；完成 Trusted Publisher 配置 | 项目中已有截至 `0.2.0` 的旧 hosted SDK；已上传版本不可复用，因此选择 `0.3.0`；ownership 与 publisher 配置仍需确认 |
+| PyPI 项目/版本 | 团队控制目标 distribution namespace；release 版本未占用；完成 Trusted Publisher 配置 | 阻塞：PyPI `routewise` `0.1.0`--`0.2.0` 属于另一个项目；发布前必须完成 distribution-name 转让，或明确决定改名 |
 | 工作区 | 从 `origin/main` 建干净 worktree 实现，不用分叉的本地 `main` | 通过：独立 worktree 上的 `codex/api-provider-library-v1` |
 
 以下行为属于契约，而非偶然的实现细节：primary selection 按 LP weight

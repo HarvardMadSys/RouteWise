@@ -170,14 +170,18 @@ in your process).
 ## Installation
 
 ```bash
-pip install "routewise>=0.3,<0.4"
+pip install -e .
 ```
 
-The initial release (package `0.3.0`) is an API-only preview: it contains the
-decision library alone and imports nothing outside the standard library. The
-version lower bound avoids the incompatible hosted-service SDK published as
-`routewise` through `0.2.0`; that SDK's `RouteWiseClient` is not part of this
-interface. The
+Until the PyPI namespace is resolved, installation is supported only from a
+trusted checkout of the HarvardMadSys repository. PyPI releases named
+`routewise` through `0.2.0` were published by an unaffiliated project and are
+not predecessors of this interface; do not install them for this project or
+provide them with provider credentials.
+
+The planned initial release (package `0.3.0`) is an API-only preview: it
+contains the decision library alone and imports nothing outside the standard
+library. The
 paper's full system also prices quota and concurrency subscriptions; those
 arrive in a later generation, so this release does not claim to reproduce the
 full paper results. An execution client (`routewise[client]`, httpx-based) and
@@ -1285,9 +1289,9 @@ features.
 | Install test | clean-environment install + import + `route_once` smoke, in CI, per release | passes locally on Python 3.10–3.14; CI workflow added |
 | Test suite | fast tests green on a clean checkout | passes locally: 646 passed, 12 explicitly skipped without optional BurstGPT data, 3 slow tests deselected |
 | CI | 3.10–3.14 matrix (pyproject declares `>=3.10` with no upper bound and 3.14 is the current feature series), lint, wheel build | passes on PR #13 with separate dependency-free and research-compatibility jobs |
-| PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | workflow added; PyPI publisher and GitHub environment still require one-time configuration |
+| PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | blocked: GitHub environment exists, but the `routewise` PyPI project is controlled by an unaffiliated owner and no trusted publisher can be added yet |
 | Metadata | `version = 0.3.0`; library description; README library-first; `[project.urls]`, classifiers, SPDX license; arXiv citation resolved | partial: everything except the arXiv citation is present |
-| PyPI project/version | existing team-owned `routewise` project; unused `0.3.0`; Trusted Publisher configured | project contains the legacy hosted SDK through `0.2.0`; `0.3.0` is selected because uploaded versions cannot be reused; ownership and publisher setup still require confirmation |
+| PyPI project/version | team controls the intended distribution namespace; unused release version; Trusted Publisher configured | blocked: PyPI `routewise` `0.1.0`--`0.2.0` belong to another project; distribution-name transfer or an explicit rename decision is required before release |
 | Working tree | implement from a clean worktree off `origin/main`, not the diverged local `main` | passes: `codex/api-provider-library-v1` in an isolated worktree |
 
 Behaviors that are contractual, not incidental: primary selection samples from

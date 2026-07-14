@@ -8,9 +8,13 @@ the repository must not store a long-lived PyPI API token.
 
 1. Create the GitHub environment `pypi`. Restrict deployments to version tags
    and add required reviewers so the publish job needs explicit approval.
-2. Confirm that the release maintainers can manage the existing `routewise`
-   project on PyPI. In that project's **Publishing** settings, add a GitHub
-   Actions trusted publisher with these exact values:
+2. Resolve control of the `routewise` distribution name. The releases currently
+   on PyPI (`0.1.0`--`0.2.0`) belong to an unaffiliated project; they were not
+   published by HarvardMadSys. Do not tag or publish a release while the name
+   remains outside the team's control.
+3. After the project is transferred to a team-controlled PyPI account, add a
+   GitHub Actions trusted publisher in its **Publishing** settings with these
+   exact values:
 
    - PyPI project: `routewise`
    - GitHub owner: `HarvardMadSys`
@@ -18,18 +22,16 @@ the repository must not store a long-lived PyPI API token.
    - Workflow: `release.yml`
    - Environment: `pypi`
 
-The project already exists because `0.1.0` through `0.2.0` were uploaded as an
-experimental hosted-service SDK. Do not create a pending publisher. The
-publish job intentionally has only `id-token: write`; no `PYPI_TOKEN` secret
-is read or required.
-
-After the first Trusted Publishing release succeeds, revoke the long-lived
-PyPI token used for the manual legacy uploads. Do not delete the legacy
-releases: applications may still depend on them, and PyPI version numbers
-cannot be reused. If the hosted SDK is no longer safe or supported, yank those
-versions with a migration reason after `0.3.0` is available.
+Do not create a pending publisher for `routewise` while the existing project
+occupies that name. The publish job intentionally has only `id-token: write`;
+no `PYPI_TOKEN` secret is read or required. Decisions about the unaffiliated
+releases (preserve, yank, or remove) must be made with PyPI and the current
+owner during transfer; they are not legacy releases of this codebase.
 
 ## Release procedure
+
+Do not begin this procedure until the PyPI namespace notice above is resolved
+and the trusted publisher is visible in the team-controlled project settings.
 
 1. Merge a version-bump PR after the package workflow is green. Update both
    `project.version` in `pyproject.toml` and `routewise.__version__`.
@@ -41,9 +43,9 @@ versions with a migration reason after `0.3.0` is available.
    git push origin v0.3.0
    ```
 
-3. Create a draft GitHub Release for that existing tag, review its notes, and
-   make the `0.1.x`--`0.2.0` hosted-SDK to `0.3.0` local-library break
-   prominent:
+3. Create a draft GitHub Release for that existing tag and review its notes.
+   Describe `0.3.0` as the first official HarvardMadSys RouteWise package; do
+   not describe the unaffiliated PyPI releases as predecessors or a migration:
 
    ```bash
    gh release create v0.3.0 --verify-tag --generate-notes --draft

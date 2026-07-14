@@ -5,15 +5,17 @@ routing across multiple LLM API providers. You supply provider prices and
 dispatch the returned attempt with your own HTTP or SDK client; RouteWise
 learns from the outcomes you report.
 
-Package `0.3.0` is an API-provider-only preview. The repository also contains
-the simulator and experiment harnesses used by the paper, but those research
-packages are deliberately not included in the wheel.
+The planned package `0.3.0` is an API-provider-only preview. The repository
+also contains the simulator and experiment harnesses used by the paper, but
+those research packages are deliberately not included in the wheel.
 
-> **Breaking package transition:** PyPI releases through `0.2.0` contain an
-> earlier hosted-service HTTP SDK. Starting with `0.3.0`, `routewise` is the
-> local routing library documented here: it performs no network I/O, has no
-> runtime dependencies, and no longer exports `RouteWiseClient`, `AuthError`,
-> or `AllTiersFailedError`.
+> **PyPI namespace notice:** The `routewise` releases currently present on
+> PyPI (`0.1.0`--`0.2.0`) were published by an unaffiliated project. They are
+> not HarvardMadSys RouteWise releases and are not an earlier version of this
+> library. In particular, that package sends credentials to a hosted service
+> that HarvardMadSys does not operate. Do not install it for this project or
+> provide it with provider API keys. The first official PyPI release is blocked
+> until ownership of the distribution name is resolved.
 
 ## Requirements
 
@@ -22,18 +24,18 @@ packages are deliberately not included in the wheel.
 
 ## Installation
 
-Install the local routing library from PyPI:
+Until the PyPI namespace is resolved, install the local routing library from a
+trusted checkout of this repository:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install "routewise>=0.3,<0.4"
+python -m pip install -e .
 ```
 
-The lower bound is intentional: installing an older release selects the
-incompatible hosted-service SDK. To develop from a source checkout instead,
-use `python -m pip install -e .` for the library alone or `uv sync` for the
-full research environment.
+Use `uv sync` instead when you also need the full research environment. Do not
+use `pip install routewise` until an official release is linked from this
+repository.
 
 The base install exposes the public facade directly from `routewise`:
 
@@ -76,14 +78,13 @@ For full repository development, including the research harnesses, use
 environments created under the old `routewise-simulator` name should be
 reinstalled.
 
-### Upgrading from the hosted-service SDK
+### PyPI namespace status
 
-`0.3.0` is a deliberate API break from the `0.1.x`--`0.2.0` HTTP client. Code
-that imports `RouteWiseClient` must either migrate to `Router` and dispatch the
-returned `Attempt` with its own provider SDK, or temporarily pin
-`routewise<0.3` while the old service remains supported. Upgrading removes the
-`requests` runtime dependency and raises the minimum Python version from 3.8
-to 3.10.
+There is no supported migration path from PyPI `routewise` `0.1.x`--`0.2.0`:
+those releases belong to a different project. HarvardMadSys RouteWise performs
+no provider network I/O and never receives your provider credentials. If you
+installed the unaffiliated package and supplied provider keys, rotate those
+keys before continuing.
 
 ## Data
 
