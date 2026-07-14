@@ -364,7 +364,7 @@ class Router:
                 exploration_q = 0.0
                 reason = "latency_optimized_lp"
                 if target is not None:
-                    if costs[target] <= budget or math.isclose(costs[target], c_min):
+                    if costs[target] <= budget:
                         exploration_q = 1.0
                     elif costs[target] > c_min:
                         exploration_q = max(

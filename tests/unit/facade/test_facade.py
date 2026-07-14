@@ -163,6 +163,25 @@ def test_exploration_q_zero_is_plain_lp_without_a_lease_or_counter() -> None:
     assert router.stats().exploration == {"decisions": 0, "target_selected": 0}
 
 
+def test_near_equal_exploration_cost_does_not_cross_a_strict_budget() -> None:
+    router = Router(
+        [
+            Provider("cheap", 1.0, 1.0),
+            Provider("near_equal", 1.0000000005, 1.0000000005),
+        ],
+        seed=1,
+    )
+    _warm(router, "cheap", 100.0)
+
+    decision = router.route(input_tokens=10, alpha=0.0)
+
+    assert decision.provider == "cheap"
+    assert decision.weights == {"cheap": 1.0}
+    assert decision.expected_cost_usd <= decision.trace["budget_usd"]
+    assert decision.trace["reason"] == "latency_optimized_lp"
+    assert "exploration_target" not in decision.trace
+
+
 def test_partial_exploration_mixture_respects_the_request_budget() -> None:
     router = Router(
         [Provider("cheap", 1.0, 1.0), Provider("expensive", 3.0, 3.0)],
