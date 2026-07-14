@@ -1124,7 +1124,7 @@ CLI 之前，console command 从 wheel 中移除。`0.3.0` 不定义任何 pip e
 | 类型标记 | wheel 内含 `py.typed` | 通过 |
 | 顶层导出 | 恰好导出 `Provider`、`Router`、`Decision`、`Attempt`、`Tuning`、`Candidate`、`route_once`、`RouteOnceResult`、`StatsSnapshot`、`RouteWiseError`、`ValidationError`、`NoProviderError`、`OutcomeError` | 通过 |
 | 安装测试 | 每次 release 在干净环境执行 install + import + `route_once` smoke，并纳入 CI | Python 3.10–3.14 本地通过，已加入 CI workflow |
-| 测试套件 | clean checkout 上快速测试全绿 | 本地通过：640 passed；缺少可选 BurstGPT 数据时 12 项明确 skipped；3 项 slow tests deselected |
+| 测试套件 | clean checkout 上快速测试全绿 | 本地通过：646 passed；缺少可选 BurstGPT 数据时 12 项明确 skipped；3 项 slow tests deselected |
 | CI | 3.10–3.14 矩阵（pyproject 声明 `>=3.10` 且无上限，3.14 已是当前 feature series）、lint、wheel build | PR #13 已通过，拆分 dependency-free 与 research-compatibility jobs |
 | PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | workflow 已加入；仍需一次性配置 PyPI publisher 与 GitHub environment |
 | 元数据 | `version = 0.3.0`；库定位 description；README library-first；`[project.urls]`、classifiers、SPDX license；arXiv 引用 | 除 arXiv 引用外均已完成 |
