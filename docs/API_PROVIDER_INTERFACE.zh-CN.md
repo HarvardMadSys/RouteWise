@@ -1,7 +1,7 @@
 # RouteWise 库接口
 
 > 状态：已实现的设计提案，第 5 次修订（2026-07-12），等待 Juncheng 做最终
-> 契约评审。范围仅限 API 提供商；initial release（package `0.2.0`）是论文
+> 契约评审。范围仅限 API 提供商；initial release（package `0.3.0`）是论文
 > 系统的 **API-only preview**。第 5 次修订直接构建在具备 capacity 意识的
 > 第 4 版之上：完整保留该版的 capacity 扩展接缝，并加入 GO/NO-GO 评审轮
 > 的各项决定——补全的 attempt 状态机（`declined`、adoption 与结果分离、
@@ -9,10 +9,10 @@
 > 可注入 monotonic clock 的 observation、`kind`/`code` 错误模型、冻结的
 > 公开签名与校验，以及 release-gate 表。下文的 `Router`、`Decision`、
 > `Attempt` 和 `route_once` 接口现已在 `codex/api-provider-library-v1` 上完成
-> 原型实现，包括表 A/表 B。公共 API 冻结与 `0.2.0` 发布，以其余开放问题
+> 原型实现，包括表 A/表 B。公共 API 冻结与 `0.3.0` 发布，以其余开放问题
 > 全部关闭且 release gates 通过为准。它们所依赖的数学原语目前已经存在，
 > 并记录在 [CORE_API.md](CORE_API.md) 中。本文档将该接口
-> 命名为“API v1”；首次交付它的 package 版本是 `0.2.0`，关于 `1.0.0` 的
+> 命名为“API v1”；首次交付它的 package 版本是 `0.3.0`，关于 `1.0.0` 的
 > 任何讨论，都要等冻结后的 API 经过公开使用检验再说。
 
 ## 相比第 1 版的变化（截至第 4 版）
@@ -53,14 +53,14 @@
 13. 明确 packaging 契约：wheel 仅交付库本身，包含 `py.typed` 和固定的
     顶层导出列表。
 14. `Client` 和 LiteLLM plugin 移至后续 release；initial release
-    （`0.2.0`）只交付无依赖的 `Router`。等待 Juncheng 签字确认。
+    （`0.3.0`）只交付无依赖的 `Router`。等待 Juncheng 签字确认。
 15. v2 subscription 路线图不再承诺接口保持不变；capacity reservation
     会增加交互。`routewise.core` 仍是高级扩展接缝。
 16. 披露 output-length estimator 的精确 fallback cascade（bucket 样本达到
     5 条后使用 bucket mean，global 样本达到 20 条后使用 global mean，
     二者均未达到前使用 500 tokens），因为它要在任何结果到达之前为请求定价。
 17. initial implementation 会预留一个内部 capacity transaction 接缝，
-    `0.2.0` 中仅由 no-op API controller 实现。Capacity admission 与 L/U
+    `0.3.0` 中仅由 no-op API controller 实现。Capacity admission 与 L/U
     scarcity pricing 分离，也与 `routewise.core` 消费的纯 `ProviderView`
     分离；目前不导出任何 capacity API。
 
@@ -93,7 +93,7 @@
    `unsettled_attempts` 拥有显式的增加与减少规则。per-provider 支出包含
    backup attempt；`hedges.*_spend_usd` 是同一笔钱的交叉切片，绝不能与
    前者相加。
-6. `observe()` 在 `0.2.0` 中去掉 `at=`：所有 observation 都由 router 的
+6. `observe()` 在 `0.3.0` 中去掉 `at=`：所有 observation 都由 router 的
    可注入 monotonic clock（`Router(clock=)`）盖“现在”戳。历史 bootstrap
    将成为以后独立的 API，而不是把两套时钟塞进同一个参数。
 7. `failed(kind=..., code=...)` 取代字符串 taxonomy。行为只由 `kind`
@@ -122,8 +122,8 @@
     hedging 前必须由 facade 兜底或修复 core。
 13. router 不持有任何未终结 handle 的强引用；attempt 状态存放在 handle
     上，router 侧残留以 exploration lease 超时加上任何未关闭的 capacity
-    reservation（`0.2.0` 中为 no-op）为上界。
-14. `0.2.0` 定名为 API-only preview。论文的主要结果包含 quota 与
+    reservation（`0.3.0` 中为 no-op）为上界。
+14. `0.3.0` 定名为 API-only preview。论文的主要结果包含 quota 与
     concurrency 路由，因此本 release 不声称复现完整论文。
 
 ## RouteWise 是什么
@@ -142,15 +142,17 @@ RouteWise 不是通用 LLM client（不交付任何提供商专用 SDK），不�
 ## 安装
 
 ```bash
-pip install routewise
+pip install "routewise>=0.3,<0.4"
 ```
 
-initial release（package `0.2.0`）是 API-only preview：只包含决策库本身，
-且不会导入标准库以外的任何内容。论文的完整系统还包含 quota 与 concurrency
+initial release（package `0.3.0`）是 API-only preview：只包含决策库本身，
+且不会导入标准库以外的任何内容。版本下限用于避开截至 `0.2.0` 以
+`routewise` 名称发布、但与本接口不兼容的 hosted-service SDK；其中的
+`RouteWiseClient` 不属于本接口。论文的完整系统还包含 quota 与 concurrency
 subscription 的定价；它们属于后续代际，因此本 release 不声称复现完整论文
 结果。execution client（`routewise[client]`，基于 httpx）和 LiteLLM
 routing-strategy plugin（`routewise[litellm]`）计划在后续 release 中作为
-可选 extra 提供；`0.2.0` 不定义任何 extra。参见“范围与路线图”。
+可选 extra 提供；`0.3.0` 不定义任何 extra。参见“范围与路线图”。
 
 ## 完整接口
 
@@ -318,7 +320,7 @@ backup.completed(output_tokens=540, adopted=True)
 5. `route()` 上的手动 `exclude=` 不会改变任何提供商状态。
 6. router 不持有任何未终结 handle 的强引用：attempt 状态存放在 handle 上，
    router 只保留聚合值、exploration lease 表和任何未关闭的 capacity
-   reservation（`0.2.0` 中为 no-op）；被丢弃的 handle 会被垃圾回收，router
+   reservation（`0.3.0` 中为 no-op）；被丢弃的 handle 会被垃圾回收，router
    侧残留不超过上述上界。
 
 ## 保持 Profile 新鲜
@@ -402,7 +404,7 @@ TTFT 样本并重置 failure streak；失败遵循与 `failed()` 相同的 `kind
 模型，因此 health failure 会增加一条 penalty 样本并推进 cooldown。请自行选择要
 上报的内容：production sidecar 会丢弃失败的 probe，而不是上报，因为与真实请求
 反馈相比，失败的 probe 证据较弱；希望采用相同策略的 probe loop 只上报成功。
-每条 observation 都由 router 的时钟盖“现在”戳；`0.2.0` 中没有 `at=`，因此暂不
+每条 observation 都由 router 的时钟盖“现在”戳；`0.3.0` 中没有 `at=`，因此暂不
 支持携带原始时间戳的历史 replay。bootstrap 的方式是把近期测量按当前数据重放；
 专门的历史导入 API 可以以后再加，而不必把两套时钟域塞进同一个参数。当前的两类
 用途：定期 out-of-band probe（只需几行你自己的调度代码），以及通过重放 peer
@@ -701,7 +703,7 @@ calculated cost 一律按 snapshot 计算。每次上报调用先整体校验，
 | profile window（`window_min`） | 当前公开操作的唯一 `now` | 超窗样本退出 mean/CDF |
 | cooldown（`cooldown_sec`） | 当前公开操作的唯一 `now` | 到期恢复资格；成功重置 streak |
 | exploration lease（`exploration_lease_sec`） | 当前公开操作的唯一 `now` | 由 target 的首个 window event 或到期释放，先到先生效 |
-| `observe()` 时间戳 | 当前公开操作的唯一 `now` | 一律“现在”；`0.2.0` 无 `at=` |
+| `observe()` 时间戳 | 当前公开操作的唯一 `now` | 一律“现在”；`0.3.0` 无 `at=` |
 | `hedge_now(elapsed_ms=)` | 每次调用读取一次，供其全部检查共用 | `elapsed_ms` 由调用方以 primary 派发时刻为基准测量；该操作的 `now` 用于 profile、cooldown 和 eligibility 查询 |
 
 | 路径 | profile | failure streak | stats |
@@ -892,7 +894,7 @@ offer 和你的上报，绝不声称观察到 dispatch。library 引入的每一
 ## 范围与路线图
 
 订阅式 provider（预付费请求配额、预留并发 slot）是 RouteWise 算法的另一半，
-也是计划中的 v2 扩展；论文的主要结果依赖它们，这正是 `0.2.0` 定名为
+也是计划中的 v2 扩展；论文的主要结果依赖它们，这正是 `0.3.0` 定名为
 API-only preview 而非论文 artifact 的原因。相关定价数学已经存在于
 `routewise.core` 中（quota shadow
 price 及其 L/U scarcity calibration）。v2 无法回避的是 capacity lifecycle：
@@ -938,7 +940,7 @@ hedge reserve failure 会在同一次 `hedge_now()` 调用内处理：facade 临
 slot 才会被消耗。如果全部失败，`hedge_now()` 返回 `None`，以一份新的不可变
 `decision.trace` snapshot 发布 capacity exclusion，且不消耗 slot。
 
-initial `0.2.0` public surface 仍然仅支持 API，不暴露
+initial `0.3.0` public surface 仍然仅支持 API，不暴露
 `CapacityController`、`Reservation` 或 `Attempt.started()`。但它会通过
 `_NoopCapacityController` 走同一套私有 orchestration，使后续 capacity release
 可以增加实现和 dispatch 交互，而无需重写 `Router`。当 capacity-backed provider
@@ -958,8 +960,8 @@ peer 的测量值，是当前的临时共享机制。端到端 latency objective
 
 以下问题会阻止契约冻结。
 
-1. `Client` 是随 initial release（`0.2.0`）发布，还是推迟到后续版本？当前
-   草案选择推迟。如果移入 `0.2.0`，契约还必须把 `base_url` 和
+1. `Client` 是随 initial release（`0.3.0`）发布，还是推迟到后续版本？当前
+   草案选择推迟。如果移入 `0.3.0`，契约还必须把 `base_url` 和
    `api_key` 加入 `Provider`，在顶层导出 `Client`，并在安装接口
    中定义 HTTP 可选依赖。（Juncheng）
 2. `failed()`/`observe()` 的推荐 `code` 清单（行为已由 `kind` 定死；该清单
@@ -987,7 +989,7 @@ peer 的测量值，是当前的临时共享机制。端到端 latency objective
     `routewise.metrics`，以及共享研究契约 `routewise.capacity` 与
     `routewise.schemas`），还是只交付 facade 与 core（表 E 起草了窄
     allowlist）？排除它们能守住“只装库本身”的承诺；保留它们会增大体积，
-    但能让研究用户免于 source checkout。保留还会击穿“`0.2.0` 零 extras”
+    但能让研究用户免于 source checkout。保留还会击穿“`0.3.0` 零 extras”
     的立场：研究子包会引入科学计算依赖，因此需要一个 `[sim]` 式的 extra，
     或重新定义依赖策略。
 
@@ -1095,7 +1097,7 @@ facade 层：
    因此 router 不保留任何强引用。
 7. 私有 capacity seam、no-op controller、reservation 状态机和有界
    reserve/replan 循环都是新的 facade orchestration。它们不会进入
-   `routewise.core`，这些 capacity Protocol 也不属于 `0.2.0` compatibility
+   `routewise.core`，这些 capacity Protocol 也不属于 `0.3.0` compatibility
    surface。
 8. 当前实现分支中的 `combined_success_probability` 已应用规定的
    survival-zero fallback（只按 backup 的成功概率计算），并有 core
@@ -1110,23 +1112,23 @@ wheel allowlist（freeze candidate，以 installed-wheel import test 为最终
 `routewise.offline`、`routewise.metrics`。开放问题 10 尚未关闭，因此当前
 preview build 暂时保留两个仅依赖标准库的共享契约 `routewise.capacity` 与
 `routewise.schemas`。
-`[project.scripts]` 的 CLI entry point 不进入 `0.2.0`：当前
+`[project.scripts]` 的 CLI entry point 不进入 `0.3.0`：当前
 `routewise_cli.main` 在模块顶层导入 `experiments`，因此在出现 library-only
-CLI 之前，console command 从 wheel 中移除。`0.2.0` 不定义任何 pip extra；
+CLI 之前，console command 从 wheel 中移除。`0.3.0` 不定义任何 pip extra；
 `[client]` 与 `[litellm]` 随其功能一同到来。
 
 | 发布门 | 要求 | 当前状态 |
 | --- | --- | --- |
 | wheel 内容 | 按上述 allowlist；不含 experiments、CLI 或数据 | 本地通过：25 个条目，精确 member 检查通过 |
-| console script | `0.2.0` 不携带 | 通过：entry point 已移除，source CLI 仅供仓库使用 |
+| console script | `0.3.0` 不携带 | 通过：entry point 已移除，source CLI 仅供仓库使用 |
 | 类型标记 | wheel 内含 `py.typed` | 通过 |
 | 顶层导出 | 恰好导出 `Provider`、`Router`、`Decision`、`Attempt`、`Tuning`、`Candidate`、`route_once`、`RouteOnceResult`、`StatsSnapshot`、`RouteWiseError`、`ValidationError`、`NoProviderError`、`OutcomeError` | 通过 |
 | 安装测试 | 每次 release 在干净环境执行 install + import + `route_once` smoke，并纳入 CI | Python 3.10–3.14 本地通过，已加入 CI workflow |
 | 测试套件 | clean checkout 上快速测试全绿 | 本地通过：640 passed；缺少可选 BurstGPT 数据时 12 项明确 skipped；3 项 slow tests deselected |
 | CI | 3.10–3.14 矩阵（pyproject 声明 `>=3.10` 且无上限，3.14 已是当前 feature series）、lint、wheel build | PR #13 已通过，拆分 dependency-free 与 research-compatibility jobs |
 | PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | workflow 已加入；仍需一次性配置 PyPI publisher 与 GitHub environment |
-| 元数据 | `version = 0.2.0`；库定位 description；README library-first；`[project.urls]`、classifiers、SPDX license；arXiv 引用 | 除 arXiv 引用外均已完成 |
-| PyPI 名称 | 以一次真实上传确认 `routewise` 注册成功（项目页当前 404） | 未确认 |
+| 元数据 | `version = 0.3.0`；库定位 description；README library-first；`[project.urls]`、classifiers、SPDX license；arXiv 引用 | 除 arXiv 引用外均已完成 |
+| PyPI 项目/版本 | 使用团队已有的 `routewise` 项目；`0.3.0` 未占用；完成 Trusted Publisher 配置 | 项目中已有截至 `0.2.0` 的旧 hosted SDK；已上传版本不可复用，因此选择 `0.3.0`；ownership 与 publisher 配置仍需确认 |
 | 工作区 | 从 `origin/main` 建干净 worktree 实现，不用分叉的本地 `main` | 通过：独立 worktree 上的 `codex/api-provider-library-v1` |
 
 以下行为属于契约，而非偶然的实现细节：primary selection 按 LP weight

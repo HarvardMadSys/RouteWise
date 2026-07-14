@@ -2,7 +2,7 @@
 
 > Status: implemented design proposal, revision 5 (2026-07-12), awaiting
 > Juncheng's final contract review. Scoped to API providers only; the initial release
-> (package `0.2.0`) is an **API-only preview** of the paper's system. Revision
+> (package `0.3.0`) is an **API-only preview** of the paper's system. Revision
 > 5 is built directly on the capacity-aware revision 4: it keeps that
 > revision's capacity extension seam intact and adds the decisions from the
 > GO/NO-GO review round: a completed attempt state machine (`declined`,
@@ -12,10 +12,10 @@
 > validation, and the release-gate table. The `Router`, `Decision`,
 > `Attempt`, and `route_once` surfaces below now have a prototype
 > implementation on `codex/api-provider-library-v1`, including Tables A and B.
-> The public API freezes, and `0.2.0` ships, only after the remaining open
+> The public API freezes, and `0.3.0` ships, only after the remaining open
 > questions close and the release gates pass. The math primitives they build on are
 > documented in [CORE_API.md](CORE_API.md). This document names the interface
-> "API v1"; the package that first ships it is `0.2.0`, and any `1.0.0`
+> "API v1"; the package that first ships it is `0.3.0`, and any `1.0.0`
 > discussion waits until the frozen API has baked in public.
 
 ## Changes from Revision 1 (through Revision 4)
@@ -64,7 +64,7 @@
 13. The packaging contract is stated: the wheel ships the library alone,
     with `py.typed` and a fixed top-level export list.
 14. `Client` and the LiteLLM plugin move to a later release; the initial
-    release (`0.2.0`) ships the dependency-free `Router` only. Pending
+    release (`0.3.0`) ships the dependency-free `Router` only. Pending
     Juncheng's sign-off.
 15. The v2 subscription roadmap no longer promises an unchanged interface;
     capacity reservation will add interactions. `routewise.core` remains the
@@ -74,7 +74,7 @@
     before either) is disclosed, since it prices requests before any
     outcome arrives.
 17. The initial implementation reserves an internal capacity-transaction
-    seam, backed only by a no-op API controller in `0.2.0`. Capacity admission
+    seam, backed only by a no-op API controller in `0.3.0`. Capacity admission
     stays separate from L/U scarcity pricing and from the pure `ProviderView`
     consumed by `routewise.core`; no capacity API is exported yet.
 
@@ -110,7 +110,7 @@
    `unsettled_attempts` has explicit increment and decrement rules.
    Per-provider spend includes backup attempts; `hedges.*_spend_usd` is a
    cross-slice of the same money and must not be added to it.
-6. `observe()` loses `at=` in `0.2.0`: every observation is stamped "now" by
+6. `observe()` loses `at=` in `0.3.0`: every observation is stamped "now" by
    the router's injectable monotonic clock (`Router(clock=)`). Historical
    bootstrap becomes a separate later API rather than a second clock inside
    one parameter.
@@ -146,8 +146,8 @@
 13. The router holds no strong references to outstanding handles; attempt
     state lives on the handles, and router-side residue is bounded by the
     exploration lease timeout plus any open capacity reservations (no-op in
-    `0.2.0`).
-14. `0.2.0` is named an API-only preview. The paper's headline results
+    `0.3.0`).
+14. `0.3.0` is named an API-only preview. The paper's headline results
     include quota and concurrency routing, so this release does not claim
     to reproduce the full paper.
 
@@ -170,16 +170,19 @@ in your process).
 ## Installation
 
 ```bash
-pip install routewise
+pip install "routewise>=0.3,<0.4"
 ```
 
-The initial release (package `0.2.0`) is an API-only preview: it contains the
+The initial release (package `0.3.0`) is an API-only preview: it contains the
 decision library alone and imports nothing outside the standard library. The
+version lower bound avoids the incompatible hosted-service SDK published as
+`routewise` through `0.2.0`; that SDK's `RouteWiseClient` is not part of this
+interface. The
 paper's full system also prices quota and concurrency subscriptions; those
 arrive in a later generation, so this release does not claim to reproduce the
 full paper results. An execution client (`routewise[client]`, httpx-based) and
 a LiteLLM routing-strategy plugin (`routewise[litellm]`) are planned as
-optional extras for a later release; `0.2.0` defines no extras. See Scope and
+optional extras for a later release; `0.3.0` defines no extras. See Scope and
 Roadmap.
 
 ## The Whole Interface
@@ -371,7 +374,7 @@ backup.completed(output_tokens=540, adopted=True)
 6. The router holds no strong reference to any outstanding handle: attempt
    state lives on the handle, the router keeps only aggregates, the
    exploration lease table, and any open capacity reservations (no-op in
-   `0.2.0`), and a dropped handle is garbage-collected with no router-side
+   `0.3.0`), and a dropped handle is garbage-collected with no router-side
    residue beyond those bounds.
 
 ## Keeping Profiles Fresh
@@ -476,7 +479,7 @@ the production sidecar drops failed probes rather than reporting them,
 because a failed probe is weak evidence next to real-request feedback, and a
 probe loop that wants the same policy reports successes only. Every
 observation is stamped "now" by the router's clock; there is no `at=` in
-`0.2.0`, so replaying history with original timestamps is not supported yet.
+`0.3.0`, so replaying history with original timestamps is not supported yet.
 Bootstrap by replaying recent measurements as current ones; a dedicated
 history-import API can come later without putting two clock domains inside
 one parameter. Two uses today: periodic out-of-band probes (a few lines of
@@ -820,7 +823,7 @@ added to provider spend.
 | Profile window (`window_min`) | the current operation's single `now` | samples older than the window fall out of mean/CDF |
 | Cooldown (`cooldown_sec`) | the current operation's single `now` | expiry restores eligibility; success resets the streak |
 | Exploration lease (`exploration_lease_sec`) | the current operation's single `now` | released by the target's first window event or expiry, whichever first |
-| `observe()` stamp | the current operation's single `now` | always "now"; no `at=` in `0.2.0` |
+| `observe()` stamp | the current operation's single `now` | always "now"; no `at=` in `0.3.0` |
 | `hedge_now(elapsed_ms=...)` | one reading per call, shared by all its checks | `elapsed_ms` is caller-measured from primary dispatch; the operation's `now` timestamps the profile, cooldown, and eligibility lookups |
 
 | Path | Profile | Failure streak | Stats |
@@ -1025,7 +1028,7 @@ outstanding handles, and reads one injectable monotonic clock.
 
 Subscription-style providers (prepaid request quotas, reserved concurrency
 slots) are the second half of the RouteWise algorithm and the planned v2
-extension; the paper's headline results depend on them, which is why `0.2.0`
+extension; the paper's headline results depend on them, which is why `0.3.0`
 is named an API-only preview rather than a paper artifact. Their pricing
 mathematics already exists in `routewise.core` (the quota shadow price and
 its L/U scarcity calibration). What v2 cannot avoid is capacity lifecycle: a
@@ -1080,7 +1083,7 @@ The one-backup slot is consumed only after one reservation succeeds and an
 publishes the capacity exclusions in a fresh immutable `decision.trace`
 snapshot, and consumes no slot.
 
-The initial `0.2.0` public surface remains API-only and does not expose
+The initial `0.3.0` public surface remains API-only and does not expose
 `CapacityController`, `Reservation`, or `Attempt.started()`. It nevertheless
 uses the same private orchestration with `_NoopCapacityController`, so a later
 capacity release can add implementations and dispatch interactions instead of
@@ -1102,8 +1105,8 @@ RouteWise routes a fixed model across providers.
 
 These block the contract freeze.
 
-1. Does `Client` ship in the initial release (`0.2.0`) or a later one? The
-   draft defers it. If it moves into `0.2.0`, the contract must also add
+1. Does `Client` ship in the initial release (`0.3.0`) or a later one? The
+   draft defers it. If it moves into `0.3.0`, the contract must also add
    `base_url` and `api_key` to `Provider`, export `Client` at the top level,
    and define the HTTP optional dependency in the installation surface.
    (Juncheng)
@@ -1138,7 +1141,7 @@ These block the contract freeze.
     facade and core alone (Table E drafts the narrow allowlist)? Excluding
     them keeps the "library alone" promise; keeping them costs size but
     spares research users a source checkout. Keeping them also breaks the
-    "`0.2.0` defines no extras" stance: the research subpackages pull
+    "`0.3.0` defines no extras" stance: the research subpackages pull
     scientific dependencies, so they would need a `[sim]`-style extra or a
     redefined dependency policy.
 
@@ -1252,7 +1255,7 @@ the last:
    references.
 7. The private capacity seam, no-op controller, reservation state machine, and
    bounded reserve/replan loop are new facade orchestration. They stay out of
-   `routewise.core`, and the capacity Protocols are not part of the `0.2.0`
+   `routewise.core`, and the capacity Protocols are not part of the `0.3.0`
    compatibility surface.
 8. `combined_success_probability` on this implementation branch now applies
    the specified survival-zero fallback (backup-only probability); a focused
@@ -1267,24 +1270,24 @@ preview build provisionally retains the stdlib-only shared contracts
 `routewise.capacity` and `routewise.schemas` while Open Question 10 remains
 open. It excludes `experiments/`, `plots/`, `scripts/`, all data files, and
 the research subpackages `routewise.sim`, `routewise.offline`, and
-`routewise.metrics`. The `[project.scripts]` CLI entry point does not ship in `0.2.0`:
+`routewise.metrics`. The `[project.scripts]` CLI entry point does not ship in `0.3.0`:
 the current `routewise_cli.main` imports `experiments` at module top, so the
 console command is removed from the wheel until a library-only CLI exists.
-`0.2.0` defines no pip extras; `[client]` and `[litellm]` arrive with their
+`0.3.0` defines no pip extras; `[client]` and `[litellm]` arrive with their
 features.
 
 | Release gate | Requirement | Status today |
 | --- | --- | --- |
 | Wheel contents | allowlist above; no experiments, CLI, or data | passes locally: 25 entries; exact-member checker green |
-| Console script | absent from `0.2.0` | passes: entry point removed; source CLI is repository-only |
+| Console script | absent from `0.3.0` | passes: entry point removed; source CLI is repository-only |
 | Type marker | `py.typed` in the wheel | passes |
 | Exports | top level exports exactly `Provider`, `Router`, `Decision`, `Attempt`, `Tuning`, `Candidate`, `route_once`, `RouteOnceResult`, `StatsSnapshot`, `RouteWiseError`, `ValidationError`, `NoProviderError`, `OutcomeError` | passes |
 | Install test | clean-environment install + import + `route_once` smoke, in CI, per release | passes locally on Python 3.10–3.14; CI workflow added |
 | Test suite | fast tests green on a clean checkout | passes locally: 640 passed, 12 explicitly skipped without optional BurstGPT data, 3 slow tests deselected |
 | CI | 3.10–3.14 matrix (pyproject declares `>=3.10` with no upper bound and 3.14 is the current feature series), lint, wheel build | passes on PR #13 with separate dependency-free and research-compatibility jobs |
 | PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | workflow added; PyPI publisher and GitHub environment still require one-time configuration |
-| Metadata | `version = 0.2.0`; library description; README library-first; `[project.urls]`, classifiers, SPDX license; arXiv citation resolved | partial: everything except the arXiv citation is present |
-| PyPI name | `routewise` registered by an actual upload (project page currently 404) | unconfirmed |
+| Metadata | `version = 0.3.0`; library description; README library-first; `[project.urls]`, classifiers, SPDX license; arXiv citation resolved | partial: everything except the arXiv citation is present |
+| PyPI project/version | existing team-owned `routewise` project; unused `0.3.0`; Trusted Publisher configured | project contains the legacy hosted SDK through `0.2.0`; `0.3.0` is selected because uploaded versions cannot be reused; ownership and publisher setup still require confirmation |
 | Working tree | implement from a clean worktree off `origin/main`, not the diverged local `main` | passes: `codex/api-provider-library-v1` in an isolated worktree |
 
 Behaviors that are contractual, not incidental: primary selection samples from

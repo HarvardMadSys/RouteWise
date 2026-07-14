@@ -5,9 +5,15 @@ routing across multiple LLM API providers. You supply provider prices and
 dispatch the returned attempt with your own HTTP or SDK client; RouteWise
 learns from the outcomes you report.
 
-Package `0.2.0` is an API-provider-only preview. The repository also contains
+Package `0.3.0` is an API-provider-only preview. The repository also contains
 the simulator and experiment harnesses used by the paper, but those research
 packages are deliberately not included in the wheel.
+
+> **Breaking package transition:** PyPI releases through `0.2.0` contain an
+> earlier hosted-service HTTP SDK. Starting with `0.3.0`, `routewise` is the
+> local routing library documented here: it performs no network I/O, has no
+> runtime dependencies, and no longer exports `RouteWiseClient`, `AuthError`,
+> or `AllTiersFailedError`.
 
 ## Requirements
 
@@ -16,11 +22,18 @@ packages are deliberately not included in the wheel.
 
 ## Installation
 
+Install the local routing library from PyPI:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install "routewise>=0.3,<0.4"
 ```
+
+The lower bound is intentional: installing an older release selects the
+incompatible hosted-service SDK. To develop from a source checkout instead,
+use `python -m pip install -e .` for the library alone or `uv sync` for the
+full research environment.
 
 The base install exposes the public facade directly from `routewise`:
 
@@ -62,6 +75,15 @@ For full repository development, including the research harnesses, use
 `uv sync`. The distribution name is `routewise`; existing editable
 environments created under the old `routewise-simulator` name should be
 reinstalled.
+
+### Upgrading from the hosted-service SDK
+
+`0.3.0` is a deliberate API break from the `0.1.x`--`0.2.0` HTTP client. Code
+that imports `RouteWiseClient` must either migrate to `Router` and dispatch the
+returned `Attempt` with its own provider SDK, or temporarily pin
+`routewise<0.3` while the old service remains supported. Upgrading removes the
+`requests` runtime dependency and raises the minimum Python version from 3.8
+to 3.10.
 
 ## Data
 
@@ -107,7 +129,7 @@ The pure simulator path does not require any API keys.
 ## Running experiments
 
 The commands below are repository-development workflows and are not part of
-the `0.2.0` wheel. Install the development environment with `uv sync` first.
+the `0.3.0` wheel. Install the development environment with `uv sync` first.
 
 List the available paper sections and run one:
 
@@ -194,6 +216,7 @@ python tests/golden_capture.py --mode compare
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
 - `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results
 - `docs/RELEASING.md`: trusted PyPI release setup and release procedure
+- `CHANGELOG.md`: published-package changes and migration notes
 
 ## License
 

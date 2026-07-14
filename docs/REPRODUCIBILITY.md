@@ -12,7 +12,7 @@ From the repository root:
 uv sync
 ```
 
-The published `0.2.0` wheel is the dependency-free API-provider library.
+The published `0.3.0` wheel is the dependency-free API-provider library.
 Simulator, live-evaluation, offline, plotting, and operational workflows are
 repository-only and use the development dependency group installed by
 `uv sync`.

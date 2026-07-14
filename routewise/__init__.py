@@ -6,7 +6,7 @@ from routewise.errors import NoProviderError, OutcomeError, RouteWiseError, Vali
 from routewise.facade import Attempt, Decision, Provider, Router, StatsSnapshot, Tuning
 from routewise.stateless import Candidate, RouteOnceResult, route_once
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Attempt",
