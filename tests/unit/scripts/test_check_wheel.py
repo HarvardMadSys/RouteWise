@@ -27,7 +27,7 @@ def _write_wheel(
     ]
     metadata.extend(f"Requires-Dist: {requirement}" for requirement in requires_dist)
     metadata.append("")
-    dist_info = "routewise-0.3.0.dist-info"
+    dist_info = f"routewise-{version}.dist-info"
     with ZipFile(path, "w") as archive:
         for member in ALLOWED_LIBRARY_MEMBERS:
             archive.writestr(member, "")
