@@ -1,6 +1,6 @@
 # llm-routewise 0.1.0 中文 API 参考
 
-[English version](API.md)
+[English version](./API.md)
 
 `llm-routewise` 是一个无运行时依赖的 LLM API provider 路由库。它负责根据价格、
 延迟观测和预算偏好选择 provider，但不发送 HTTP 请求，也不读取或保存 provider API
