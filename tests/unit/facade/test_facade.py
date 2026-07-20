@@ -668,6 +668,22 @@ def test_streaming_adoption_cannot_be_declared_at_completion() -> None:
     assert router.stats().hedges["won"] == 0
 
 
+@pytest.mark.parametrize("adopted", [1, 1.0])
+@pytest.mark.parametrize("report", ["first_token", "completed"])
+def test_adoption_rejects_truthy_non_boolean_values(adopted: object, report: str) -> None:
+    router = Router([Provider("only", 1.0, 1.0)])
+    decision = router.route(input_tokens=1)
+
+    with pytest.raises(ValidationError, match="adopted must be True or None"):
+        if report == "first_token":
+            decision.first_token(ttft_ms=10.0, adopted=adopted)  # type: ignore[arg-type]
+        else:
+            decision.completed(output_tokens=1, adopted=adopted)  # type: ignore[arg-type]
+
+    assert decision.state == "pending"
+    assert decision.primary.state == "pending"
+
+
 def test_derived_cost_overflow_is_rejected_before_state_changes() -> None:
     with pytest.raises(ValidationError, match="derived request cost"):
         Router([Provider("huge", 1e308, 1e308)]).route(input_tokens=2)

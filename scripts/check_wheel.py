@@ -14,7 +14,7 @@ ALLOWED_LIBRARY_MEMBERS = {
     "llm_routewise/__init__.py",
     "llm_routewise/_capacity_controller.py",
     "llm_routewise/_output_length.py",
-    # Kept provisionally for source-checkout compatibility while OQ10 is open.
+    # Included for source-checkout compatibility with the public core package.
     "llm_routewise/capacity.py",
     "llm_routewise/const.py",
     "llm_routewise/core/__init__.py",

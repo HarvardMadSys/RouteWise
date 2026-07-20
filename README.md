@@ -9,13 +9,9 @@ The planned package `0.1.0` is an API-provider-only preview. The repository
 also contains the simulator and experiment harnesses used by the paper, but
 those research packages are deliberately not included in the wheel.
 
-> **PyPI namespace notice:** The `routewise` releases currently present on
-> PyPI (`0.1.0`--`0.2.0`) were published by an unaffiliated project. They are
-> not HarvardMadSys RouteWise releases and are not an earlier version of this
-> library. In particular, that package sends credentials to a hosted service
-> that HarvardMadSys does not operate. Do not install it for this project or
-> provide it with provider API keys. The official distribution is named
-> `llm-routewise`, and its Python import package is `llm_routewise`.
+> **Package name:** The PyPI project `routewise` is an unaffiliated,
+> incompatible, separate project. For HarvardMadSys RouteWise, install the
+> `llm-routewise` distribution and import the `llm_routewise` package.
 
 ## Requirements
 
@@ -38,8 +34,9 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-Use `uv sync` instead when you also need the full research environment. Do not
-use `pip install routewise`; that name belongs to an unaffiliated project.
+Use `uv sync` instead when you also need the full research environment. The
+separate PyPI project installed by `pip install routewise` is not compatible
+with this project.
 
 The base install exposes the public facade from `llm_routewise`. The canonical
 short alias is `rw`:
@@ -63,8 +60,9 @@ decision.completed(
 )
 ```
 
-`Router` makes the decision but performs no network I/O. For a stateless
-one-off decision, use `route_once`:
+The `0.1.0` `Router` API computes routing decisions but performs no network I/O
+and does not read provider API keys. Your application owns provider credentials
+and dispatch. For a stateless one-off decision, use `route_once`:
 
 ```python
 import llm_routewise as rw
@@ -82,14 +80,6 @@ For full repository development, including the research harnesses, use
 `uv sync`. The distribution name is `llm-routewise`; editable environments
 created from older source checkouts under the `routewise` or
 `routewise-simulator` distribution names should be reinstalled.
-
-### PyPI namespace status
-
-There is no supported migration path from PyPI `routewise` `0.1.x`--`0.2.0` to
-`llm-routewise`: they are different projects. HarvardMadSys RouteWise performs
-no provider network I/O and never receives your provider credentials. If you
-installed the unaffiliated package and supplied provider keys, rotate those
-keys before continuing.
 
 ## Data
 
@@ -205,8 +195,8 @@ python tests/golden_capture.py --mode compare
 
 ## Documentation
 
-- `docs/API_PROVIDER_INTERFACE.md`: API-provider library contract (English)
-- `docs/API_PROVIDER_INTERFACE.zh-CN.md`: API-provider library contract (Chinese)
+- [`docs/API.md`](docs/API.md): API-provider library contract (English)
+- [`docs/API.zh-CN.md`](docs/API.zh-CN.md): API-provider library contract (Chinese)
 - `docs/CORE_API.md`: lightweight `llm_routewise.core` library API and integration guide
 - `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics

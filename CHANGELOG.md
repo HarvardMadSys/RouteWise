@@ -6,9 +6,8 @@ here.
 ## 0.1.0 - Unreleased
 
 `0.1.0` is planned as the first HarvardMadSys RouteWise library release under
-the `llm-routewise` distribution. The `routewise` `0.1.x`--`0.2.0`
-distributions currently on PyPI were published by an unaffiliated project and
-are not part of this changelog.
+the `llm-routewise` distribution. The PyPI project `routewise` is a separate,
+unaffiliated project and is not part of this changelog.
 
 ### Added
 

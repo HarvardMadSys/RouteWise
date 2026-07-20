@@ -1,9 +1,8 @@
 """Public, dependency-free RouteWise facade for API providers.
 
-This module intentionally owns lifecycle, learning, and accounting while the
-algorithmic primitives in :mod:`llm_routewise.core` remain pure.  The first public
-release supports on-demand API prices only; a private no-op capacity seam keeps
-the routing transaction compatible with future quota and concurrency backends.
+This module owns lifecycle, learning, and accounting while the algorithmic
+primitives in :mod:`llm_routewise.core` remain pure. The ``0.1.0`` facade
+supports metered API-provider prices only.
 """
 
 from __future__ import annotations
@@ -1257,7 +1256,7 @@ class Attempt:
         return self._billing_state
 
     def _validate_adoption_locked(self, adopted: bool | None) -> None:
-        if adopted not in {True, None}:
+        if adopted is not None and adopted is not True:
             raise ValidationError("adopted must be True or None")
         if adopted is True:
             existing = self._decision._adopted

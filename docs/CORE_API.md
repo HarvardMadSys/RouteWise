@@ -3,11 +3,10 @@
 This document describes the stable, lightweight RouteWise library surface:
 `llm_routewise.core`.
 
-If you are looking for the proposed public library interface (API providers
-only, with no subscription concepts), read
-[API_PROVIDER_INTERFACE.md](API_PROVIDER_INTERFACE.md) first. This document
-covers the lower-level math primitives that exist in the codebase today; the
-interface document describes the user-facing surface planned on top of them.
+If you are looking for the public API-provider interface, read
+[API.md](API.md) or [API.zh-CN.md](API.zh-CN.md) first. This document covers
+the lower-level mathematical primitives; the interface documents describe the
+user-facing `0.1.0` facade.
 
 `llm_routewise.core` contains pure routing math and small data contracts. It does
 not import the simulator, experiment harnesses, plotting code, live-provider
@@ -459,7 +458,6 @@ These modules are useful but not part of the stable core library contract:
 - `llm_routewise.sim`: trace-driven simulator and research policies.
 - `experiments`: paper section runners, ablation harnesses, and live replay.
 - `plots`: figure generation scripts.
-- `hybridInference`: production gateway integration.
 
 Use them as references or artifacts, not as stable dependencies for a library
 consumer.
@@ -474,5 +472,6 @@ For a library release, treat these as stable:
   `HedgeDispatch`
 - function signatures documented in this file
 
-Everything outside `llm_routewise.core` should be considered experimental unless it
-is explicitly promoted in a future document.
+The top-level facade documented in [API.md](API.md) is the supported `0.1.0`
+preview surface. Other modules outside `llm_routewise.core` are repository
+implementation details unless a public document says otherwise.
