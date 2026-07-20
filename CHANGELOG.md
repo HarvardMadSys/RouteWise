@@ -1,14 +1,14 @@
 # Changelog
 
-All notable changes to the published `routewise` distribution are documented
+All notable changes to the published `llm-routewise` distribution are documented
 here.
 
 ## 0.3.0 - Unreleased
 
-`0.3.0` is planned as the first HarvardMadSys RouteWise library release. The
-`routewise` `0.1.x`--`0.2.0` distributions currently on PyPI were published by
-an unaffiliated project and are not part of this changelog. Publication remains
-blocked until control of the PyPI distribution name is resolved.
+`0.3.0` is planned as the first HarvardMadSys RouteWise library release under
+the `llm-routewise` distribution. The `routewise` `0.1.x`--`0.2.0`
+distributions currently on PyPI were published by an unaffiliated project and
+are not part of this changelog.
 
 ### Added
 
@@ -19,6 +19,8 @@ blocked until control of the PyPI distribution name is resolved.
   cooldowns, hedging, billing provenance, and immutable stats snapshots.
 - A narrow, typed wheel supporting Python 3.10--3.14 with no runtime
   dependencies.
+- The `llm_routewise` import namespace, including the conventional
+  `import llm_routewise as rw` alias.
 
 ### Package boundary
 

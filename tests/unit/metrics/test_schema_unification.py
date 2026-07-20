@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from routewise.metrics import PerRequestRecord, Status
+from llm_routewise.metrics import PerRequestRecord, Status
 
 CANONICAL_ROUTEWISE_REQUEST_FIELDS = {
     "request_id",

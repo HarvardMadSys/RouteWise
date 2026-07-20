@@ -1,7 +1,7 @@
 # RouteWise Core API
 
 This document describes the stable, lightweight RouteWise library surface:
-`routewise.core`.
+`llm_routewise.core`.
 
 If you are looking for the proposed public library interface (API providers
 only, with no subscription concepts), read
@@ -9,7 +9,7 @@ only, with no subscription concepts), read
 covers the lower-level math primitives that exist in the codebase today; the
 interface document describes the user-facing surface planned on top of them.
 
-`routewise.core` contains pure routing math and small data contracts. It does
+`llm_routewise.core` contains pure routing math and small data contracts. It does
 not import the simulator, experiment harnesses, plotting code, live-provider
 transports, or production gateway integrations.
 
@@ -26,7 +26,7 @@ The core API has no third-party runtime dependencies.
 From a published release:
 
 ```bash
-python -m pip install routewise
+python -m pip install llm-routewise
 ```
 
 For an editable checkout:
@@ -44,7 +44,7 @@ This is the smallest complete routing step: price feasible providers, solve the
 budgeted latency LP, and pick a primary provider from the returned weights.
 
 ```python
-from routewise.core import BudgetLPCandidate, effective_cost, solve_budget_lp
+from llm_routewise.core import BudgetLPCandidate, effective_cost, solve_budget_lp
 
 L = 0.0001
 U = 0.0100
@@ -88,10 +88,10 @@ primary_provider = max(result.weights, key=result.weights.get)
 
 ## Common Imports
 
-Import from `routewise.core` only:
+Import from `llm_routewise.core` only:
 
 ```python
-from routewise.core import (
+from llm_routewise.core import (
     BackupCandidate,
     BudgetLPCandidate,
     BudgetLPResult,
@@ -110,7 +110,7 @@ from routewise.core import (
 ```
 
 The import surface above is the stable contract; the internal module layout
-under `routewise.core` may change between releases.
+under `llm_routewise.core` may change between releases.
 
 ## Units
 
@@ -132,7 +132,7 @@ Use consistent units at your integration boundary:
 RouteWise normalizes provider choices into one effective request cost.
 
 ```python
-from routewise.core import effective_cost
+from llm_routewise.core import effective_cost
 
 L = 0.0001   # P10 cheapest API request cost in the workload
 U = 0.0100   # P90 cheapest API request cost in the workload
@@ -210,7 +210,7 @@ The solver returns a sparse provider mixture. With one cost budget constraint,
 an optimal solution has at most two non-zero weights.
 
 ```python
-from routewise.core import BudgetLPCandidate, solve_budget_lp
+from llm_routewise.core import BudgetLPCandidate, solve_budget_lp
 
 candidates = [
     BudgetLPCandidate(
@@ -250,7 +250,7 @@ If multiple providers have nearly identical latency objectives, use
 ties.
 
 ```python
-from routewise.core import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
+from llm_routewise.core import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
 
 latency_ms = [100.0, 100.0, 120.0]
 costs = [0.003, 0.001, 0.0005]
@@ -277,7 +277,7 @@ feasible, wait. Dispatch at the latest feasible checkpoint.
 primary request not having completed by the checkpoint.
 
 ```python
-from routewise.core import (
+from llm_routewise.core import (
     BackupCandidate,
     combined_success_probability,
     hedge_checkpoints_for_slo,
@@ -326,7 +326,7 @@ useful if you want your router's policy layer to be side-effect-free while an
 execution layer owns HTTP calls and provider state mutation.
 
 ```python
-from routewise.core import HedgeDispatch, RoutingDecision
+from llm_routewise.core import HedgeDispatch, RoutingDecision
 
 decision = RoutingDecision(
     primary_provider="provider_a",
@@ -416,7 +416,7 @@ A typical production integration has three layers:
 
 1. State layer: provider metadata, quota counters, concurrency counters,
    rolling latency profiles, and request output prediction.
-2. Policy layer: pure RouteWise math using `routewise.core`.
+2. Policy layer: pure RouteWise math using `llm_routewise.core`.
 3. Execution layer: sends requests, commits/refunds capacity where appropriate,
    races hedged requests, records outcomes, and updates profiles.
 
@@ -456,7 +456,7 @@ def route_request(request, state):
 
 These modules are useful but not part of the stable core library contract:
 
-- `routewise.sim`: trace-driven simulator and research policies.
+- `llm_routewise.sim`: trace-driven simulator and research policies.
 - `experiments`: paper section runners, ablation harnesses, and live replay.
 - `plots`: figure generation scripts.
 - `hybridInference`: production gateway integration.
@@ -468,11 +468,11 @@ consumer.
 
 For a library release, treat these as stable:
 
-- `routewise.core` import path
+- `llm_routewise.core` import path
 - dataclass field names for `BudgetLPCandidate`, `BudgetLPResult`,
   `BackupCandidate`, `CheckpointBackupDispatch`, `RoutingDecision`, and
   `HedgeDispatch`
 - function signatures documented in this file
 
-Everything outside `routewise.core` should be considered experimental unless it
+Everything outside `llm_routewise.core` should be considered experimental unless it
 is explicitly promoted in a future document.

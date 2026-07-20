@@ -5,7 +5,7 @@ RouteWise with probability-target hedging. Explorer/probing is intentionally
 disabled in this simulator section.
 
 This module is experiment glue only: the hedging trigger, backup selection, and
-profile learning behavior live in :mod:`routewise.sim.policies.routewise`.
+profile learning behavior live in :mod:`llm_routewise.sim.policies.routewise`.
 
 Outputs:
 - ``summary.json`` — full rows enriched with hedging metadata and LP-only deltas
@@ -41,19 +41,19 @@ from experiments.simulation.common import (
     write_json,
 )
 from experiments.simulation.latency_profiles import load_pool
-from routewise.capacity import ProviderTier
-from routewise.const import HEDGE_SUCCESS_TARGET
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import HEDGE_SUCCESS_TARGET
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from routewise.schemas import Request
+    from llm_routewise.schemas import Request
 
 SECTION_NAME = "hedging"
 
 PUBLIC_SCENARIO_TAG: str = "hedging"
 DEFAULT_ROUTEWISE_ALPHA: float = 0.75
-# Mirror of `routewise.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
+# Mirror of `llm_routewise.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
 # `target_success_probability`. Derive (do not redefine) so the value plots
 # and summaries advertise can never drift from the value the algorithm uses.
 TARGET_SUCCESS_PROBABILITY: float = HEDGE_SUCCESS_TARGET

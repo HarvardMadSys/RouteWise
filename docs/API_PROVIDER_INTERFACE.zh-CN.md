@@ -55,13 +55,13 @@
 14. `Client` 和 LiteLLM plugin 移至后续 release；initial release
     （`0.3.0`）只交付无依赖的 `Router`。等待 Juncheng 签字确认。
 15. v2 subscription 路线图不再承诺接口保持不变；capacity reservation
-    会增加交互。`routewise.core` 仍是高级扩展接缝。
+    会增加交互。`llm_routewise.core` 仍是高级扩展接缝。
 16. 披露 output-length estimator 的精确 fallback cascade（bucket 样本达到
     5 条后使用 bucket mean，global 样本达到 20 条后使用 global mean，
     二者均未达到前使用 500 tokens），因为它要在任何结果到达之前为请求定价。
 17. initial implementation 会预留一个内部 capacity transaction 接缝，
     `0.3.0` 中仅由 no-op API controller 实现。Capacity admission 与 L/U
-    scarcity pricing 分离，也与 `routewise.core` 消费的纯 `ProviderView`
+    scarcity pricing 分离，也与 `llm_routewise.core` 消费的纯 `ProviderView`
     分离；目前不导出任何 capacity API。
 
 ## 第 5 版的变化
@@ -142,19 +142,20 @@ RouteWise 不是通用 LLM client（不交付任何提供商专用 SDK），不�
 ## 安装
 
 ```bash
-pip install -e .
+pip install llm-routewise
 ```
 
-在 PyPI namespace 问题解决之前，只支持从 HarvardMadSys 仓库的可信 checkout
-安装。PyPI 上截至 `0.2.0`、名为 `routewise` 的 release 由无关联项目发布，
-并非本接口的旧版本；请勿为本项目安装这些版本，也不要向其提供 provider
-credential。
+在本仓库链接第一个正式 release 之前，请从 HarvardMadSys 的可信 checkout 使用
+`pip install -e .` 安装。PyPI 上截至 `0.2.0`、名为 `routewise` 的 release
+由无关联项目发布，并非本接口的旧版本；请勿为本项目安装这些版本，也不要向其
+提供 provider credential。正式 distribution 名为 `llm-routewise`，Python
+import 包名为 `llm_routewise`。
 
 计划中的 initial release（package `0.3.0`）是 API-only preview：只包含决策库
 本身，且不会导入标准库以外的任何内容。论文的完整系统还包含 quota 与
 concurrency subscription 的定价；它们属于后续代际，因此本 release 不声称
-复现完整论文结果。execution client（`routewise[client]`，基于 httpx）和
-LiteLLM routing-strategy plugin（`routewise[litellm]`）计划在后续 release 中
+复现完整论文结果。execution client（`llm-routewise[client]`，基于 httpx）和
+LiteLLM routing-strategy plugin（`llm-routewise[litellm]`）计划在后续 release 中
 作为可选 extra 提供；`0.3.0` 不定义任何 extra。参见“范围与路线图”。
 
 ## 完整接口
@@ -163,11 +164,11 @@ LiteLLM routing-strategy plugin（`routewise[litellm]`）计划在后续 release
 再把发生的结果告诉 decision，让下一个 decision 获得更充分的信息。
 
 ```python
-from routewise import Provider, Router
+import llm_routewise as rw
 
-router = Router(
-    [Provider("fireworks", price_in=0.27, price_out=1.10),
-     Provider("together",  price_in=0.18, price_out=0.88)],
+router = rw.Router(
+    [rw.Provider("fireworks", price_in=0.27, price_out=1.10),
+     rw.Provider("together",  price_in=0.18, price_out=0.88)],
     alpha=0.25,          # 唯一旋钮：0 = 最便宜，1 = 最快
     seed=42,             # sampling 是随机的；设置 seed 以便复现
 )
@@ -586,7 +587,7 @@ print(decision.explain())
 只有在测量后确认有理由修改时，调用方才需要传入 `Tuning` 对象：
 
 ```python
-from routewise import Router, Tuning
+from llm_routewise import Router, Tuning
 
 router = Router([...], alpha=0.25, slo_ms=3000, seed=7,
                 tuning=Tuning(hedge_target=0.95, window_min=30))
@@ -828,7 +829,7 @@ Tuning(*, hedge_target=0.99, penalty_ms=60000.0, window_min=15,
 ### 无状态函数
 
 ```python
-from routewise import Candidate, route_once
+from llm_routewise import Candidate, route_once
 
 result = route_once(
     [Candidate("fireworks", cost_usd=0.0012, latency_ms=240.0),
@@ -899,14 +900,14 @@ offer 和你的上报，绝不声称观察到 dispatch。library 引入的每一
 订阅式 provider（预付费请求配额、预留并发 slot）是 RouteWise 算法的另一半，
 也是计划中的 v2 扩展；论文的主要结果依赖它们，这正是 `0.3.0` 定名为
 API-only preview 而非论文 artifact 的原因。相关定价数学已经存在于
-`routewise.core` 中（quota shadow
+`llm_routewise.core` 中（quota shadow
 price 及其 L/U scarcity calibration）。v2 无法回避的是 capacity lifecycle：
 quota slot 会被消耗，concurrency slot 则会被占用并释放；因此接口将新增 v1 中
 没有对应项的 reservation 交互（在返回可 dispatch 的 attempt 前 reserve，
 dispatch 开始时 commit，并在结果产生时 close 或 release）。v1 接口的设计可以
 通过增量方式承接这种增长（新增 `Provider`
 构造方式和新的可选交互，而非修改既有签名），但本 revision 撤回 revision 1
-中“接口形状不会改变”的承诺。`routewise.core` 的 `ProviderView` 仍然是高级集成
+中“接口形状不会改变”的承诺。`llm_routewise.core` 的 `ProviderView` 仍然是高级集成
 的衔接点；hybridInference 已经基于这些原语，在生产环境中运行 quota 和
 concurrency capacity。
 
@@ -988,9 +989,9 @@ peer 的测量值，是当前的临时共享机制。端到端 latency objective
    请确认该机制及其数值。
 9. `route()` 是否应接受 `estimated_output_tokens=`，以便已知 `max_tokens` 的
    调用方覆盖 length estimator；后者的 fallback 默认值为 500 token。
-10. wheel 是否保留研究子包（`routewise.sim`、`routewise.offline`、
-    `routewise.metrics`，以及共享研究契约 `routewise.capacity` 与
-    `routewise.schemas`），还是只交付 facade 与 core（表 E 起草了窄
+10. wheel 是否保留研究子包（`llm_routewise.sim`、`llm_routewise.offline`、
+    `llm_routewise.metrics`，以及共享研究契约 `llm_routewise.capacity` 与
+    `llm_routewise.schemas`），还是只交付 facade 与 core（表 E 起草了窄
     allowlist）？排除它们能守住“只装库本身”的承诺；保留它们会增大体积，
     但能让研究用户免于 source checkout。保留还会击穿“`0.3.0` 零 extras”
     的立场：研究子包会引入科学计算依赖，因此需要一个 `[sim]` 式的 extra，
@@ -1067,7 +1068,7 @@ primary 重试循环有明确上限，并且一次只 reserve 一个 sampled can
 exclude/reselect 循环，并拥有独立 backup reservation。no-op API controller
 总会在第一次尝试时成功。
 
-该接口与 `routewise.core` 的对应关系如下：`route_once()` 封装
+该接口与 `llm_routewise.core` 的对应关系如下：`route_once()` 封装
 `solve_budget_lp()`，加入 alpha-to-budget 转换和基于 seed 的 weight sampling；
 `Router` 再加入 rolling latency profile（基于 `RollingLatencyProfile` 的
 `LatencyBeliefs`）、bucket-mean output-length estimator、cooldown、cold-start
@@ -1075,7 +1076,7 @@ exclude/reselect 循环，并拥有独立 backup reservation。no-op API control
 `hedge_checkpoints_for_slo()`、`combined_success_probability()` 和
 `select_probability_backup()`。
 
-本 contract 与当前 `routewise.core` 之间的差距如下，除最后一条外均位于
+本 contract 与当前 `llm_routewise.core` 之间的差距如下，除最后一条外均位于
 facade 层：
 
 1. Core 的默认 sampler 是 `argmax_weight_sampler`。facade 使用其带 seed 的 RNG
@@ -1100,7 +1101,7 @@ facade 层：
    因此 router 不保留任何强引用。
 7. 私有 capacity seam、no-op controller、reservation 状态机和有界
    reserve/replan 循环都是新的 facade orchestration。它们不会进入
-   `routewise.core`，这些 capacity Protocol 也不属于 `0.3.0` compatibility
+   `llm_routewise.core`，这些 capacity Protocol 也不属于 `0.3.0` compatibility
    surface。
 8. 当前实现分支中的 `combined_success_probability` 已应用规定的
    survival-zero fallback（只按 backup 的成功概率计算），并有 core
@@ -1109,12 +1110,12 @@ facade 层：
 ### 表 E：Wheel Allowlist 与发布门
 
 wheel allowlist（freeze candidate，以 installed-wheel import test 为最终
-仲裁）：`routewise` 顶层（facade 模块、`py.typed`）、`routewise.core`、
-`routewise.const`，以及零依赖 estimator 模块。排除：`experiments/`、
-`plots/`、`scripts/`、全部数据文件，以及研究子包 `routewise.sim`、
-`routewise.offline`、`routewise.metrics`。开放问题 10 尚未关闭，因此当前
-preview build 暂时保留两个仅依赖标准库的共享契约 `routewise.capacity` 与
-`routewise.schemas`。
+仲裁）：`llm_routewise` 顶层（facade 模块、`py.typed`）、`llm_routewise.core`、
+`llm_routewise.const`，以及零依赖 estimator 模块。排除：`experiments/`、
+`plots/`、`scripts/`、全部数据文件，以及研究子包 `llm_routewise.sim`、
+`llm_routewise.offline`、`llm_routewise.metrics`。开放问题 10 尚未关闭，因此当前
+preview build 暂时保留两个仅依赖标准库的共享契约 `llm_routewise.capacity` 与
+`llm_routewise.schemas`。
 `[project.scripts]` 的 CLI entry point 不进入 `0.3.0`：当前
 `routewise_cli.main` 在模块顶层导入 `experiments`，因此在出现 library-only
 CLI 之前，console command 从 wheel 中移除。`0.3.0` 不定义任何 pip extra；
@@ -1129,9 +1130,9 @@ CLI 之前，console command 从 wheel 中移除。`0.3.0` 不定义任何 pip e
 | 安装测试 | 每次 release 在干净环境执行 install + import + `route_once` smoke，并纳入 CI | Python 3.10–3.14 本地通过，已加入 CI workflow |
 | 测试套件 | clean checkout 上快速测试全绿 | 本地通过：646 passed；缺少可选 BurstGPT 数据时 12 项明确 skipped；3 项 slow tests deselected |
 | CI | 3.10–3.14 矩阵（pyproject 声明 `>=3.10` 且无上限，3.14 已是当前 feature series）、lint、wheel build | PR #13 已通过，拆分 dependency-free 与 research-compatibility jobs |
-| PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | 阻塞：GitHub environment 已存在，但 PyPI `routewise` 项目由无关联 owner 控制，目前无法添加 trusted publisher |
+| PyPI 发布 | 已发布的 GitHub Release、精确 `v<version>` tag、受保护的 `pypi` environment、OIDC Trusted Publishing | 待办：首次发布前注册 `llm-routewise` pending trusted publisher |
 | 元数据 | `version = 0.3.0`；库定位 description；README library-first；`[project.urls]`、classifiers、SPDX license；arXiv 引用 | 除 arXiv 引用外均已完成 |
-| PyPI 项目/版本 | 团队控制目标 distribution namespace；release 版本未占用；完成 Trusted Publisher 配置 | 阻塞：PyPI `routewise` `0.1.0`--`0.2.0` 属于另一个项目；发布前必须完成 distribution-name 转让，或明确决定改名 |
+| PyPI 项目/版本 | 团队控制目标 distribution namespace；release 版本未占用；完成 Trusted Publisher 配置 | 已选定 `llm-routewise`；project/version 尚未占用，仍需完成一次性 Trusted Publisher 设置 |
 | 工作区 | 从 `origin/main` 建干净 worktree 实现，不用分叉的本地 `main` | 通过：独立 worktree 上的 `codex/api-provider-library-v1` |
 
 以下行为属于契约，而非偶然的实现细节：primary selection 按 LP weight

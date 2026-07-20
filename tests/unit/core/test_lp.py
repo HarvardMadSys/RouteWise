@@ -6,8 +6,8 @@ import random
 
 import pytest
 
-import routewise.core as core
-from routewise.core.lp import (
+import llm_routewise.core as core
+from llm_routewise.core.lp import (
     BudgetLPCandidate,
     BudgetLPResult,
     cost_tiebroken_objective,

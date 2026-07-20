@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from routewise.metrics import PerRequestRecord, Run, Status
+from llm_routewise.metrics import PerRequestRecord, Run, Status
 
 if TYPE_CHECKING:
     from experiments.real_evaluation.executor import HedgedResult

@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from routewise._capacity_controller import (
+from llm_routewise._capacity_controller import (
     _CapacityController,
     _CapacitySnapshot,
     _NoopCapacityController,

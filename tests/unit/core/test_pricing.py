@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from routewise.core.pricing import (
+from llm_routewise.core.pricing import (
     cache_discounted_cost_per_million_usd,
     cache_discounted_token_cost_usd,
     capped_cached_input_tokens,

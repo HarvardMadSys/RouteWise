@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from experiments.real_evaluation.transports import SingleRequestResult
-from routewise.core import CheckpointBackupDispatch, CheckpointBackupSelector
+from llm_routewise.core import CheckpointBackupDispatch, CheckpointBackupSelector
 
 logger = logging.getLogger(__name__)
 

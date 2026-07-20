@@ -7,29 +7,29 @@ policy refactor and the sim/real router unification.
 
 The simulator has three runtime layers:
 
-1. **World** (`routewise/sim/world/`): provider metadata, latency distributions, quota
+1. **World** (`llm_routewise/sim/world/`): provider metadata, latency distributions, quota
    state, and concurrency state.
-2. **Engine** (`routewise/sim/engine/`): request loop, admission/accounting, primary
+2. **Engine** (`llm_routewise/sim/engine/`): request loop, admission/accounting, primary
    and backup execution, and in-flight policy callbacks.
-3. **Policy** (`routewise/sim/policies/`): routing decisions and policy-owned learning
+3. **Policy** (`llm_routewise/sim/policies/`): routing decisions and policy-owned learning
    state.
 
-Metrics are output types, not execution logic, and live under `routewise/metrics/`.
+Metrics are output types, not execution logic, and live under `llm_routewise/metrics/`.
 
 ## One Algorithm, Two Worlds
 
-The RouteWise algorithm is implemented once, in `routewise/core/router.py`
+The RouteWise algorithm is implemented once, in `llm_routewise/core/router.py`
 (`RouteWiseRouter`), against the `ProviderView` protocol
-(`routewise/core/provider_view.py`): a read-only, request-bound snapshot exposing
+(`llm_routewise/core/provider_view.py`): a read-only, request-bound snapshot exposing
 only the signals the algorithm consumes (tier, availability, quota fraction,
 route/hedge marginal cost, prior latency beliefs). Rolling-profile learning
-plus prior/penalty fallbacks live in `routewise/core/beliefs.py`
+plus prior/penalty fallbacks live in `llm_routewise/core/beliefs.py`
 (`LatencyBeliefs`). All of it is stdlib-only and exported through
-`routewise.core`.
+`llm_routewise.core`.
 
 Each environment supplies a thin adapter:
 
-- **Simulator** (`routewise/sim/policies/routewise.py`): `_SimProviderView` binds
+- **Simulator** (`llm_routewise/sim/policies/routewise.py`): `_SimProviderView` binds
   `(Provider, Request, SimulationState)`; priors are the provider's true
   distribution (oracle fallback / `configured` mode); sampling uses the
   policy's persistent seeded numpy RNG.
@@ -50,7 +50,7 @@ intended divergences.
 ## Target Tree
 
 ```text
-routewise/
+llm_routewise/
   capacity.py          # quota/concurrency primitives shared by sim + real
   schemas.py           # Request / RoutingOutcome / scenario config contracts
   const.py             # protocol constants (SLO, hedge schedule fractions)
@@ -84,12 +84,12 @@ routewise/
 
 The following old implementation surfaces are intentionally absent:
 
-- `routewise/sim/strategies/`
-- `routewise/sim/policies/composer.py`
-- `routewise/sim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/`
-- `routewise/sim/world/shadow_price.py`
-- `routewise/sim/world/workload.py`
-- `routewise/sim/registry.py`
+- `llm_routewise/sim/strategies/`
+- `llm_routewise/sim/policies/composer.py`
+- `llm_routewise/sim/policies/{value_estimators,cost_routers,latency_routers,hedgers}/`
+- `llm_routewise/sim/world/shadow_price.py`
+- `llm_routewise/sim/world/workload.py`
+- `llm_routewise/sim/registry.py`
 
 ## Policy Contract
 
@@ -122,8 +122,8 @@ checkpoints as queue depth, capacity, and observed profiles change.
 
 Policy-specific quantities stay inside the policy implementation. The
 RouteWise algorithm state (latency beliefs, LP weights, hedge decisions) lives
-in the policy-owned `RouteWiseRouter` (`routewise/core/router.py`); the
-environment binding lives in `routewise/sim/policies/routewise.py`.
+in the policy-owned `RouteWiseRouter` (`llm_routewise/core/router.py`); the
+environment binding lives in `llm_routewise/sim/policies/routewise.py`.
 
 ## Presets
 
@@ -136,20 +136,20 @@ The public simulator policy presets are:
 - `ablation_lp_hedging`
 - `routewise`
 
-`routewise.sim.policies.build_policy()` is the only preset builder. There is no runtime
+`llm_routewise.sim.policies.build_policy()` is the only preset builder. There is no runtime
 compatibility layer for historical strategy names.
 
 ## Workloads
 
-Main simulator experiments are trace-driven. `routewise/sim/world/` does not generate
+Main simulator experiments are trace-driven. `llm_routewise/sim/world/` does not generate
 request streams. Experiment runners load trace data through
-`experiments.simulation.common.load_workload()` and `routewise/sim/data/loader.py`.
+`experiments.simulation.common.load_workload()` and `llm_routewise/sim/data/loader.py`.
 
 ## Offline Stage
 
 The older offline/stage experiment remains separate:
 
-- reusable offline primitives live under `routewise/offline/`
+- reusable offline primitives live under `llm_routewise/offline/`
 - offline experiment strategies live under `experiments/offline_stage/`
 - offline-only predictors live under `experiments/offline_stage/value_estimators/`
 

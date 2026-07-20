@@ -13,9 +13,9 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from routewise.offline.schemas import Request, RoutingDecision
-from routewise.offline.strategy import RoutingStrategy
-from routewise.offline.window_quota import WindowQuotaManager
+from llm_routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.strategy import RoutingStrategy
+from llm_routewise.offline.window_quota import WindowQuotaManager
 
 logger = logging.getLogger(__name__)
 

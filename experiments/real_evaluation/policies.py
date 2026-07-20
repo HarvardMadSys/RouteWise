@@ -3,12 +3,12 @@
 ARCHITECTURE NOTE — read before extending.
 
 This module is the **real-eval adapter** over the canonical RouteWise
-algorithm in :mod:`routewise.core.router`. The ``BudgetRange*`` policies bind
+algorithm in :mod:`llm_routewise.core.router`. The ``BudgetRange*`` policies bind
 that router to live providers through ``_RealProviderView`` (empirical
 rolling profiles, no oracle priors, per-call time-seeded sampling) and keep
 the world-interaction concerns local: locking, capacity charging, transports,
 OpenRouter sentinels, and the recorder-facing ``RoutingDecision``. The
-simulator binds the same router in :mod:`routewise.sim.policies.routewise`; algorithm
+simulator binds the same router in :mod:`llm_routewise.sim.policies.routewise`; algorithm
 changes belong in the core, environment changes belong here.
 
 Policy taxonomy:
@@ -51,16 +51,16 @@ from experiments.real_evaluation.prefix_cache import (
     cached_input_tokens,
 )
 from experiments.real_evaluation.shadow_price import request_marginal_cost
-from routewise.core.beliefs import LatencyBeliefs
-from routewise.core.hedging import HEDGE_SUCCESS_TARGET
-from routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
-from routewise.core.router import LPStatus, RouteWiseRouter
-from routewise.schemas import Request as _PredictionRequest
+from llm_routewise.core.beliefs import LatencyBeliefs
+from llm_routewise.core.hedging import HEDGE_SUCCESS_TARGET
+from llm_routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
+from llm_routewise.core.router import LPStatus, RouteWiseRouter
+from llm_routewise.schemas import Request as _PredictionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-# HEDGE_SUCCESS_TARGET is re-exported above from `routewise.core.hedging` so the
+# HEDGE_SUCCESS_TARGET is re-exported above from `llm_routewise.core.hedging` so the
 # simulator and real-eval share one paper-level RouteWise protocol constant.
 RATE_LIMIT_ERROR_PENALTY_MS: float = 60_000.0
 BODY_MEAN_MIN_SAMPLES: int = 5
@@ -286,7 +286,7 @@ def select_checkpoint_backup(
     """Evaluate probability-target hedging at a single checkpoint.
 
     This is the simulator RouteWise tick, verbatim: both environments run
-    :meth:`routewise.core.router.RouteWiseRouter.checkpoint_backup`. Here the
+    :meth:`llm_routewise.core.router.RouteWiseRouter.checkpoint_backup`. Here the
     router is bound to the empirical rolling profiles with no oracle prior,
     zero dispatch overhead, and penalized-belief latency tie-breaks.
     """
@@ -935,7 +935,7 @@ class BudgetRangePolicy(BasePolicy):
     Body selector: ``min sum pi_j T̄_j  s.t.  sum pi_j c_eff_j <= B_alpha``
     where ``B_alpha = (1 - alpha) c_min + alpha c_max``.
 
-    The selector itself is :class:`routewise.core.router.RouteWiseRouter` — the
+    The selector itself is :class:`llm_routewise.core.router.RouteWiseRouter` — the
     same code the simulator's ``RouteWisePolicy`` runs. This adapter binds it
     to the empirical rolling profiles (no oracle priors) and translates
     ``RouteResult`` into the recorder-facing ``RoutingDecision``.

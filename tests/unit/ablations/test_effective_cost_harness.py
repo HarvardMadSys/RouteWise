@@ -16,7 +16,7 @@ from experiments.ablations.effective_cost.presets import (
     parse_ablation_policy_name,
 )
 from experiments.simulation import common
-from routewise.capacity import ProviderTier
+from llm_routewise.capacity import ProviderTier
 
 
 def test_default_phase_a_scenario_uses_direct_quota_limit_heavy_tail() -> None:

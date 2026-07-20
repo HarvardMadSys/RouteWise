@@ -7,8 +7,8 @@ from types import MappingProxyType
 
 import pytest
 
-from routewise.errors import RouteWiseError, ValidationError
-from routewise.stateless import Candidate, RouteOnceResult, route_once
+from llm_routewise.errors import RouteWiseError, ValidationError
+from llm_routewise.stateless import Candidate, RouteOnceResult, route_once
 
 
 class StubRng:
@@ -69,7 +69,7 @@ def test_route_once_default_rng_is_not_shared_between_calls(
             super().__init__(0.0)
             created.append(seed)
 
-    monkeypatch.setattr("routewise.stateless.random.Random", RecordingRandom)
+    monkeypatch.setattr("llm_routewise.stateless.random.Random", RecordingRandom)
 
     route_once(_mixed_candidates(), alpha=0.5)
     route_once(_mixed_candidates(), alpha=0.5)

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import routewise
+import llm_routewise as rw
 
 
 def test_top_level_exports_are_the_api_v1_surface() -> None:
-    assert set(routewise.__all__) == {
+    assert set(rw.__all__) == {
         "Attempt",
         "Candidate",
         "Decision",
@@ -24,4 +24,4 @@ def test_top_level_exports_are_the_api_v1_surface() -> None:
 
 
 def test_package_version_matches_preview_release() -> None:
-    assert routewise.__version__ == "0.3.0"
+    assert rw.__version__ == "0.3.0"

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import routewise.core as public_core
-from routewise import schemas
-from routewise.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
-from routewise.core.types import HedgeDispatch, RoutingDecision
+import llm_routewise.core as public_core
+from llm_routewise import schemas
+from llm_routewise.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
+from llm_routewise.core.types import HedgeDispatch, RoutingDecision
 
 
 def test_routewise_core_exports_decision_types() -> None:
@@ -38,6 +38,26 @@ def test_routewise_core_exports_checkpoint_backup_contracts() -> None:
     assert dispatch.release is not None
     dispatch.release()
     assert released is True
+
+
+def test_hybrid_inference_consumer_contract_remains_exported() -> None:
+    """Keep the production router's current core imports available after rename."""
+    expected = {
+        "HEDGE_SUCCESS_TARGET",
+        "BackupCandidate",
+        "BudgetLPCandidate",
+        "CheckpointBackupDispatch",
+        "CheckpointBackupSelector",
+        "combined_success_probability",
+        "cost_tiebroken_objective",
+        "hedge_checkpoints_for_slo",
+        "quota_effective_cost",
+        "select_probability_backup",
+        "solve_budget_lp",
+    }
+
+    assert expected <= set(public_core.__all__)
+    assert all(hasattr(public_core, name) for name in expected)
 
 
 def test_schemas_reexports_public_decision_types() -> None:

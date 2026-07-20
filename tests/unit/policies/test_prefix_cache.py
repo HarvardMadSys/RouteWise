@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from routewise.capacity import ProviderTier
-from routewise.schemas import Request
-from routewise.sim.engine.simulator import Simulator
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.policies.baselines import BaselinePolicy
-from routewise.sim.policies.prefix_cache import (
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.schemas import Request
+from llm_routewise.sim.engine.simulator import Simulator
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.policies.baselines import BaselinePolicy
+from llm_routewise.sim.policies.prefix_cache import (
     cache_aware_marginal_cost,
     cached_input_tokens,
 )
-from routewise.sim.policies.routewise import effective_cost
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.sim.policies.routewise import effective_cost
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 
 def _provider(

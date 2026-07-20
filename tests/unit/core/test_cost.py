@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import routewise.core as core
-from routewise.core.cost import (
+import llm_routewise.core as core
+from llm_routewise.core.cost import (
     SCARCITY_CURVES,
     EffectiveCostTier,
     ScarcityCurve,

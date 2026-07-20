@@ -14,8 +14,8 @@ those research packages are deliberately not included in the wheel.
 > not HarvardMadSys RouteWise releases and are not an earlier version of this
 > library. In particular, that package sends credentials to a hosted service
 > that HarvardMadSys does not operate. Do not install it for this project or
-> provide it with provider API keys. The first official PyPI release is blocked
-> until ownership of the distribution name is resolved.
+> provide it with provider API keys. The official distribution is named
+> `llm-routewise`, and its Python import package is `llm_routewise`.
 
 ## Requirements
 
@@ -24,8 +24,13 @@ those research packages are deliberately not included in the wheel.
 
 ## Installation
 
-Until the PyPI namespace is resolved, install the local routing library from a
-trusted checkout of this repository:
+After an official release is linked from this repository, install it with:
+
+```bash
+python -m pip install llm-routewise
+```
+
+Until then, install the local routing library from a trusted checkout:
 
 ```bash
 python -m venv .venv
@@ -34,18 +39,18 @@ python -m pip install -e .
 ```
 
 Use `uv sync` instead when you also need the full research environment. Do not
-use `pip install routewise` until an official release is linked from this
-repository.
+use `pip install routewise`; that name belongs to an unaffiliated project.
 
-The base install exposes the public facade directly from `routewise`:
+The base install exposes the public facade from `llm_routewise`. The canonical
+short alias is `rw`:
 
 ```python
-from routewise import Provider, Router
+import llm_routewise as rw
 
-router = Router(
+router = rw.Router(
     providers=[
-        Provider("fast", price_in=3.0, price_out=15.0),
-        Provider("cheap", price_in=0.15, price_out=0.60),
+        rw.Provider("fast", price_in=3.0, price_out=15.0),
+        rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
     alpha=0.25,
 )
@@ -62,26 +67,26 @@ decision.completed(
 one-off decision, use `route_once`:
 
 ```python
-from routewise import Candidate, route_once
+import llm_routewise as rw
 
-result = route_once(
+result = rw.route_once(
     [
-        Candidate("fast", cost_usd=0.008, latency_ms=350),
-        Candidate("cheap", cost_usd=0.002, latency_ms=900),
+        rw.Candidate("fast", cost_usd=0.008, latency_ms=350),
+        rw.Candidate("cheap", cost_usd=0.002, latency_ms=900),
     ],
     alpha=0.25,
 )
 ```
 
 For full repository development, including the research harnesses, use
-`uv sync`. The distribution name is `routewise`; existing editable
+`uv sync`. The distribution name is `llm-routewise`; existing editable
 environments created under the old `routewise-simulator` name should be
 reinstalled.
 
 ### PyPI namespace status
 
-There is no supported migration path from PyPI `routewise` `0.1.x`--`0.2.0`:
-those releases belong to a different project. HarvardMadSys RouteWise performs
+There is no supported migration path from PyPI `routewise` `0.1.x`--`0.2.0` to
+`llm-routewise`: they are different projects. HarvardMadSys RouteWise performs
 no provider network I/O and never receives your provider credentials. If you
 installed the unaffiliated package and supplied provider keys, rotate those
 keys before continuing.
@@ -98,9 +103,9 @@ python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
 After the package rename, simulator trace caches pickled under the old
-`rwsim.*` layout are rebuilt automatically on first use. If you later check out
-a pre-rename commit, delete the generated `data/*.simcache.pkl` files before
-running simulator jobs from that older code.
+`routewise.*` or `rwsim.*` layouts are rebuilt automatically on first use. If
+you later check out a pre-rename commit, delete the generated
+`data/*.simcache.pkl` files before running simulator jobs from that older code.
 
 The real-evaluation replay scripts default to the day0 24h trace and its
 idle-compressed variants under `data/real_eval/`. Regenerate those with:
@@ -143,35 +148,25 @@ See `experiments/simulation/README.md` for the full sub-experiment tree.
 
 ## Python API
 
-Public API-provider facade:
+Public API-provider facade, using the canonical alias:
 
 ```python
-from routewise import (
-    Attempt,
-    Candidate,
-    Decision,
-    NoProviderError,
-    OutcomeError,
-    Provider,
-    RouteOnceResult,
-    Router,
-    StatsSnapshot,
-    Tuning,
-    ValidationError,
-    route_once,
-)
+import llm_routewise as rw
+
+router = rw.Router([rw.Provider("api", price_in=1.0, price_out=2.0)])
+decision = router.route(input_tokens=10)
 ```
 
 Advanced users may import the pure mathematical primitives from
-`routewise.core`.
+`llm_routewise.core`.
 
 Simulator API:
 
 ```python
-from routewise.sim import POLICIES, run_policy
-from routewise.metrics import PerRequestRecord, Run
-from routewise.sim.policies import build_policy
-from routewise.sim.world import Provider, ScenarioConfig
+from llm_routewise.sim import POLICIES, run_policy
+from llm_routewise.metrics import PerRequestRecord, Run
+from llm_routewise.sim.policies import build_policy
+from llm_routewise.sim.world import Provider, ScenarioConfig
 ```
 
 Available policy presets: `greedy_cost`, `greedy_latency`, `random`,
@@ -182,14 +177,14 @@ harness only.
 
 ## Repository layout
 
-- `routewise/`: the public API-provider facade (stdlib-only)
-- `routewise/core/`: advanced RouteWise mathematical primitives
-- `routewise/capacity.py`, `routewise/schemas.py`, `routewise/const.py`: contracts shared by both worlds
-- `routewise/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
-- `routewise/sim/engine/`: request loop, capacity accounting, in-flight hedge ticks
-- `routewise/sim/world/`: providers, latency distributions, drift schedules
-- `routewise/sim/data/`: trace workload loaders
-- `routewise/sim/policies/`: policy presets and implementations
+- `llm_routewise/`: the public API-provider facade (stdlib-only)
+- `llm_routewise/core/`: advanced RouteWise mathematical primitives
+- `llm_routewise/capacity.py`, `llm_routewise/schemas.py`, `llm_routewise/const.py`: contracts shared by both worlds
+- `llm_routewise/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
+- `llm_routewise/sim/engine/`: request loop, capacity accounting, in-flight hedge ticks
+- `llm_routewise/sim/world/`: providers, latency distributions, drift schedules
+- `llm_routewise/sim/data/`: trace workload loaders
+- `llm_routewise/sim/policies/`: policy presets and implementations
 - `experiments/`: paper configs, section runners, ablations, offline-stage, and the live real-evaluation harness
 - `routewise_cli/`: command-line entry point
 - `scripts/`: data preparation and profiling utilities
@@ -212,7 +207,7 @@ python tests/golden_capture.py --mode compare
 
 - `docs/API_PROVIDER_INTERFACE.md`: API-provider library contract (English)
 - `docs/API_PROVIDER_INTERFACE.zh-CN.md`: API-provider library contract (Chinese)
-- `docs/CORE_API.md`: lightweight `routewise.core` library API and integration guide
+- `docs/CORE_API.md`: lightweight `llm_routewise.core` library API and integration guide
 - `docs/ARCHITECTURE.md`: simulator architecture and module boundaries
 - `docs/ALGORITHMS.md`: algorithm contracts and shared routing semantics
 - `docs/REPRODUCIBILITY.md`: end-to-end steps to reproduce paper results

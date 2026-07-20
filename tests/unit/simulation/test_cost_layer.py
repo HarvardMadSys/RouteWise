@@ -10,11 +10,11 @@ import pytest
 from experiments.simulation import common, cost_layer
 from experiments.simulation.offline_oracle import OfflineOracleKind, assign_offline
 from experiments.subscriptions import load_subscription_plans
-from routewise.capacity import ProviderTier, WeightedConcurrencyState
-from routewise.const import DEFAULT_PRIMARY_SLO_MS
-from routewise.metrics import Run
-from routewise.schemas import Request
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier, WeightedConcurrencyState
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.metrics import Run
+from llm_routewise.schemas import Request
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 from routewise_cli.main import main as routewise_main
 
 

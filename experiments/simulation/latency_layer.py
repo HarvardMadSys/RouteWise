@@ -56,10 +56,10 @@ from experiments.simulation.latency_overlap import (
     summarise_realised_overlap,
     verify_calibration,
 )
-from routewise.capacity import ProviderTier
-from routewise.const import DEFAULT_PRIMARY_SLO_MS
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "latency-layer"
 

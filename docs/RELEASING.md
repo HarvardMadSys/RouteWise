@@ -8,33 +8,28 @@ the repository must not store a long-lived PyPI API token.
 
 1. Create the GitHub environment `pypi`. Restrict deployments to version tags
    and add required reviewers so the publish job needs explicit approval.
-2. Resolve control of the `routewise` distribution name. The releases currently
-   on PyPI (`0.1.0`--`0.2.0`) belong to an unaffiliated project; they were not
-   published by HarvardMadSys. Do not tag or publish a release while the name
-   remains outside the team's control.
-3. After the project is transferred to a team-controlled PyPI account, add a
-   GitHub Actions trusted publisher in its **Publishing** settings with these
-   exact values:
+2. Create a pending GitHub Actions trusted publisher for the unclaimed
+   `llm-routewise` project in PyPI's **Publishing** settings with these exact
+   values:
 
-   - PyPI project: `routewise`
+   - PyPI project: `llm-routewise`
    - GitHub owner: `HarvardMadSys`
    - GitHub repository: `RouteWise`
    - Workflow: `release.yml`
    - Environment: `pypi`
 
-Do not create a pending publisher for `routewise` while the existing project
-occupies that name. The publish job intentionally has only `id-token: write`;
-no `PYPI_TOKEN` secret is read or required. Decisions about the unaffiliated
-releases (preserve, yank, or remove) must be made with PyPI and the current
-owner during transfer; they are not legacy releases of this codebase.
+The unrelated `routewise` project remains outside the team's control and must
+not be used for this release. The publish job intentionally has only
+`id-token: write`; no `PYPI_TOKEN` secret is read or required. The first
+successful trusted publication creates the `llm-routewise` project.
 
 ## Release procedure
 
-Do not begin this procedure until the PyPI namespace notice above is resolved
-and the trusted publisher is visible in the team-controlled project settings.
+Do not begin this procedure until the `llm-routewise` pending publisher and the
+protected `pypi` environment are configured.
 
 1. Merge a version-bump PR after the package workflow is green. Update both
-   `project.version` in `pyproject.toml` and `routewise.__version__`.
+   `project.version` in `pyproject.toml` and `llm_routewise.__version__`.
 2. From the merged `main`, create and push the matching annotated tag. For
    version `0.3.0`, the only accepted tag is `v0.3.0`:
 
@@ -44,8 +39,9 @@ and the trusted publisher is visible in the team-controlled project settings.
    ```
 
 3. Create a draft GitHub Release for that existing tag and review its notes.
-   Describe `0.3.0` as the first official HarvardMadSys RouteWise package; do
-   not describe the unaffiliated PyPI releases as predecessors or a migration:
+   Describe `0.3.0` as the first official HarvardMadSys RouteWise package under
+   the `llm-routewise` distribution; do not describe the unaffiliated
+   `routewise` releases as predecessors or a migration:
 
    ```bash
    gh release create v0.3.0 --verify-tag --generate-notes --draft

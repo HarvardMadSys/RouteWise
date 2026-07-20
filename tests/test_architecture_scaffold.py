@@ -9,9 +9,9 @@ from pathlib import Path
 
 from experiments import available_experiments
 from experiments._configs import summarize_scenario
-from routewise.schemas import ProviderTier, Request
-from routewise.sim.policies import DEFAULT_PRESETS, available_policies, build_policy
-from routewise.sim.scenarios import build_scenario
+from llm_routewise.schemas import ProviderTier, Request
+from llm_routewise.sim.policies import DEFAULT_PRESETS, available_policies, build_policy
+from llm_routewise.sim.scenarios import build_scenario
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
@@ -102,7 +102,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             "import routewise_cli",
         )
 
-        for path in (ROOT_DIR / "routewise").rglob("*.py"):
+        for path in (ROOT_DIR / "llm_routewise").rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             for token in forbidden:
                 self.assertNotIn(token, source, f"{path} must not import {token!r}")
@@ -129,17 +129,17 @@ class ArchitectureScaffoldTest(unittest.TestCase):
     def test_deleted_strategy_and_stage_modules_are_absent(self) -> None:
         deleted_paths = (
             # The pre-unification package root: everything moved under
-            # routewise/ (shared layers) and routewise/sim/ (simulator).
+            # llm_routewise/ (shared layers) and llm_routewise/sim/ (simulator).
             ROOT_DIR / "rwsim",
-            ROOT_DIR / "routewise" / "sim" / "strategies",
-            ROOT_DIR / "routewise" / "sim" / "registry.py",
-            ROOT_DIR / "routewise" / "sim" / "world" / "shadow_price.py",
-            ROOT_DIR / "routewise" / "sim" / "world" / "workload.py",
-            ROOT_DIR / "routewise" / "sim" / "policies" / "composer.py",
-            ROOT_DIR / "routewise" / "sim" / "policies" / "value_estimators",
-            ROOT_DIR / "routewise" / "sim" / "policies" / "cost_routers",
-            ROOT_DIR / "routewise" / "sim" / "policies" / "latency_routers",
-            ROOT_DIR / "routewise" / "sim" / "policies" / "hedgers",
+            ROOT_DIR / "llm_routewise" / "sim" / "strategies",
+            ROOT_DIR / "llm_routewise" / "sim" / "registry.py",
+            ROOT_DIR / "llm_routewise" / "sim" / "world" / "shadow_price.py",
+            ROOT_DIR / "llm_routewise" / "sim" / "world" / "workload.py",
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "composer.py",
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "value_estimators",
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "cost_routers",
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "latency_routers",
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "hedgers",
             ROOT_DIR / "experiments" / "suites.py",
             ROOT_DIR / "experiments" / "simulation" / "configs",
             ROOT_DIR / "experiments" / "simulation" / "suites",
@@ -156,38 +156,40 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
     def test_no_strategy_compatibility_import_surface_remains(self) -> None:
         forbidden = (
-            "routewise.sim." + "strategies",
+            "llm_routewise.sim." + "strategies",
             "run_registered_" + "strategy",
             "STRATEGY_" + "REGISTRY",
             "TIERED_" + "STRATEGIES",
-            "from routewise.sim.policies." + "cost_routers",
-            "from routewise.sim.policies." + "latency_routers",
-            "from routewise.sim.policies." + "hedgers",
-            "from routewise.sim.world import generate_" + "workload",
+            "from llm_routewise.sim.policies." + "cost_routers",
+            "from llm_routewise.sim.policies." + "latency_routers",
+            "from llm_routewise.sim.policies." + "hedgers",
+            "from llm_routewise.sim.world import generate_" + "workload",
             "from experiments.simulation." + "eval_grid",
             "from experiments.simulation." + "lp_budget_eval",
             "from experiments.simulation." + "materialize",
             "experiments.simulation." + "suites",
         )
-        for dirname in ("routewise", "experiments", "routewise_cli", "tests"):
+        for dirname in ("llm_routewise", "experiments", "routewise_cli", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
                 source = path.read_text(encoding="utf-8")
                 for token in forbidden:
                     self.assertNotIn(token, source, f"{path} still references {token}")
 
     def test_metrics_have_canonical_home(self) -> None:
-        import routewise.metrics
-        import routewise.sim.world
-        from routewise.metrics import Run
+        import llm_routewise.metrics
+        import llm_routewise.sim.world
+        from llm_routewise.metrics import Run
 
-        self.assertTrue((ROOT_DIR / "routewise" / "metrics" / "run.py").exists())
-        self.assertFalse((ROOT_DIR / "routewise" / "sim" / "world" / "metrics.py").exists())
-        self.assertEqual(Run.__module__, "routewise.metrics.run")
-        self.assertNotIn("SimulationRun", routewise.metrics.__all__)
-        self.assertNotIn("SimulationRun", routewise.sim.world.__all__)
+        self.assertTrue((ROOT_DIR / "llm_routewise" / "metrics" / "run.py").exists())
+        self.assertFalse(
+            (ROOT_DIR / "llm_routewise" / "sim" / "world" / "metrics.py").exists()
+        )
+        self.assertEqual(Run.__module__, "llm_routewise.metrics.run")
+        self.assertNotIn("SimulationRun", llm_routewise.metrics.__all__)
+        self.assertNotIn("SimulationRun", llm_routewise.sim.world.__all__)
 
     def test_policy_contract_supports_in_flight_ticks(self) -> None:
-        from routewise.sim.policies.base import Policy
+        from llm_routewise.sim.policies.base import Policy
 
         route_sig = inspect.signature(Policy.route)
         tick_sig = inspect.signature(Policy.tick)
@@ -204,24 +206,24 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         )
 
     def test_routewise_algorithm_has_canonical_home(self) -> None:
-        """The RouteWise algorithm lives once, in routewise.core.router.
+        """The RouteWise algorithm lives once, in llm_routewise.core.router.
 
         Both environments must delegate to it: the simulator policy and the
         real-eval BudgetRange policies expose it via a ``router`` attribute,
         and neither adapter re-implements the LP body orchestration.
         """
-        import routewise.core as public_core
-        from routewise.core.beliefs import LatencyBeliefs
-        from routewise.core.router import RouteWiseRouter
+        import llm_routewise.core as public_core
+        from llm_routewise.core.beliefs import LatencyBeliefs
+        from llm_routewise.core.router import RouteWiseRouter
 
-        self.assertEqual(RouteWiseRouter.__module__, "routewise.core.router")
-        self.assertEqual(LatencyBeliefs.__module__, "routewise.core.beliefs")
+        self.assertEqual(RouteWiseRouter.__module__, "llm_routewise.core.router")
+        self.assertEqual(LatencyBeliefs.__module__, "llm_routewise.core.beliefs")
         self.assertIs(public_core.RouteWiseRouter, RouteWiseRouter)
 
         # Neither adapter may call the LP solver directly; the router owns
         # the body orchestration.
         sim_adapter = (
-            ROOT_DIR / "routewise" / "sim" / "policies" / "routewise.py"
+            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "routewise.py"
         ).read_text()
         real_adapter = (
             ROOT_DIR / "experiments" / "real_evaluation" / "policies.py"
@@ -230,21 +232,21 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertNotIn(
                 "solve_budget_lp(",
                 source,
-                f"{label} adapter must delegate the budget LP to routewise.core.router",
+                f"{label} adapter must delegate the budget LP to llm_routewise.core.router",
             )
 
     def test_offline_stage_core_has_canonical_home(self) -> None:
         from experiments.offline_stage import DEFAULT_CONFIG_PATH
-        from routewise.offline import CostCalculator, Request
+        from llm_routewise.offline import CostCalculator, Request
 
-        self.assertTrue((ROOT_DIR / "routewise" / "offline" / "schemas.py").exists())
-        self.assertTrue((ROOT_DIR / "routewise" / "offline" / "simulator.py").exists())
+        self.assertTrue((ROOT_DIR / "llm_routewise" / "offline" / "schemas.py").exists())
+        self.assertTrue((ROOT_DIR / "llm_routewise" / "offline" / "simulator.py").exists())
         self.assertTrue(
             (ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml").exists()
         )
         self.assertFalse((ROOT_DIR / "config").exists())
-        self.assertEqual(CostCalculator.__module__, "routewise.offline.cost")
-        self.assertEqual(Request.__module__, "routewise.offline.schemas")
+        self.assertEqual(CostCalculator.__module__, "llm_routewise.offline.cost")
+        self.assertEqual(Request.__module__, "llm_routewise.offline.schemas")
         self.assertEqual(
             DEFAULT_CONFIG_PATH,
             ROOT_DIR / "experiments" / "offline_stage" / "configs" / "experiment.yaml",

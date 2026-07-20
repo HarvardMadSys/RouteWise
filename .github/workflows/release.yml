@@ -59,7 +59,7 @@ jobs:
           import urllib.request
 
           version = os.environ["PACKAGE_VERSION"]
-          url = f"https://pypi.org/pypi/routewise/{version}/json"
+          url = f"https://pypi.org/pypi/llm-routewise/{version}/json"
           try:
               with urllib.request.urlopen(url, timeout=30):
                   pass
@@ -67,7 +67,7 @@ jobs:
               if exc.code == 404:
                   raise SystemExit(0) from None
               raise
-          raise SystemExit(f"routewise {version} already exists on PyPI")
+          raise SystemExit(f"llm-routewise {version} already exists on PyPI")
           PY
       - run: python -m pip install build==1.5.1
       - name: Build the dependency-free wheel
@@ -83,17 +83,19 @@ jobs:
         run: |
           python - <<'PY'
           from importlib.metadata import version
+          from importlib.util import find_spec
 
-          import routewise
+          import llm_routewise as rw
 
-          installed = version("routewise")
-          assert routewise.__version__ == installed
-          assert len(routewise.__all__) == 13
-          print(f"verified routewise {installed}")
+          installed = version("llm-routewise")
+          assert rw.__version__ == installed
+          assert len(rw.__all__) == 13
+          assert find_spec("routewise") is None
+          print(f"verified llm-routewise {installed}")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: routewise-${{ steps.version.outputs.version }}
+          name: llm-routewise-${{ steps.version.outputs.version }}
           path: dist/*.whl
           if-no-files-found: error
           retention-days: 7
@@ -105,13 +107,13 @@ jobs:
     timeout-minutes: 10
     environment:
       name: pypi
-      url: https://pypi.org/project/routewise/${{ needs.build.outputs.version }}/
+      url: https://pypi.org/project/llm-routewise/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: routewise-${{ needs.build.outputs.version }}
+          name: llm-routewise-${{ needs.build.outputs.version }}
           path: dist
       - name: Publish the wheel with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1.14

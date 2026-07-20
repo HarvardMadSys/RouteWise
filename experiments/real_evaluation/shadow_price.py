@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from experiments.real_evaluation.transports import compute_request_cost_usd
-from routewise.core.cost import (
+from llm_routewise.core.cost import (
     concurrency_effective_cost,
     effective_cost as core_effective_cost,
     quota_effective_cost,
@@ -92,7 +92,7 @@ def effective_cost(
 ) -> float:
     """Paper-formula piecewise effective cost used by the joint router.
 
-    Matches :func:`routewise.sim.policies.routewise.effective_cost` across **api**,
+    Matches :func:`llm_routewise.sim.policies.routewise.effective_cost` across **api**,
     **quota**, and **concurrency** tiers.
 
     * ``S_A`` / ``tier="api"``: real API billing cost.

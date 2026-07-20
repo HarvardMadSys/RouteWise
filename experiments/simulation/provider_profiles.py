@@ -13,7 +13,7 @@ from experiments.simulation.latency_profiles import (
     load_pool,
     load_profile_config,
 )
-from routewise.sim.world.empirical import EmpiricalDistribution
+from llm_routewise.sim.world.empirical import EmpiricalDistribution
 
 
 @dataclass(frozen=True)

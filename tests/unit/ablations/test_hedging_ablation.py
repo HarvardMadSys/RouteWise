@@ -15,15 +15,15 @@ from experiments.ablations.hedging.presets import (
     parse_ablation_policy_name,
     production_baseline_policy_name,
 )
-from routewise.capacity import ProviderTier
-from routewise.core.hedging import BackupCandidate
-from routewise.schemas import Request, RoutingDecision
-from routewise.sim.engine.simulator import Simulator
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.policies.routewise import RouteWisePolicy
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.core.hedging import BackupCandidate
+from llm_routewise.schemas import Request, RoutingDecision
+from llm_routewise.sim.engine.simulator import Simulator
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.policies.routewise import RouteWisePolicy
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 from routewise_cli.main import ABLATION_COMMANDS, main as routewise_main
 
 

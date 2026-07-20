@@ -67,7 +67,7 @@
     release (`0.3.0`) ships the dependency-free `Router` only. Pending
     Juncheng's sign-off.
 15. The v2 subscription roadmap no longer promises an unchanged interface;
-    capacity reservation will add interactions. `routewise.core` remains the
+    capacity reservation will add interactions. `llm_routewise.core` remains the
     advanced seam.
 16. The output-length estimator's exact fallback cascade (bucket mean after
     5 bucket samples, global mean after 20 global samples, 500 tokens
@@ -76,7 +76,7 @@
 17. The initial implementation reserves an internal capacity-transaction
     seam, backed only by a no-op API controller in `0.3.0`. Capacity admission
     stays separate from L/U scarcity pricing and from the pure `ProviderView`
-    consumed by `routewise.core`; no capacity API is exported yet.
+    consumed by `llm_routewise.core`; no capacity API is exported yet.
 
 ## Revision 5 Changes
 
@@ -170,22 +170,23 @@ in your process).
 ## Installation
 
 ```bash
-pip install -e .
+pip install llm-routewise
 ```
 
-Until the PyPI namespace is resolved, installation is supported only from a
-trusted checkout of the HarvardMadSys repository. PyPI releases named
+Until the first release is linked from this repository, install with
+`pip install -e .` from a trusted HarvardMadSys checkout. PyPI releases named
 `routewise` through `0.2.0` were published by an unaffiliated project and are
 not predecessors of this interface; do not install them for this project or
-provide them with provider credentials.
+provide them with provider credentials. The official distribution is
+`llm-routewise`, imported as `llm_routewise`.
 
 The planned initial release (package `0.3.0`) is an API-only preview: it
 contains the decision library alone and imports nothing outside the standard
 library. The
 paper's full system also prices quota and concurrency subscriptions; those
 arrive in a later generation, so this release does not claim to reproduce the
-full paper results. An execution client (`routewise[client]`, httpx-based) and
-a LiteLLM routing-strategy plugin (`routewise[litellm]`) are planned as
+full paper results. An execution client (`llm-routewise[client]`, httpx-based)
+and a LiteLLM routing-strategy plugin (`llm-routewise[litellm]`) are planned as
 optional extras for a later release; `0.3.0` defines no extras. See Scope and
 Roadmap.
 
@@ -196,11 +197,11 @@ request with your own code, and you tell the decision what happened so the next
 decision is better informed.
 
 ```python
-from routewise import Provider, Router
+import llm_routewise as rw
 
-router = Router(
-    [Provider("fireworks", price_in=0.27, price_out=1.10),
-     Provider("together",  price_in=0.18, price_out=0.88)],
+router = rw.Router(
+    [rw.Provider("fireworks", price_in=0.27, price_out=1.10),
+     rw.Provider("together",  price_in=0.18, price_out=0.88)],
     alpha=0.25,          # the one knob: 0 = cheapest, 1 = fastest
     seed=42,             # sampling is random; seed it for reproducibility
 )
@@ -691,7 +692,7 @@ calibrated defaults, not per-deployment choices. A caller who has measured a
 reason to change them passes a `Tuning` object:
 
 ```python
-from routewise import Router, Tuning
+from llm_routewise import Router, Tuning
 
 router = Router([...], alpha=0.25, slo_ms=3000, seed=7,
                 tuning=Tuning(hedge_target=0.95, window_min=30))
@@ -954,7 +955,7 @@ top level, and stable once that question is signed off.
 ### Stateless Function
 
 ```python
-from routewise import Candidate, route_once
+from llm_routewise import Candidate, route_once
 
 result = route_once(
     [Candidate("fireworks", cost_usd=0.0012, latency_ms=240.0),
@@ -1034,7 +1035,7 @@ Subscription-style providers (prepaid request quotas, reserved concurrency
 slots) are the second half of the RouteWise algorithm and the planned v2
 extension; the paper's headline results depend on them, which is why `0.3.0`
 is named an API-only preview rather than a paper artifact. Their pricing
-mathematics already exists in `routewise.core` (the quota shadow price and
+mathematics already exists in `llm_routewise.core` (the quota shadow price and
 its L/U scarcity calibration). What v2 cannot avoid is capacity lifecycle: a
 quota slot is spent, a concurrency slot is held and released, so the
 interface will grow reservation interactions (reserve before a dispatchable
@@ -1043,7 +1044,7 @@ outcome) that have no v1 counterpart. The v1 surface is designed to survive
 that growth additively (new `Provider` constructors and new optional
 interactions rather than changed signatures), but this revision withdraws
 revision 1's promise that the interface shape would not change.
-`routewise.core`'s `ProviderView` remains the seam for advanced integrations;
+`llm_routewise.core`'s `ProviderView` remains the seam for advanced integrations;
 hybridInference already runs quota and concurrency capacity in production
 against those primitives.
 
@@ -1139,9 +1140,9 @@ These block the contract freeze.
 9. Should `route()` accept `estimated_output_tokens=` so callers with a
    known `max_tokens` can override the length estimator, whose fallback
    default is 500 tokens?
-10. Does the wheel keep the research subpackages (`routewise.sim`,
-    `routewise.offline`, `routewise.metrics`, plus the shared research
-    contracts `routewise.capacity` and `routewise.schemas`) or ship the
+10. Does the wheel keep the research subpackages (`llm_routewise.sim`,
+    `llm_routewise.offline`, `llm_routewise.metrics`, plus the shared research
+    contracts `llm_routewise.capacity` and `llm_routewise.schemas`) or ship the
     facade and core alone (Table E drafts the narrow allowlist)? Excluding
     them keeps the "library alone" promise; keeping them costs size but
     spares research users a source checkout. Keeping them also breaks the
@@ -1224,7 +1225,7 @@ own bounded exclude/reselect loop and independently owned backup reservation,
 as described above. The no-op API controller always succeeds on the first
 attempt.
 
-The interface maps onto `routewise.core` as follows: `route_once()` wraps
+The interface maps onto `llm_routewise.core` as follows: `route_once()` wraps
 `solve_budget_lp()` with the alpha-to-budget conversion and seeded weight
 sampling; `Router` adds the rolling latency profile (`LatencyBeliefs` over
 `RollingLatencyProfile`), the bucket-mean output-length estimator, cooldown,
@@ -1232,7 +1233,7 @@ cold-start handling, and the attempt bookkeeping; `hedge_now()` wraps
 `hedge_checkpoints_for_slo()`, `combined_success_probability()`, and
 `select_probability_backup()`.
 
-Gaps between this contract and today's `routewise.core`, facade-level except
+Gaps between this contract and today's `llm_routewise.core`, facade-level except
 the last:
 
 1. Core's default sampler is `argmax_weight_sampler`. The facade samples from
@@ -1259,7 +1260,7 @@ the last:
    references.
 7. The private capacity seam, no-op controller, reservation state machine, and
    bounded reserve/replan loop are new facade orchestration. They stay out of
-   `routewise.core`, and the capacity Protocols are not part of the `0.3.0`
+   `llm_routewise.core`, and the capacity Protocols are not part of the `0.3.0`
    compatibility surface.
 8. `combined_success_probability` on this implementation branch now applies
    the specified survival-zero fallback (backup-only probability); a focused
@@ -1268,13 +1269,13 @@ the last:
 ### Table E: Wheel Allowlist and Release Gates
 
 Wheel allowlist (freeze candidate, confirmed by the installed-wheel import
-test): `routewise` top level (facade modules, `py.typed`), `routewise.core`,
-`routewise.const`, and the dependency-free estimator module. The current
+test): `llm_routewise` top level (facade modules, `py.typed`), `llm_routewise.core`,
+`llm_routewise.const`, and the dependency-free estimator module. The current
 preview build provisionally retains the stdlib-only shared contracts
-`routewise.capacity` and `routewise.schemas` while Open Question 10 remains
+`llm_routewise.capacity` and `llm_routewise.schemas` while Open Question 10 remains
 open. It excludes `experiments/`, `plots/`, `scripts/`, all data files, and
-the research subpackages `routewise.sim`, `routewise.offline`, and
-`routewise.metrics`. The `[project.scripts]` CLI entry point does not ship in `0.3.0`:
+the research subpackages `llm_routewise.sim`, `llm_routewise.offline`, and
+`llm_routewise.metrics`. The `[project.scripts]` CLI entry point does not ship in `0.3.0`:
 the current `routewise_cli.main` imports `experiments` at module top, so the
 console command is removed from the wheel until a library-only CLI exists.
 `0.3.0` defines no pip extras; `[client]` and `[litellm]` arrive with their
@@ -1289,9 +1290,9 @@ features.
 | Install test | clean-environment install + import + `route_once` smoke, in CI, per release | passes locally on Python 3.10–3.14; CI workflow added |
 | Test suite | fast tests green on a clean checkout | passes locally: 646 passed, 12 explicitly skipped without optional BurstGPT data, 3 slow tests deselected |
 | CI | 3.10–3.14 matrix (pyproject declares `>=3.10` with no upper bound and 3.14 is the current feature series), lint, wheel build | passes on PR #13 with separate dependency-free and research-compatibility jobs |
-| PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | blocked: GitHub environment exists, but the `routewise` PyPI project is controlled by an unaffiliated owner and no trusted publisher can be added yet |
+| PyPI release | published GitHub Release, exact `v<version>` tag, protected `pypi` environment, OIDC Trusted Publishing | pending: register the `llm-routewise` pending trusted publisher before publishing the first release |
 | Metadata | `version = 0.3.0`; library description; README library-first; `[project.urls]`, classifiers, SPDX license; arXiv citation resolved | partial: everything except the arXiv citation is present |
-| PyPI project/version | team controls the intended distribution namespace; unused release version; Trusted Publisher configured | blocked: PyPI `routewise` `0.1.0`--`0.2.0` belong to another project; distribution-name transfer or an explicit rename decision is required before release |
+| PyPI project/version | team controls the intended distribution namespace; unused release version; Trusted Publisher configured | selected: `llm-routewise`; the project/version are unclaimed, with one-time Trusted Publisher setup still required |
 | Working tree | implement from a clean worktree off `origin/main`, not the diverged local `main` | passes: `codex/api-provider-library-v1` in an isolated worktree |
 
 Behaviors that are contractual, not incidental: primary selection samples from

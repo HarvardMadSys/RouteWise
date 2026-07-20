@@ -32,6 +32,6 @@ uv sync --python 3.13 --only-group agent-benchmark
 ```
 
 `offline_stage/` owns the paper offline/stage configuration and config loader.
-The reusable offline simulator primitives live in `routewise/offline/`; the
+The reusable offline simulator primitives live in `llm_routewise/offline/`; the
 remaining stage strategy implementations are being migrated behind
 compatibility wrappers.

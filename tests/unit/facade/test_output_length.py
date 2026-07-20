@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from routewise._output_length import _OutputLengthEstimator
+from llm_routewise._output_length import _OutputLengthEstimator
 
 
 def test_default_until_a_fallback_threshold_is_reached() -> None:

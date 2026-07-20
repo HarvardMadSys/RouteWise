@@ -8,8 +8,8 @@ import json
 import pytest
 
 from experiments.simulation import end_to_end
-from routewise.capacity import ProviderTier
-from routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
 from routewise_cli.main import main as routewise_main
 
 

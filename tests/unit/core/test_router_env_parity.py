@@ -4,7 +4,7 @@ Builds one matched provider fleet twice — as simulator ``TieredProvider``s and
 as real-eval ``ProviderState``s — warms both with identical TTFT samples,
 neutralizes the documented calibration deltas (sampler, hedge overhead,
 tie-break mean), and asserts both adapters produce the same routing and
-checkpoint-hedging decisions through :class:`routewise.core.router.RouteWiseRouter`.
+checkpoint-hedging decisions through :class:`llm_routewise.core.router.RouteWiseRouter`.
 
 A final test pins the intended divergences (the knobs that must NOT match).
 """
@@ -21,14 +21,14 @@ from experiments.real_evaluation.policies import (
     select_checkpoint_backup,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
-from routewise.core.hedging import DISPATCH_OVERHEAD_MS
-from routewise.core.router import argmax_weight_sampler
-from routewise.schemas import Request, RoutingDecision
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.policies.routewise import RouteWisePolicy
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
+from llm_routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
+from llm_routewise.core.hedging import DISPATCH_OVERHEAD_MS
+from llm_routewise.core.router import argmax_weight_sampler
+from llm_routewise.schemas import Request, RoutingDecision
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.policies.routewise import RouteWisePolicy
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
 
 ENVELOPE = (1e-4, 1e-2)
 ALPHA_PERCENT = 75

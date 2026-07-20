@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 def _write_wheel(
     path: Path,
     *,
-    name: str = "routewise",
+    name: str = "llm-routewise",
     version: str = "0.3.0",
     requires_python: str = ">=3.10",
     requires_dist: tuple[str, ...] = (),
@@ -27,7 +27,7 @@ def _write_wheel(
     ]
     metadata.extend(f"Requires-Dist: {requirement}" for requirement in requires_dist)
     metadata.append("")
-    dist_info = f"routewise-{version}.dist-info"
+    dist_info = f"{name.replace('-', '_')}-{version}.dist-info"
     with ZipFile(path, "w") as archive:
         for member in ALLOWED_LIBRARY_MEMBERS:
             archive.writestr(member, "")
@@ -37,7 +37,7 @@ def _write_wheel(
 
 
 def test_accepts_exact_dependency_free_metadata(tmp_path: Path) -> None:
-    wheel = tmp_path / "routewise-0.3.0-py3-none-any.whl"
+    wheel = tmp_path / "llm_routewise-0.3.0-py3-none-any.whl"
     _write_wheel(wheel)
 
     assert main(["check_wheel.py", str(wheel)]) == 0
@@ -58,7 +58,7 @@ def test_rejects_incorrect_or_dependent_metadata(
     overrides: dict[str, object],
     message: str,
 ) -> None:
-    wheel = tmp_path / "routewise-0.3.0-py3-none-any.whl"
+    wheel = tmp_path / "llm_routewise-0.3.0-py3-none-any.whl"
     _write_wheel(wheel, **overrides)  # type: ignore[arg-type]
 
     assert main(["check_wheel.py", str(wheel)]) == 1

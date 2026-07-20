@@ -12,7 +12,7 @@ from experiments.ablations.effective_cost.presets import (
     make_concurrency_ablation_presets,
     parse_ablation_policy_name,
 )
-from routewise.core.cost import (
+from llm_routewise.core.cost import (
     SCARCITY_CURVES,
     ScarcityCurve,
     scarcity_price,

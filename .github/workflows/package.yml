@@ -30,9 +30,9 @@ jobs:
       - name: Lint the public library surface
         run: >-
           ruff check
-          routewise/__init__.py routewise/errors.py routewise/facade.py
-          routewise/stateless.py routewise/_capacity_controller.py
-          routewise/_output_length.py routewise/core scripts/check_wheel.py
+          llm_routewise/__init__.py llm_routewise/errors.py llm_routewise/facade.py
+          llm_routewise/stateless.py llm_routewise/_capacity_controller.py
+          llm_routewise/_output_length.py llm_routewise/core scripts/check_wheel.py
           tests/unit/scripts/test_check_wheel.py
           tests/unit/facade tests/unit/policies/test_hedging_helpers.py
       - name: Run dependency-free library tests
@@ -50,10 +50,11 @@ jobs:
         run: |
           python - <<'PY'
           from importlib.metadata import version
+          from importlib.util import find_spec
           import sys
 
-          import routewise
-          from routewise import Candidate, Provider, Router, route_once
+          import llm_routewise as rw
+          from llm_routewise import Candidate, Provider, Router, route_once
 
           result = route_once(
               [
@@ -66,12 +67,13 @@ jobs:
           router = Router([Provider("api", price_in=1.0, price_out=2.0)])
           assert result.provider in result.weights
           assert router.route(input_tokens=10).provider == "api"
-          assert routewise.__version__ == version("routewise")
-          assert len(routewise.__all__) == 13
+          assert rw.__version__ == version("llm-routewise")
+          assert len(rw.__all__) == 13
+          assert find_spec("routewise") is None
           assert "experiments" not in sys.modules
           assert "numpy" not in sys.modules
           assert "pandas" not in sys.modules
-          assert "routewise.sim" not in sys.modules
+          assert "llm_routewise.sim" not in sys.modules
           assert "scipy" not in sys.modules
           PY
 

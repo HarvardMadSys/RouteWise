@@ -11,10 +11,10 @@ The framework uses strict gating to ensure clean separation between stages.
 import logging
 from abc import abstractmethod
 
-from routewise.offline.cost import CostCalculator
-from routewise.offline.quota import QuotaManager
-from routewise.offline.schemas import Request, RoutingDecision
-from routewise.offline.strategy import RoutingStrategy
+from llm_routewise.offline.cost import CostCalculator
+from llm_routewise.offline.quota import QuotaManager
+from llm_routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.strategy import RoutingStrategy
 
 logger = logging.getLogger(__name__)
 

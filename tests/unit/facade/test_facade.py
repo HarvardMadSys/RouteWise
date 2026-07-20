@@ -8,9 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from routewise._capacity_controller import _CapacitySnapshot, _NoopReservation
-from routewise.errors import NoProviderError, OutcomeError, ValidationError
-from routewise.facade import Provider, Router, Tuning
+from llm_routewise._capacity_controller import _CapacitySnapshot, _NoopReservation
+from llm_routewise.errors import NoProviderError, OutcomeError, ValidationError
+from llm_routewise.facade import Provider, Router, Tuning
 
 
 class FakeClock:

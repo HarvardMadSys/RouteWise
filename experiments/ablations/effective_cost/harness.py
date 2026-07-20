@@ -23,14 +23,14 @@ from experiments.simulation.latency_factory import (
 )
 from experiments.simulation.latency_profiles import load_pooled_distribution
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
-from routewise.capacity import MultiWindowQuotaState, QuotaState
-from routewise.sim.engine.simulator import Simulator
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import MultiWindowQuotaState, QuotaState
+from llm_routewise.sim.engine.simulator import Simulator
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from routewise.core.cost import ScarcityCurve
-    from routewise.metrics import Run
-    from routewise.schemas import Request
+    from llm_routewise.core.cost import ScarcityCurve
+    from llm_routewise.metrics import Run
+    from llm_routewise.schemas import Request
 
 SECTION_NAME = "effective-cost-ablation"
 PHASE_QUOTA = "quota"

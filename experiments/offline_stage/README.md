@@ -7,5 +7,5 @@ This package owns the paper offline/stage experiment configuration.
 - `latency_profiling.py` is the OpenRouter probe used to collect TTFT/E2E
   samples for latency-stage analysis.
 
-Reusable offline primitives live in `routewise/offline/`. Strategy implementations
+Reusable offline primitives live in `llm_routewise/offline/`. Strategy implementations
 live under `strategies/`.

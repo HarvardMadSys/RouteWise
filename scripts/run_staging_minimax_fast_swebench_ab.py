@@ -140,7 +140,7 @@ def choose_tasks(args: argparse.Namespace) -> list[TaskSpec]:
 
 
 def build_plan(tasks: list[TaskSpec], attempts: int) -> list[PlannedRun]:
-    """Build task-blocked routewise/baseline pairs."""
+    """Build task-blocked RouteWise/baseline pairs."""
     plan: list[PlannedRun] = []
     for task in tasks:
         for attempt in range(1, attempts + 1):

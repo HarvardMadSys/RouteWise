@@ -11,32 +11,32 @@ from email.policy import default
 from pathlib import Path
 
 ALLOWED_LIBRARY_MEMBERS = {
-    "routewise/__init__.py",
-    "routewise/_capacity_controller.py",
-    "routewise/_output_length.py",
+    "llm_routewise/__init__.py",
+    "llm_routewise/_capacity_controller.py",
+    "llm_routewise/_output_length.py",
     # Kept provisionally for source-checkout compatibility while OQ10 is open.
-    "routewise/capacity.py",
-    "routewise/const.py",
-    "routewise/core/__init__.py",
-    "routewise/core/beliefs.py",
-    "routewise/core/cost.py",
-    "routewise/core/hedging.py",
-    "routewise/core/latency_profile.py",
-    "routewise/core/lp.py",
-    "routewise/core/pricing.py",
-    "routewise/core/provider_view.py",
-    "routewise/core/router.py",
-    "routewise/core/types.py",
-    "routewise/errors.py",
-    "routewise/facade.py",
-    "routewise/py.typed",
-    "routewise/schemas.py",
-    "routewise/stateless.py",
+    "llm_routewise/capacity.py",
+    "llm_routewise/const.py",
+    "llm_routewise/core/__init__.py",
+    "llm_routewise/core/beliefs.py",
+    "llm_routewise/core/cost.py",
+    "llm_routewise/core/hedging.py",
+    "llm_routewise/core/latency_profile.py",
+    "llm_routewise/core/lp.py",
+    "llm_routewise/core/pricing.py",
+    "llm_routewise/core/provider_view.py",
+    "llm_routewise/core/router.py",
+    "llm_routewise/core/types.py",
+    "llm_routewise/errors.py",
+    "llm_routewise/facade.py",
+    "llm_routewise/py.typed",
+    "llm_routewise/schemas.py",
+    "llm_routewise/stateless.py",
 }
 
 
 def _expected_project_metadata() -> tuple[str, str, str]:
-    init_path = Path(__file__).resolve().parents[1] / "routewise" / "__init__.py"
+    init_path = Path(__file__).resolve().parents[1] / "llm_routewise" / "__init__.py"
     tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
     for statement in tree.body:
         if not isinstance(statement, ast.Assign):
@@ -44,7 +44,7 @@ def _expected_project_metadata() -> tuple[str, str, str]:
         if any(isinstance(target, ast.Name) and target.id == "__version__" for target in statement.targets):
             version = ast.literal_eval(statement.value)
             if isinstance(version, str):
-                return "routewise", version, ">=3.10"
+                return "llm-routewise", version, ">=3.10"
     raise RuntimeError(f"could not read __version__ from {init_path}")
 
 
@@ -81,15 +81,25 @@ def main(argv: list[str]) -> int:
         metadata_errors = _metadata_errors(archive, names)
 
     dist_info_prefixes = {name.split("/", 1)[0] + "/" for name in names if ".dist-info/" in name}
+    expected_name, expected_version, _ = _expected_project_metadata()
+    expected_dist_info_prefix = (
+        f"{expected_name.replace('-', '_')}-{expected_version}.dist-info/"
+    )
+    invalid_dist_info_prefix = dist_info_prefixes != {expected_dist_info_prefix}
     dist_info = {
         name for name in names if any(name.startswith(prefix) for prefix in dist_info_prefixes)
     }
     unexpected = sorted(names - ALLOWED_LIBRARY_MEMBERS - dist_info)
     missing = sorted(ALLOWED_LIBRARY_MEMBERS - names)
     entry_points = sorted(name for name in names if name.endswith("entry_points.txt"))
-    if len(dist_info_prefixes) != 1 or unexpected or missing or entry_points or metadata_errors:
+    if invalid_dist_info_prefix or unexpected or missing or entry_points or metadata_errors:
         if len(dist_info_prefixes) != 1:
             print("wheel must contain exactly one .dist-info directory", file=sys.stderr)
+        elif invalid_dist_info_prefix:
+            print(
+                f"wheel .dist-info directory must be {expected_dist_info_prefix!r}",
+                file=sys.stderr,
+            )
         if unexpected:
             print("unexpected wheel members:", *unexpected, sep="\n  ", file=sys.stderr)
         if missing:
