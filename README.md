@@ -1,4 +1,39 @@
-# RouteWise
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/harvard-seas-wordmark.png"
+    alt="Harvard John A. Paulson School of Engineering and Applied Sciences"
+    width="270"
+  >
+</p>
+
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/routewise-routing-hero.svg"
+    alt="RouteWise: Latency–Cost Optimization for Multi-Provider LLM Routing"
+    width="1000"
+  >
+</p>
+
+<p align="center">
+  Research software maintained by the
+  <a href="https://juncheng.seas.harvard.edu/" title="Harvard Measurements and Design of Computer Systems Lab">Harvard MadSys Lab</a>
+  at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
+  <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
+  ·
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
+  ·
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
+</p>
 
 RouteWise is a dependency-free Python library for cost-aware,
 latency-optimized routing across multiple LLM API providers. Applications
@@ -53,8 +88,9 @@ decision.completed(
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](docs/public/API.md) or
-[中文 API 参考](docs/public/API.zh-CN.md) for the full contract.
+the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
+or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+for the full contract.
 
 ## Repository Development
 
@@ -70,27 +106,28 @@ List the paper-facing simulator sections:
 uv run python -m routewise_cli.main simulator list
 ```
 
-The [reproducibility guide](docs/research/REPRODUCIBILITY.md) covers datasets,
-live-evaluation credentials, experiment commands, and regression checks.
+The [reproducibility guide](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
+covers datasets, live-evaluation credentials, experiment commands, and
+regression checks.
 
 ## Documentation
 
 ### Library Users
 
-- [Python API](docs/public/API.md)
-- [Python API, Chinese](docs/public/API.zh-CN.md)
+- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
+- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
 
 ### Research Artifacts
 
-- [Simulator architecture and algorithms](docs/research/ARCHITECTURE.md)
-- [Experiment reproducibility](docs/research/REPRODUCIBILITY.md)
+- [Simulator architecture and algorithms](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/ARCHITECTURE.md)
+- [Experiment reproducibility](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
 
 ### Maintainers and Advanced Integrators
 
-- [Core mathematical API](docs/maintainers/CORE_API.md)
-- [Release procedure](docs/maintainers/RELEASING.md)
-- [Published-package changes](CHANGELOG.md)
+- [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
+- [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
+- [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See the [license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
