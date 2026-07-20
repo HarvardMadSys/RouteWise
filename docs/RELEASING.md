@@ -31,23 +31,23 @@ protected `pypi` environment are configured.
 1. Merge a version-bump PR after the package workflow is green. Update both
    `project.version` in `pyproject.toml` and `llm_routewise.__version__`.
 2. From the merged `main`, create and push the matching annotated tag. For
-   version `0.3.0`, the only accepted tag is `v0.3.0`:
+   version `0.1.0`, the only accepted tag is `v0.1.0`:
 
    ```bash
-   git tag -a v0.3.0 -m "RouteWise 0.3.0"
-   git push origin v0.3.0
+   git tag -a v0.1.0 -m "RouteWise 0.1.0"
+   git push origin v0.1.0
    ```
 
 3. Create a draft GitHub Release for that existing tag and review its notes.
-   Describe `0.3.0` as the first official HarvardMadSys RouteWise package under
+   Describe `0.1.0` as the first official HarvardMadSys RouteWise package under
    the `llm-routewise` distribution; do not describe the unaffiliated
    `routewise` releases as predecessors or a migration:
 
    ```bash
-   gh release create v0.3.0 --verify-tag --generate-notes --draft
-   gh release view v0.3.0 --web
+   gh release create v0.1.0 --verify-tag --generate-notes --draft
+   gh release view v0.1.0 --web
    # After reviewing and editing the notes:
-   gh release edit v0.3.0 --draft=false
+   gh release edit v0.1.0 --draft=false
    ```
 
 Publishing the GitHub Release triggers `.github/workflows/release.yml`. The

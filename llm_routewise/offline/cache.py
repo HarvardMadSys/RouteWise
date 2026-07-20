@@ -64,8 +64,19 @@ def load_cached_dataset(dataset_name: str) -> list[Request] | None:
         cache_time = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f"Loading cached dataset from {cache_path} (cached at {cache_time})")
 
-        with open(cache_path, "rb") as f:
-            requests = pickle.load(f)
+        try:
+            with open(cache_path, "rb") as f:
+                requests = pickle.load(f)
+        except (
+            AttributeError,
+            EOFError,
+            ImportError,
+            IndexError,
+            ValueError,
+            pickle.UnpicklingError,
+        ) as exc:
+            logger.warning("Ignoring unreadable dataset cache %s: %s", cache_path, exc)
+            return None
         logger.info(f"Loaded {len(requests)} requests from cache")
         return requests
     return None

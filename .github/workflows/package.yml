@@ -92,5 +92,6 @@ jobs:
         run: >-
           uv run pytest -q
           tests/unit/core/test_router_env_parity.py
+          tests/unit/offline/test_cache.py
           tests/test_architecture_scaffold.py
           tests/unit/cli/test_optional_extras.py

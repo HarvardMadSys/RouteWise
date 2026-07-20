@@ -5,7 +5,7 @@ routing across multiple LLM API providers. You supply provider prices and
 dispatch the returned attempt with your own HTTP or SDK client; RouteWise
 learns from the outcomes you report.
 
-The planned package `0.3.0` is an API-provider-only preview. The repository
+The planned package `0.1.0` is an API-provider-only preview. The repository
 also contains the simulator and experiment harnesses used by the paper, but
 those research packages are deliberately not included in the wheel.
 
@@ -79,9 +79,9 @@ result = rw.route_once(
 ```
 
 For full repository development, including the research harnesses, use
-`uv sync`. The distribution name is `llm-routewise`; existing editable
-environments created under the old `routewise-simulator` name should be
-reinstalled.
+`uv sync`. The distribution name is `llm-routewise`; editable environments
+created from older source checkouts under the `routewise` or
+`routewise-simulator` distribution names should be reinstalled.
 
 ### PyPI namespace status
 
@@ -135,7 +135,7 @@ The pure simulator path does not require any API keys.
 ## Running experiments
 
 The commands below are repository-development workflows and are not part of
-the `0.3.0` wheel. Install the development environment with `uv sync` first.
+the `0.1.0` wheel. Install the development environment with `uv sync` first.
 
 List the available paper sections and run one:
 

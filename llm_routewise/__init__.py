@@ -6,7 +6,7 @@ from llm_routewise.errors import NoProviderError, OutcomeError, RouteWiseError, 
 from llm_routewise.facade import Attempt, Decision, Provider, Router, StatsSnapshot, Tuning
 from llm_routewise.stateless import Candidate, RouteOnceResult, route_once
 
-__version__ = "0.3.0"
+__version__ = "0.1.0"
 
 __all__ = [
     "Attempt",
