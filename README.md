@@ -5,7 +5,7 @@ routing across multiple LLM API providers. You supply provider prices and
 dispatch the returned attempt with your own HTTP or SDK client; RouteWise
 learns from the outcomes you report.
 
-The planned package `0.1.0` is an API-provider-only preview. The repository
+The `0.1.0` distribution is an API-provider-only preview. The repository
 also contains the simulator and experiment harnesses used by the paper, but
 those research packages are deliberately not included in the wheel.
 
@@ -16,17 +16,17 @@ those research packages are deliberately not included in the wheel.
 ## Requirements
 
 - Python >= 3.10
-- No runtime dependencies for the published library
+- No runtime dependencies for the `llm-routewise` wheel
 
 ## Installation
 
-After an official release is linked from this repository, install it with:
+Install the PyPI distribution:
 
 ```bash
-python -m pip install llm-routewise
+python -m pip install llm-routewise==0.1.0
 ```
 
-Until then, install the local routing library from a trusted checkout:
+For library development or paper-artifact workflows, use a source checkout:
 
 ```bash
 python -m venv .venv
@@ -81,11 +81,13 @@ For full repository development, including the research harnesses, use
 created from older source checkouts under the `routewise` or
 `routewise-simulator` distribution names should be reinstalled.
 
-## Data
+## Source checkout: data and live evaluation
 
-The simulator is trace-driven and does not ship the workload traces. The
-harness expects public LLM-serving traces (BurstGPT, ShareGPT). Generate the
-local trace and dataset cache before running experiments:
+The following workflows require a source checkout and the development
+environment; they are not available from the PyPI wheel. The simulator is
+trace-driven and does not ship the workload traces. The harness expects public
+LLM-serving traces (BurstGPT, ShareGPT). Generate the local trace and dataset
+cache before running experiments:
 
 ```bash
 python3 scripts/prepare_workload.py --days 30
@@ -150,7 +152,7 @@ decision = router.route(input_tokens=10)
 Advanced users may import the pure mathematical primitives from
 `llm_routewise.core`.
 
-Simulator API:
+Research APIs (source checkout only; unavailable in the PyPI wheel):
 
 ```python
 from llm_routewise.sim import POLICIES, run_policy
@@ -165,7 +167,9 @@ The simulator does not include OpenRouter native `sort=price` or
 `sort=latency` baselines; those remain part of the live real-evaluation
 harness only.
 
-## Repository layout
+## Source-tree layout
+
+This is the repository layout, not the contents of the published wheel.
 
 - `llm_routewise/`: the public API-provider facade (stdlib-only)
 - `llm_routewise/core/`: advanced RouteWise mathematical primitives
@@ -179,7 +183,7 @@ harness only.
 - `routewise_cli/`: command-line entry point
 - `scripts/`: data preparation and profiling utilities
 
-## Testing
+## Testing a source checkout
 
 Fast structural and unit checks:
 

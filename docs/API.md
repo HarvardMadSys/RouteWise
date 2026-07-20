@@ -56,28 +56,57 @@ decision.completed(
 On dispatch failure, call `decision.failed(...)` instead of `completed(...)`.
 Outcome reports drive learning, cooldowns, lifecycle state, and spend metrics.
 
-## OpenRouter or OpenAI-compatible client
+## OpenRouter provider selection with the OpenAI SDK
 
-This example accepts an already-created, authenticated client. RouteWise only
-returns a provider name. The application maps that name to an OpenRouter model
-or endpoint and manages the client, HTTP transport, and API key.
+OpenRouter can route one fixed model across multiple provider endpoints. To
+keep RouteWise's selected provider aligned with the provider family that
+serves the request, use OpenRouter provider slugs as `Provider.name`, keep
+`MODEL` fixed, allow only `decision.provider`, and disable OpenRouter fallback.
+The `openai` package and API key belong to the application; they are not
+`llm-routewise` dependencies.
+
+See OpenRouter's [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+and [OpenAI SDK integration](https://openrouter.ai/docs/guides/community/openai-sdk)
+documentation for the upstream request contract.
 
 ```python
+import os
 import time
 
-MODEL_BY_PROVIDER = {
-    "provider-a": "vendor-a/model-a",
-    "provider-b": "vendor-b/model-b",
-}
+from openai import OpenAI
+
+import llm_routewise as rw
+
+MODEL = "openai/gpt-5-mini"
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"],
+)
+
+router = rw.Router(
+    [
+        # Illustrative USD per 1M tokens; use current endpoint prices.
+        rw.Provider("openai", price_in=1.0, price_out=4.0),
+        rw.Provider("azure", price_in=1.2, price_out=3.8),
+    ],
+    alpha=0.25,
+)
 
 
-def complete_with_openrouter(client, router, messages, input_tokens):
+def complete_with_openrouter(messages, input_tokens):
     decision = router.route(input_tokens=input_tokens)
     started = time.perf_counter()
     try:
         response = client.chat.completions.create(
-            model=MODEL_BY_PROVIDER[decision.provider],
+            model=MODEL,
             messages=messages,
+            extra_body={
+                "provider": {
+                    "only": [decision.provider],
+                    "allow_fallbacks": False,
+                }
+            },
         )
     except Exception as exc:
         # Client-specific application code returns "health" or "request"
@@ -86,16 +115,24 @@ def complete_with_openrouter(client, router, messages, input_tokens):
         decision.failed(kind=kind, code=code)
         raise
 
+    usage = response.usage
     decision.completed(
         ttft_ms=(time.perf_counter() - started) * 1_000.0,
-        output_tokens=response.usage.completion_tokens,
+        output_tokens=None if usage is None else usage.completion_tokens,
     )
     return response
 ```
 
-For non-streaming calls, measured response latency may be used as `ttft_ms`.
-Pass `cost_usd` when billed cost is available; otherwise RouteWise calculates
-spend after `output_tokens` is reported. The example adds no package dependency.
+Verify that every configured provider slug serves the fixed model. A base slug
+can match multiple regional or specialized endpoints; use the full slug copied
+from the model page when endpoint-level attribution or pricing matters, and
+replace the illustrative prices with current USD-per-million-token prices.
+With one allowed provider and fallback disabled, an unavailable selected
+provider fails instead of silently changing RouteWise's provider attribution;
+report that failure on the `Decision`. For non-streaming calls, measured
+response latency may be used as `ttft_ms`. Pass `cost_usd` when billed cost is
+available; otherwise RouteWise calculates spend after `output_tokens` is
+reported.
 
 ## Cost model
 

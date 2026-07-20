@@ -58,10 +58,15 @@ decision.completed(
 如果 provider 没有直接返回实际费用，可以省略 `cost_usd`；RouteWise 会在 token 用量足够时
 按照 `Provider` 的价格计算费用。
 
-## 与 OpenAI-compatible client 集成
+## 使用 OpenAI SDK 选择 OpenRouter provider
 
-下面的 `openai` 是调用方自行安装和管理的 SDK，不是 `llm-routewise` 的依赖。RouteWise
-只返回 `decision.provider`；endpoint、model、client 和 API key 都留在调用方的映射中。
+OpenRouter 可以把同一个固定 model 路由到不同 provider endpoint。为了让 RouteWise 记录的
+provider 与实际服务请求的 provider family 一致，应使用 OpenRouter provider slug 作为
+`Provider.name`，保持 `MODEL` 不变，只允许 `decision.provider`，并关闭 OpenRouter
+fallback。`openai` SDK 和 API key 由调用方管理，不是 `llm-routewise` 的依赖。
+
+上游请求格式见 OpenRouter 的 [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+和 [OpenAI SDK integration](https://openrouter.ai/docs/guides/community/openai-sdk) 文档。
 
 ```python
 import os
@@ -71,52 +76,53 @@ from openai import OpenAI
 
 import llm_routewise as rw
 
-def target(name):
-    prefix = name.upper()
-    return {
-        "client": OpenAI(
-            base_url=os.environ[f"{prefix}_BASE_URL"],
-            api_key=os.environ[f"{prefix}_API_KEY"],
-        ),
-        "model": os.environ[f"{prefix}_MODEL"],
-    }
+MODEL = "openai/gpt-5-mini"
 
-
-targets = {name: target(name) for name in ("provider_a", "provider_b")}
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"],
+)
 
 router = rw.Router(
     [
-        rw.Provider("provider_a", price_in=0.20, price_out=0.80),
-        rw.Provider("provider_b", price_in=0.30, price_out=0.60),
+        # 以下是美元/百万 token 的示意值；请替换成当前 endpoint 价格。
+        rw.Provider("openai", price_in=1.0, price_out=4.0),
+        rw.Provider("azure", price_in=1.2, price_out=3.8),
     ],
     alpha=0.25,
 )
 
 decision = router.route(input_tokens=120)
-target = targets[decision.provider]
 started = time.monotonic()
-first_token_reported = False
-usage = None
+try:
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Explain cache-aware routing."}],
+        extra_body={
+            "provider": {
+                "only": [decision.provider],
+                "allow_fallbacks": False,
+            }
+        },
+    )
+except Exception as exc:
+    kind, code = classify_provider_error(exc)
+    decision.failed(kind=kind, code=code)
+    raise
 
-stream = target["client"].chat.completions.create(
-    model=target["model"],
-    messages=[{"role": "user", "content": "Explain cache-aware routing."}],
-    stream=True,
-    stream_options={"include_usage": True},
+usage = response.usage
+decision.completed(
+    ttft_ms=(time.monotonic() - started) * 1000.0,
+    output_tokens=None if usage is None else usage.completion_tokens,
 )
-for chunk in stream:
-    if chunk.choices and chunk.choices[0].delta.content and not first_token_reported:
-        decision.first_token(ttft_ms=(time.monotonic() - started) * 1000.0)
-        first_token_reported = True
-    if chunk.usage is not None:
-        usage = chunk.usage
-
-decision.completed(output_tokens=None if usage is None else usage.completion_tokens)
 ```
 
-不同服务对 streaming usage 的支持可能不同；usage 稍后到达时可用
-`decision.settle(...)` 补报。调用失败时也必须报告 `decision.failed(...)`，并按实际语义
-区分 provider health failure 与 request/configuration failure。
+配置前应确认每个 provider slug 都能服务固定的 `MODEL`。base slug 可能匹配同一 provider
+的多个区域或特殊 endpoint；如果归因或价格需要精确到 endpoint，应从 model 页面复制完整
+slug，并填写当前的美元/百万 token 价格。单 provider allowlist 加上关闭 fallback，可避免
+OpenRouter 在 provider 不可用时静默切换，导致 RouteWise 归因错误；此时应把失败报告给
+`decision.failed(...)`。非 streaming 请求可把完整响应延迟作为 `ttft_ms`；usage 或账单
+稍后到达时可用 `decision.settle(...)` 补报。
 
 ## 顶层公开 API
 
