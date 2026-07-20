@@ -1,105 +1,94 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 280" role="img" aria-labelledby="title description">
-  <title id="title">RouteWise adaptive multi-provider routing</title>
-  <desc id="description">Request metadata enters a cost- and latency-aware RouteWise policy. RouteWise returns a provider decision and hedge checkpoints; the application dispatches the primary request and, only when needed, an optional backup.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" role="img" aria-labelledby="title description">
+  <title id="title">How RouteWise makes and learns from routing decisions</title>
+  <desc id="description">A request enters RouteWise. Cost and latency layers produce a provider decision with optional hedge checkpoints. The application dispatches the primary provider and may dispatch a backup after calling hedge_now. Reported outcomes update RouteWise.</desc>
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#24070d"/>
-      <stop offset="0.58" stop-color="#721425"/>
-      <stop offset="1" stop-color="#a51c30"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.78" cy="0.5" r="0.52">
-      <stop offset="0" stop-color="#f7c7cf" stop-opacity="0.24"/>
-      <stop offset="1" stop-color="#f7c7cf" stop-opacity="0"/>
-    </radialGradient>
-    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.055"/>
-    </pattern>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#160308" flood-opacity="0.28"/>
+    <filter id="card-shadow" x="-15%" y="-20%" width="130%" height="145%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1f2937" flood-opacity="0.08"/>
     </filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10Z" fill="#ffffff" fill-opacity="0.82"/>
+    <marker id="arrow-slate" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#59636e"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#2e7d32"/>
+    </marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#2b777a"/>
     </marker>
   </defs>
 
-  <rect x="4" y="4" width="1192" height="272" rx="26" fill="url(#background)"/>
-  <rect x="4" y="4" width="1192" height="272" rx="26" fill="url(#glow)"/>
-  <rect x="4" y="4" width="1192" height="272" rx="26" fill="url(#grid)"/>
-  <rect x="4.5" y="4.5" width="1191" height="271" rx="25.5" fill="none" stroke="#ffffff" stroke-opacity="0.18"/>
+  <rect x="1" y="1" width="1198" height="328" rx="24" fill="#fbfcfe" stroke="#d7dee7" stroke-width="1.6"/>
+  <path d="M25 1H1175A24 24 0 0 1 1199 25V9H1V25A24 24 0 0 1 25 1Z" fill="#a51c30"/>
 
   <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-    <text x="70" y="49" fill="#f4c7cf" font-size="13" font-weight="700" letter-spacing="2.4">RESEARCH SOFTWARE FOR LLM API ROUTING</text>
-    <text x="70" y="98" fill="#ffffff" font-size="39" font-weight="750">RouteWise</text>
-    <text x="70" y="132" fill="#ffffff" font-size="19" font-weight="650">Latency–Cost Optimization for Multi-Provider LLM Routing</text>
-    <text x="70" y="163" fill="#f9e8eb" font-size="15">Learn from recent outcomes. Route each request. Hedge selectively.</text>
+    <text x="38" y="43" fill="#6b7280" font-size="14" font-weight="750" letter-spacing="1.8">ADAPTIVE ROUTING LOOP</text>
 
-    <g transform="translate(70 194)" font-size="13" font-weight="650" fill="#ffffff">
-      <rect width="126" height="36" rx="18" fill="#ffffff" fill-opacity="0.11" stroke="#ffffff" stroke-opacity="0.26"/>
-      <circle cx="18" cy="18" r="5" fill="#f5a9b6"/>
-      <text x="31" y="23">Cost-aware</text>
+    <g filter="url(#card-shadow)">
+      <rect x="35" y="104" width="132" height="104" rx="18" fill="#ffffff" stroke="#b8c1cc" stroke-width="1.7"/>
+      <circle cx="67" cy="137" r="14" fill="#f7e4e7"/>
+      <path d="M61 137H73M67 131V143" stroke="#a51c30" stroke-width="2.2" stroke-linecap="round"/>
+      <text x="91" y="136" fill="#1f2937" font-size="15" font-weight="750">Request</text>
+      <text x="55" y="170" fill="#59636e" font-size="14">input tokens</text>
+      <text x="55" y="190" fill="#59636e" font-size="14">cached estimate</text>
 
-      <g transform="translate(140)">
-        <rect width="154" height="36" rx="18" fill="#ffffff" fill-opacity="0.11" stroke="#ffffff" stroke-opacity="0.26"/>
-        <circle cx="18" cy="18" r="5" fill="#f5a9b6"/>
-        <text x="31" y="23">Rolling TTFT</text>
-      </g>
+      <rect x="213" y="66" width="334" height="185" rx="22" fill="#ffffff" stroke="#a51c30" stroke-width="2.2"/>
+      <circle cx="244" cy="97" r="11" fill="#a51c30"/>
+      <circle cx="244" cy="97" r="4" fill="#ffffff"/>
+      <text x="265" y="103" fill="#1f2937" font-size="20" font-weight="780">RouteWise</text>
+      <text x="510" y="101" text-anchor="end" fill="#8a3a49" font-size="13" font-weight="700">IN-PROCESS POLICY</text>
 
-      <g transform="translate(308)">
-        <rect width="166" height="36" rx="18" fill="#ffffff" fill-opacity="0.11" stroke="#ffffff" stroke-opacity="0.26"/>
-        <circle cx="18" cy="18" r="5" fill="#f5a9b6"/>
-        <text x="31" y="23">Selective hedging</text>
-      </g>
+      <rect x="235" y="122" width="290" height="48" rx="12" fill="#eef5ff" stroke="#4f81bd" stroke-width="1.5"/>
+      <circle cx="256" cy="146" r="8" fill="#4f81bd"/>
+      <path d="M252 146H260M256 142V150" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="275" y="143" fill="#2d5f96" font-size="14" font-weight="750">COST LAYER</text>
+      <text x="275" y="161" fill="#456987" font-size="14">request cost · tunable budget</text>
+
+      <rect x="235" y="181" width="290" height="48" rx="12" fill="#fff2f2" stroke="#c94141" stroke-width="1.5"/>
+      <circle cx="256" cy="205" r="8" fill="#c94141"/>
+      <path d="M252 205H260M256 201V209" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="275" y="202" fill="#9f2d38" font-size="14" font-weight="750">LATENCY LAYER</text>
+      <text x="275" y="220" fill="#8d4a50" font-size="14">rolling TTFT · tail checkpoints</text>
+
+      <rect x="593" y="94" width="167" height="132" rx="20" fill="#eef8f7" stroke="#2b777a" stroke-width="1.8"/>
+      <path d="M618 119H635L644 128V151H618Z" fill="#ffffff" stroke="#2b777a" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M635 119V128H644" fill="none" stroke="#2b777a" stroke-width="1.6" stroke-linejoin="round"/>
+      <text x="657" y="127" fill="#245f62" font-size="14" font-weight="800" letter-spacing="0.8">DECISION</text>
+      <line x1="616" y1="163" x2="737" y2="163" stroke="#b8d8d5"/>
+      <circle cx="621" cy="184" r="4" fill="#2b777a"/>
+      <text x="633" y="188" fill="#345f61" font-size="14">primary provider</text>
+      <circle cx="621" cy="207" r="4" fill="#2b777a" fill-opacity="0.58"/>
+      <text x="633" y="211" fill="#4e7072" font-size="14">hedge checkpoints</text>
+
+      <rect x="806" y="94" width="156" height="132" rx="20" fill="#ffffff" stroke="#8b96a3" stroke-width="1.7"/>
+      <circle cx="833" cy="124" r="10" fill="#eef0f3"/>
+      <path d="M828 128C828 122 838 122 838 128M833 118A3.5 3.5 0 1 0 833 125A3.5 3.5 0 1 0 833 118" fill="none" stroke="#59636e" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="852" y="129" fill="#1f2937" font-size="14" font-weight="780">Your app</text>
+      <line x1="829" y1="148" x2="940" y2="148" stroke="#d7dee7"/>
+      <text x="884" y="173" text-anchor="middle" fill="#59636e" font-size="14">owns network I/O</text>
+      <text x="884" y="194" text-anchor="middle" fill="#59636e" font-size="14">clients · credentials</text>
+
+      <rect x="1010" y="77" width="158" height="70" rx="17" fill="#eef8ed" stroke="#4b8c4b" stroke-width="1.6"/>
+      <circle cx="1033" cy="112" r="8" fill="#2e7d32"/>
+      <path d="M1029 112L1032 115L1038 108" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="1049" y="108" fill="#225d27" font-size="14" font-weight="780">Primary</text>
+      <text x="1049" y="127" fill="#517b55" font-size="14">provider API</text>
+
+      <rect x="1010" y="174" width="158" height="70" rx="17" fill="#f7fbf6" stroke="#83b780" stroke-width="1.6"/>
+      <circle cx="1033" cy="209" r="9" fill="#e2f3df" stroke="#70a76d" stroke-width="1.2"/>
+      <path d="M1033 204V209L1037 211" fill="none" stroke="#4b8c4b" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="1049" y="205" fill="#285f2d" font-size="13.5" font-weight="780">Optional backup</text>
+      <text x="1049" y="224" fill="#517b55" font-size="12.5">after hedge_now()</text>
     </g>
 
-    <g filter="url(#shadow)">
-      <rect x="580" y="105" width="96" height="70" rx="18" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.28"/>
-      <circle cx="605" cy="140" r="12" fill="#ffffff" fill-opacity="0.9"/>
-      <path d="M601 140H609M605 136V144" stroke="#7c1728" stroke-width="2" stroke-linecap="round"/>
-      <text x="627" y="136" fill="#ffffff" font-size="11.5" font-weight="700">Request</text>
-      <text x="627" y="153" fill="#f4c7cf" font-size="10.5">metadata</text>
-
-      <rect x="704" y="42" width="266" height="196" rx="22" fill="#ffffff"/>
-      <circle cx="730" cy="69" r="9" fill="#a51c30"/>
-      <circle cx="730" cy="69" r="3.5" fill="#ffffff"/>
-      <text x="749" y="74" fill="#2b0a11" font-size="17" font-weight="750">RouteWise policy</text>
-
-      <rect x="720" y="91" width="110" height="45" rx="11" fill="#eaf2ff" stroke="#4f81bd" stroke-opacity="0.7"/>
-      <text x="775" y="109" text-anchor="middle" fill="#2d5f96" font-size="10.5" font-weight="750" letter-spacing="0.6">COST SIGNAL</text>
-      <text x="775" y="126" text-anchor="middle" fill="#355d88" font-size="12" font-weight="650">per-token price</text>
-
-      <rect x="844" y="91" width="110" height="45" rx="11" fill="#fff0f0" stroke="#c94141" stroke-opacity="0.7"/>
-      <text x="899" y="109" text-anchor="middle" fill="#9f2d38" font-size="10.5" font-weight="750" letter-spacing="0.6">LATENCY SIGNAL</text>
-      <text x="899" y="126" text-anchor="middle" fill="#9f2d38" font-size="12" font-weight="650">rolling TTFT</text>
-
-      <path d="M775 137V143H837M899 137V143H837" fill="none" stroke="#8aa0ac" stroke-width="1.6" stroke-linecap="round"/>
-      <rect x="727" y="149" width="220" height="42" rx="12" fill="#e8f4f3" stroke="#2b777a" stroke-opacity="0.82"/>
-      <text x="837" y="165" text-anchor="middle" fill="#245f62" font-size="12.5" font-weight="750">PROVIDER MIXER</text>
-      <text x="837" y="182" text-anchor="middle" fill="#2b777a" font-size="11" font-weight="650">α=0  ●—●—●—●—●  α=1</text>
-
-      <rect x="727" y="200" width="220" height="25" rx="10" fill="#fff0f0" stroke="#c94141" stroke-opacity="0.55"/>
-      <path d="M747 206L753 203L759 206V212C759 216 756 219 753 220C750 219 747 216 747 212Z" fill="none" stroke="#a51c30" stroke-width="1.5"/>
-      <text x="772" y="217" fill="#8d2636" font-size="12" font-weight="700">SLO hedge check</text>
-
-      <rect x="1018" y="69" width="162" height="169" rx="19" fill="#ffffff" fill-opacity="0.13" stroke="#ffffff" stroke-opacity="0.32"/>
-      <text x="1099" y="93" text-anchor="middle" fill="#f9dfe4" font-size="10.5" font-weight="750" letter-spacing="1">YOUR APP DISPATCHES</text>
-      <text x="1099" y="112" text-anchor="middle" fill="#f4c7cf" font-size="10.5">provider decision</text>
-      <text x="1099" y="127" text-anchor="middle" fill="#f4c7cf" font-size="10.5">+ hedge checkpoints</text>
-
-      <rect x="1033" y="143" width="132" height="36" rx="10" fill="#e2f3df" stroke="#9bc593"/>
-      <circle cx="1050" cy="161" r="6" fill="#2e7d32"/>
-      <path d="M1047 161L1049.5 163.5L1054 158.5" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="1064" y="165" fill="#225d27" font-size="12.5" font-weight="750">Primary API</text>
-
-      <rect x="1033" y="190" width="132" height="36" rx="10" fill="#ffffff" fill-opacity="0.72" stroke="#c8dfc3" stroke-dasharray="4 3"/>
-      <circle cx="1050" cy="208" r="6" fill="#2e7d32" fill-opacity="0.68"/>
-      <text x="1064" y="205" fill="#285f2d" font-size="11.5" font-weight="750">Optional backup</text>
-      <text x="1064" y="219" fill="#517b55" font-size="9.5">after checkpoint t*</text>
+    <g fill="none" stroke="#59636e" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arrow-slate)">
+      <path d="M167 156H202"/>
+      <path d="M547 160H582"/>
+      <path d="M760 160H795"/>
     </g>
+    <path d="M962 127H999" fill="none" stroke="#2e7d32" stroke-width="2.3" stroke-linecap="round" marker-end="url(#arrow-green)"/>
+    <path d="M962 193C981 193 986 209 999 209" fill="none" stroke="#70a76d" stroke-width="2.1" stroke-linecap="round" stroke-dasharray="6 6" marker-end="url(#arrow-green)"/>
 
-    <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arrow)">
-      <path d="M676 140H694" stroke-opacity="0.82"/>
-      <path d="M970 140H1008" stroke-opacity="0.9"/>
-    </g>
-    <text x="989" y="127" text-anchor="middle" fill="#f4c7cf" font-size="9.5" font-weight="700" letter-spacing="0.7">DECISION</text>
+    <path d="M884 226V284H380V261" fill="none" stroke="#2b777a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 6" marker-end="url(#arrow-teal)"/>
+    <rect x="562" y="270" width="154" height="27" rx="13.5" fill="#fbfcfe" stroke="#b8d8d5"/>
+    <text x="639" y="288" text-anchor="middle" fill="#2b777a" font-size="13.5" font-weight="750">REPORT OUTCOMES</text>
   </g>
 </svg>

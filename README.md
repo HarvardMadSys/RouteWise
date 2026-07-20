@@ -6,12 +6,12 @@
   >
 </p>
 
+<h1 align="center">RouteWise</h1>
+
 <p align="center">
-  <img
-    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/routewise-routing-hero.svg"
-    alt="RouteWise: Latency–Cost Optimization for Multi-Provider LLM Routing"
-    width="1000"
-  >
+  <strong>Latency–Cost Optimization for Multi-Provider LLM Routing</strong>
+  <br>
+  <sub>Learn from recent outcomes. Route each request. Hedge selectively.</sub>
 </p>
 
 <p align="center">
@@ -33,6 +33,14 @@
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
   ·
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
+</p>
+
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/routewise-routing-hero.svg"
+    alt="RouteWise adaptive routing loop: request, RouteWise cost and latency policy, decision, application dispatch, and outcome feedback"
+    width="1000"
+  >
 </p>
 
 RouteWise is a dependency-free Python library for cost-aware,
