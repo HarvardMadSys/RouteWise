@@ -1,7 +1,7 @@
 # Releasing RouteWise
 
-RouteWise publishes the dependency-free API-provider wheel through PyPI
-Trusted Publishing. The release workflow uses GitHub's short-lived OIDC token;
+This maintainer guide covers publishing the dependency-free API-provider wheel
+through PyPI Trusted Publishing. The workflow uses GitHub's short-lived OIDC token;
 the repository must not store a long-lived PyPI API token.
 
 ## One-time setup
