@@ -11,10 +11,10 @@ from experiments.simulation.common import (
     make_concurrency_provider,
     make_quota_provider,
 )
-from routewise.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
-from routewise.schemas import Request, RoutingDecision, RoutingOutcome
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.policies.routewise import RouteWisePolicy, quota_shadow_price
+from llm_routewise.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
+from llm_routewise.schemas import Request, RoutingDecision, RoutingOutcome
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.policies.routewise import RouteWisePolicy, quota_shadow_price
 
 
 def _request() -> Request:

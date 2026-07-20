@@ -1,7 +1,7 @@
 """RouteWise command-line interface.
 
-This package is intentionally outside :mod:`routewise.sim`: the CLI is an application
-layer that may import both `experiments` and `routewise.sim`, while the simulator core
+This package is intentionally outside :mod:`llm_routewise.sim`: the CLI is an application
+layer that may import both `experiments` and `llm_routewise.sim`, while the simulator core
 must not depend on experiment recipes.
 """
 
@@ -43,12 +43,13 @@ ABLATION_COMMAND_DESCRIPTIONS = {
 
 
 def _optional_dependency_error(command: str, extra: str, exc: ModuleNotFoundError) -> str:
+    del extra
     missing = exc.name or str(exc)
     return (
-        f"error: `routewise {command}` requires optional dependencies that are not "
-        "installed in the lightweight base package. Install them with "
-        f"`python -m pip install 'routewise[{extra}]'`, or for an editable checkout "
-        f"`python -m pip install -e '.[{extra}]'`. Missing module: {missing}"
+        f"error: the repository-only `{command}` workflow requires research "
+        "dependencies that are not installed. From a checkout, run `uv sync` "
+        "and invoke it with `uv run python -m routewise_cli.main`. "
+        f"Missing module: {missing}"
     )
 
 
@@ -177,7 +178,9 @@ def _dispatch_ablation(raw_args: list[str]) -> int | None:
         print(_json_dump(_ablation_list_payload()))
         return 0
     if command in ABLATION_COMMANDS:
-        module = _import_optional_module(ABLATION_COMMANDS[command], command="ablation", extra="sim")
+        module = _import_optional_module(
+            ABLATION_COMMANDS[command], command="ablation", extra="sim"
+        )
         return int(module.main(raw_args[2:]))
     return None
 

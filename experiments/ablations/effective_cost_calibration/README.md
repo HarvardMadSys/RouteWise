@@ -93,7 +93,7 @@ No GPU is required. The experiment is CPU-bound and can run on a laptop. Use
 Use this before a full artifact run:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m routewise_cli.main ablation effective-cost-calibration \
   --max-requests 20 \
   --seed 42 \
   --jobs 1 \
@@ -146,7 +146,7 @@ PY
 Run the paper-facing default:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m routewise_cli.main ablation effective-cost-calibration \
   --seed 42 \
   --jobs 8 \
   --output-dir outputs/ablations/effective_cost_calibration
@@ -260,7 +260,7 @@ run.
 Reference sweep:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m routewise_cli.main ablation effective-cost-calibration \
   --sweep reference \
   --seed 42 \
   --jobs 8 \
@@ -270,7 +270,7 @@ uv run routewise ablation effective-cost-calibration \
 Full cross-product:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m routewise_cli.main ablation effective-cost-calibration \
   --sweep cross-product \
   --seed 42 \
   --jobs 8 \

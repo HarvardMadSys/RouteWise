@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from experiments.simulation import common
-from routewise.schemas import Request
+from llm_routewise.schemas import Request
 
 
 def _write_jsonl(path, rows):
@@ -127,7 +127,7 @@ def test_load_workload_supports_dataset_cache_traces(monkeypatch):
 
 
 def test_trace_workload_cache_rebuilds_old_layout_pickles(monkeypatch):
-    """Old ``rwsim`` pickle caches are rebuilt under the new package layout."""
+    """Old ``routewise`` pickle caches are rebuilt under the new package layout."""
     cached_requests = (
         Request(id=11, timestamp=2000.0, request_tokens=30, response_tokens=40),
         Request(id=12, timestamp=2007.0, request_tokens=31, response_tokens=41),
@@ -139,7 +139,10 @@ def test_trace_workload_cache_rebuilds_old_layout_pickles(monkeypatch):
         nonlocal load_calls
         load_calls += 1
         if load_calls == 1:
-            raise ModuleNotFoundError("No module named 'rwsim.schemas'", name="rwsim.schemas")
+            raise ModuleNotFoundError(
+                "No module named 'routewise.schemas'",
+                name="routewise.schemas",
+            )
         return cached_requests
 
     def build_cache(dataset, *, force):

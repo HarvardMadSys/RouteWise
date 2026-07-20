@@ -28,27 +28,27 @@ from experiments.subscriptions import (
     load_subscription_plans,
     subscription_fixed_cost_usd,
 )
-from routewise.capacity import (
+from llm_routewise.capacity import (
     ConcurrencyState,
     MultiWindowQuotaState,
     ProviderTier,
     QuotaState,
     WeightedConcurrencyState,
 )
-from routewise.metrics import RunAggregate
-from routewise.metrics.histogram import merge_histograms
-from routewise.schemas import Request
-from routewise.sim.engine.simulator import Simulator
-from routewise.sim.policies import build_policy
-from routewise.sim.world.distributions import LogNormal
-from routewise.sim.world.providers import TieredProvider
+from llm_routewise.metrics import RunAggregate
+from llm_routewise.metrics.histogram import merge_histograms
+from llm_routewise.schemas import Request
+from llm_routewise.sim.engine.simulator import Simulator
+from llm_routewise.sim.policies import build_policy
+from llm_routewise.sim.world.distributions import LogNormal
+from llm_routewise.sim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
     from collections import Counter
     from collections.abc import Callable, Mapping
 
-    from routewise.metrics import Run
-    from routewise.sim.world.scenarios import ScenarioConfig
+    from llm_routewise.metrics import Run
+    from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
@@ -88,7 +88,7 @@ SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
     "constant_p99",
     "scaled:<predictor>:<multiplier>",
 )
-_WORKLOAD_CACHE_VERSION = 1
+_WORKLOAD_CACHE_VERSION = 2
 
 _WORKLOAD_PATHS = {
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
@@ -567,8 +567,9 @@ def _load_cached_trace_workload(dataset: str) -> tuple[Request, ...]:
     try:
         requests = tuple(load_cached(dataset))
     except (AttributeError, EOFError, ImportError, ValueError, pickle.UnpicklingError):
-        # Caches pickled under an older package layout (e.g. pre-rename
-        # ``rwsim.schemas``) fail to unpickle; rebuild from the source trace.
+        # Caches pickled under an older package layout (for example
+        # ``routewise.schemas`` or ``rwsim.schemas``) fail to unpickle; rebuild
+        # from the source trace.
         build_cache(dataset, force=True)
         requests = tuple(load_cached(dataset))
     if not requests:
@@ -752,7 +753,7 @@ def materialize_policy_presets(
 
     Section-local harnesses that need the policy instance (rather than going
     through :func:`run_policy`) should materialize presets with this helper
-    before calling :func:`routewise.sim.policies.build_policy`.
+    before calling :func:`llm_routewise.sim.policies.build_policy`.
     """
     materialized = _materialize_routewise_slo(
         presets,

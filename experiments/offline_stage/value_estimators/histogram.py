@@ -22,7 +22,7 @@ from experiments.offline_stage.value_estimators.base import (
     PredictionContext,
     QuantilePrediction,
 )
-from routewise.schemas import Request
+from llm_routewise.schemas import Request
 
 logger = logging.getLogger(__name__)
 

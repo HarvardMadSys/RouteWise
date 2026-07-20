@@ -8,13 +8,13 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-from routewise.capacity import ConcurrencyState, ProviderTier, WeightedConcurrencyState
-from routewise.metrics import Status
-from routewise.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
-from routewise.sim.engine.simulator import Simulator
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ConcurrencyState, ProviderTier, WeightedConcurrencyState
+from llm_routewise.metrics import Status
+from llm_routewise.schemas import HedgeDispatch, Request, RoutingDecision, RoutingOutcome
+from llm_routewise.sim.engine.simulator import Simulator
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 
 @dataclass(frozen=True)

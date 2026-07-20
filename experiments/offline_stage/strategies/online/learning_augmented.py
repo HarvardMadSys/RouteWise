@@ -23,9 +23,9 @@ from experiments.offline_stage.value_estimators import (
     OutputTokenPredictor,
     QuantilePrediction,
 )
-from routewise.offline.cost import CostCalculator
-from routewise.offline.quota import QuotaManager
-from routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.cost import CostCalculator
+from llm_routewise.offline.quota import QuotaManager
+from llm_routewise.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
 

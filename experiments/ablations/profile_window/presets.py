@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from experiments.simulation import common
-from routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
+from llm_routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
 
 DEFAULT_WINDOW_MINUTES: tuple[float, ...] = (1.0, 2.0, 5.0, 15.0, 30.0, 60.0)
 DEFAULT_ALPHA_VALUES: tuple[float, ...] = (0.0,)

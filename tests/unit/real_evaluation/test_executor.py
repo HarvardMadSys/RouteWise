@@ -8,7 +8,7 @@ import pytest
 
 from experiments.real_evaluation.executor import send_checkpoint_hedged_request
 from experiments.real_evaluation.transports import SingleRequestResult
-from routewise.core import CheckpointBackupDispatch
+from llm_routewise.core import CheckpointBackupDispatch
 
 
 def _success_send(provider: str, ttft_ms: float = 200.0) -> SingleRequestResult:

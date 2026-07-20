@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from routewise.metrics import PerRequestRecord, Run, Status
+from llm_routewise.metrics import PerRequestRecord, Run, Status
 
 
 def test_run_cost_by_tier_attributes_primary_and_backup_costs() -> None:

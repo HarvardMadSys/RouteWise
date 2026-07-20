@@ -20,7 +20,7 @@ from experiments.offline_stage.value_estimators.base import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from routewise.schemas import Request
+    from llm_routewise.schemas import Request
 
 
 class ConstantOutputPredictor(OutputTokenPredictor):

@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from routewise.schemas import Request
+from llm_routewise.schemas import Request
 
 
 @dataclass

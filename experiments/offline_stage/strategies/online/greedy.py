@@ -9,7 +9,7 @@ Supports both Stage1 (S_Q only) and Stage2 (S_Q + S_C) through configuration.
 import logging
 
 from experiments.offline_stage.strategies.online.base import OnlineStrategy
-from routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
 

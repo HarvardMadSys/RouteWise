@@ -10,14 +10,14 @@ from experiments.real_evaluation.shadow_price import (
     quota_shadow_price as real_quota_shadow_price,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
-from routewise.core.cost import effective_cost as core_effective_cost, scarcity_price
-from routewise.sim.policies.routewise import (
+from llm_routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
+from llm_routewise.core.cost import effective_cost as core_effective_cost, scarcity_price
+from llm_routewise.sim.policies.routewise import (
     concurrency_shadow_price as sim_concurrency_shadow_price,
     quota_shadow_price as sim_quota_shadow_price,
 )
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
 
 L = 1e-4
 U = 1e-2

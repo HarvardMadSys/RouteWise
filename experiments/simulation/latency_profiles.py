@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from routewise.sim.world.empirical import EmpiricalDistribution
+from llm_routewise.sim.world.empirical import EmpiricalDistribution
 
 PROFILE_DIR = Path(__file__).resolve().with_name("latency_profiles")
 DEFAULT_POOLS_PATH = PROFILE_DIR / "pools.yaml"

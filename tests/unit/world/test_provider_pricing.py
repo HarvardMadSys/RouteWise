@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from routewise.capacity import ProviderTier, QuotaState
-from routewise.schemas import Request
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
+from llm_routewise.capacity import ProviderTier, QuotaState
+from llm_routewise.schemas import Request
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
 
 
 def _provider(**kwargs) -> TieredProvider:

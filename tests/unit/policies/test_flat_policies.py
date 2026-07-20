@@ -8,20 +8,20 @@ from itertools import pairwise
 import pytest
 
 from experiments.offline_stage.value_estimators import BucketMeanOutputPredictor
-from routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
-from routewise.core.hedging import BackupCandidate, hedge_checkpoints_for_slo
-from routewise.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
-from routewise.schemas import Request, RoutingDecision, RoutingOutcome
-from routewise.sim.engine.state import SimulationState
-from routewise.sim.policies import build_policy
-from routewise.sim.policies.routewise import (
+from llm_routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
+from llm_routewise.core.hedging import BackupCandidate, hedge_checkpoints_for_slo
+from llm_routewise.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
+from llm_routewise.schemas import Request, RoutingDecision, RoutingOutcome
+from llm_routewise.sim.engine.state import SimulationState
+from llm_routewise.sim.policies import build_policy
+from llm_routewise.sim.policies.routewise import (
     RollingLatencyProfile,
     RouteWisePolicy,
     _same_cost_shortcut_weights,
     concurrency_shadow_price,
 )
-from routewise.sim.world.distributions import Uniform
-from routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
 
 
 def _cost_latency_tradeoff_providers() -> list[TieredProvider]:
@@ -387,7 +387,7 @@ def test_routewise_same_cost_path_skips_lp_solver(monkeypatch: pytest.MonkeyPatc
     def fail_solve_lp(*args, **kwargs):
         raise AssertionError("solve_budget_lp should not run for same-cost providers")
 
-    monkeypatch.setattr("routewise.core.router.solve_budget_lp", fail_solve_lp)
+    monkeypatch.setattr("llm_routewise.core.router.solve_budget_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 

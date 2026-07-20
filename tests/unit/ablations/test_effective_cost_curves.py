@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from routewise.core.cost import SCARCITY_CURVES, scarcity_price
+from llm_routewise.core.cost import SCARCITY_CURVES, scarcity_price
 
 
 def test_registered_curve_set_is_intentional() -> None:

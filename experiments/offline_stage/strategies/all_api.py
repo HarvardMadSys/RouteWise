@@ -5,8 +5,8 @@ All requests are routed to the API provider (e.g., OpenAI).
 Used as the primary baseline to measure cost savings from using subscriptions.
 """
 
-from routewise.offline.schemas import Request, RoutingDecision
-from routewise.offline.strategy import RoutingStrategy
+from llm_routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.strategy import RoutingStrategy
 
 
 class AllAPIStrategy(RoutingStrategy):

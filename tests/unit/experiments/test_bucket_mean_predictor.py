@@ -11,7 +11,7 @@ from experiments.simulation.common import (
     _build_workload_predictor,
     _normalize_predictor_arg,
 )
-from routewise.schemas import Request
+from llm_routewise.schemas import Request
 
 
 def _request(

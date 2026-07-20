@@ -9,22 +9,13 @@ Architecture and algorithm contracts live in `docs/ARCHITECTURE.md` and
 From the repository root:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[sim,real-eval,offline,plots,scripts]"
+uv sync
 ```
 
-The base `pip install -e .` install exposes only the lightweight
-`routewise.core` API. Simulator, live-evaluation, offline, plotting, and
-operational workflows require the extras above. The package distribution name
-is `routewise`; editable environments created under the old
-`routewise-simulator` name should be reinstalled.
-
-If the package is not installed, replace `routewise` below with:
-
-```bash
-python -m routewise_cli.main
-```
+The `llm-routewise` `0.1.0` release wheel is the dependency-free API-provider library.
+Simulator, live-evaluation, offline, plotting, and operational workflows are
+repository-only and use the development dependency group installed by
+`uv sync`.
 
 ## Data
 
@@ -50,13 +41,13 @@ require API keys.
 Config-driven experiments:
 
 ```bash
-routewise list
+uv run python -m routewise_cli.main list
 ```
 
 Paper-facing simulator sections:
 
 ```bash
-routewise simulator list
+uv run python -m routewise_cli.main simulator list
 ```
 
 ## Run One Simulator Section
@@ -65,8 +56,8 @@ Each section runner exposes `--help` for scenario, policy, seed, and output
 options:
 
 ```bash
-routewise simulator cost-layer -- --help
-routewise simulator cost-layer
+uv run python -m routewise_cli.main simulator cost-layer -- --help
+uv run python -m routewise_cli.main simulator cost-layer
 ```
 
 The simulator is organized one Python file per paper section. See

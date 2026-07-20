@@ -46,10 +46,10 @@ from experiments.simulation.offline_oracle import (
     run_offline_oracle_policy as run_offline_policy,
 )
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
-from routewise.capacity import ProviderTier
-from routewise.const import DEFAULT_PRIMARY_SLO_MS
-from routewise.sim.world.providers import TieredProvider
-from routewise.sim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "cost-layer"
 REAL_WORLD_SCENARIO = "cost_layer_real_world"

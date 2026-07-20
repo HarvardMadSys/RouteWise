@@ -24,8 +24,8 @@ import logging
 
 import numpy as np
 
-from routewise.offline.schemas import Request, RoutingDecision
-from routewise.offline.strategy import RoutingStrategy
+from llm_routewise.offline.schemas import Request, RoutingDecision
+from llm_routewise.offline.strategy import RoutingStrategy
 
 logger = logging.getLogger(__name__)
 

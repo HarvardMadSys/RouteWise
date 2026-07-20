@@ -20,9 +20,9 @@ def test_simulator_command_reports_missing_sim_extra(monkeypatch: pytest.MonkeyP
         cli_main.main(["simulator", "cost-layer"])
 
     message = str(exc_info.value)
-    assert "routewise simulator" in message
-    assert "routewise[sim]" in message
-    assert "pip install -e '.[sim]'" in message
+    assert "repository-only `simulator`" in message
+    assert "uv sync" in message
+    assert "python -m routewise_cli.main" in message
     assert "Missing module: numpy" in message
 
 
@@ -39,6 +39,6 @@ def test_ablation_command_reports_missing_sim_extra(monkeypatch: pytest.MonkeyPa
         cli_main.main(["ablation", "hedging"])
 
     message = str(exc_info.value)
-    assert "routewise ablation" in message
-    assert "routewise[sim]" in message
+    assert "repository-only `ablation`" in message
+    assert "uv sync" in message
     assert "Missing module: numpy" in message

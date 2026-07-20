@@ -25,7 +25,7 @@ from experiments.simulation.dataset_cache import (
     load_cached,
     verify_cache,
 )
-from routewise.schemas import Request
+from llm_routewise.schemas import Request
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -278,6 +278,7 @@ def test_manifest_written_on_build(_synthetic_source):
 
     manifest = _read_manifest("sharegpt")
     assert manifest is not None
+    assert manifest["cache_schema_version"] == 2
     assert "source_sha256" in manifest
     assert len(manifest["source_sha256"]) == 64  # hex SHA-256
     assert manifest["n_requests"] == 50
@@ -304,6 +305,18 @@ def test_verify_cache_no_manifest(_synthetic_source):
 
     with pytest.raises(CacheStalenessError, match="no manifest"):
         verify_cache("sharegpt")
+
+
+def test_verify_cache_rejects_old_package_schema(_synthetic_source):
+    """Caches containing pickled pre-rename class paths must be rebuilt."""
+    build_cache("sharegpt", force=True)
+    manifest_path = _manifest_path("sharegpt")
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("cache_schema_version")
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(CacheStalenessError, match="schema changed"):
+        verify_cache("sharegpt", quick=True)
 
 
 def test_verify_cache_size_mismatch(_synthetic_source):

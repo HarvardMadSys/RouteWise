@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from routewise.core.beliefs import LatencyBeliefs
-from routewise.core.router import (
+from llm_routewise.core.beliefs import LatencyBeliefs
+from llm_routewise.core.router import (
     LPStatus,
     RouteWiseRouter,
     argmax_weight_sampler,
@@ -101,7 +101,7 @@ def test_route_same_cost_shortcut_matches_lp(monkeypatch) -> None:
     def _boom(*args, **kwargs):
         raise AssertionError("solve_budget_lp should be skipped for same-cost fleets")
 
-    monkeypatch.setattr("routewise.core.router.solve_budget_lp", _boom)
+    monkeypatch.setattr("llm_routewise.core.router.solve_budget_lp", _boom)
     result = router.route([a, b], now=10.0)
     assert result.weights == {"b": 1.0}
     assert result.lp_status is LPStatus.FEASIBLE
