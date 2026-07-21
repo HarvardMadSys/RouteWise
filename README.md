@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Research software maintained by the
+  Developed and maintained by the
   <a href="https://juncheng.seas.harvard.edu/" title="Harvard Measurements and Design of Computer Systems Lab">Harvard MadSys Lab</a>
   at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
 </p>

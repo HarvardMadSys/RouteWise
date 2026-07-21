@@ -17,7 +17,7 @@
   </defs>
 
   <rect x="1" y="1" width="1198" height="328" rx="24" fill="#fbfcfe" stroke="#d7dee7" stroke-width="1.6"/>
-  <path d="M25 1H1175A24 24 0 0 1 1199 25V9H1V25A24 24 0 0 1 25 1Z" fill="#a51c30"/>
+  <path d="M28 9H1172" fill="none" stroke="#a51c30" stroke-width="6" stroke-linecap="round"/>
 
   <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
     <text x="38" y="43" fill="#6b7280" font-size="14" font-weight="750" letter-spacing="1.8">ADAPTIVE ROUTING LOOP</text>
