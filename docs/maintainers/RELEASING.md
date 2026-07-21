@@ -8,9 +8,8 @@ the repository must not store a long-lived PyPI API token.
 
 1. Create the GitHub environment `pypi`. Restrict deployments to version tags
    and add required reviewers so the publish job needs explicit approval.
-2. Create a pending GitHub Actions trusted publisher for the unclaimed
-   `llm-routewise` project in PyPI's **Publishing** settings with these exact
-   values:
+2. Configure a GitHub Actions trusted publisher for the `llm-routewise`
+   project in PyPI's **Publishing** settings with these exact values:
 
    - PyPI project: `llm-routewise`
    - GitHub owner: `HarvardMadSys`
@@ -19,35 +18,35 @@ the repository must not store a long-lived PyPI API token.
    - Environment: `pypi`
 
 The unrelated `routewise` project remains outside the team's control and must
-not be used for this release. The publish job intentionally has only
-`id-token: write`; no `PYPI_TOKEN` secret is read or required. The first
-successful trusted publication creates the `llm-routewise` project.
+not be used for a release. The publish job intentionally has only
+`id-token: write`; no `PYPI_TOKEN` secret is read or required. For a new PyPI
+project, configure the same values as a pending trusted publisher.
 
 ## Release procedure
 
-Do not begin this procedure until the `llm-routewise` pending publisher and the
+Do not begin this procedure until the `llm-routewise` trusted publisher and the
 protected `pypi` environment are configured.
 
 1. Merge a version-bump PR after the package workflow is green. Update both
    `project.version` in `pyproject.toml` and `llm_routewise.__version__`.
 2. From the merged `main`, create and push the matching annotated tag. For
-   version `0.1.0`, the only accepted tag is `v0.1.0`:
+   example, release version `0.2.0` with tag `v0.2.0`:
 
    ```bash
-   git tag -a v0.1.0 -m "RouteWise 0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "RouteWise 0.2.0"
+   git push origin v0.2.0
    ```
 
 3. Create a draft GitHub Release for that existing tag and review its notes.
-   Describe `0.1.0` as the first official HarvardMadSys RouteWise package under
-   the `llm-routewise` distribution; do not describe the unaffiliated
-   `routewise` releases as predecessors or a migration:
+   Describe only changes to the HarvardMadSys `llm-routewise` distribution; do
+   not describe the unaffiliated `routewise` releases as predecessors or a
+   migration:
 
    ```bash
-   gh release create v0.1.0 --verify-tag --generate-notes --draft
-   gh release view v0.1.0 --web
+   gh release create v0.2.0 --verify-tag --generate-notes --draft
+   gh release view v0.2.0 --web
    # After reviewing and editing the notes:
-   gh release edit v0.1.0 --draft=false
+   gh release edit v0.2.0 --draft=false
    ```
 
 Publishing the GitHub Release triggers `.github/workflows/release.yml`. The

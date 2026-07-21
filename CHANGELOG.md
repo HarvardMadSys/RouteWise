@@ -3,9 +3,16 @@
 All notable changes to the published `llm-routewise` distribution are documented
 here.
 
-## 0.1.0 - Unreleased
+## 0.2.0 - 2026-07-21
 
-`0.1.0` is planned as the first HarvardMadSys RouteWise library release under
+### Added
+
+- `Router.route()` accepts a caller-provided `estimated_output_tokens` point
+  estimate while retaining the internal online estimator as the default.
+
+## 0.1.0 - 2026-07-20
+
+`0.1.0` is the first HarvardMadSys RouteWise library release under
 the `llm-routewise` distribution. The PyPI project `routewise` is a separate,
 unaffiliated project and is not part of this changelog.
 

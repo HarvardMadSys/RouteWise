@@ -1,7 +1,7 @@
 """Public, dependency-free RouteWise facade for API providers.
 
 This module owns lifecycle, learning, and accounting while the algorithmic
-primitives in :mod:`llm_routewise.core` remain pure. The ``0.1.0`` facade
+primitives in :mod:`llm_routewise.core` remain pure. The ``0.2.0`` facade
 supports metered API-provider prices only.
 """
 
@@ -56,7 +56,10 @@ _UNKNOWN_LATENCY_MS = 1_000_000_000.0
 def _real(value: object, name: str, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValidationError(f"{name} must be a real number")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as exc:
+        raise ValidationError(f"{name} must be finite") from exc
     if not math.isfinite(result):
         raise ValidationError(f"{name} must be finite")
     if positive and result <= 0.0:
@@ -309,11 +312,17 @@ class Router:
         self,
         *,
         input_tokens: int,
+        estimated_output_tokens: float | None = None,
         estimated_cached_tokens: int | Mapping[str, int] = 0,
         alpha: float | None = None,
         exclude: Iterable[str] = (),
     ) -> Decision:
         input_count = _token_count(input_tokens, "input_tokens")
+        output_estimate = (
+            None
+            if estimated_output_tokens is None
+            else _real(estimated_output_tokens, "estimated_output_tokens")
+        )
         alpha_value = self._alpha if alpha is None else _alpha(alpha)
         try:
             excluded = frozenset(exclude)
@@ -331,7 +340,11 @@ class Router:
         with self._lock:
             now = self._now_locked()
             self._expire_leases_locked(now)
-            predicted_output = self._estimator.predict(input_count)
+            predicted_output = (
+                self._estimator.predict(input_count)
+                if output_estimate is None
+                else output_estimate
+            )
             costs = {
                 name: self._price(
                     self._providers[name],

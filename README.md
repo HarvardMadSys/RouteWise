@@ -48,7 +48,7 @@ latency-optimized routing across multiple LLM API providers. Applications
 supply provider prices, dispatch the returned attempt, and report outcomes so
 RouteWise can learn from them.
 
-The `0.1.0` distribution is an API-provider-only preview. This repository also
+The `0.2.0` distribution is an API-provider-only preview. This repository also
 contains the simulator and experiment harnesses used by the paper; those
 research packages are not included in the wheel.
 
@@ -62,7 +62,7 @@ RouteWise requires Python 3.10 or later. The published wheel has no runtime
 dependencies.
 
 ```bash
-python -m pip install llm-routewise==0.1.0
+python -m pip install llm-routewise==0.2.0
 ```
 
 For repository development and paper-artifact workflows:
@@ -93,6 +93,22 @@ decision.completed(
     output_tokens=response.output_tokens,
 )
 ```
+
+If your application already predicts completion length, pass that point
+estimate with the request. Omit it to use RouteWise's internal online estimate.
+
+```python
+predicted_tokens = predict_output_tokens(prompt)
+decision = router.route(
+    input_tokens=800,
+    estimated_output_tokens=predicted_tokens,
+)
+```
+
+The estimate affects route and hedge cost calculations only; it is not actual
+usage. On completion, report the adopted attempt's actual `output_tokens` (or
+an explicit `cost_usd`) for billing. Positive actual output tokens also update
+RouteWise's internal estimator.
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read

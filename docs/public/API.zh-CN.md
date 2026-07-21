@@ -1,4 +1,4 @@
-# llm-routewise 0.1.0 中文 API 参考
+# llm-routewise 0.2.0 中文 API 参考
 
 [English version](./API.md)
 
@@ -6,14 +6,14 @@
 延迟观测和预算偏好选择 provider，但不发送 HTTP 请求，也不读取或保存 provider API
 key。调用方使用自己的 HTTP 或 SDK client 执行请求，再把结果报告给 RouteWise。
 
-本文档只描述 `llm-routewise==0.1.0` wheel 中已经实现并测试的公开 API。
+本文档只描述 `llm-routewise==0.2.0` wheel 中已经实现并测试的公开 API。
 
 ## 安装与导入
 
 安装指定的 preview 版本：
 
 ```bash
-python -m pip install llm-routewise==0.1.0
+python -m pip install llm-routewise==0.2.0
 ```
 
 distribution 名使用连字符，Python import 包名使用下划线：
@@ -126,7 +126,7 @@ OpenRouter 在 provider 不可用时静默切换，导致 RouteWise 归因错误
 
 ## 顶层公开 API
 
-`0.1.0` 顶层公开 13 个符号：有状态 API `Provider`、`Router`、`Decision`、
+`0.2.0` 顶层公开 13 个符号：有状态 API `Provider`、`Router`、`Decision`、
 `Attempt`、`Tuning`、`StatsSnapshot`；无状态 API `Candidate`、`RouteOnceResult`、
 `route_once`；异常 `RouteWiseError`、`ValidationError`、`NoProviderError`、
 `OutcomeError`。
@@ -200,6 +200,7 @@ rw.Router(
 decision = router.route(
     *,
     input_tokens: int,
+    estimated_output_tokens: float | None = None,
     estimated_cached_tokens: int | Mapping[str, int] = 0,
     alpha: float | None = None,
     exclude: Iterable[str] = (),
@@ -207,6 +208,8 @@ decision = router.route(
 ```
 
 - `input_tokens`：本次请求的非负整数输入 token 数。
+- `estimated_output_tokens`：调用方可选提供的有限、非负输出 token 点估计；为 `None`
+  时使用 RouteWise 内部的在线输出长度估计。
 - `estimated_cached_tokens`：一个非负整数时应用于所有 provider；mapping 时按 provider
   指定，缺失名称按 `0`，未知名称报错。超过 `input_tokens` 的值按 `input_tokens`
   计算。
@@ -214,8 +217,10 @@ decision = router.route(
 - `exclude`：本次请求排除的 provider 名称。未知名称报错；成本上下界会在剩余 eligible
   provider 上重新计算。
 
-RouteWise 使用当前输出长度估计和 provider 价格计算候选费用。一个被采用且成功完成的
-attempt 在报告正数 `output_tokens` 后会更新后续请求的输出长度估计。返回的
+RouteWise 使用当前输出长度估计和 provider 价格计算候选费用。调用方提供的估计只影响
+本次请求的路由成本和 hedge 成本；它不是生成长度上限，也不代表实际 usage。被采用的
+attempt 完成时，应报告真实的 `output_tokens`，或用显式 `cost_usd` 直接结算；只有真实的
+正数 `output_tokens` 才会更新后续请求的内部输出长度估计。返回的
 `expected_cost_usd` 是 mixture 的预测期望费用；实际费用以调用方报告为准。
 
 ### `observe()`
@@ -450,7 +455,7 @@ RouteWiseError
 
 建议只捕获能够在当前调用层明确处理的具体异常；不要把 `RouteWiseError` 统一忽略。
 
-## `0.1.0` preview 限制
+## `0.2.0` preview 限制
 
 - 只支持按输入、输出和 cached token 计价的 API provider。
 - 不包含 provider SDK、HTTP client、托管服务或 credential 管理；所有网络 I/O 由调用方
