@@ -78,6 +78,28 @@ def _load(csv: Path) -> pd.DataFrame:
     return df
 
 
+def _load_real_summary(path: Path) -> pd.DataFrame:
+    """Build the teaser frame from plot_real_world_frontier --summary-out JSON.
+
+    The real-world RouteWise sweep runs with hedging enabled (that is the
+    deployed configuration), so unlike the simulator path no hedging filter
+    is applied.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return pd.DataFrame(
+        [
+            {
+                "policy": item["policy"],
+                "routewise_alpha": item["alpha"],
+                "total_cost_usd": item["total_cost_usd"],
+                "mean_ttft_ms": item["ttft_mean_ms"],
+                "slo_violation_rate": item["slo_violation_rate"],
+            }
+            for item in payload
+        ]
+    )
+
+
 def _load_histograms(csv: Path) -> dict[str, dict[str, object]]:
     path = csv.with_name("ttft_histograms.json")
     if not path.exists():
@@ -93,10 +115,13 @@ def _select(df: pd.DataFrame, policy: str) -> pd.Series:
     return rows.iloc[0]
 
 
+ROUTEWISE_SWEEP_PREFIXES = ("ablation_lp_only_alpha", "budget_range_alpha")
+
+
 def _routewise_rows(df: pd.DataFrame, base_cost: float) -> pd.DataFrame:
-    rows = df[df["policy"].str.startswith("ablation_lp_only_alpha")].copy()
+    rows = df[df["policy"].str.startswith(ROUTEWISE_SWEEP_PREFIXES)].copy()
     if rows.empty:
-        raise ValueError("summary has no LP-only RouteWise rows")
+        raise ValueError("summary has no RouteWise sweep rows")
     rows = rows.sort_values("routewise_alpha").reset_index(drop=True)
     rows["norm_cost"] = rows["total_cost_usd"] / base_cost
     rows["alpha_label"] = rows["routewise_alpha"].map(_format_alpha)
@@ -117,15 +142,11 @@ def _key_alpha_mask(values: pd.Series) -> np.ndarray:
     return np.array([np.any(np.isclose(value, key, atol=1e-9)) for value in raw])
 
 
-def _label_positions(metric: MetricSpec) -> dict[float, tuple[float, float]]:
-    if metric.column == "mean_ttft_ms":
-        return {
-            0.0: (1.018, 1.66),
-            1.0: (1.430, 0.78),
-        }
+def _label_offsets() -> dict[float, tuple[float, float]]:
+    """Offsets in points from the alpha=0 / alpha=1 markers to their labels."""
     return {
-        0.0: (1.018, 8.78),
-        1.0: (1.430, 1.50),
+        0.0: (5.0, 11.0),
+        1.0: (9.0, 8.0),
     }
 
 
@@ -137,24 +158,13 @@ def _alpha_text(alpha: float) -> str:
     return rf"$\alpha={_format_alpha(alpha)}$"
 
 
-def _pareto_frontier(sweep: pd.DataFrame, metric: MetricSpec) -> pd.DataFrame:
-    ordered = sweep.sort_values(["norm_cost", metric.column]).copy()
-    keep: list[int] = []
-    best = float("inf")
-    eps = 1e-12
-    for idx, row in ordered.iterrows():
-        value = float(row[metric.column])
-        if value < best - eps:
-            keep.append(idx)
-            best = value
-    return sweep.loc[keep].sort_values("norm_cost")
-
-
 def _draw_better_cue(ax: plt.Axes) -> None:
+    # Bottom-right corner: the real-world sweep occupies the lower-left of
+    # the panel, so the cue lives in the opposite free corner.
     ax.annotate(
         "",
-        xy=(0.075, 0.090),
-        xytext=(0.205, 0.230),
+        xy=(0.795, 0.090),
+        xytext=(0.925, 0.230),
         xycoords="axes fraction",
         textcoords="axes fraction",
         arrowprops={
@@ -169,14 +179,14 @@ def _draw_better_cue(ax: plt.Axes) -> None:
         zorder=1,
     )
     ax.text(
-        0.215,
-        0.235,
+        0.865,
+        0.275,
         "better",
         transform=ax.transAxes,
         fontsize=9.4,
         color="#737373",
         fontweight="bold",
-        ha="left",
+        ha="center",
         va="center",
         zorder=1,
     )
@@ -193,9 +203,12 @@ def _plot_panel(
     stroke = [pe.withStroke(linewidth=2.6, foreground="white")]
     xs = sweep["norm_cost"].to_numpy(dtype=float)
     ys = (sweep[metric.column].to_numpy(dtype=float) * metric.scale)
-    frontier = _pareto_frontier(sweep, metric)
-    frontier_x = frontier["norm_cost"].to_numpy(dtype=float)
-    frontier_y = frontier[metric.column].to_numpy(dtype=float) * metric.scale
+    # Connect the whole alpha sweep in cost order. On simulator data this
+    # coincides with the Pareto frontier; on real-world data the sweep is not
+    # monotone in TTFT, where a frontier line would collapse to one point.
+    line = sweep.sort_values("norm_cost")
+    frontier_x = line["norm_cost"].to_numpy(dtype=float)
+    frontier_y = line[metric.column].to_numpy(dtype=float) * metric.scale
 
     ax.scatter(
         xs,
@@ -226,27 +239,22 @@ def _plot_panel(
         linewidth=1.1,
         zorder=5,
     )
-    label_positions = _label_positions(metric)
+    label_offsets = _label_offsets()
     for _, row in sweep[key_mask].iterrows():
         alpha = float(row["routewise_alpha"])
         x = float(row["norm_cost"])
         y = float(row[metric.column]) * metric.scale
-        xytext = label_positions.get(alpha, (x + 0.01, y))
+        dx, dy = label_offsets.get(alpha, (9.0, 0.0))
         ax.annotate(
             _alpha_text(alpha),
             xy=(x, y),
-            xytext=xytext,
+            xytext=(dx, dy),
+            textcoords="offset points",
+            ha="right" if dx < 0 else "left",
+            va="center",
             color="#4b4b4b",
             fontsize=10.4,
             fontweight="normal",
-            arrowprops={
-                "arrowstyle": "-",
-                "color": "#777777",
-                "linewidth": 0.9,
-                "alpha": 0.65,
-                "shrinkA": 2,
-                "shrinkB": 3,
-            },
             path_effects=stroke,
             zorder=6,
         )
@@ -282,7 +290,9 @@ def _plot_panel(
     x_min = min(xs.min(), 1.0) - 0.025
     x_max = max(xs.max(), 1.0, float(_select(df, "greedy_latency")["total_cost_usd"]) / base_cost) + 0.07
     ax.set_xlim(x_min, x_max)
-    ax.set_xticks(np.arange(1.0, math.ceil(x_max * 10) / 10 + 0.001, 0.1))
+    tick_start = math.ceil(x_min * 10) / 10
+    tick_step = 0.1 if (x_max - x_min) <= 0.45 else 0.2
+    ax.set_xticks(np.arange(tick_start, math.ceil(x_max * 10) / 10 + 0.001, tick_step))
     ax.set_xticklabels([f"{tick:.1f}x" for tick in ax.get_xticks()])
 
     values = [*ys]
@@ -539,10 +549,15 @@ def render(
     out_stem: str,
     combined: bool = True,
     separate_legend: bool = True,
+    real_summary_json: Path | None = None,
 ) -> list[str]:
     _style()
-    df = _load(csv)
-    histograms = _load_histograms(csv)
+    if real_summary_json is not None:
+        df = _load_real_summary(real_summary_json)
+        histograms = {}
+    else:
+        df = _load(csv)
+        histograms = _load_histograms(csv)
     base_cost = float(_select(df, "greedy_cost")["total_cost_usd"])
     sweep = _routewise_rows(df, base_cost)
 
@@ -572,6 +587,16 @@ def render(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV if DEFAULT_CSV.exists() else FALLBACK_CSV)
+    parser.add_argument(
+        "--real-summary-json",
+        type=Path,
+        default=None,
+        help=(
+            "Aggregated real-eval metrics from plot_real_world_frontier "
+            "--summary-out. When set, --csv is ignored and the teaser is "
+            "drawn from the real-world experiment."
+        ),
+    )
     parser.add_argument("--out-dir", type=Path, default=Path.home() / "Desktop" / "output")
     parser.add_argument("--out-stem", default="routewise_front_page_burstgpt_scatter_slo")
     parser.add_argument("--no-combined", action="store_true", help="Only write separate TTFT/SLO panel files.")
@@ -583,6 +608,7 @@ def main() -> None:
         out_stem=args.out_stem,
         combined=not args.no_combined,
         separate_legend=not args.no_separate_legend,
+        real_summary_json=args.real_summary_json,
     )
     for stem in stems:
         print(f"wrote: {args.out_dir}/{stem}.{{png,pdf}}")
