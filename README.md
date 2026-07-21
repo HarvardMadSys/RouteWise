@@ -83,7 +83,7 @@ router = rw.Router(
         rw.Provider("fast", price_in=3.0, price_out=15.0),
         rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
-    alpha=0.25,
+    alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency optimization.
 )
 
 decision = router.route(input_tokens=800)
