@@ -94,6 +94,112 @@ def test_provider_and_constructor_validation() -> None:
         Tuning(0.9)  # type: ignore[misc]
 
 
+def test_route_uses_caller_output_estimate_without_replacing_actual_usage() -> None:
+    router = Router(
+        [Provider("only", price_in=1.0, price_out=2.0)],
+        cold_start="require_observations",
+    )
+    _warm(router, "only")
+
+    decision = router.route(input_tokens=100, estimated_output_tokens=25.5)
+
+    assert decision.expected_cost_usd == pytest.approx(0.000151)
+    assert router._estimator.global_count == 0
+
+    decision.completed(output_tokens=10)
+
+    assert router._estimator.global_count == 1
+    assert router.stats().providers["only"]["calculated_spend_usd"] == pytest.approx(0.00012)
+
+    fallback = router.route(input_tokens=100)
+    assert fallback.expected_cost_usd == pytest.approx(0.0011)
+
+
+def test_caller_output_estimate_can_change_the_minimum_cost_provider() -> None:
+    providers = [
+        Provider("input_cheap", price_in=0.0, price_out=10.0),
+        Provider("output_cheap", price_in=5.0, price_out=0.0),
+    ]
+
+    def route_with_estimate(estimated_output_tokens: float) -> str:
+        router = Router(providers, cold_start="require_observations", seed=1)
+        _warm(router, "input_cheap")
+        _warm(router, "output_cheap")
+        return router.route(
+            input_tokens=100,
+            estimated_output_tokens=estimated_output_tokens,
+            alpha=0.0,
+        ).provider
+
+    assert route_with_estimate(10.0) == "input_cheap"
+    assert route_with_estimate(100.0) == "output_cheap"
+
+
+def test_zero_output_estimate_does_not_fall_back_to_the_internal_estimator() -> None:
+    router = Router(
+        [Provider("only", price_in=1.0, price_out=100.0)],
+        cold_start="require_observations",
+    )
+    _warm(router, "only")
+
+    decision = router.route(input_tokens=10, estimated_output_tokens=0)
+
+    assert decision.expected_cost_usd == pytest.approx(0.00001)
+
+
+def test_hedge_cost_uses_the_output_estimate_snapshotted_at_route_time() -> None:
+    router = Router(
+        [
+            Provider("primary", price_in=1.0, price_out=1.0),
+            Provider("input_cheap", price_in=0.0, price_out=10.0),
+            Provider("output_cheap", price_in=5.0, price_out=0.0),
+        ],
+        cold_start="require_observations",
+        slo_ms=3000.0,
+        seed=1,
+    )
+    _warm(router, "primary", 100.0, count=5)
+    _warm(router, "input_cheap", 200.0, count=5)
+    _warm(router, "output_cheap", 200.0, count=5)
+
+    decision = router.route(
+        input_tokens=100,
+        estimated_output_tokens=10,
+        alpha=1.0,
+    )
+    assert decision.provider == "primary"
+
+    # A later change to the internal estimator must not alter this decision's
+    # backup costs. With the caller's estimate, input_cheap costs less.
+    for _ in range(5):
+        router._estimator.update(input_tokens=100, output_tokens=10_000)
+    assert router._estimator.predict(100) == 10_000
+    backup = decision.hedge_now(elapsed_ms=2700.0)
+
+    assert backup is not None
+    assert backup.provider == "input_cheap"
+
+
+@pytest.mark.parametrize(
+    "bad_estimate",
+    [True, -1, float("nan"), float("inf"), "12", 10**400],
+)
+def test_output_estimate_validation_precedes_router_state_changes(bad_estimate: object) -> None:
+    clock = FakeClock()
+    router = Router([Provider("only", 1.0, 1.0)], clock=clock)
+    reads_before_route = clock.reads
+
+    with pytest.raises(ValidationError, match="estimated_output_tokens"):
+        router.route(
+            input_tokens=10,
+            estimated_output_tokens=bad_estimate,  # type: ignore[arg-type]
+        )
+
+    assert clock.reads == reads_before_route
+    assert not router._leases
+    assert router._states["only"].primary_selections == 0
+
+
 def test_strict_cold_start_requires_observations_and_routes_after_warmup() -> None:
     router = Router(_providers(), cold_start="require_observations", seed=3)
 

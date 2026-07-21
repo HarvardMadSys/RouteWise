@@ -65,8 +65,14 @@ jobs:
               seed=7,
           )
           router = Router([Provider("api", price_in=1.0, price_out=2.0)])
+          estimated_router = Router([Provider("api", price_in=1.0, price_out=2.0)])
           assert result.provider in result.weights
           assert router.route(input_tokens=10).provider == "api"
+          estimated = estimated_router.route(
+              input_tokens=10,
+              estimated_output_tokens=5,
+          )
+          assert estimated.expected_cost_usd == 20 / 1_000_000
           assert rw.__version__ == version("llm-routewise")
           assert len(rw.__all__) == 13
           assert find_spec("routewise") is None

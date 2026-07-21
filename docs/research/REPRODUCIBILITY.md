@@ -12,7 +12,7 @@ From the repository root:
 uv sync
 ```
 
-The `llm-routewise` `0.1.0` release wheel is the dependency-free API-provider
+The `llm-routewise` `0.2.0` release wheel is the dependency-free API-provider
 library.
 Simulator, live-evaluation, offline, plotting, and operational workflows are
 repository-only and use the development dependency group installed by

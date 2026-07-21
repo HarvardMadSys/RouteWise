@@ -2,7 +2,7 @@
 
 [中文版本](./API.zh-CN.md)
 
-This is the public Python API for `llm-routewise` 0.1.0. The preview selects
+This is the public Python API for `llm-routewise` 0.2.0. The preview selects
 provider names and records request outcomes. The application owns HTTP calls,
 client objects, credentials, retries, and response handling.
 
@@ -11,7 +11,7 @@ client objects, credentials, retries, and response handling.
 Python 3.10 or later is required. The package has no runtime dependencies.
 
 ```bash
-python -m pip install llm-routewise==0.1.0
+python -m pip install llm-routewise==0.2.0
 ```
 
 The distribution name contains a hyphen; the import contains an underscore:
@@ -19,7 +19,7 @@ The distribution name contains a hyphen; the import contains an underscore:
 ```python
 import llm_routewise as rw
 
-assert rw.__version__ == "0.1.0"
+assert rw.__version__ == "0.2.0"
 ```
 
 The top-level exports are `Attempt`, `Candidate`, `Decision`,
@@ -148,6 +148,9 @@ extremes `C_min` and `C_max`, the budget is
 `C_min + alpha * (C_max - C_min)`. RouteWise samples a provider mixture whose
 expected primary cost fits this budget while preferring lower learned latency.
 
+The predicted output term uses the caller's `estimated_output_tokens` when
+provided. Otherwise RouteWise uses its internal online output-length estimate.
+
 `alpha=0` uses the minimum-cost budget; `alpha=1` allows the full cost range.
 This is an expected-mixture budget, not a hard per-request cap. A dispatched
 hedge is an additional attempt and may add spend.
@@ -221,17 +224,25 @@ Invalid constructor arguments raise `ValidationError`.
 router.route(
     *,
     input_tokens: int,
+    estimated_output_tokens: float | None = None,
     estimated_cached_tokens: int | Mapping[str, int] = 0,
     alpha: float | None = None,
     exclude: Iterable[str] = (),
 ) -> rw.Decision
 ```
 
-`input_tokens` is a non-negative integer. `estimated_cached_tokens` is either
-one non-negative integer for all providers or a mapping by provider name;
-missing mapping entries default to zero, and values above `input_tokens` are
-clamped. `alpha` overrides the router default. `exclude` applies only to this
-request, and all names must be known.
+`input_tokens` is a non-negative integer. `estimated_output_tokens` is an
+optional finite, non-negative point estimate supplied by the caller. When it
+is `None`, RouteWise uses its internal online output-length estimate.
+`estimated_cached_tokens` is either one non-negative integer for all providers
+or a mapping by provider name; missing mapping entries default to zero, and
+values above `input_tokens` are clamped. `alpha` overrides the router default.
+`exclude` applies only to this request, and all names must be known.
+
+The output estimate affects routing and hedge cost calculations for this
+request. It is not a generation limit or actual usage. Settle the adopted
+attempt with its actual `output_tokens` or an explicit `cost_usd`; positive
+actual output tokens also train the internal estimator.
 
 Returns a `Decision` without dispatching any request. Raises `ValidationError`
 for invalid values or clock output. Raises `NoProviderError` when all providers
@@ -466,7 +477,7 @@ RouteWiseError
 - `NoProviderError`: no eligible provider for a stateful route.
 - `OutcomeError`: conflicting lifecycle, adoption, or settlement report.
 
-## 0.1.0 preview limits
+## 0.2.0 preview limits
 
 - Only on-demand, metered per-token provider prices are represented.
 - There is no general LLM client, provider SDK adapter, network transport,

@@ -6,7 +6,7 @@ This document describes the stable, lightweight RouteWise library surface:
 If you are looking for the public API-provider interface, read
 [API.md](../public/API.md) or [API.zh-CN.md](../public/API.zh-CN.md) first.
 This document covers the lower-level mathematical primitives; the interface
-documents describe the user-facing `0.1.0` facade.
+documents describe the user-facing `0.2.0` facade.
 
 `llm_routewise.core` contains pure routing math and small data contracts. It does
 not import the simulator, experiment harnesses, plotting code, live-provider
@@ -473,5 +473,5 @@ For a library release, treat these as stable:
 - function signatures documented in this file
 
 The top-level facade documented in [API.md](../public/API.md) is the supported
-`0.1.0` preview surface. Other modules outside `llm_routewise.core` are
+`0.2.0` preview surface. Other modules outside `llm_routewise.core` are
 repository implementation details unless a public document says otherwise.
