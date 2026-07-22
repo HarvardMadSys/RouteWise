@@ -25,6 +25,8 @@
   <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
   <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Stars"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Forks"></a>
 </p>
 
 <p align="center">
