@@ -45,12 +45,6 @@
   >
 </p>
 
-## News
-
-- **August 2026:** Our paper, *RouteWise: Latency–Cost Optimization for
-  Multi-Provider LLM Routing*, has been accepted to
-  [EuroSys 2027](https://2027.eurosys.org/)! 🎉
-
 RouteWise is a dependency-free Python library for cost-aware,
 latency-optimized routing across multiple LLM API providers. Applications
 supply provider prices, dispatch the returned attempt, and report outcomes so
@@ -63,6 +57,12 @@ research packages are not included in the wheel.
 > **Package name:** The PyPI project `routewise` is an unaffiliated,
 > incompatible project. Install the `llm-routewise` distribution and import
 > the `llm_routewise` package for HarvardMadSys RouteWise.
+
+## News
+
+- **August 2026:** Our paper, *RouteWise: Latency–Cost Optimization for
+  Multi-Provider LLM Routing*, has been accepted to
+  [EuroSys 2027](https://2027.eurosys.org/)! 🎉
 
 ## Installation
 
