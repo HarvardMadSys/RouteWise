@@ -45,6 +45,12 @@
   >
 </p>
 
+## News
+
+- **August 2026:** Our paper, *RouteWise: Latency–Cost Optimization for
+  Multi-Provider LLM Routing*, has been accepted to
+  [EuroSys 2027](https://2027.eurosys.org/)! 🎉
+
 RouteWise is a dependency-free Python library for cost-aware,
 latency-optimized routing across multiple LLM API providers. Applications
 supply provider prices, dispatch the returned attempt, and report outcomes so
@@ -153,6 +159,19 @@ regression checks.
 - [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
 - [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
 - [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
+
+## Citation
+
+If you use RouteWise in your research, please cite our paper:
+
+```bibtex
+@inproceedings{tian2027routewise,
+  title     = {{RouteWise}: Latency--Cost Optimization for Multi-Provider LLM Routing},
+  author    = {Muxin Tian and Haoran Ni and Yiyan Zhai and Yangsun Park and Juncheng Yang},
+  booktitle = {Proceedings of the 22nd European Conference on Computer Systems (EuroSys '27)},
+  year      = {2027}
+}
+```
 
 ## License
 
