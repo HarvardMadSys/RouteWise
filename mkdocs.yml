@@ -8,6 +8,12 @@ copyright: Harvard MadSys Lab, Harvard SEAS. MIT licensed.
 docs_dir: docs
 site_dir: site
 
+validation:
+  anchors: warn
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+
 theme:
   name: material
   favicon: assets/favicon.svg

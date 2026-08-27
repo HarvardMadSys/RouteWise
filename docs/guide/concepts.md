@@ -15,31 +15,37 @@ nothing to learn from.
 
 ## Provider
 
+A provider is one endpoint you can send a request to, described by what it
+charges. Prices are per million tokens because that is the unit providers
+publish.
+
 ```python
-rw.Provider(name, price_in, price_out, price_cached=None)
+rw.Provider("cheap", price_in=0.15, price_out=0.60)
 ```
 
-An immutable provider definition. Prices are finite, non-negative numbers in
-USD per million tokens. Names must be non-empty and unique within one router.
-When `price_cached` is absent, cached input is billed at `price_in`.
+`price_cached` is optional; omit it and cached input is billed at `price_in`.
+
+Providers are immutable, and the name you give one is the name RouteWise hands
+back to you. See the [reference](../reference/api.md#provider) for the
+validation rules.
 
 ## Router
 
+The router holds your providers and the policy that chooses among them. Three
+constructor arguments carry most of the behaviour you will care about:
+
+- `alpha` sets the [cost budget](cost-budget.md).
+- `slo_ms` sets a latency objective and enables [hedging](hedging.md)
+  checkpoints.
+- `seed` makes sampling reproducible.
+
 ```python
-rw.Router(
-    providers,
-    *,
-    alpha=0.25,
-    slo_ms=None,
-    seed=None,
-    cold_start="explore",
-    clock=None,
-    tuning=None,
-)
+router = rw.Router(providers, alpha=0.25, slo_ms=1_500.0)
 ```
 
-`alpha` sets the [cost budget](cost-budget.md). `slo_ms` enables
-[hedging](hedging.md) checkpoints. `seed` makes sampling reproducible.
+`cold_start` is described below. `clock` and `tuning` are for callers who need
+to control time or the policy constants; both are in the
+[reference](../reference/api.md#router).
 
 ## Decision
 

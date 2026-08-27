@@ -47,19 +47,19 @@ router 时钟，默认是单调时钟。
 
 ## Tuning
 
+`Tuning` 里有两个字段直接改变对冲行为：
+
+- `hedge_target` 是对冲要达到的组合成功概率。调低它，RouteWise 就不那么急于对冲。
+- `hedge_min_samples` 是评估对冲前主尝试必须具备的当前样本数。如果早期的噪声测量
+  触发了你不想要的备份，就调高它。
+
 ```python
-rw.Tuning(
-    *,
-    hedge_target=0.99,
-    penalty_ms=60_000.0,
-    window_min=15.0,
-    cooldown_sec=30.0,
-    cooldown_after=3,
-    hedge_min_samples=5,
-    exploration_lease_sec=60.0,
+router = rw.Router(
+    providers,
+    slo_ms=1_500.0,
+    tuning=rw.Tuning(hedge_min_samples=10),
 )
 ```
 
-`hedge_target` 是要求达到的组合成功概率，取值在 `(0, 1]`。`penalty_ms` 是首 token
-之前健康失败的惩罚值。`window_min` 是观测窗口。完整的校验规则见
-[API 参考](../reference/api.md)。
+其余字段管的是冷却、观测窗口和探索租约。它们的默认值和校验规则见
+[API 参考](../reference/api.md#tuning)。

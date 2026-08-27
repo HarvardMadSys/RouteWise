@@ -13,30 +13,33 @@ RouteWise 位于应用和供应商之间，本身不碰网络：它返回一个�
 
 ## Provider
 
+一个 provider 就是一个你可以发请求过去的端点，用它的收费来描述。价格以每百万
+token 计，因为供应商就是按这个单位公布价格的。
+
 ```python
-rw.Provider(name, price_in, price_out, price_cached=None)
+rw.Provider("cheap", price_in=0.15, price_out=0.60)
 ```
 
-不可变的供应商定义。价格是有限的非负数，单位为每百万 token 的美元。名称非空，
-且在同一个 router 内唯一。未提供 `price_cached` 时，缓存输入按 `price_in` 计费。
+`price_cached` 可选；不提供时缓存输入按 `price_in` 计费。
+
+Provider 不可变，你给它起的名字就是 RouteWise 回传给你的名字。校验规则见
+[API 参考](../reference/api.md#provider)。
 
 ## Router
 
+Router 持有你的 provider 以及在它们之间做选择的策略。三个构造参数承担了你最需要
+关心的行为：
+
+- `alpha` 设定[成本预算](cost-budget.md)。
+- `slo_ms` 设定延迟目标，并启用[对冲](hedging.md)检查点。
+- `seed` 让采样可复现。
+
 ```python
-rw.Router(
-    providers,
-    *,
-    alpha=0.25,
-    slo_ms=None,
-    seed=None,
-    cold_start="explore",
-    clock=None,
-    tuning=None,
-)
+router = rw.Router(providers, alpha=0.25, slo_ms=1_500.0)
 ```
 
-`alpha` 设定[成本预算](cost-budget.md)。`slo_ms` 启用[对冲](hedging.md)检查点。
-`seed` 让采样可复现。
+`cold_start` 在下面说明。`clock` 和 `tuning` 面向需要控制时间或策略常量的调用方，
+两者都在 [API 参考](../reference/api.md#router)里。
 
 ## Decision
 

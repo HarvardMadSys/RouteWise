@@ -51,20 +51,22 @@ default.
 
 ## Tuning
 
+Two `Tuning` fields change how hedging behaves:
+
+- `hedge_target` is the combined success probability hedging aims for. Lower it
+  and RouteWise hedges less eagerly.
+- `hedge_min_samples` is how many current primary samples must exist before
+  hedging is evaluated at all. Raise it if early, noisy measurements are
+  triggering backups you do not want.
+
 ```python
-rw.Tuning(
-    *,
-    hedge_target=0.99,
-    penalty_ms=60_000.0,
-    window_min=15.0,
-    cooldown_sec=30.0,
-    cooldown_after=3,
-    hedge_min_samples=5,
-    exploration_lease_sec=60.0,
+router = rw.Router(
+    providers,
+    slo_ms=1_500.0,
+    tuning=rw.Tuning(hedge_min_samples=10),
 )
 ```
 
-`hedge_target` is the required combined success probability, in `(0, 1]`.
-`penalty_ms` is the pre-first-token health failure penalty. `window_min` is the
-observation window. See the [API reference](../reference/api.md) for the full
-validation rules.
+The remaining fields govern cooldowns, the observation window, and exploration
+leases. Their defaults and validation rules are in the
+[reference](../reference/api.md#tuning).

@@ -1,6 +1,8 @@
 # Cost budget
 
-`alpha` is the single knob that trades spend against latency.
+`alpha` is the single knob that trades spend against latency. This page explains
+how the knob works; the [reference](../reference/api.md) is the authoritative
+definition of the formulas below.
 
 ## Estimated cost
 
