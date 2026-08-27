@@ -124,10 +124,13 @@ the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main
 or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
 for the full contract.
 
-For a complete offline example using only the public API, run:
+Two offline examples use only the public API: a single decision, and a full
+request lifecycle showing dispatch, failure reporting, and how outcomes change
+routing. Run them with:
 
 ```bash
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 ```
 
 ## Repository Development
