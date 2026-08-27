@@ -30,11 +30,11 @@ protected `pypi` environment are configured.
 1. Merge a version-bump PR after the package workflow is green. Update both
    `project.version` in `pyproject.toml` and `llm_routewise.__version__`.
 2. From the merged `main`, create and push the matching annotated tag. For
-   example, release version `0.2.0` with tag `v0.2.0`:
+   a release version `X.Y.Z`, use the tag `vX.Y.Z`:
 
    ```bash
-   git tag -a v0.2.0 -m "RouteWise 0.2.0"
-   git push origin v0.2.0
+   git tag -a vX.Y.Z -m "RouteWise X.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 3. Create a draft GitHub Release for that existing tag and review its notes.
@@ -43,10 +43,10 @@ protected `pypi` environment are configured.
    migration:
 
    ```bash
-   gh release create v0.2.0 --verify-tag --generate-notes --draft
-   gh release view v0.2.0 --web
+   gh release create vX.Y.Z --verify-tag --generate-notes --draft
+   gh release view vX.Y.Z --web
    # After reviewing and editing the notes:
-   gh release edit v0.2.0 --draft=false
+   gh release edit vX.Y.Z --draft=false
    ```
 
 Publishing the GitHub Release triggers `.github/workflows/release.yml`. The

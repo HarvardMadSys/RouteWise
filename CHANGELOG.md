@@ -3,6 +3,25 @@
 All notable changes to the published `llm-routewise` distribution are documented
 here.
 
+## 0.3.0 - Unreleased
+
+### Changed
+
+- The `main` branch now contains only the maintained public library, its
+  documentation, examples, tests, and release tooling. Paper-specific code and
+  reproduction material remain available on the
+  [`eurosys27-ae`](https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae)
+  artifact branch.
+
+### Removed
+
+- Removed the repository-only simulator, offline pipeline, metrics package,
+  experiments, plotting tools, research CLI, datasets, and research scripts
+  from `main`.
+- Removed `llm_routewise.capacity` and `llm_routewise.schemas`. These
+  simulator-facing compatibility modules were not part of the documented
+  top-level API; shared public decision types remain in `llm_routewise.core`.
+
 ## 0.2.0 - 2026-07-21
 
 ### Added
