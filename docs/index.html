@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#a51c30" />
+    <meta
+      name="description"
+      content="RouteWise is a dependency-free Python library for latency-cost optimization across multiple LLM API providers."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="RouteWise" />
+    <meta property="og:title" content="RouteWise | Smarter Multi-Provider LLM Routing" />
+    <meta
+      property="og:description"
+      content="Learn from recent outcomes, route each request, and hedge selectively."
+    />
+    <meta property="og:url" content="https://harvardmadsys.github.io/RouteWise/" />
+    <meta
+      property="og:image"
+      content="https://harvardmadsys.github.io/RouteWise/assets/og.png"
+    />
+    <meta
+      property="og:image:secure_url"
+      content="https://harvardmadsys.github.io/RouteWise/assets/og.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1731" />
+    <meta property="og:image:height" content="909" />
+    <meta
+      property="og:image:alt"
+      content="RouteWise latency-cost optimization with an abstract multi-provider routing loop."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RouteWise | Smarter Multi-Provider LLM Routing" />
+    <meta
+      name="twitter:description"
+      content="Latency-cost optimization for multi-provider LLM routing."
+    />
+    <meta
+      name="twitter:image"
+      content="https://harvardmadsys.github.io/RouteWise/assets/og.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="RouteWise latency-cost optimization with an abstract multi-provider routing loop."
+    />
+    <link rel="canonical" href="https://harvardmadsys.github.io/RouteWise/" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>RouteWise | Latency-Cost Optimization for LLM Routing</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="RouteWise home">
+          <span class="brand-mark" aria-hidden="true">R</span>
+          <span>RouteWise</span>
+        </a>
+
+        <button
+          class="menu-button"
+          type="button"
+          aria-expanded="false"
+          aria-controls="primary-navigation"
+          data-menu-button
+        >
+          <span class="sr-only">Open navigation</span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+
+        <nav id="primary-navigation" class="primary-nav" aria-label="Primary" data-menu>
+          <a href="#why">Why RouteWise</a>
+          <a href="#how">How It Works</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="#research">Research</a>
+          <a class="nav-cta" href="https://github.com/HarvardMadSys/RouteWise">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="top" class="hero">
+        <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <a class="eyebrow" href="#research">
+              <span class="eyebrow-dot" aria-hidden="true"></span>
+              Accepted at EuroSys 2027
+              <span aria-hidden="true">↗</span>
+            </a>
+            <h1>Make every LLM request a better route.</h1>
+            <p class="hero-lede">
+              RouteWise learns from recent outcomes to choose an API provider within your cost
+              budget, then hedges only when a request is running late.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#quickstart">Start Routing <span>→</span></a>
+              <a class="button button-secondary" href="https://github.com/HarvardMadSys/RouteWise">
+                View on GitHub
+              </a>
+            </div>
+            <div class="install-command" aria-label="Install command">
+              <span class="prompt" aria-hidden="true">$</span>
+              <code>pip install llm-routewise==0.2.0</code>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy="pip install llm-routewise==0.2.0"
+                aria-label="Copy install command"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="hero-facts" aria-label="Project facts">
+              <div><strong>0</strong><span>runtime dependencies</span></div>
+              <div><strong>3.10+</strong><span>supported Python</span></div>
+              <div><strong>MIT</strong><span>open-source license</span></div>
+            </div>
+          </div>
+
+          <div class="decision-shell" aria-label="Example RouteWise decision">
+            <div class="decision-topbar">
+              <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+              <span>routing decision</span>
+              <span class="status-pill"><i aria-hidden="true"></i> ready</span>
+            </div>
+            <div class="decision-body">
+              <div class="decision-request">
+                <span>REQUEST</span>
+                <strong>800 input tokens</strong>
+                <small>cost budget α = 0.25</small>
+              </div>
+              <div class="route-line" aria-hidden="true"><span></span><i>→</i></div>
+              <div class="provider-card provider-primary">
+                <div>
+                  <span>PRIMARY</span>
+                  <strong>fast</strong>
+                </div>
+                <b>selected</b>
+              </div>
+              <div class="provider-card provider-backup">
+                <div>
+                  <span>OPTIONAL BACKUP</span>
+                  <strong>cheap</strong>
+                </div>
+                <b>hedge checkpoint</b>
+              </div>
+              <div class="feedback-row">
+                <span aria-hidden="true">↺</span>
+                <p><strong>Outcome feedback</strong><small>TTFT and actual usage update the router</small></p>
+              </div>
+            </div>
+            <div class="decision-code" aria-hidden="true">
+              <span><i>1</i><b>decision</b> = router.route(input_tokens=<em>800</em>)</span>
+              <span><i>2</i>response = call(decision.provider)</span>
+              <span><i>3</i>decision.completed(ttft_ms=...)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="container affiliation-strip">
+          <span>Developed and maintained by</span>
+          <a href="https://juncheng.seas.harvard.edu/">Harvard MadSys Lab</a>
+          <span class="affiliation-divider" aria-hidden="true"></span>
+          <img
+            src="./assets/harvard-seas-wordmark.png"
+            alt="Harvard John A. Paulson School of Engineering and Applied Sciences"
+          />
+        </div>
+      </section>
+
+      <section id="why" class="section why-section">
+        <div class="container">
+          <div class="section-heading split-heading">
+            <div>
+              <p class="section-kicker">Built for the request path</p>
+              <h2>One policy. Two constraints. No provider lock-in.</h2>
+            </div>
+            <p>
+              Applications keep ownership of provider clients, credentials, and network I/O.
+              RouteWise stays in-process and returns a decision your code can dispatch.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card feature-card-accent">
+              <span class="feature-number">01</span>
+              <div class="feature-icon" aria-hidden="true">↗</div>
+              <h3>Route Within a Cost Budget</h3>
+              <p>
+                Set one <code>alpha</code> value from cheapest-first to latency-first. RouteWise
+                weighs provider prices against recent latency.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-number">02</span>
+              <div class="feature-icon" aria-hidden="true">≈</div>
+              <h3>Learn From Live Outcomes</h3>
+              <p>
+                Report time to first token and actual usage after completion. Rolling observations
+                keep the policy aligned with current provider behavior.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-number">03</span>
+              <div class="feature-icon" aria-hidden="true">⌁</div>
+              <h3>Hedge Selectively</h3>
+              <p>
+                Optional checkpoints expose when a backup attempt is justified. Your application
+                decides whether and how to dispatch it.
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-number">04</span>
+              <div class="feature-icon" aria-hidden="true">{ }</div>
+              <h3>Stay Dependency-Free</h3>
+              <p>
+                The published wheel has no runtime dependencies. It performs no network I/O and
+                never reads API keys.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" class="section how-section">
+        <div class="container">
+          <div class="section-heading centered-heading">
+            <p class="section-kicker">A tight feedback loop</p>
+            <h2>Decide now. Learn from what happened.</h2>
+            <p>
+              RouteWise separates policy from dispatch, so it can fit into an existing provider
+              stack without taking over credentials or requests.
+            </p>
+          </div>
+          <div class="diagram-frame">
+            <img
+              src="./assets/routewise-routing-hero.svg"
+              alt="A request enters RouteWise, which balances cost and latency, returns a provider decision, and learns from the reported outcome."
+            />
+          </div>
+          <ol class="process-list">
+            <li>
+              <span>1</span>
+              <div><strong>Describe providers</strong><small>Supply names and token prices.</small></div>
+            </li>
+            <li>
+              <span>2</span>
+              <div><strong>Ask for a route</strong><small>Pass input size and an optional output estimate.</small></div>
+            </li>
+            <li>
+              <span>3</span>
+              <div><strong>Dispatch in your app</strong><small>Use your own SDKs, keys, and retry policy.</small></div>
+            </li>
+            <li>
+              <span>4</span>
+              <div><strong>Report the result</strong><small>Feed back latency and billed usage.</small></div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section id="quickstart" class="section quickstart-section">
+        <div class="container quickstart-grid">
+          <div class="quickstart-copy">
+            <p class="section-kicker">Five-minute quickstart</p>
+            <h2>Add routing without rebuilding your provider stack.</h2>
+            <p>
+              Install the public package, define candidate providers, and dispatch the returned
+              provider with the client code you already use.
+            </p>
+            <div class="doc-links">
+              <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">
+                English API <span>↗</span>
+              </a>
+              <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">
+                中文 API <span>↗</span>
+              </a>
+            </div>
+            <p class="package-note">
+              <strong>Package note</strong>
+              Version 0.2.0 is an API-provider-only preview. Install
+              <code>llm-routewise</code> and import <code>llm_routewise</code>; the PyPI project
+              named <code>routewise</code> is unrelated and incompatible.
+            </p>
+          </div>
+
+          <div class="code-window">
+            <div class="code-header">
+              <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+              <span>quickstart.py</span>
+              <button
+                class="copy-button code-copy"
+                type="button"
+                data-copy-target="quickstart-code"
+                aria-label="Copy Python quickstart"
+              >
+                Copy
+              </button>
+            </div>
+            <pre id="quickstart-code"><code><span class="code-pink">import</span> llm_routewise <span class="code-pink">as</span> rw
+
+router = rw.Router(
+    [
+        rw.Provider(<span class="code-green">"fast"</span>, price_in=<span class="code-blue">3.0</span>, price_out=<span class="code-blue">15.0</span>),
+        rw.Provider(<span class="code-green">"cheap"</span>, price_in=<span class="code-blue">0.15</span>, price_out=<span class="code-blue">0.60</span>),
+    ],
+    alpha=<span class="code-blue">0.25</span>,
+)
+
+decision = router.route(input_tokens=<span class="code-blue">800</span>)
+response = call_your_provider(decision.provider)
+
+decision.completed(
+    ttft_ms=response.ttft_ms,
+    output_tokens=response.output_tokens,
+)</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="research" class="section research-section">
+        <div class="container research-card">
+          <div class="research-copy">
+            <p class="section-kicker light-kicker">Research and reproducibility</p>
+            <h2>From a systems paper to a small Python library.</h2>
+            <p>
+              The repository includes the simulator and experiment harnesses used by the RouteWise
+              paper, alongside the dependency-free API-provider library.
+            </p>
+            <div class="research-actions">
+              <a class="button button-light" href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">
+                Reproduce the Experiments
+              </a>
+              <a class="text-link-light" href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/ARCHITECTURE.md">
+                Read the architecture <span>↗</span>
+              </a>
+            </div>
+          </div>
+          <aside class="citation-card" aria-label="Paper citation">
+            <span>EUROSYS '27</span>
+            <h3>RouteWise: Latency-Cost Optimization for Multi-Provider LLM Routing</h3>
+            <p>Muxin Tian, Haoran Ni, Yiyan Zhai, Yangsun Park, and Juncheng Yang</p>
+            <button
+              class="citation-copy"
+              type="button"
+              data-copy="@inproceedings{tian2027routewise, title={{RouteWise}: Latency--Cost Optimization for Multi-Provider LLM Routing}, author={Muxin Tian and Haoran Ni and Yiyan Zhai and Yangsun Park and Juncheng Yang}, booktitle={Proceedings of the 22nd European Conference on Computer Systems (EuroSys '27)}, year={2027}}"
+            >
+              Copy BibTeX <span aria-hidden="true">＋</span>
+            </button>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section final-cta">
+        <div class="container final-cta-inner">
+          <p class="section-kicker">Ready to route?</p>
+          <h2>Give each request a cost-aware path to lower latency.</h2>
+          <div>
+            <a class="button button-primary" href="https://pypi.org/project/llm-routewise/">
+              Install from PyPI <span>↗</span>
+            </a>
+            <a class="button button-secondary" href="https://github.com/HarvardMadSys/RouteWise">
+              Explore the Repository
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-top">
+        <div>
+          <a class="brand footer-brand" href="#top">
+            <span class="brand-mark" aria-hidden="true">R</span>
+            <span>RouteWise</span>
+          </a>
+          <p>Latency-cost optimization for multi-provider LLM routing.</p>
+        </div>
+        <div class="footer-links">
+          <div>
+            <strong>Project</strong>
+            <a href="https://github.com/HarvardMadSys/RouteWise">GitHub</a>
+            <a href="https://pypi.org/project/llm-routewise/">PyPI</a>
+            <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md">Changelog</a>
+          </div>
+          <div>
+            <strong>Documentation</strong>
+            <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">API</a>
+            <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
+            <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
+          </div>
+          <div>
+            <strong>Lab</strong>
+            <a href="https://juncheng.seas.harvard.edu/">Harvard MadSys</a>
+            <a href="https://seas.harvard.edu/">Harvard SEAS</a>
+            <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE">MIT License</a>
+          </div>
+        </div>
+      </div>
+      <div class="container footer-bottom">
+        <span>© <span data-year>2026</span> Harvard MadSys Lab</span>
+        <span>Route requests. Learn from outcomes.</span>
+      </div>
+    </footer>
+
+    <div class="toast" role="status" aria-live="polite" data-toast>Copied to clipboard</div>
+    <script src="./site.js" defer></script>
+  </body>
+</html>

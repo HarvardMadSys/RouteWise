@@ -30,6 +30,8 @@
 </p>
 
 <p align="center">
+  <a href="https://harvardmadsys.github.io/RouteWise/">Website</a>
+  ·
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
   ·
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
