@@ -1,8 +1,8 @@
 """Public, dependency-free RouteWise facade for API providers.
 
 This module owns lifecycle, learning, and accounting while the algorithmic
-primitives in :mod:`llm_routewise.core` remain pure. The ``0.2.0`` facade
-supports metered API-provider prices only.
+primitives in :mod:`llm_routewise.core` remain pure. The facade supports
+metered API-provider prices only.
 """
 
 from __future__ import annotations

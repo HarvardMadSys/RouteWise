@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-routewise"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cost-aware, latency-optimized routing for multiple LLM API providers"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,7 +33,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/HarvardMadSys/RouteWise"
 Repository = "https://github.com/HarvardMadSys/RouteWise"
-Documentation = "https://github.com/HarvardMadSys/RouteWise/tree/main/docs"
+Documentation = "https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md"
 Changelog = "https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md"
 Issues = "https://github.com/HarvardMadSys/RouteWise/issues"
 
@@ -57,13 +57,6 @@ addopts = [
   "--strict-markers",
   "--strict-config",
 ]
-markers = [
-  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-  "integration: marks tests as integration tests",
-  "unit: marks tests as unit tests",
-  "perf: performance regression tests",
-  "external: tests that hit external/local servers",
-]
 
 [tool.ruff]
 line-length = 100
@@ -85,8 +78,6 @@ extend-select = [
 ignore = [
   "E203",  # whitespace before ':' (black/pep8 conflict)
   "E501",  # line too long (handled by formatter)
-  "E402",  # module import not at top of file (for now)
-  "B008",  # FastAPI Depends pattern is OK
 ]
 fixable = ["ALL"]
 unfixable = []
@@ -101,37 +92,9 @@ skip-magic-trailing-comma = false
 combine-as-imports = true
 force-single-line = false
 
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
-[tool.pydocstyle]
-convention = "google"
-add-ignore = [
-  "D104",  # missing docstring in public package
-  "D105",  # magic method docstring not required
-  "D107",  # __init__ docstring not required
-  "D202",  # conflicts with ruff-format (blank line after docstring)
-]
-match = ".+\\.py"
-match-dir = "(?!tests|test|.venv|data).*"
-
 [dependency-groups]
 dev = [
-  "matplotlib>=3.8.0",
-  "numpy>=1.24.0",
-  "pandas>=2.0.0",
-  "pulp>=2.7.0",
+  "build>=1.5.0",
   "pytest>=8.0.0",
-  "pydocstyle>=6.3.0",
-  "python-dotenv>=1.0.0",
-  "pyyaml>=6.0",
-  "requests>=2.31.0",
   "ruff>=0.5.0",
-  "scipy>=1.11.0",
-  "tqdm>=4.65.0",
-  "pre-commit>=3.6.0",
-]
-agent-benchmark = [
-  "mini-swe-agent>=1.0",
-  "swebench>=3.0",
 ]
