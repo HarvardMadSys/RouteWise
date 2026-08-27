@@ -31,7 +31,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://harvardmadsys.github.io/RouteWise/"
+Homepage = "https://github.com/HarvardMadSys/RouteWise"
 Repository = "https://github.com/HarvardMadSys/RouteWise"
 Documentation = "https://github.com/HarvardMadSys/RouteWise/tree/main/docs"
 Changelog = "https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md"
