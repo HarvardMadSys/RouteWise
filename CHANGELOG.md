@@ -5,8 +5,17 @@ here.
 
 ## 0.3.0 - Unreleased
 
+### Added
+
+- Added a MkDocs Material documentation site under `docs/`, published in
+  English and Simplified Chinese, with a `docs` dependency group and a
+  `docs` workflow that builds it with `--strict`.
+
 ### Changed
 
+- Moved the public API reference from `docs/public/API.md` and
+  `docs/public/API.zh-CN.md` to `docs/reference/api.md` and
+  `docs/reference/api.zh.md`. The `Documentation` project URL follows the move.
 - The `main` branch now contains only the maintained public library, its
   documentation, examples, tests, and release tooling. Paper-specific code and
   reproduction material remain available on the

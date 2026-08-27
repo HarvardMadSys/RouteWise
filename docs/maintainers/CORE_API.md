@@ -4,7 +4,7 @@ This document describes the stable, lightweight RouteWise library surface:
 `llm_routewise.core`.
 
 If you are looking for the public API-provider interface, read
-[API.md](../public/API.md) or [API.zh-CN.md](../public/API.zh-CN.md) first.
+[api.md](../reference/api.md) or [api.zh.md](../reference/api.zh.md) first.
 This document covers the lower-level mathematical primitives; the interface
 documents describe the user-facing facade.
 
@@ -462,6 +462,6 @@ For a library release, treat these as stable:
   `HedgeDispatch`
 - function signatures documented in this file
 
-The top-level facade documented in [API.md](../public/API.md) is the supported
+The top-level facade documented in [api.md](../reference/api.md) is the supported
 public surface. Other modules outside `llm_routewise.core` are implementation
 details unless a public document says otherwise.

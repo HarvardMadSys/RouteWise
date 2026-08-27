@@ -1,0 +1,14 @@
+:root {
+  --md-primary-fg-color:        #A51C30;
+  --md-primary-fg-color--light: #C6394D;
+  --md-primary-fg-color--dark:  #7E1524;
+  --md-accent-fg-color:         #0E7C7B;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #1B1B1D;
+  --md-accent-fg-color:  #2EA9A8;
+  /* Material derives link colour from the primary, which is near-black here.
+     Set it explicitly so links stay legible on the dark background. */
+  --md-typeset-a-color:  #FF8A9B;
+}

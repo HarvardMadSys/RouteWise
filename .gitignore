@@ -23,3 +23,6 @@ artifacts/
 AGENTS.md
 CLAUDE.md
 .agent-style
+
+# MkDocs build output.
+site/
