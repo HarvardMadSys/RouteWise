@@ -86,11 +86,40 @@ jobs:
           from importlib.util import find_spec
 
           import llm_routewise as rw
+          from llm_routewise import Candidate, Provider, Router, route_once
 
           installed = version("llm-routewise")
+          result = route_once(
+              [
+                  Candidate("cheap", cost_usd=1.0, latency_ms=100.0),
+                  Candidate("fast", cost_usd=2.0, latency_ms=10.0),
+              ],
+              alpha=0.5,
+              seed=7,
+          )
+          router = Router([Provider("api", price_in=1.0, price_out=2.0)])
+          estimated_router = Router([Provider("api", price_in=1.0, price_out=2.0)])
+          assert result.provider in result.weights
+          assert router.route(input_tokens=10).provider == "api"
+          estimated = estimated_router.route(
+              input_tokens=10,
+              estimated_output_tokens=5,
+          )
+          assert estimated.expected_cost_usd == 20 / 1_000_000
           assert rw.__version__ == installed
           assert len(rw.__all__) == 13
           assert find_spec("routewise") is None
+          forbidden_modules = (
+              "llm_routewise.sim",
+              "llm_routewise.offline",
+              "llm_routewise.metrics",
+              "llm_routewise.capacity",
+              "llm_routewise.schemas",
+              "experiments",
+              "routewise_cli",
+          )
+          for module in forbidden_modules:
+              assert find_spec(module) is None, f"unexpected installed module: {module}"
           print(f"verified llm-routewise {installed}")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

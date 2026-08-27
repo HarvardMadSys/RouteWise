@@ -14,8 +14,6 @@ ALLOWED_LIBRARY_MEMBERS = {
     "llm_routewise/__init__.py",
     "llm_routewise/_capacity_controller.py",
     "llm_routewise/_output_length.py",
-    # Included for source-checkout compatibility with the public core package.
-    "llm_routewise/capacity.py",
     "llm_routewise/const.py",
     "llm_routewise/core/__init__.py",
     "llm_routewise/core/beliefs.py",
@@ -30,7 +28,6 @@ ALLOWED_LIBRARY_MEMBERS = {
     "llm_routewise/errors.py",
     "llm_routewise/facade.py",
     "llm_routewise/py.typed",
-    "llm_routewise/schemas.py",
     "llm_routewise/stateless.py",
 }
 

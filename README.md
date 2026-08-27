@@ -33,8 +33,6 @@
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
   ·
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
-  ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
 </p>
 
 <p align="center">
@@ -50,9 +48,11 @@ latency-optimized routing across multiple LLM API providers. Applications
 supply provider prices, dispatch the returned attempt, and report outcomes so
 RouteWise can learn from them.
 
-The `0.2.0` distribution is an API-provider-only preview. This repository also
-contains the simulator and experiment harnesses used by the paper; those
-research packages are not included in the wheel.
+The `main` branch contains the public library, its documentation, examples,
+tests, and release tooling. The EuroSys paper artifact is maintained separately
+on the [`eurosys27-ae`](https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae)
+branch so that its simulator, experiments, data preparation, and reproduction
+environment remain self-contained.
 
 > **Package name:** The PyPI project `routewise` is an unaffiliated,
 > incompatible project. Install the `llm-routewise` distribution and import
@@ -70,15 +70,15 @@ RouteWise requires Python 3.10 or later. The published wheel has no runtime
 dependencies.
 
 ```bash
-python -m pip install llm-routewise==0.2.0
+python -m pip install llm-routewise
 ```
 
-For repository development and paper-artifact workflows:
+For repository development:
 
 ```bash
 git clone https://github.com/HarvardMadSys/RouteWise.git
 cd RouteWise
-uv sync
+uv sync --locked
 ```
 
 ## Quickstart
@@ -124,23 +124,24 @@ the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main
 or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
 for the full contract.
 
+For a complete offline example using only the public API, run:
+
+```bash
+uv run python examples/basic.py
+```
+
 ## Repository Development
 
-Run the fast test suite:
+Install the development tools and run the complete library checks:
 
 ```bash
-uv run pytest -q -m "not slow"
+uv sync --locked
+uv run ruff check .
+uv run pytest -q
+uv run python examples/basic.py
+uv run python -m build --wheel
+uv run python scripts/check_wheel.py dist/*.whl
 ```
-
-List the paper-facing simulator sections:
-
-```bash
-uv run python -m routewise_cli.main simulator list
-```
-
-The [reproducibility guide](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
-covers datasets, live-evaluation credentials, experiment commands, and
-regression checks.
 
 ## Documentation
 
@@ -148,11 +149,6 @@ regression checks.
 
 - [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
 - [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
-
-### Research Artifacts
-
-- [Simulator architecture and algorithms](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/ARCHITECTURE.md)
-- [Experiment reproducibility](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
 
 ### Maintainers and Advanced Integrators
 

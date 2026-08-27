@@ -1,24 +1,22 @@
-"""Physical and protocol constants shared across RouteWise harnesses.
+"""Protocol constants used by RouteWise routing helpers.
 
 Constants in this module are deliberately defined once and re-imported by
-every consumer (policies, engine, ablations) so that there is exactly one
-place to change a value. If you edit a constant here, every caller picks it
-up automatically — but you should also re-capture golden baselines, because
-the simulator's behaviour will change.
+every consumer so that there is exactly one place to change a value. Some are
+also consumed by downstream adapters in the EuroSys artifact branch; changes
+to those values require corresponding artifact baseline updates.
 
 Do not add module-local copies of these constants in other files. The
 historical cost of having two `DISPATCH_OVERHEAD_MS = 50.0` definitions
 (one in the hedging policy helper for the algorithm's estimate, one in
-`llm_routewise/sim/engine/simulator.py` for the simulator's physical model) was exactly
-the kind of silent drift this module exists to prevent.
+the paper artifact's simulator for its physical model) was exactly the kind
+of silent drift this module exists to prevent.
 """
 
 from __future__ import annotations
 
-# Canonical primary SLO threshold used by the paper-facing RouteWise runs.
-# Section-specific stress tests may override this explicitly, but default
-# simulator scenarios, RouteWise policy presets, and real-eval launch scripts
-# should converge on this value.
+# Compatibility default for downstream RouteWise adapters, including the paper
+# artifact. The public facade accepts an explicit per-router ``slo_ms`` and does
+# not read this default.
 DEFAULT_PRIMARY_SLO_MS: float = 3000.0
 
 
@@ -41,16 +39,15 @@ DEFAULT_PRIMARY_SLO_MS: float = 3000.0
 #   1. `llm_routewise/core/hedging.py:combined_success_probability` subtracts it
 #      from `remaining_ms` when estimating how much time a simulated backup has
 #      after a hedge decision.
-#   2. `llm_routewise/sim/engine/simulator.py:_execute_request` adds it to simulated
-#      backup-wins TTFT to emulate the local dispatch handoff that real-eval
-#      observes naturally.
+#   2. The paper artifact's simulator adds it to simulated backup-wins TTFT
+#      to emulate the local dispatch handoff that real-eval observes naturally.
 #
 # If the policy estimate and the simulator's physical emulation diverge,
 # simulator hedging results stop being self-consistent.
 #
 # Calibrated 2026-05-21 from ~10,200 hedge dispatches across MiniMax
 # real-eval runs (2026-05-13 -- 2026-05-20), measured via
-# `backup_dispatch_overhead_ms` in `experiments/real_evaluation/recorder.py`.
+# `backup_dispatch_overhead_ms` in the paper artifact's live-evaluation recorder.
 # That metric is `backup_start_ts - backup_dispatch_ts`: the time from just
 # before the backup thread is started to the transport entry timestamp, before
 # the transport begins its own TTFT timer. Empirical distribution:
@@ -85,7 +82,7 @@ DISPATCH_OVERHEAD_MS: float = 5.0
 # implements probability-target hedging must read the same value:
 #
 #   1. `llm_routewise/core/hedging.py` — shared hedging math.
-#   2. `experiments/real_evaluation/policies.py` — live-API hedging adapter.
+#   2. The paper artifact's live-API hedging adapter.
 #   3. external production routers that reuse the public `llm_routewise.core`
 #      hedging helpers.
 #
@@ -117,8 +114,8 @@ HEDGE_SUCCESS_TARGET: float = 0.99
 #
 #   1. `llm_routewise/core/hedging.py:hedge_checkpoints_for_slo` — canonical
 #      simulator + real-eval implementation.
-#   2. `experiments/real_evaluation/runner.py` — calls the canonical helper
-#      with the real-eval SLO converted to milliseconds.
+#   2. The paper artifact's live-evaluation runner, which calls the canonical
+#      helper with the real-eval SLO converted to milliseconds.
 #   3. external production routers that reuse the public `llm_routewise.core`
 #      hedging helpers.
 #

@@ -6,11 +6,11 @@ This document describes the stable, lightweight RouteWise library surface:
 If you are looking for the public API-provider interface, read
 [API.md](../public/API.md) or [API.zh-CN.md](../public/API.zh-CN.md) first.
 This document covers the lower-level mathematical primitives; the interface
-documents describe the user-facing `0.2.0` facade.
+documents describe the user-facing facade.
 
 `llm_routewise.core` contains pure routing math and small data contracts. It does
-not import the simulator, experiment harnesses, plotting code, live-provider
-transports, or production gateway integrations.
+not perform network I/O or depend on provider SDKs and scientific-computing
+packages.
 
 Use this API when you want to embed RouteWise's effective-cost, budgeted
 provider-mixing, and hedging primitives inside your own router.
@@ -34,8 +34,9 @@ For an editable checkout:
 python -m pip install -e .
 ```
 
-Do not install simulator or real-evaluation extras unless you need the paper
-artifact workflows.
+The EuroSys simulator and reproduction environment live on the
+[`eurosys27-ae`](https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae)
+artifact branch and are not part of the public library.
 
 ## Quickstart
 
@@ -451,17 +452,6 @@ def route_request(request, state):
     return sample_provider(result.weights)
 ```
 
-## What Is Not Core
-
-These modules are useful but not part of the stable core library contract:
-
-- `llm_routewise.sim`: trace-driven simulator and research policies.
-- `experiments`: paper section runners, ablation harnesses, and live replay.
-- `plots`: figure generation scripts.
-
-Use them as references or artifacts, not as stable dependencies for a library
-consumer.
-
 ## Compatibility Policy
 
 For a library release, treat these as stable:
@@ -473,5 +463,5 @@ For a library release, treat these as stable:
 - function signatures documented in this file
 
 The top-level facade documented in [API.md](../public/API.md) is the supported
-`0.2.0` preview surface. Other modules outside `llm_routewise.core` are
-repository implementation details unless a public document says otherwise.
+public surface. Other modules outside `llm_routewise.core` are implementation
+details unless a public document says otherwise.

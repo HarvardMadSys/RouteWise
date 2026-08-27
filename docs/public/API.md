@@ -2,24 +2,22 @@
 
 [中文版本](./API.zh-CN.md)
 
-This is the public Python API for `llm-routewise` 0.2.0. The preview selects
-provider names and records request outcomes. The application owns HTTP calls,
-client objects, credentials, retries, and response handling.
+This is the public Python API for `llm-routewise`. The library selects provider
+names and records request outcomes. The application owns HTTP calls, client
+objects, credentials, retries, and response handling.
 
 ## Install
 
 Python 3.10 or later is required. The package has no runtime dependencies.
 
 ```bash
-python -m pip install llm-routewise==0.2.0
+python -m pip install llm-routewise
 ```
 
 The distribution name contains a hyphen; the import contains an underscore:
 
 ```python
 import llm_routewise as rw
-
-assert rw.__version__ == "0.2.0"
 ```
 
 The top-level exports are `Attempt`, `Candidate`, `Decision`,
@@ -477,7 +475,7 @@ RouteWiseError
 - `NoProviderError`: no eligible provider for a stateful route.
 - `OutcomeError`: conflicting lifecycle, adoption, or settlement report.
 
-## 0.2.0 preview limits
+## API boundaries
 
 - Only on-demand, metered per-token provider prices are represented.
 - There is no general LLM client, provider SDK adapter, network transport,
@@ -489,4 +487,6 @@ RouteWiseError
 - Observations, cooldowns, leases, estimates, random state, and counters live in
   the current Python process and are not persisted or shared across processes.
 - `observe` cannot ingest historical timestamps.
-- Simulator and experiment tooling are not included in the installed wheel.
+- Paper-specific simulator and experiment tooling are maintained on the
+  [`eurosys27-ae`](https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae)
+  artifact branch and are not part of this library API.

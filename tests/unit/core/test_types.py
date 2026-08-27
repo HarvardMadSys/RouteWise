@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import llm_routewise.core as public_core
-from llm_routewise import schemas
 from llm_routewise.core.hedging import CheckpointBackupDispatch, CheckpointBackupSelector
 from llm_routewise.core.types import HedgeDispatch, RoutingDecision
 
@@ -58,11 +57,6 @@ def test_hybrid_inference_consumer_contract_remains_exported() -> None:
 
     assert expected <= set(public_core.__all__)
     assert all(hasattr(public_core, name) for name in expected)
-
-
-def test_schemas_reexports_public_decision_types() -> None:
-    assert schemas.RoutingDecision is RoutingDecision
-    assert schemas.HedgeDispatch is HedgeDispatch
 
 
 def test_routing_decision_exposes_canonical_and_legacy_checkpoint_names() -> None:

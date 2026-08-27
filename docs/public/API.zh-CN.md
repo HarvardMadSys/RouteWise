@@ -1,4 +1,4 @@
-# llm-routewise 0.2.0 中文 API 参考
+# llm-routewise 中文 API 参考
 
 [English version](./API.md)
 
@@ -6,14 +6,14 @@
 延迟观测和预算偏好选择 provider，但不发送 HTTP 请求，也不读取或保存 provider API
 key。调用方使用自己的 HTTP 或 SDK client 执行请求，再把结果报告给 RouteWise。
 
-本文档只描述 `llm-routewise==0.2.0` wheel 中已经实现并测试的公开 API。
+本文档只描述 `llm-routewise` 已经实现并测试的公开 API。
 
 ## 安装与导入
 
-安装指定的 preview 版本：
+安装最新稳定版本：
 
 ```bash
-python -m pip install llm-routewise==0.2.0
+python -m pip install llm-routewise
 ```
 
 distribution 名使用连字符，Python import 包名使用下划线：
@@ -126,7 +126,7 @@ OpenRouter 在 provider 不可用时静默切换，导致 RouteWise 归因错误
 
 ## 顶层公开 API
 
-`0.2.0` 顶层公开 13 个符号：有状态 API `Provider`、`Router`、`Decision`、
+顶层公开 13 个符号：有状态 API `Provider`、`Router`、`Decision`、
 `Attempt`、`Tuning`、`StatsSnapshot`；无状态 API `Candidate`、`RouteOnceResult`、
 `route_once`；异常 `RouteWiseError`、`ValidationError`、`NoProviderError`、
 `OutcomeError`。
@@ -455,7 +455,7 @@ RouteWiseError
 
 建议只捕获能够在当前调用层明确处理的具体异常；不要把 `RouteWiseError` 统一忽略。
 
-## `0.2.0` preview 限制
+## API 边界
 
 - 只支持按输入、输出和 cached token 计价的 API provider。
 - 不包含 provider SDK、HTTP client、托管服务或 credential 管理；所有网络 I/O 由调用方
@@ -463,7 +463,9 @@ RouteWiseError
 - RouteWise 只选择已配置的 provider 名称；endpoint 和 model 映射由调用方管理，本 API
   不执行 model selection。
 - 不包含 quota、并发限制、reserved capacity 或 subscription pricing。
-- wheel 不包含研究 simulator、offline 工具、metrics 子包、实验脚本、数据集或研究 CLI。
+- 论文专用的 simulator 和实验工具位于
+  [`eurosys27-ae`](https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae)
+  artifact 分支，不属于本库的公开 API。
 - Router 的学习状态和统计保存在当前进程内；没有持久化或跨进程状态同步 API。
 - 成本约束基于预测期望费用，不保证单次抽样费用或最终 provider 账单。实际费用统计只取决
   于调用方报告的 usage 和 `cost_usd`。
