@@ -1,4 +1,4 @@
-"""Unit tests for shared RouteWise hedging primitives."""
+"""Tests for the public RouteWise core hedging primitives."""
 
 from __future__ import annotations
 

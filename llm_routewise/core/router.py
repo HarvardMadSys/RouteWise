@@ -1,8 +1,7 @@
 """The RouteWise routing algorithm, written once against ProviderView.
 
-This module owns the orchestration that used to be duplicated between the
-simulator policy (``llm_routewise.sim.policies.routewise.RouteWisePolicy``) and the
-real-eval harness (``experiments.real_evaluation.policies.BudgetRangePolicy``):
+This module owns the orchestration shared by RouteWise adapters, including the
+paper artifact's simulator and real-evaluation harness:
 
 * body selector: effective-cost map -> range budget
   ``B_alpha = (1 - alpha) * c_min + alpha * c_max`` -> budget LP ->
