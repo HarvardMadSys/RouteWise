@@ -9,9 +9,13 @@ on:
 permissions:
   contents: read
 
+# Cancelling an in-flight deploy-pages job leaves the github-pages
+# environment with an error-state deployment (a red X on the repo page), so
+# runs on main queue instead of cancelling. Pull requests never deploy and
+# keep the cheaper cancel-superseded-builds behaviour.
 concurrency:
   group: docs-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
