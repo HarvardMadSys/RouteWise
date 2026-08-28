@@ -30,9 +30,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md">English API</a>
   ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md">中文 API</a>
 </p>
 
 <p align="center">
@@ -88,17 +88,21 @@ import llm_routewise as rw
 
 router = rw.Router(
     [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
+        rw.Provider("fast", price_in=3.0, price_out=15.0, price_cached=0.30),
         rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
     alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency optimization.
 )
 
-decision = router.route(input_tokens=800)
+decision = router.route(
+    input_tokens=800,
+    estimated_cached_tokens=600,  # Prompt prefix you expect to hit cache.
+)
 response = call_your_provider(decision.provider)
 decision.completed(
     ttft_ms=response.ttft_ms,
     output_tokens=response.output_tokens,
+    cached_tokens=response.cached_tokens,
 )
 ```
 
@@ -114,14 +118,14 @@ decision = router.route(
 ```
 
 The estimate affects route and hedge cost calculations only; it is not actual
-usage. On completion, report the adopted attempt's actual `output_tokens` (or
-an explicit `cost_usd`) for billing. Positive actual output tokens also update
+usage. On completion, report the adopted attempt's actual `output_tokens` and
+`cached_tokens` (or an explicit `cost_usd`) for billing. Positive actual output tokens also update
 RouteWise's internal estimator.
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
+or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
 for the full contract.
 
 Two offline examples use only the public API: a single decision, and a full
@@ -151,13 +155,14 @@ uv run python scripts/check_wheel.py dist/*.whl
 
 ### Library Users
 
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
+- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
 
 ### Maintainers and Advanced Integrators
 
 - [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
 - [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
+- [Documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
 - [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
 
 ## Citation
