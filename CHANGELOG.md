@@ -10,6 +10,13 @@ here.
 - Added a MkDocs Material documentation site under `docs/`, published in
   English and Simplified Chinese, with a `docs` dependency group and a
   `docs` workflow that builds it with `--strict`.
+- Cache-locality learning: `Router.route()` accepts an optional `affinity_key`
+  that associates actual cache-reuse observations from completed requests with
+  a reusable request/prefix identity, feeding learned cached-token estimates
+  into subsequent related routing decisions. Evidence is probabilistic and
+  time-bounded. Caller-supplied `estimated_cached_tokens` always takes
+  precedence over learned evidence. Cache-locality learning is disabled when
+  `affinity_key` is not supplied, preserving existing behavior.
 
 ### Changed
 

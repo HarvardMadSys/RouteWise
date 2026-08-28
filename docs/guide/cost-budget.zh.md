@@ -35,6 +35,23 @@ decision = router.route(
 
 缓存预期只移动决策中的成本一侧；延迟一侧来自你回报的结果。
 
+## 学习到的缓存局部性 {#learned-cache-locality}
+
+提供 `affinity_key` 时，RouteWise 可以从实际完成观测中学习目的地局部缓存证据。
+`decision.completed(...)` 报告正数 `cached_tokens` 时，RouteWise 记录将 affinity
+身份与选中 provider 关联的证据。后续相同 `affinity_key` 的请求会将学习到的证据纳入路由。
+
+关键特性：
+
+- **证据是概率性的**：观测随时间（TTL/half-life）和负观测（miss）衰减。不是权威缓存状态。
+- **调用方估计优先**：显式 `estimated_cached_tokens` 始终优先于学习到的证据。
+- **Provider 是最细粒度**：RouteWise 在 `provider.name` 级别保持局部性。如果 provider
+  在内部负载均衡器后隐藏多个副本，RouteWise 无法保持副本局部状态，除非副本可单独寻址。
+- **可选**：不提供 `affinity_key` 时禁用缓存局部性学习。现有调用方不受影响。
+
+学习到的值会成为 `Decision._estimated_cached_tokens`，影响路由成本和计算计费回退。
+尽可能报告实际 `cached_tokens` 以确保计费准确。
+
 ## 预算
 
 设可选供应商的成本极值为 `C_min` 和 `C_max`，预算为：
