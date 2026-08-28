@@ -51,19 +51,25 @@ import llm_routewise as rw
 
 router = rw.Router(
     [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
+        rw.Provider("fast", price_in=3.0, price_out=15.0, price_cached=0.30),
         rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
     alpha=0.25,  # 成本预算：0 表示最便宜；1 表示放开整个价格区间以优化延迟。
 )
 
-decision = router.route(input_tokens=800)
+decision = router.route(
+    input_tokens=800,
+    estimated_cached_tokens=600,  # 预计命中前缀缓存的 prompt 部分。
+)
 response = call_your_provider(decision.provider)
 decision.completed(
     ttft_ms=response.ttft_ms,
     output_tokens=response.output_tokens,
+    cached_tokens=response.cached_tokens,
 )
 ```
+
+供应商提供缓存价时，缓存输入按缓存价计费——见[前缀缓存](guide/cost-budget.md#prefix-cache)。
 
 !!! note "RouteWise 只做决策，派发由应用负责"
 

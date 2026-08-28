@@ -15,6 +15,26 @@
 其中预测输出项：你传了 `estimated_output_tokens` 就用你的，否则用 RouteWise
 内部的在线估计。
 
+## 前缀缓存 {#prefix-cache}
+
+缓存输入指 prompt 中可以由供应商前缀缓存直接提供的部分，它按该供应商的缓存价
+进入成本估计：
+
+- `Provider(..., price_cached=0.30)` 设定缓存价。不设时缓存输入按 `price_in` 计费。
+- `route(estimated_cached_tokens=...)` 表示你预计命中缓存的 prompt token 数——
+  可以是对所有供应商生效的一个整数，命中率不同时也可以按供应商名给 mapping。
+  超过 `input_tokens` 的值会被截断。
+- 请求完成后回报实际的 `cached_tokens`，让计费反映实际发生的，而不是估计值。
+
+```python
+decision = router.route(
+    input_tokens=8_000,
+    estimated_cached_tokens={"fast": 7_500, "cheap": 0},
+)
+```
+
+缓存预期只移动决策中的成本一侧；延迟一侧来自你回报的结果。
+
 ## 预算
 
 设可选供应商的成本极值为 `C_min` 和 `C_max`，预算为：

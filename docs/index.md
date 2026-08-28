@@ -54,19 +54,26 @@ import llm_routewise as rw
 
 router = rw.Router(
     [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
+        rw.Provider("fast", price_in=3.0, price_out=15.0, price_cached=0.30),
         rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
     alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency.
 )
 
-decision = router.route(input_tokens=800)
+decision = router.route(
+    input_tokens=800,
+    estimated_cached_tokens=600,  # Prompt prefix you expect to hit cache.
+)
 response = call_your_provider(decision.provider)
 decision.completed(
     ttft_ms=response.ttft_ms,
     output_tokens=response.output_tokens,
+    cached_tokens=response.cached_tokens,
 )
 ```
+
+Cached input is priced at the provider's cached rate when it has one — see
+[Prefix cache](guide/cost-budget.md#prefix-cache).
 
 !!! note "RouteWise decides; your application dispatches"
 

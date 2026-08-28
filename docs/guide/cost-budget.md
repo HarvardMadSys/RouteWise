@@ -16,6 +16,29 @@ For each eligible provider:
 The predicted output term uses your `estimated_output_tokens` when you supply
 one, and RouteWise's internal online estimate otherwise.
 
+## Prefix cache {#prefix-cache}
+
+Cached input is the part of the prompt a provider can serve from its prefix
+cache, and it enters the estimate at that provider's cached rate:
+
+- `Provider(..., price_cached=0.30)` sets the cached rate. Omit it and cached
+  input is billed at `price_in`.
+- `route(estimated_cached_tokens=...)` says how many prompt tokens you expect
+  to hit cache — one integer for every provider, or a mapping by provider name
+  when hit rates differ. Values above `input_tokens` are clamped.
+- On completion, report the actual `cached_tokens` so billing reflects what
+  happened rather than the estimate.
+
+```python
+decision = router.route(
+    input_tokens=8_000,
+    estimated_cached_tokens={"fast": 7_500, "cheap": 0},
+)
+```
+
+Cache expectations move the cost side of the decision only; the latency side
+comes from the outcomes you report.
+
 ## The budget
 
 With eligible cost extremes `C_min` and `C_max`, the budget is:
