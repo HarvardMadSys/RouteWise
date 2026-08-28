@@ -88,17 +88,21 @@ import llm_routewise as rw
 
 router = rw.Router(
     [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
+        rw.Provider("fast", price_in=3.0, price_out=15.0, price_cached=0.30),
         rw.Provider("cheap", price_in=0.15, price_out=0.60),
     ],
     alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency optimization.
 )
 
-decision = router.route(input_tokens=800)
+decision = router.route(
+    input_tokens=800,
+    estimated_cached_tokens=600,  # Prompt prefix you expect to hit cache.
+)
 response = call_your_provider(decision.provider)
 decision.completed(
     ttft_ms=response.ttft_ms,
     output_tokens=response.output_tokens,
+    cached_tokens=response.cached_tokens,
 )
 ```
 
@@ -114,8 +118,8 @@ decision = router.route(
 ```
 
 The estimate affects route and hedge cost calculations only; it is not actual
-usage. On completion, report the adopted attempt's actual `output_tokens` (or
-an explicit `cost_usd`) for billing. Positive actual output tokens also update
+usage. On completion, report the adopted attempt's actual `output_tokens` and
+`cached_tokens` (or an explicit `cost_usd`) for billing. Positive actual output tokens also update
 RouteWise's internal estimator.
 
 `Router` computes decisions but performs no network I/O and does not read API
