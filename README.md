@@ -142,6 +142,7 @@ uv sync --locked
 uv run ruff check .
 uv run pytest -q
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 uv run python -m build --wheel
 uv run python scripts/check_wheel.py dist/*.whl
 ```

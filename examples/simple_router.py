@@ -16,8 +16,12 @@ every outcome back to the router:
   three-failure cooldown.
 
 Reporting the outcome (``completed`` or ``failed``) is what releases the
-router's per-attempt bookkeeping; the ``settle`` call afterwards only closes
-the billing state so no attempt is left unsettled.
+router's per-attempt bookkeeping. ``settle`` afterwards records billing once
+it is known: a client-side timeout is not billing evidence, so the adapter
+settles only when the backend vouches for the charge, and an attempt with an
+unknown bill stays counted in ``unsettled_attempts`` until settled. The
+in-process mock vouches for a zero charge, which is why the final stats show
+``unsettled_attempts=0``.
 
 The script needs no network access, API keys, or third-party packages, and
 its output is deterministic.
@@ -35,6 +39,18 @@ class Response(NamedTuple):
     output_tokens: int
 
 
+class BackendTimeout(TimeoutError):
+    """Timeout whose billing outcome the backend can vouch for.
+
+    ``cost_usd`` is the charge the backend knows it incurred; ``None`` means
+    the bill is unknown and the attempt should stay unsettled.
+    """
+
+    def __init__(self, message: str, *, cost_usd: float | None) -> None:
+        super().__init__(message)
+        self.cost_usd = cost_usd
+
+
 class MockBackend:
     """Deterministic stand-in for one provider's API endpoint."""
 
@@ -49,7 +65,10 @@ class MockBackend:
     def complete(self, prompt: str) -> Response:
         if self._fail_next:
             self._fail_next = False
-            raise TimeoutError(f"{self.name} produced no first token before the deadline")
+            raise BackendTimeout(
+                f"{self.name} produced no first token before the deadline",
+                cost_usd=0.0,
+            )
         return Response(ttft_ms=self.ttft_ms, output_tokens=110)
 
 
@@ -65,9 +84,10 @@ def route_request(
     backend = backends[decision.provider]
     try:
         response = backend.complete(prompt)
-    except TimeoutError:
+    except BackendTimeout as exc:
         decision.failed(kind="health", code="timeout")
-        decision.settle(cost_usd=0.0)
+        if exc.cost_usd is not None:
+            decision.settle(cost_usd=exc.cost_usd)
         return decision, "timeout"
     decision.completed(ttft_ms=response.ttft_ms, output_tokens=response.output_tokens)
     return decision, "ok"
