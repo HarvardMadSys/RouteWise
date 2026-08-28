@@ -30,9 +30,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md">English API</a>
   ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md">中文 API</a>
 </p>
 
 <p align="center">
@@ -120,8 +120,8 @@ RouteWise's internal estimator.
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
+or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
 for the full contract.
 
 For a complete offline example using only the public API, run:
@@ -147,8 +147,8 @@ uv run python scripts/check_wheel.py dist/*.whl
 
 ### Library Users
 
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
+- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
 
 ### Maintainers and Advanced Integrators
 

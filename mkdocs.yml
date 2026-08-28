@@ -1,0 +1,114 @@
+site_name: RouteWise
+site_description: Latency-Cost Optimization for Multi-Provider LLM Routing
+site_url: https://harvardmadsys.github.io/RouteWise/
+repo_url: https://github.com/HarvardMadSys/RouteWise
+repo_name: HarvardMadSys/RouteWise
+copyright: Harvard MadSys Lab, Harvard SEAS. MIT licensed.
+
+docs_dir: docs
+site_dir: site
+
+validation:
+  anchors: warn
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+
+theme:
+  name: material
+  favicon: assets/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    logo: material/call-split
+    repo: fontawesome/brands/github
+
+extra_css:
+  - assets/routewise.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+
+# Maintainer-facing documents stay in the repository but are not published.
+exclude_docs: |
+  maintainers/
+  assets/README.md
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+          nav_translations:
+            User Guide: 使用指南
+            Installation: 安装
+            Core concepts: 核心概念
+            Cost budget: 成本预算
+            Hedging: 对冲
+            API boundaries: 能力边界
+            API Reference: API 参考
+            Python API: Python API
+            Changelog: 变更记录
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Installation: guide/installation.md
+      - Core concepts: guide/concepts.md
+      - Cost budget: guide/cost-budget.md
+      - Hedging: guide/hedging.md
+      - API boundaries: guide/boundaries.md
+  - API Reference:
+      - Python API: reference/api.md
+  - Changelog: changelog.md

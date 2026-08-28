@@ -1,7 +1,5 @@
 # llm-routewise Python API
 
-[中文版本](./API.zh-CN.md)
-
 This is the public Python API for `llm-routewise`. The library selects provider
 names and records request outcomes. The application owns HTTP calls, client
 objects, credentials, retries, and response handling.

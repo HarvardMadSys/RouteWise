@@ -33,7 +33,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/HarvardMadSys/RouteWise"
 Repository = "https://github.com/HarvardMadSys/RouteWise"
-Documentation = "https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md"
+Documentation = "https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md"
 Changelog = "https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md"
 Issues = "https://github.com/HarvardMadSys/RouteWise/issues"
 
@@ -97,4 +97,9 @@ dev = [
   "build>=1.5.0",
   "pytest>=8.0.0",
   "ruff>=0.5.0",
+]
+docs = [
+  "mkdocs>=1.6.1",
+  "mkdocs-material>=9.5.0",
+  "mkdocs-static-i18n>=1.3.0",
 ]
