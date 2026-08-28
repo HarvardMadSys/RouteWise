@@ -154,6 +154,7 @@ uv run python scripts/check_wheel.py dist/*.whl
 
 - [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
 - [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
+- [Documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
 - [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
 
 ## Citation

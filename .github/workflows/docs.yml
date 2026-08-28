@@ -32,9 +32,14 @@ jobs:
           path: site
 
   deploy:
-    # Publishing runs only from main, and only once Pages is enabled for the
-    # repository with "GitHub Actions" as its source.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Publishing is opt-in. Enabling it takes two deliberate steps: turn on
+    # Pages for the repository with "GitHub Actions" as its source, then set
+    # the PUBLISH_DOCS repository variable to "true". Until both are done this
+    # job is skipped, so a repository with Pages disabled still builds green.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event_name != 'pull_request'
+      && vars.PUBLISH_DOCS == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:
