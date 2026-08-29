@@ -176,6 +176,7 @@ rw.Tuning(
     cooldown_after=3,
     hedge_min_samples=5,
     exploration_lease_sec=60.0,
+    cache_locality_ttl_sec=300.0,
 )
 ```
 
@@ -183,11 +184,13 @@ rw.Tuning(
 probability and must be in `(0, 1]`. `penalty_ms` is the pre-first-token health
 failure penalty; `window_min` is the observation window; `cooldown_sec` and
 `cooldown_after` control cooldowns; `hedge_min_samples` gates hedge evaluation;
-and `exploration_lease_sec` limits an in-flight cold-start lease.
+`exploration_lease_sec` limits an in-flight cold-start lease; and
+`cache_locality_ttl_sec` is the time-to-live for learned cache-locality evidence
+in seconds.
 
-Durations are finite and non-negative, except `penalty_ms`, `window_min`, and
-`exploration_lease_sec`, which must be positive. Counts are positive integers.
-Invalid values raise `ValidationError`.
+Durations are finite and non-negative, except `penalty_ms`, `window_min`,
+`exploration_lease_sec`, and `cache_locality_ttl_sec`, which must be positive.
+Counts are positive integers. Invalid values raise `ValidationError`.
 
 ### `Router`
 
@@ -221,29 +224,69 @@ router.route(
     *,
     input_tokens: int,
     estimated_output_tokens: float | None = None,
-    estimated_cached_tokens: int | Mapping[str, int] = 0,
+    estimated_cached_tokens: int | Mapping[str, int] | None = None,
     alpha: float | None = None,
     exclude: Iterable[str] = (),
+    affinity_key: str | None = None,
 ) -> rw.Decision
 ```
 
 `input_tokens` is a non-negative integer. `estimated_output_tokens` is an
 optional finite, non-negative point estimate supplied by the caller. When it
 is `None`, RouteWise uses its internal online output-length estimate.
-`estimated_cached_tokens` is either one non-negative integer for all providers
-or a mapping by provider name; missing mapping entries default to zero, and
-values above `input_tokens` are clamped. `alpha` overrides the router default.
-`exclude` applies only to this request, and all names must be known.
+`estimated_cached_tokens` is optional:
+- `None` (omitted): no caller estimate; learned affinity evidence may fill
+  estimates when `affinity_key` is supplied; otherwise behaves like zero.
+- scalar (including `0`): explicit caller estimate for every provider; learned
+  evidence cannot override it.
+- mapping: explicit entries are authoritative; missing entries may be filled
+  from learned affinity evidence when `affinity_key` is supplied.
+Values above `input_tokens` are clamped. Unknown mapping keys raise
+`ValidationError`. `alpha` overrides the router default. `exclude` applies
+only to this request, and all names must be known. `affinity_key` is an
+optional stable identity for cache-locality learning.
 
 The output estimate affects routing and hedge cost calculations for this
 request. It is not a generation limit or actual usage. Settle the adopted
 attempt with its actual `output_tokens` or an explicit `cost_usd`; positive
-actual output tokens also train the internal estimator.
+actual output tokens also train the internal estimator. When `affinity_key`
+is supplied, RouteWise learns from actual `cached_tokens` observations to
+improve future routing for related requests.
 
 Returns a `Decision` without dispatching any request. Raises `ValidationError`
 for invalid values or clock output. Raises `NoProviderError` when all providers
 are excluded, cooling down, unprofiled under strict cold start, or leased for
 cold-start exploration.
+
+#### Cache-Locality Learning
+
+When `affinity_key` is supplied, RouteWise learns destination-local cache
+evidence from actual completion observations. On `decision.completed(...)` with
+positive `cached_tokens`, RouteWise records evidence associating the affinity
+identity with the selected provider. Subsequent requests with the same
+`affinity_key` incorporate this learned evidence into routing.
+
+Key properties:
+
+- **Evidence is probabilistic**: Observations decay over time (TTL/half-life)
+  and with negative observations (misses). It is not authoritative cache state.
+- **Caller estimates take precedence**: Explicit `estimated_cached_tokens`
+  always wins over learned evidence for the providers it covers.
+- **Provider is the finest granularity**: RouteWise preserves locality at the
+  `provider.name` level. If a provider hides multiple replicas behind an
+  internal load balancer, RouteWise cannot preserve replica-local state unless
+  replicas are individually addressable.
+- **Optional**: Cache-locality learning is disabled when `affinity_key` is not
+  supplied. Existing callers are unaffected.
+
+The learned value becomes `Decision._estimated_cached_tokens`, which affects
+both routing cost and calculated billing fallback. Report actual
+`cached_tokens` whenever possible to ensure accurate billing.
+
+The `affinity_key` should represent a stable reusable-prefix or request
+identity (e.g., a conversation ID or hash of the system prompt). It should not
+be raw prompt text or contain sensitive data. Empty or whitespace-only keys
+are rejected.
 
 #### `Router.observe`
 
