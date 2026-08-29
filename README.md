@@ -22,6 +22,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
+  <a href="https://harvardmadsys.github.io/RouteWise/"><img alt="Documentation" src="https://img.shields.io/badge/docs-harvardmadsys.github.io-A51C30?style=flat-square"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
   <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
@@ -30,9 +31,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md">English API</a>
+  <a href="https://harvardmadsys.github.io/RouteWise/">Documentation</a>
   ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md">中文 API</a>
+  <a href="https://harvardmadsys.github.io/RouteWise/reference/api/">English API</a>
+  ·
+  <a href="https://harvardmadsys.github.io/RouteWise/zh/reference/api/">中文 API</a>
 </p>
 
 <p align="center">
@@ -124,8 +127,8 @@ RouteWise's internal estimator.
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
+the [English API reference](https://harvardmadsys.github.io/RouteWise/reference/api/)
+or [中文 API 参考](https://harvardmadsys.github.io/RouteWise/zh/reference/api/)
 for the full contract.
 
 For a complete offline example using only the public API, run:
@@ -149,10 +152,15 @@ uv run python scripts/check_wheel.py dist/*.whl
 
 ## Documentation
 
+The documentation site is at
+[harvardmadsys.github.io/RouteWise](https://harvardmadsys.github.io/RouteWise/),
+with installation, core concepts, the cost budget, hedging, and the full API
+reference in English and 简体中文.
+
 ### Library Users
 
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
+- [User guide and API reference](https://harvardmadsys.github.io/RouteWise/)
+- [用户指南与 API 参考](https://harvardmadsys.github.io/RouteWise/zh/)
 
 ### Maintainers and Advanced Integrators
 
