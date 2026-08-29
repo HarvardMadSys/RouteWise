@@ -130,10 +130,13 @@ the [English API reference](https://harvardmadsys.github.io/RouteWise/reference/
 or [中文 API 参考](https://harvardmadsys.github.io/RouteWise/zh/reference/api/)
 for the full contract.
 
-For a complete offline example using only the public API, run:
+Two offline examples use only the public API: a single decision, and a full
+request lifecycle showing dispatch, failure reporting, and how outcomes change
+routing. Run them with:
 
 ```bash
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 ```
 
 ## Repository Development
@@ -145,6 +148,7 @@ uv sync --locked
 uv run ruff check .
 uv run pytest -q
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 uv run python -m build --wheel
 uv run python scripts/check_wheel.py dist/*.whl
 ```
