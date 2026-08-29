@@ -149,17 +149,8 @@ uv run python -m build --wheel
 uv run python scripts/check_wheel.py dist/*.whl
 ```
 
-## Documentation
-
-The documentation site is
-[harvardmadsys.github.io/RouteWise](https://harvardmadsys.github.io/RouteWise/):
-installation, core concepts, the cost budget, hedging, and the full API
-reference.
-
 Maintainer docs live in
-[docs/maintainers/](https://github.com/HarvardMadSys/RouteWise/tree/main/docs/maintainers);
-package history is in the
-[changelog](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md).
+[docs/maintainers/](https://github.com/HarvardMadSys/RouteWise/tree/main/docs/maintainers).
 
 ## Citation
 
