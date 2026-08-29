@@ -22,12 +22,11 @@
 
 <p align="center">
   <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
-  <a href="https://harvardmadsys.github.io/RouteWise/"><img alt="Documentation" src="https://img.shields.io/badge/docs-harvardmadsys.github.io-A51C30?style=flat-square"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
+  <a href="https://harvardmadsys.github.io/RouteWise/"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-A51C30?style=flat-square"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/HarvardMadSys/RouteWise/package.yml?branch=main&amp;style=flat-square&amp;label=CI"></a>
   <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Stars"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Forks"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat-square&amp;color=4B5563&amp;label=stars"></a>
 </p>
 
 <p align="center">
@@ -152,21 +151,16 @@ uv run python scripts/check_wheel.py dist/*.whl
 
 ## Documentation
 
-The documentation site is at
-[harvardmadsys.github.io/RouteWise](https://harvardmadsys.github.io/RouteWise/),
-with installation, core concepts, the cost budget, hedging, and the full API
-reference in English and 简体中文.
+The documentation site is
+[harvardmadsys.github.io/RouteWise](https://harvardmadsys.github.io/RouteWise/):
+installation, core concepts, the cost budget, hedging, and the full API
+reference, in English and [简体中文](https://harvardmadsys.github.io/RouteWise/zh/).
 
-### Library Users
-
-- [User guide and API reference](https://harvardmadsys.github.io/RouteWise/)
-- [用户指南与 API 参考](https://harvardmadsys.github.io/RouteWise/zh/)
-
-### Maintainers and Advanced Integrators
+For maintainers and advanced integrators:
 
 - [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
 - [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
-- [Documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
+- [Publishing the documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
 - [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
 
 ## Citation
