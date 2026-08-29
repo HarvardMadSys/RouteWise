@@ -154,14 +154,12 @@ uv run python scripts/check_wheel.py dist/*.whl
 The documentation site is
 [harvardmadsys.github.io/RouteWise](https://harvardmadsys.github.io/RouteWise/):
 installation, core concepts, the cost budget, hedging, and the full API
-reference, in English and [简体中文](https://harvardmadsys.github.io/RouteWise/zh/).
+reference.
 
-For maintainers and advanced integrators:
-
-- [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
-- [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
-- [Publishing the documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
-- [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
+Maintainer docs live in
+[docs/maintainers/](https://github.com/HarvardMadSys/RouteWise/tree/main/docs/maintainers);
+package history is in the
+[changelog](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md).
 
 ## Citation
 
