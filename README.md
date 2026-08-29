@@ -24,9 +24,9 @@
   <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
   <a href="https://harvardmadsys.github.io/RouteWise/"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-A51C30?style=flat-square"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/HarvardMadSys/RouteWise/package.yml?branch=main&amp;style=flat-square&amp;label=CI"></a>
-  <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat-square&amp;color=4B5563&amp;label=stars"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat-square&amp;color=4B5563&amp;label=forks"></a>
 </p>
 
 <p align="center">
