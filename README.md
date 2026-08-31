@@ -131,7 +131,7 @@ uv run python -m plots.end_to_end.plot_simulation_frontier \
     --provider-mix-out outputs/figures/e2e_provider_mix.pdf \
     --table-out outputs/figures/e2e_table.json
 
-# Output-length misprediction ablation (runs + plot, one command; ~35 min):
+# Output-length misprediction ablation (runs + plot, one command; ~1 h):
 uv run python scripts/run_output_length_prediction_ablation.py
 
 # Quota / concurrency effective-cost ablation (runs + plots, one command;
