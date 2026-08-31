@@ -4,6 +4,28 @@
 # Paper-number checks are added per target as they are calibrated against the
 # submitted PDF, each with a justified absolute/relative tolerance.
 
+figure-02-provider-latency:
+  source: outputs/figures/motivation/drift_wall_clock.summary.json
+  checks:
+    - path: drift_wall_clock_llama.rows
+      expected: 2419
+      relative_tolerance: 0
+    - path: drift_wall_clock_llama.global_p99_ms
+      expected: 1189.3200000000124
+      relative_tolerance: 1.0e-6
+    - path: drift_wall_clock_llama.max_rolling_p99_ms
+      expected: 5305.810000000008
+      relative_tolerance: 1.0e-6
+    - path: drift_wall_clock_gpt4o.rows
+      expected: 2442
+      relative_tolerance: 0
+    - path: drift_wall_clock_gpt4o.global_p99_ms
+      expected: 2805.100000000013
+      relative_tolerance: 1.0e-6
+    - path: drift_wall_clock_gpt4o.hours_span
+      expected: 1182.4616666666666
+      relative_tolerance: 1.0e-6
+
 smoke-cost-layer:
   source: outputs/smoke/cost_layer/summary.json
   checks:

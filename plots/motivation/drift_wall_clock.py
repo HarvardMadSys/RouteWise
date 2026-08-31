@@ -9,14 +9,18 @@ into ``paper/images/`` by default.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 SIMULATOR_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_DIR = SIMULATOR_DIR / "data" / "drift_source"
@@ -114,20 +118,28 @@ def build_specs(source_dir: str, window_llama: int, window_gpt4o: int) -> Iterab
     )
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", default=str(DEFAULT_SOURCE_DIR))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--window-llama", type=int, default=100)
     parser.add_argument("--window-gpt4o", type=int, default=100)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    summary: dict[str, dict] = {}
     for spec in build_specs(args.source_dir, args.window_llama, args.window_gpt4o):
         stats = plot_drift(spec, args.output_dir)
         print(stats)
+        summary[spec.output_basename] = stats
+
+    summary_path = os.path.join(args.output_dir, "drift_wall_clock.summary.json")
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2, sort_keys=True)
+    print(f"Saved: {summary_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

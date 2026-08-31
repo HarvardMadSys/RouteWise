@@ -98,15 +98,28 @@ targets:
 
   figure-02-provider-latency:
     class: B1
-    claim: "Fig 2a/2b: provider TTFT vs prompt length (data committed in-repo)."
-    status: pending-calibration
-    status_reason: Plot entrypoint being wired; source CSVs are already in data/drift_source/.
+    claim: >-
+      Fig 2a/2b: provider TTFT drift over wall-clock time (Llama-3.3-70B and
+      gpt-4o-mini). Rebuilds drift_wall_clock_llama/_gpt4o from the committed
+      raw CSVs; the mapping onto the paper's figure02a/02b files is confirmed
+      against the submitted PDF during kick-the-tires.
+    entrypoint: plots.motivation.drift_wall_clock
+    args:
+      - --source-dir
+      - data/drift_source
+      - --output-dir
+      - outputs/figures/motivation
+    outputs: outputs/figures/motivation/drift_wall_clock.summary.json
+    est_minutes: 1
 
   figure-03-ttft-panels:
     class: B1
-    claim: "Fig 3: TTFT background panels (data committed in-repo)."
+    claim: "Fig 3: TTFT background panels."
     status: pending-calibration
-    status_reason: Plot entrypoint being wired; source JSONL already in data/motivation/.
+    status_reason: >-
+      The duration-share panel's JSONL inputs are committed under
+      data/motivation/ttft_duration/; the context-length panel's source CSV is
+      not in the repository yet and is being added during kick-the-tires.
 
   figure-06-24h-ttft-mix:
     class: B1
