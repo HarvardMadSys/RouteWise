@@ -114,16 +114,10 @@ uv run python -m routewise_cli.main simulator hedging
 uv run python -m routewise_cli.main simulator end-to-end
 ```
 
-With the workload in place, the golden comparison guards the
-behavior-sensitive outputs:
-
-```bash
-uv run python tests/golden_capture.py --mode compare
-```
-
-Per-figure commands, seeds, and expected numbers for this section are being
-finalized against the pinned arXiv PDF and will be listed here
-figure by figure.
+Simulation is deterministic for a given seed within one environment;
+across platforms the summary statistics agree to floating-point precision
+(the repository's bit-level golden digests are a same-machine developer
+tool, not an evaluation check).
 
 ### 4.3 24-hour real-provider evaluation (recorded data)
 

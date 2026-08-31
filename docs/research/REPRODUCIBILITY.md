@@ -9,7 +9,7 @@ Architecture and algorithm contracts live in
 From the repository root:
 
 ```bash
-uv sync
+uv sync --frozen
 ```
 
 The `llm-routewise` `0.2.0` release wheel is the dependency-free API-provider
@@ -72,7 +72,7 @@ Each section runner exposes `--help` for scenario, policy, seed, and output
 options:
 
 ```bash
-uv run python -m routewise_cli.main simulator cost-layer -- --help
+uv run python -m routewise_cli.main simulator cost-layer --help
 uv run python -m routewise_cli.main simulator cost-layer
 ```
 
@@ -82,7 +82,10 @@ should go under `outputs/`.
 
 ## Regression Checks
 
-Golden comparison for behavior-sensitive simulator outputs:
+Golden comparison for behavior-sensitive simulator outputs (a same-machine
+regression check: the digests are bit-exact and therefore platform-specific
+— re-capture them when moving to a new machine, and do not treat cross-
+platform digest mismatches as behavior changes):
 
 ```bash
 python tests/golden_capture.py --mode compare

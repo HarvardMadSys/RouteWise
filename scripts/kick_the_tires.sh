@@ -21,13 +21,6 @@ uv run python -m routewise_cli.main simulator cost-layer \
     --alpha 0.5 \
     --output-dir outputs/smoke/cost_layer
 
-if [ -f data/burstgpt_30d.jsonl ]; then
-    echo "== golden comparison =="
-    uv run python tests/golden_capture.py --mode compare
-else
-    echo "== golden comparison skipped (needs data/burstgpt_30d.jsonl; see the data-setup section) =="
-fi
-
 echo "== fast unit tests =="
 uv run pytest -q -m "not slow" tests/test_architecture_scaffold.py tests/unit/simulation
 
