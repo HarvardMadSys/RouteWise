@@ -84,10 +84,12 @@ prints every claim/figure target with its class and current status:
   target (architecture diagram, timeline, author-reconstructed snapshots —
   each documented as such).
 
-Targets marked `pending-*` are being pinned against the submitted paper PDF
-during the kick-the-tires window (this is a cooperative process);
-`reproduce` refuses them with an explanation rather than running something
-uncalibrated.
+Every claim, figure number, and expected value is calibrated against one
+pinned arXiv version of the paper (recorded with its version suffix and PDF
+SHA-256 in `artifact/manifest.yaml`). Targets marked `pending-*` are being
+pinned against that PDF during the kick-the-tires window (this is a
+cooperative process); `reproduce` refuses them with an explanation rather
+than running something uncalibrated.
 
 ## Data setup for full class-A runs
 

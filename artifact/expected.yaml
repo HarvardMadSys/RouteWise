@@ -2,7 +2,7 @@
 # runner). Smoke checks pin the deterministic fixture run (seed 42) under a
 # tight relative tolerance that absorbs cross-platform floating-point noise.
 # Paper-number checks are added per target as they are calibrated against the
-# submitted PDF, each with a justified absolute/relative tolerance.
+# pinned arXiv PDF, each with a justified absolute/relative tolerance.
 
 figure-02-provider-latency:
   source: outputs/figures/motivation/drift_wall_clock.summary.json
