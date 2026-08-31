@@ -15,7 +15,7 @@ this checkout.
 ## Quick start (kick the tires)
 
 ```bash
-uv sync
+uv sync --frozen
 uv run python -m artifact smoke
 ```
 
@@ -23,6 +23,11 @@ uv run python -m artifact smoke
 section replayed on the committed 120-request synthetic fixture, verification
 of the produced summary numbers, and the fast unit tests. It needs **no API
 keys and no network access**.
+
+Run every `python -m artifact` command from the repository root: like
+`experiments/`, the `artifact/` package is repository-only and is not
+installed into the environment. Outputs always land under the repository's
+`outputs/` directory regardless of stray working-directory changes.
 
 If you do not have uv (the Python package manager by Astral): install it from
 https://docs.astral.sh/uv/getting-started/installation/ — it also provisions
@@ -46,11 +51,13 @@ The dependency direction is one-way: `artifact/` → `experiments/` →
 
 ## Environment
 
-- **OS**: Linux x86-64 (Ubuntu 24.04 is the canonical environment) or macOS
-  (also tested).
-- **Python and dependencies**: fully pinned by `uv.lock`; `uv sync` installs
-  the interpreter and every package. No system-level dependencies, no GPU,
-  no commercial solver (the LP path uses open-source solvers).
+- **OS**: the canonical evaluated environment is Ubuntu 24.04 x86-64 (the
+  `ae.yml` CI workflow runs `smoke` there on every push); macOS arm64 is also
+  tested locally.
+- **Python and dependencies**: Python is pinned by `.python-version` (3.14)
+  and every package by `uv.lock`; `uv sync --frozen` installs the interpreter
+  and the exact locked set. No system-level dependencies, no GPU, no
+  commercial solver (the LP path uses open-source solvers).
 - **Network**: only two touch points, both optional for smoke — the one-time
   public trace download below, and the optional live-provider path (B2).
 
@@ -64,11 +71,15 @@ prints every claim/figure target with its class and current status:
 
 - **A — full reproduction**: trace-driven simulation; reviewers rerun the
   experiment and regenerate the numbers/figures.
-- **B1 — recorded-result reproduction**: committed 24-hour live-evaluation
-  records → metrics → figures (the live experiment itself is not rerun).
+- **B1 — recorded-result reproduction**: recorded live-evaluation data →
+  metrics → figures (the live experiment itself is not rerun). The 24-hour
+  records land in `data/real_eval_records/` during the kick-the-tires window;
+  the motivation-figure inputs are already committed.
 - **B2 — live rerun (optional)**: full scripts to redo the live 24h
   evaluation with your own provider keys; costs real money and is subject to
-  provider drift. Never required for evaluation.
+  provider drift. We are confirming with the AE chairs that the
+  recorded-result path (B1) is the evaluated route for the live-evaluation
+  claims; B2 is provided for completeness.
 - **C — non-computational**: illustrative figures with no reproduction
   target (architecture diagram, timeline, author-reconstructed snapshots —
   each documented as such).
@@ -86,8 +97,10 @@ uv run python scripts/prepare_workload.py --days 30
 
 downloads the two public source traces (BurstGPT v2.0 release CSV and the
 ShareGPT V3 dump) from their original hosts with SHA256-pinned URLs and
-composes the simulator workload `data/burstgpt_30d.jsonl`. No other data is
-needed for class-A targets.
+composes the simulator workload `data/burstgpt_30d.jsonl`. This covers the
+30-day simulation targets; the Figure 8 end-to-end target additionally needs
+the FreeInference derived trace (arrival times and token counts only), which
+is being added during the kick-the-tires window.
 
 ## Reproduce and verify
 
