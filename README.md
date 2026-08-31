@@ -47,6 +47,21 @@ cd RouteWise
 uv sync --frozen
 ```
 
+### Docker alternative (uniform Ubuntu environment)
+
+To evaluate inside a uniform Ubuntu 24.04 container instead of installing
+uv on the host:
+
+```bash
+docker build -t routewise-ae .
+docker run --rm routewise-ae            # runs the kick-the-tires check
+docker run --rm -it routewise-ae bash   # shell for every other command below
+```
+
+Every command in the following sections works the same inside the
+container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
+keep generated figures on the host.
+
 ## 3. Kick the tires (~2 minutes)
 
 ```bash
