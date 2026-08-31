@@ -1,0 +1,24 @@
+# Expected values with tolerances; read only by artifact.verify (never by the
+# runner). Smoke checks pin the deterministic fixture run (seed 42) under a
+# tight relative tolerance that absorbs cross-platform floating-point noise.
+# Paper-number checks are added per target as they are calibrated against the
+# submitted PDF, each with a justified absolute/relative tolerance.
+
+smoke-cost-layer:
+  source: outputs/smoke/cost_layer/summary.json
+  checks:
+    - path: "[policy=greedy_cost].api_cost_usd"
+      expected: 0.167314
+      relative_tolerance: 1.0e-6
+    - path: "[policy=random].api_cost_usd"
+      expected: 0.436823
+      relative_tolerance: 1.0e-6
+    - path: "[policy=offline].api_cost_usd"
+      expected: 0.167314
+      relative_tolerance: 1.0e-6
+    - path: "[policy=greedy_cost].mean_ttft_ms"
+      expected: 291.7965377230104
+      relative_tolerance: 1.0e-6
+    - path: "[policy=ablation_lp_only_alpha50].api_cost_usd"
+      expected: 0.167314
+      relative_tolerance: 1.0e-6

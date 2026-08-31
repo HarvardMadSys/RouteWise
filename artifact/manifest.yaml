@@ -1,0 +1,156 @@
+# Artifact manifest: maps paper claims/figures to runnable targets.
+#
+# This file is the machine-readable source of truth for `python -m artifact`.
+# `runner` reads it to dispatch targets; `verify` reads `expected.yaml`
+# (never this file's expectations — there are none here by design).
+#
+# Classes:
+#   A      full reproduction — trace-driven simulation, reviewers run it
+#   B1     recorded-result reproduction — recorded 24h data -> metrics -> figures
+#   B2     live experiment reproduction — optional, needs provider keys, costs money
+#   C      non-computational figure — no reproduction target
+#   smoke  pipeline sanity on the built-in fixture, no paper claim
+#
+# Statuses: runnable | pending-calibration | pending-records | non-verifiable
+# pending-* targets are being pinned against the submitted paper PDF during
+# the kick-the-tires window; `reproduce` refuses them with this context.
+
+paper:
+  title: "RouteWise: Latency-Cost Optimization for Multi-Provider LLM Routing"
+  venue: "EuroSys 2027"
+  submission_id: 96
+  pdf_sha256: pending-freeze
+  artifact_commit: pending-submission
+
+targets:
+  smoke-cost-layer:
+    class: smoke
+    claim: >-
+      Pipeline sanity: the cost-layer simulator section runs end to end on the
+      committed synthetic fixture (no paper claim).
+    entrypoint: experiments.simulation.cost_layer
+    args:
+      - --scenario
+      - cost_layer_uniform
+      - --workload
+      - smoke
+      - --max-requests
+      - "100"
+      - --seed
+      - "42"
+      - --alpha
+      - "0.5"
+      - --output-dir
+      - outputs/smoke/cost_layer
+    outputs: outputs/smoke/cost_layer/summary.json
+    est_minutes: 2
+
+  figure-08-freeinference-frontier:
+    class: A
+    claim: "Fig 8a-d: FreeInference end-to-end cost/TTFT frontier and provider mix."
+    entrypoint: experiments.simulation.end_to_end
+    status: pending-calibration
+    status_reason: >-
+      Arguments and the FreeInference derived trace (arrival + token counts,
+      no text) are being pinned during kick-the-tires.
+
+  figure-09a-output-length:
+    class: A
+    claim: "Fig 9a: output-length misprediction robustness (-50%..+200%)."
+    status: pending-calibration
+    status_reason: Ablation entrypoint being wired into the module path.
+
+  figure-09b-quota-cost:
+    class: A
+    claim: "Fig 9b: quota-tier effective cost."
+    entrypoint: experiments.simulation.cost_layer
+    status: pending-calibration
+    status_reason: Scenario arguments being pinned against the submitted PDF.
+
+  figure-09c-concurrency-cost:
+    class: A
+    claim: "Fig 9c: concurrency-tier effective cost."
+    entrypoint: experiments.simulation.cost_layer
+    status: pending-calibration
+    status_reason: Scenario arguments being pinned against the submitted PDF.
+
+  table-30d-hedging:
+    class: A
+    claim: >-
+      30-day simulation hedging comparison (cost, SLO violations, P99 TTFT at
+      alpha=0.5).
+    entrypoint: experiments.simulation.hedging
+    status: pending-calibration
+    status_reason: Requires the BurstGPT+ShareGPT workload; see README data setup.
+
+  table-30d-cost-baselines:
+    class: A
+    claim: "30-day RouteWise alpha=0 vs greedy-cost total cost."
+    entrypoint: experiments.simulation.cost_layer
+    status: pending-calibration
+    status_reason: Requires the BurstGPT+ShareGPT workload; see README data setup.
+
+  table-offline-gap:
+    class: A
+    claim: "Offline cost-only gap (19.3% vs 15.0%)."
+    status: pending-calibration
+    status_reason: Offline-stage scenario wiring being pinned.
+
+  figure-02-provider-latency:
+    class: B1
+    claim: "Fig 2a/2b: provider TTFT vs prompt length (data committed in-repo)."
+    status: pending-calibration
+    status_reason: Plot entrypoint being wired; source CSVs are already in data/drift_source/.
+
+  figure-03-ttft-panels:
+    class: B1
+    claim: "Fig 3: TTFT background panels (data committed in-repo)."
+    status: pending-calibration
+    status_reason: Plot entrypoint being wired; source JSONL already in data/motivation/.
+
+  figure-06-24h-ttft-mix:
+    class: B1
+    claim: "Fig 6a/6b: 24h MiniMax TTFT distribution and provider mix."
+    status: pending-records
+    status_reason: Allowlist-exported 24h records land in data/real_eval_records/.
+
+  table-24h-real-eval:
+    class: B1
+    claim: >-
+      24h real-provider numbers: hedge comparison, alpha=0 vs OR-price, backup
+      trigger/win rates, utilization.
+    status: pending-records
+    status_reason: Allowlist-exported 24h records land in data/real_eval_records/.
+
+  figure-07a-provider-latency-snapshot:
+    class: C
+    claim: "Fig 7a: provider latency snapshot."
+    status: non-verifiable
+    status_reason: >-
+      Author-reconstructed snapshot: original logs were lost; the committed
+      JSON is hand-entered and the figure only replots it. Documented as-is;
+      verify never treats this as reproduced from raw experiments.
+
+  figure-07b-provider-pricing:
+    class: C
+    claim: "Fig 7b: provider pricing snapshot."
+    status: non-verifiable
+    status_reason: Archived derived figure input (pricing snapshot with capture date).
+
+  figure-01-intro:
+    class: A
+    claim: "Fig 1a/1b: intro total-TTFT and SLO-violation overview."
+    status: pending-calibration
+    status_reason: Data source being confirmed against the submitted PDF.
+
+  figure-04-architecture:
+    class: C
+    claim: "Fig 4: system architecture diagram."
+    status: non-verifiable
+    status_reason: Non-computational figure; no reproduction target.
+
+  figure-05-hedging-timeline:
+    class: C
+    claim: "Fig 5: smart-hedging timeline illustration."
+    status: non-verifiable
+    status_reason: Non-computational figure; no reproduction target.
