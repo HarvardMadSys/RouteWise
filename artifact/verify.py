@@ -19,6 +19,7 @@ import yaml
 ARTIFACT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = ARTIFACT_DIR.parent
 EXPECTED_PATH = ARTIFACT_DIR / "expected.yaml"
+MANIFEST_PATH = ARTIFACT_DIR / "manifest.yaml"
 
 _SELECTOR_RE = re.compile(r"^(?P<name>[^\[\]]*)(?:\[(?P<key>[^=\]]+)=(?P<value>[^\]]+)\])?$")
 
@@ -76,36 +77,53 @@ def load_expected() -> dict[str, Any]:
     return expected
 
 
+def _manifest_target_names() -> set[str]:
+    try:
+        with MANIFEST_PATH.open(encoding="utf-8") as handle:
+            manifest = yaml.safe_load(handle) or {}
+        return set(manifest.get("targets", {}))
+    except OSError:
+        return set()
+
+
 def verify_targets(target_names: list[str] | None = None) -> int:
     """Verify the named targets (all with expectations when omitted).
 
     Prints one line per check and a final summary; returns a process exit
-    code (0 = all pass).
+    code (0 = all pass). A name that exists in the manifest but has no
+    expectations yet is a warning; a name unknown to both files is an error.
+    Missing output files count as target-level failures, separately from
+    metric checks.
     """
     expected = load_expected()
     selected = target_names or list(expected)
-    failures = 0
-    checked = 0
+    known_targets = _manifest_target_names()
+    passed_checks = 0
+    failed_checks = 0
+    target_failures = 0
     for name in selected:
         entry = expected.get(name)
         if entry is None:
-            print(f"[skip] {name}: no expectations recorded")
+            if name in known_targets:
+                print(f"[warn] {name}: target exists but has no expectations recorded yet")
+                continue
+            print(f"[FAIL] {name}: unknown target (not in the manifest or expected.yaml)")
+            target_failures += 1
             continue
         source_path = ROOT_DIR / entry["source"]
         if not source_path.exists():
             print(f"[FAIL] {name}: missing output {entry['source']} (run `reproduce` first)")
-            failures += 1
+            target_failures += 1
             continue
         with source_path.open(encoding="utf-8") as handle:
             payload = json.load(handle)
         for check in entry.get("checks", ()):
             context = f"{name}:{entry['source']}"
-            checked += 1
             try:
                 actual = extract(payload, check["path"], context=context)
             except VerificationError as exc:
                 print(f"[FAIL] {name} {check['path']}: {exc}")
-                failures += 1
+                failed_checks += 1
                 continue
             ok, tolerance_note = _within(actual, check)
             status = "ok" if ok else "FAIL"
@@ -113,6 +131,13 @@ def verify_targets(target_names: list[str] | None = None) -> int:
                 f"[{status:>4}] {name} {check['path']}: "
                 f"actual {actual:g} vs expected {check['expected']:g} ({tolerance_note})"
             )
-            failures += 0 if ok else 1
-    print(f"verify: {checked - failures}/{checked} checks passed across {len(selected)} target(s)")
-    return 1 if failures else 0
+            if ok:
+                passed_checks += 1
+            else:
+                failed_checks += 1
+    total_checks = passed_checks + failed_checks
+    summary = f"verify: {passed_checks}/{total_checks} checks passed"
+    if target_failures:
+        summary += f"; {target_failures} target-level failure(s)"
+    print(summary)
+    return 1 if failed_checks or target_failures else 0

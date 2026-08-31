@@ -12,6 +12,7 @@ old CLI is removed.
 from __future__ import annotations
 
 import importlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +80,14 @@ def run_target(name: str) -> int:
     _check_preconditions(target)
     module = importlib.import_module(target["entrypoint"])
     args = [str(item) for item in target.get("args", ())]
-    return int(module.main(args))
+    # Manifest paths are repo-relative; entrypoints must resolve them against
+    # the repo root no matter where the reviewer invoked the command from.
+    previous_cwd = os.getcwd()
+    os.chdir(ROOT_DIR)
+    try:
+        return int(module.main(args))
+    finally:
+        os.chdir(previous_cwd)
 
 
 def targets_in_group(group: str) -> list[str]:

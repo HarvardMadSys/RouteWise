@@ -115,6 +115,15 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{path} must not import {token!r}")
 
+    def test_artifact_package_is_reviewer_facing_only(self) -> None:
+        forbidden = ("from artifact", "import artifact")
+
+        for dirname in ("llm_routewise", "experiments", "routewise_cli", "plots"):
+            for path in (ROOT_DIR / dirname).rglob("*.py"):
+                source = path.read_text(encoding="utf-8")
+                for token in forbidden:
+                    self.assertNotIn(token, source, f"{path} must not import {token!r}")
+
     def test_routewise_cli_is_repository_only_and_uses_policy_flag(self) -> None:
         cli = ROOT_DIR / "routewise_cli" / "main.py"
         pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
