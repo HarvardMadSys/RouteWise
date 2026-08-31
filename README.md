@@ -104,14 +104,39 @@ uv run python scripts/prepare_workload.py --days 30
 ```
 
 Then run the paper-facing simulator sections (one per paper section; each
-accepts `--help` for scenario, policy, seed, and output options):
+accepts `--help` for scenario, policy, seed, and output options, writes
+`summary.{json,csv}` plus TTFT histograms under `outputs/simulation/<section>/`,
+and takes `--jobs N` to parallelize):
+
+| Command | Paper part | Wall time (64-core server, `--jobs 24`) |
+|---|---|---|
+| `uv run python -m routewise_cli.main simulator cost-layer --jobs 24` | §3.2, quota/concurrency cost tiers | ~17 min (120 cells) |
+| `uv run python -m routewise_cli.main simulator latency-layer --jobs 24` | §3.3, latency-band overlap | ~2 min (21 cells) |
+| `uv run python -m routewise_cli.main simulator hedging --jobs 24` | §3.4, hedging stress test | ~16 min (8 cells) |
+| `uv run python -m routewise_cli.main simulator end-to-end --jobs 24` | §3.5, joint cost+latency routing | ~24 min (39 cells) |
+
+On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
+section also accepts `--max-requests` for a truncated pass.
+
+Rebuild the corresponding figures from the section outputs:
 
 ```bash
-uv run python -m routewise_cli.main simulator list
-uv run python -m routewise_cli.main simulator cost-layer
-uv run python -m routewise_cli.main simulator latency-layer
-uv run python -m routewise_cli.main simulator hedging
-uv run python -m routewise_cli.main simulator end-to-end
+# End-to-end frontier, SLO violations, TTFT distribution, provider mix:
+uv run python -m plots.end_to_end.plot_simulation_frontier \
+    --summary-csv outputs/simulation/end_to_end/summary.csv \
+    --histograms-json outputs/simulation/end_to_end/ttft_histograms.json \
+    --frontier-out outputs/figures/e2e_frontier.pdf \
+    --slo-out outputs/figures/e2e_slo.pdf \
+    --cdf-out outputs/figures/e2e_ttft_cdf.pdf \
+    --provider-mix-out outputs/figures/e2e_provider_mix.pdf \
+    --table-out outputs/figures/e2e_table.json
+
+# Output-length misprediction ablation (runs + plot, one command; ~35 min):
+uv run python scripts/run_output_length_prediction_ablation.py
+
+# Quota / concurrency effective-cost ablation (runs + plots, one command;
+# ~10 min with --jobs 8):
+uv run python scripts/run_effective_cost_ablation.py --jobs 8
 ```
 
 Simulation is deterministic for a given seed within one environment;
