@@ -1,153 +1,134 @@
-<p align="center">
-  <img
-    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/harvard-seas-wordmark.png"
-    alt="Harvard John A. Paulson School of Engineering and Applied Sciences"
-    width="270"
-  >
-</p>
-
-<h1 align="center">RouteWise</h1>
+<h1 align="center">RouteWise — EuroSys '27 Artifact</h1>
 
 <p align="center">
   <strong>Latency–Cost Optimization for Multi-Provider LLM Routing</strong>
   <br>
-  <sub>Learn from recent outcomes. Route each request. Hedge selectively.</sub>
+  <sub>Paper #96 · EuroSys 2027 · Muxin Tian, Haoran Ni, Yiyan Zhai, Yangsun Park, Juncheng Yang</sub>
 </p>
 
 <p align="center">
-  Developed and maintained by the
+  Developed by the
   <a href="https://juncheng.seas.harvard.edu/" title="Harvard Measurements and Design of Computer Systems Lab">Harvard MadSys Lab</a>
   at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
 </p>
 
-<p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Stars"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Forks"></a>
-</p>
+This branch (`eurosys27-ae`) is the evaluated research artifact for the paper.
+It is calibrated against one pinned arXiv version of the paper (the exact
+version and its PDF SHA-256 will be recorded here once frozen). The legacy
+branch `eurosys2027` is not part of the submitted artifact. The `main` branch
+hosts the separately released `llm-routewise` library, which evolves
+independently — do **not** `pip install llm-routewise` to evaluate this
+artifact; everything below runs from this checkout.
 
-<p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
-  ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
-  ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
-</p>
+## 1. Overview
 
-<p align="center">
-  <img
-    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/routewise-routing-hero.svg"
-    alt="RouteWise adaptive routing loop: request, RouteWise cost and latency policy, decision, application dispatch, and outcome feedback"
-    width="1000"
-  >
-</p>
+| Path | Role |
+|---|---|
+| `llm_routewise/` | Routing core, LP mixture solver, simulator engine, metrics |
+| `experiments/simulation/` | Section-driven simulator experiments (paper §3.2–3.5) |
+| `experiments/offline_stage/` | Offline/stage configuration and loaders |
+| `experiments/real_evaluation/` | Live-provider runner (optional; needs keys, costs money) |
+| `plots/` | Figure-generation scripts |
+| `data/` | Committed inputs: motivation CSVs, smoke fixture |
+| `scripts/` | Workload preparation, kick-the-tires, run helpers |
+| `docs/research/REPRODUCIBILITY.md` | Extended operational notes |
 
-RouteWise is a dependency-free Python library for cost-aware,
-latency-optimized routing across multiple LLM API providers. Applications
-supply provider prices, dispatch the returned attempt, and report outcomes so
-RouteWise can learn from them.
+## 2. Setup
 
-The `0.2.0` distribution is an API-provider-only preview. This repository also
-contains the simulator and experiment harnesses used by the paper; those
-research packages are not included in the wheel.
-
-> **Package name:** The PyPI project `routewise` is an unaffiliated,
-> incompatible project. Install the `llm-routewise` distribution and import
-> the `llm_routewise` package for HarvardMadSys RouteWise.
-
-## Installation
-
-RouteWise requires Python 3.10 or later. The published wheel has no runtime
-dependencies.
+Requirements: Linux x86-64 or macOS, `git`, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). uv installs
+the pinned Python interpreter (`.python-version`) and the exact locked
+dependency set; there are no system-level dependencies, no GPU, and no
+commercial solver.
 
 ```bash
-python -m pip install llm-routewise==0.2.0
-```
-
-For repository development and paper-artifact workflows:
-
-```bash
-git clone https://github.com/HarvardMadSys/RouteWise.git
+git clone -b eurosys27-ae https://github.com/HarvardMadSys/RouteWise.git
 cd RouteWise
-uv sync
+uv sync --frozen
 ```
 
-## Quickstart
-
-```python
-import llm_routewise as rw
-
-router = rw.Router(
-    [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
-        rw.Provider("cheap", price_in=0.15, price_out=0.60),
-    ],
-    alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency optimization.
-)
-
-decision = router.route(input_tokens=800)
-response = call_your_provider(decision.provider)
-decision.completed(
-    ttft_ms=response.ttft_ms,
-    output_tokens=response.output_tokens,
-)
-```
-
-If your application already predicts completion length, pass that point
-estimate with the request. Omit it to use RouteWise's internal online estimate.
-
-```python
-predicted_tokens = predict_output_tokens(prompt)
-decision = router.route(
-    input_tokens=800,
-    estimated_output_tokens=predicted_tokens,
-)
-```
-
-The estimate affects route and hedge cost calculations only; it is not actual
-usage. On completion, report the adopted attempt's actual `output_tokens` (or
-an explicit `cost_usd`) for billing. Positive actual output tokens also update
-RouteWise's internal estimator.
-
-`Router` computes decisions but performs no network I/O and does not read API
-keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
-for the full contract.
-
-## Repository Development
-
-Run the fast test suite:
+## 3. Kick the tires (~2 minutes)
 
 ```bash
-uv run pytest -q -m "not slow"
+bash scripts/kick_the_tires.sh
 ```
 
-List the paper-facing simulator sections:
+This replays the committed 120-request synthetic fixture through the
+cost-layer simulator section and runs the fast unit tests. It needs **no API
+keys and no network access** and ends with `kick-the-tires: PASS`.
+
+## 4. Reproducing the paper's results
+
+Each subsection gives the command, the expected artifacts, and the rough
+runtime. Outputs land under `outputs/`; compare the produced figures and
+printed statistics against the paper. Figure numbering follows the pinned
+arXiv version.
+
+### 4.1 Provider TTFT drift over wall-clock time (~1 minute)
+
+Both source CSVs are committed in `data/drift_source/`.
+
+```bash
+uv run python plots/motivation/drift_wall_clock.py \
+    --source-dir data/drift_source --output-dir outputs/figures
+```
+
+Produces `drift_wall_clock_llama.{pdf,png}` and
+`drift_wall_clock_gpt4o.{pdf,png}` in `outputs/figures/`, and prints each
+panel's statistics (row count, global P99, max rolling P99) for comparison
+with the paper.
+
+### 4.2 Thirty-day simulator studies
+
+The simulator is trace-driven. Prepare the workload once (downloads the
+public BurstGPT v2.0 and ShareGPT V3 sources with SHA256-pinned URLs,
+roughly a 1 GB download):
+
+```bash
+uv run python scripts/prepare_workload.py --days 30
+```
+
+Then run the paper-facing simulator sections (one per paper section; each
+accepts `--help` for scenario, policy, seed, and output options):
 
 ```bash
 uv run python -m routewise_cli.main simulator list
+uv run python -m routewise_cli.main simulator cost-layer
+uv run python -m routewise_cli.main simulator latency-layer
+uv run python -m routewise_cli.main simulator hedging
+uv run python -m routewise_cli.main simulator end-to-end
 ```
 
-The [reproducibility guide](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
-covers datasets, live-evaluation credentials, experiment commands, and
-regression checks.
+With the workload in place, the golden comparison guards the
+behavior-sensitive outputs:
 
-## Documentation
+```bash
+uv run python tests/golden_capture.py --mode compare
+```
 
-### Library Users
+Per-figure commands, seeds, and expected numbers for this section are being
+finalized against the pinned arXiv PDF and will be listed here
+figure by figure.
 
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+### 4.3 24-hour real-provider evaluation (recorded data)
 
-### Research Artifacts
+The paper's live-provider numbers cannot be regenerated by calling the
+providers again: provider load, pricing, quotas, and rate limits have
+changed since the measurement. The paper's numbers derive from the 24-hour
+request records captured during the original runs; those records (exported
+with an explicit field allowlist) and the analysis scripts that rebuild the
+corresponding figures and tables from them will land under
+`data/real_eval_records/`.
 
-- [Simulator architecture and algorithms](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/ARCHITECTURE.md)
-- [Experiment reproducibility](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
+Optionally, `experiments/real_evaluation/` contains the full live runner to
+redo such an experiment with your own provider keys (`cp .env.example .env`).
+It **spends real money**, and its results are a new measurement — comparable
+in trend, not in exact numbers.
 
-### Maintainers and Advanced Integrators
+## 5. License and data provenance
 
-- [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
-
-## License
-
-MIT. See the [license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
+The code is MIT-licensed (`LICENSE`). The BurstGPT and ShareGPT source
+traces are downloaded from their original public hosts at pinned URLs with
+SHA-256 verification and are not redistributed here. The smoke fixture is
+synthetic, generated deterministically by
+`data/fixtures/generate_smoke_fixture.py`, and contains no text payloads.
