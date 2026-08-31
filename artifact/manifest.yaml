@@ -4,10 +4,18 @@
 # `runner` reads it to dispatch targets; `verify` reads `expected.yaml`
 # (never this file's expectations — there are none here by design).
 #
-# Classes:
-#   A      full reproduction — trace-driven simulation, reviewers run it
-#   B1     recorded-result reproduction — recorded 24h data -> metrics -> figures
-#   B2     live experiment reproduction — optional, needs provider keys, costs money
+# Classes (this artifact's own taxonomy, not an official EuroSys category —
+# the official badges are Available / Functional / Reproduced):
+#   A      full reproduction — deterministic trace-driven simulation; same
+#          seed reproduces the paper numbers, checked against expected.yaml
+#   B1     recorded-result reproduction — the paper's frozen 24h records ->
+#          metrics -> figures; deterministic re-analysis, also checked
+#          against expected.yaml
+#   B2     live rerun — optional, needs provider keys, costs money, and is
+#          NON-DETERMINISTIC: provider load, pricing, and rate limits have
+#          changed, so it produces a new timestamped result and is NEVER
+#          compared against paper numbers (schema/completeness/sanity
+#          checks only; no expected.yaml entry)
 #   C      non-computational figure — no reproduction target
 #   smoke  pipeline sanity on the built-in fixture, no paper claim
 #
@@ -132,6 +140,19 @@ targets:
       trigger/win rates, utilization.
     status: pending-records
     status_reason: Allowlist-exported 24h records land in data/real_eval_records/.
+
+  table-24h-live-rerun:
+    class: B2
+    claim: >-
+      Optional live rerun of the 24h real-provider evaluation with the
+      reviewer's own keys. Non-deterministic by nature: it yields a new
+      timestamped result set and is validated for schema, completeness, and
+      qualitative sanity (a cost-latency trade-off forms) — never against
+      the paper's recorded numbers.
+    status: pending-calibration
+    status_reason: >-
+      Runner arguments and the timestamped output layout are wired after the
+      B1 records land; requires .env provider keys and spends real money.
 
   figure-07a-provider-latency-snapshot:
     class: C

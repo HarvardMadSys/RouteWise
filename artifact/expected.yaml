@@ -3,6 +3,11 @@
 # tight relative tolerance that absorbs cross-platform floating-point noise.
 # Paper-number checks are added per target as they are calibrated against the
 # pinned arXiv PDF, each with a justified absolute/relative tolerance.
+#
+# Scope: only deterministic paths belong here — simulation targets, smoke,
+# and offline re-analysis of the frozen 24h records (B1). Live-rerun (B2)
+# targets NEVER appear in this file: a fresh call to real providers cannot
+# and should not match the paper's recorded numbers.
 
 figure-02-provider-latency:
   source: outputs/figures/motivation/drift_wall_clock.summary.json

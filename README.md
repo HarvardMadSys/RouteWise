@@ -76,10 +76,17 @@ prints every claim/figure target with its class and current status:
   records land in `data/real_eval_records/` during the kick-the-tires window;
   the motivation-figure inputs are already committed.
 - **B2 — live rerun (optional)**: full scripts to redo the live 24h
-  evaluation with your own provider keys; costs real money and is subject to
-  provider drift. We are confirming with the AE chairs that the
-  recorded-result path (B1) is the evaluated route for the live-evaluation
-  claims; B2 is provided for completeness.
+  evaluation with your own provider keys; costs real money and is
+  non-deterministic — provider load, pricing, and rate limits have changed,
+  so it produces a new timestamped result that is checked for schema,
+  completeness, and qualitative sanity, never against the paper's recorded
+  numbers. We are confirming with the AE chairs that the recorded-result
+  path (B1) is the evaluated route for the live-evaluation claims; B2 is
+  provided for completeness.
+
+These classes are this artifact's own organization (the official EuroSys
+badges are Available, Functional, and Reproduced); they exist so every
+figure states plainly which kind of evidence backs it.
 - **C — non-computational**: illustrative figures with no reproduction
   target (architecture diagram, timeline, author-reconstructed snapshots —
   each documented as such).
