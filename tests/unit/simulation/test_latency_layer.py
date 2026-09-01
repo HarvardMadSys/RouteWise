@@ -10,7 +10,6 @@ import pytest
 from experiments.simulation import latency_layer
 from llm_routewise.capacity import ProviderTier
 from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
-from routewise_cli.main import main as routewise_main
 
 
 def test_latency_layer_scenarios_match_section_contract():
@@ -82,10 +81,8 @@ def test_latency_layer_cli_writes_band_metadata_to_json_and_csv(tmp_path, requir
     output_dir = tmp_path / "latency-layer"
 
     assert (
-        routewise_main(
+        latency_layer.main(
             [
-                "simulator",
-                "latency-layer",
                 "--scenario",
                 "latency_layer_uniform_half_overlap",
                 "--policy",

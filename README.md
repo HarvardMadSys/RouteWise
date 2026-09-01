@@ -1,159 +1,220 @@
-<p align="center">
-  <img
-    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/harvard-seas-wordmark.png"
-    alt="Harvard John A. Paulson School of Engineering and Applied Sciences"
-    width="270"
-  >
-</p>
-
-<h1 align="center">RouteWise</h1>
+<h1 align="center">RouteWise — EuroSys '27 Artifact</h1>
 
 <p align="center">
   <strong>Latency–Cost Optimization for Multi-Provider LLM Routing</strong>
   <br>
-  <sub>Learn from recent outcomes. Route each request. Hedge selectively.</sub>
+  <sub>Paper #96 · EuroSys 2027 · Muxin Tian, Haoran Ni, Yiyan Zhai, Yangsun Park, Juncheng Yang</sub>
 </p>
 
 <p align="center">
-  Developed and maintained by the
+  Developed by the
   <a href="https://juncheng.seas.harvard.edu/" title="Harvard Measurements and Design of Computer Systems Lab">Harvard MadSys Lab</a>
   at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
 </p>
 
-<p align="center">
-  <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
-  <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Stars"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Forks"></a>
-</p>
+This repository is the research artifact for the paper: the routing core,
+the trace-driven simulator, the experiment and figure pipelines, and the
+instructions to run them.
 
-<p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md">English API</a>
-  ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md">中文 API</a>
-  ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md">Reproducibility</a>
-</p>
+## 1. Overview
 
-<p align="center">
-  <img
-    src="https://raw.githubusercontent.com/HarvardMadSys/RouteWise/main/docs/assets/routewise-routing-hero.svg"
-    alt="RouteWise adaptive routing loop: request, RouteWise cost and latency policy, decision, application dispatch, and outcome feedback"
-    width="1000"
-  >
-</p>
+| Path | Role |
+|---|---|
+| `llm_routewise/` | Routing core, LP mixture solver, simulator engine, metrics |
+| `experiments/simulation/` | Trace-driven simulator experiment modules |
+| `experiments/offline_stage/` | Offline/stage configuration and loaders |
+| `experiments/real_evaluation/` | Live-provider runner (optional; needs keys, costs money) |
+| `plots/` | Figure-generation scripts |
+| `data/` | Committed inputs: motivation CSVs, smoke fixture |
+| `scripts/` | Workload preparation, smoke test, run helpers |
+| `docs/research/REPRODUCIBILITY.md` | Extended operational notes |
 
-RouteWise is a dependency-free Python library for cost-aware,
-latency-optimized routing across multiple LLM API providers. Applications
-supply provider prices, dispatch the returned attempt, and report outcomes so
-RouteWise can learn from them.
+## 2. Setup
 
-The `0.2.0` distribution is an API-provider-only preview. This repository also
-contains the simulator and experiment harnesses used by the paper; those
-research packages are not included in the wheel.
-
-> **Package name:** The PyPI project `routewise` is an unaffiliated,
-> incompatible project. Install the `llm-routewise` distribution and import
-> the `llm_routewise` package for HarvardMadSys RouteWise.
-
-## Installation
-
-RouteWise requires Python 3.10 or later. The published wheel has no runtime
-dependencies.
+Requirements: Linux x86-64 or macOS, `git`, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). uv installs
+the pinned Python interpreter (`.python-version`) and the exact locked
+dependency set; there are no system-level dependencies, no GPU, and no
+commercial solver.
 
 ```bash
-python -m pip install llm-routewise==0.2.0
-```
-
-For repository development and paper-artifact workflows:
-
-```bash
-git clone https://github.com/HarvardMadSys/RouteWise.git
+git clone -b eurosys27-ae https://github.com/HarvardMadSys/RouteWise.git
 cd RouteWise
-uv sync
+uv sync --frozen
 ```
 
-## Quickstart
+### Docker alternative (uniform Ubuntu environment)
 
-```python
-import llm_routewise as rw
-
-router = rw.Router(
-    [
-        rw.Provider("fast", price_in=3.0, price_out=15.0),
-        rw.Provider("cheap", price_in=0.15, price_out=0.60),
-    ],
-    alpha=0.25,  # Cost budget: 0 = cheapest; 1 = full range for latency optimization.
-)
-
-decision = router.route(input_tokens=800)
-response = call_your_provider(decision.provider)
-decision.completed(
-    ttft_ms=response.ttft_ms,
-    output_tokens=response.output_tokens,
-)
-```
-
-If your application already predicts completion length, pass that point
-estimate with the request. Omit it to use RouteWise's internal online estimate.
-
-```python
-predicted_tokens = predict_output_tokens(prompt)
-decision = router.route(
-    input_tokens=800,
-    estimated_output_tokens=predicted_tokens,
-)
-```
-
-The estimate affects route and hedge cost calculations only; it is not actual
-usage. On completion, report the adopted attempt's actual `output_tokens` (or
-an explicit `cost_usd`) for billing. Positive actual output tokens also update
-RouteWise's internal estimator.
-
-`Router` computes decisions but performs no network I/O and does not read API
-keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
-for the full contract.
-
-## Repository Development
-
-Run the fast test suite:
+To evaluate inside a uniform Ubuntu 24.04 container instead of installing
+uv on the host:
 
 ```bash
-uv run pytest -q -m "not slow"
+docker build -t routewise-ae .
+docker run --rm routewise-ae            # runs the artifact smoke test
+docker run --rm -it routewise-ae bash   # shell for every other command below
 ```
 
-List the paper-facing simulator sections:
+Every command in the following sections works the same inside the
+container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
+keep generated figures on the host.
+
+## 3. Getting started (~2 minutes)
 
 ```bash
-uv run python -m routewise_cli.main simulator list
+bash scripts/artifact_smoke_test.sh
 ```
 
-The [reproducibility guide](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
-covers datasets, live-evaluation credentials, experiment commands, and
-regression checks.
+This replays the committed 120-request synthetic fixture through the
+cost-layer simulator section and runs the fast unit tests. It needs **no API
+keys and no network access** and ends with `artifact smoke test: PASS`.
 
-## Documentation
+## 4. Reproducing the paper's results
 
-### Library Users
+The paper's evaluation has two arms, and this section mirrors them: the
+real-world experiments against live providers (Figures 1, 6, 7) and the
+trace-driven simulator experiments (Figure 8 and the 30-day results),
+followed by the ablation study (Figure 9) and the background measurement
+figures (Figure 2). Outputs land under `outputs/`; compare the produced
+figures and printed statistics against the paper.
 
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/public/API.zh-CN.md)
+### Resource requirements
 
-### Research Artifacts
+Around 10 GB of free disk (1 GB of downloads, a 5.6 GB composed workload,
+caches and outputs) and roughly 2-4 GB of RAM per simulator worker — with
+16 GB of RAM prefer `--jobs 4`; the measured times below used `--jobs 24`
+on a 64-core, 500 GB server. No GPU.
 
-- [Simulator architecture and algorithms](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/ARCHITECTURE.md)
-- [Experiment reproducibility](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/research/REPRODUCIBILITY.md)
+### 4.1 Real-world experiments (Figures 1, 6, 7)
 
-### Maintainers and Advanced Integrators
+The paper's real-world results come from a 24-hour BurstGPT replay against
+live commercial providers. Those numbers cannot be regenerated by calling
+the providers again — provider load, pricing, quotas, and rate limits have
+changed since the measurement — so reproduction works from the recorded
+data: the 24-hour execution records captured during the original runs
+(exported with an explicit field allowlist) and the analysis scripts that
+rebuild the corresponding figures and tables from them land under
+`data/real_eval_records/`.
 
-- [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
-- [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
-- [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
+Optionally, `experiments/real_evaluation/` contains the full live runner to
+redo such an experiment with your own provider keys (`cp .env.example .env`).
+It **spends real money**, and its results are a new measurement — comparable
+in trend, not in exact numbers.
 
-## License
+### 4.2 Simulator experiments (Figure 8 and the 30-day results)
 
-MIT. See the [license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
+The simulator is trace-driven and deterministic for a given seed within one
+environment; across platforms the summary statistics agree to
+floating-point precision.
+
+**30-day BurstGPT workload.** Prepare the workload once (downloads the
+public BurstGPT v2.0 and ShareGPT V3 sources with SHA256-pinned URLs,
+roughly a 1 GB download):
+
+```bash
+uv run python scripts/prepare_workload.py --days 30
+```
+
+Then replay it through the simulator. The experiment code is organized as
+one runnable module per routing mechanism; together they produce the
+30-day simulation results (each module lists its scenarios and policies
+with `--help`, writes `summary.{json,csv}` plus TTFT histograms under
+`outputs/simulation/<module>/`, and takes `--jobs N`):
+
+| Command | Mechanism under test | Wall time (64-core server, `--jobs 24`) |
+|---|---|---|
+| `uv run python -m experiments.simulation.end_to_end --jobs 24` | joint cost+latency routing | ~24 min (39 cells) |
+| `uv run python -m experiments.simulation.cost_layer --jobs 24` | cost tiers: on-demand, quota, concurrency | ~17 min (120 cells) |
+| `uv run python -m experiments.simulation.hedging --jobs 24` | request hedging | ~16 min (8 cells) |
+| `uv run python -m experiments.simulation.latency_layer --jobs 24` | latency-band overlap | ~2 min (21 cells) |
+
+On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
+module also accepts `--max-requests` for a truncated pass.
+
+**PROD agentic workload (Figure 8).** The paper's Figure 8 replays a
+sampled 7-day trace from our production router — about 24K agentic
+requests with a ~48K-token mean prompt and a 65% prefix-cache hit rate —
+through the same simulator, with provider-local prefix-cache accounting
+enabled (cache reuse is central to this workload). The de-identified trace
+export (arrival times, token counts, and session structure only — no text)
+lands in `data/`; once present, run the end-to-end module against it and
+rebuild the four Figure 8 panels:
+
+```bash
+uv run python -m experiments.simulation.end_to_end \
+    --workload freeinference --prefix-cache-enabled --jobs 24
+uv run python -m plots.end_to_end.plot_simulation_frontier \
+    --summary-csv outputs/simulation/end_to_end/summary.csv \
+    --histograms-json outputs/simulation/end_to_end/ttft_histograms.json \
+    --frontier-out outputs/figures/e2e_frontier.pdf \
+    --slo-out outputs/figures/e2e_slo.pdf \
+    --cdf-out outputs/figures/e2e_ttft_cdf.pdf \
+    --provider-mix-out outputs/figures/e2e_provider_mix.pdf \
+    --table-out outputs/figures/e2e_table.json
+```
+
+The same two commands with the default workload produce the equivalent
+figures for the 30-day BurstGPT replay.
+
+### 4.3 Ablation study (Figure 9 and the offline analysis)
+
+**Offline analysis.** The paper's offline oracle — a clairvoyant lower
+bound on prepaid-capacity allocation — runs as the `offline` policy inside
+the cost-layer module, so the §4.2 cost-layer run already produces it: in
+`outputs/simulation/cost_layer/summary.json`, compare the `offline` rows
+against the other policies within the quota and concurrency scenarios to
+obtain the online-to-offline gaps discussed in the paper.
+
+```bash
+# Output-length misprediction, Figure 9a (runs + plot, one command; ~1 h):
+uv run python scripts/run_output_length_prediction_ablation.py
+
+# Quota / concurrency effective cost, Figures 9b-9c (runs + plots,
+# one command; ~10 min with --jobs 8):
+uv run python scripts/run_effective_cost_ablation.py --jobs 8
+```
+
+### 4.4 Background measurement figures (Figure 2, ~1 minute)
+
+Both source CSVs are committed in `data/drift_source/`.
+
+```bash
+uv run python plots/motivation/drift_wall_clock.py \
+    --source-dir data/drift_source --output-dir outputs/figures
+```
+
+Produces `drift_wall_clock_llama.{pdf,png}` and
+`drift_wall_clock_gpt4o.{pdf,png}` in `outputs/figures/`, and prints each
+panel's statistics (row count, global P99, max rolling P99) for comparison
+with the paper.
+
+## 5. Troubleshooting
+
+- **`Disk quota exceeded` from `pulp/mps_lp.py`** — the LP solver writes
+  scratch files to the system temp directory; point `TMPDIR` at a volume
+  with space (`export TMPDIR=/path/with/space`).
+- **Workers killed / machine unresponsive** — each simulator worker holds
+  the full 1.8M-request trace; lower `--jobs` (see resource requirements).
+- **First section run is slow to start** — the workload is being pickled
+  into a cache on first load; later runs start in seconds.
+- **A figure script fails with `No module named 'experiments'`** — run it
+  from the repository root, and run `plots.end_to_end.plot_simulation_frontier`
+  via `python -m` (as documented), not by file path.
+
+## 6. Citation
+
+```bibtex
+@inproceedings{routewise-eurosys27,
+  title     = {RouteWise: Latency--Cost Optimization for Multi-Provider LLM Routing},
+  author    = {Tian, Muxin and Ni, Haoran and Zhai, Yiyan and Park, Yangsun and Yang, Juncheng},
+  booktitle = {Proceedings of the Twenty-Second European Conference on Computer Systems (EuroSys '27)},
+  year      = {2027}
+}
+```
+
+## 7. License and data provenance
+
+The code is MIT-licensed (`LICENSE`). The BurstGPT and ShareGPT source
+traces are downloaded from their original public hosts at pinned URLs with
+SHA-256 verification and are not redistributed here. The smoke fixture is
+synthetic, generated deterministically by
+`data/fixtures/generate_smoke_fixture.py`, and contains no text payloads.

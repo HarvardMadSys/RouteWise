@@ -93,6 +93,9 @@ _WORKLOAD_CACHE_VERSION = 2
 _WORKLOAD_PATHS = {
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
     "burstgpt_rednote": DATA_DIR / "burstgpt_rednote_30d.jsonl",
+    # Committed synthetic fixture: lets the kick-the-tires check replay the
+    # full pipeline with no downloaded traces.
+    "smoke": DATA_DIR / "fixtures" / "burstgpt_smoke.jsonl",
 }
 _TRACE_CACHE_WORKLOADS = ("freeinference", "rednote")
 WORKLOAD_CHOICES = (*_WORKLOAD_PATHS, *_TRACE_CACHE_WORKLOADS)

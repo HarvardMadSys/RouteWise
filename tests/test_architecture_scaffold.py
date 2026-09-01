@@ -98,8 +98,6 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         forbidden = (
             "from experiments",
             "import experiments",
-            "from routewise_cli",
-            "import routewise_cli",
         )
 
         for path in (ROOT_DIR / "llm_routewise").rglob("*.py"):
@@ -107,24 +105,10 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{path} must not import {token!r}")
 
-    def test_experiments_do_not_depend_on_cli(self) -> None:
-        forbidden = ("from routewise_cli", "import routewise_cli")
-
-        for path in (ROOT_DIR / "experiments").rglob("*.py"):
-            source = path.read_text(encoding="utf-8")
-            for token in forbidden:
-                self.assertNotIn(token, source, f"{path} must not import {token!r}")
-
-    def test_routewise_cli_is_repository_only_and_uses_policy_flag(self) -> None:
-        cli = ROOT_DIR / "routewise_cli" / "main.py"
+    def test_no_console_script_is_published(self) -> None:
         pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
-        source = cli.read_text(encoding="utf-8")
 
-        self.assertTrue(cli.exists())
-        self.assertNotIn('[project.scripts]', pyproject)
-        self.assertNotIn('routewise = "routewise_cli.main:main"', pyproject)
-        self.assertIn("--policy", source)
-        self.assertNotIn("--" + "strategy", source)
+        self.assertNotIn("[project.scripts]", pyproject)
 
     def test_deleted_strategy_and_stage_modules_are_absent(self) -> None:
         deleted_paths = (
@@ -169,7 +153,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             "from experiments.simulation." + "materialize",
             "experiments.simulation." + "suites",
         )
-        for dirname in ("llm_routewise", "experiments", "routewise_cli", "tests"):
+        for dirname in ("llm_routewise", "experiments", "tests"):
             for path in (ROOT_DIR / dirname).rglob("*.py"):
                 source = path.read_text(encoding="utf-8")
                 for token in forbidden:
@@ -181,9 +165,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         from llm_routewise.metrics import Run
 
         self.assertTrue((ROOT_DIR / "llm_routewise" / "metrics" / "run.py").exists())
-        self.assertFalse(
-            (ROOT_DIR / "llm_routewise" / "sim" / "world" / "metrics.py").exists()
-        )
+        self.assertFalse((ROOT_DIR / "llm_routewise" / "sim" / "world" / "metrics.py").exists())
         self.assertEqual(Run.__module__, "llm_routewise.metrics.run")
         self.assertNotIn("SimulationRun", llm_routewise.metrics.__all__)
         self.assertNotIn("SimulationRun", llm_routewise.sim.world.__all__)
@@ -222,12 +204,8 @@ class ArchitectureScaffoldTest(unittest.TestCase):
 
         # Neither adapter may call the LP solver directly; the router owns
         # the body orchestration.
-        sim_adapter = (
-            ROOT_DIR / "llm_routewise" / "sim" / "policies" / "routewise.py"
-        ).read_text()
-        real_adapter = (
-            ROOT_DIR / "experiments" / "real_evaluation" / "policies.py"
-        ).read_text()
+        sim_adapter = (ROOT_DIR / "llm_routewise" / "sim" / "policies" / "routewise.py").read_text()
+        real_adapter = (ROOT_DIR / "experiments" / "real_evaluation" / "policies.py").read_text()
         for source, label in ((sim_adapter, "sim"), (real_adapter, "real-eval")):
             self.assertNotIn(
                 "solve_budget_lp(",
@@ -275,18 +253,7 @@ class ArchitectureScaffoldTest(unittest.TestCase):
         self.assertEqual(OracleOutputPredictor().predict(request).q50, 64.0)
         self.assertFalse(HistogramOutputPredictor().predict(request).is_warmed_up)
 
-    def test_section_simulator_phase0_surface_is_registered_incrementally(self) -> None:
-        from routewise_cli.main import SIMULATOR_SECTIONS
-
-        self.assertEqual(
-            SIMULATOR_SECTIONS,
-            {
-                "cost-layer": "experiments.simulation.cost_layer",
-                "latency-layer": "experiments.simulation.latency_layer",
-                "hedging": "experiments.simulation.hedging",
-                "end-to-end": "experiments.simulation.end_to_end",
-            },
-        )
+    def test_section_simulator_modules_are_directly_runnable(self) -> None:
         for module_name in (
             "experiments.simulation.cost_layer",
             "experiments.simulation.latency_layer",
@@ -297,9 +264,11 @@ class ArchitectureScaffoldTest(unittest.TestCase):
             self.assertTrue(hasattr(module, "SECTION_NAME"))
             self.assertTrue(hasattr(module, "list_scenarios"))
             self.assertTrue(hasattr(module, "make_scenarios"))
-
-        end_to_end = importlib.import_module("experiments.simulation.end_to_end")
-        self.assertTrue(hasattr(end_to_end, "main"))
+            self.assertTrue(hasattr(module, "main"))
+            source = (ROOT_DIR / (module_name.replace(".", "/") + ".py")).read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('if __name__ == "__main__":', source)
 
 
 if __name__ == "__main__":

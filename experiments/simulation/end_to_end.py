@@ -736,7 +736,6 @@ def _write_end_to_end_summary_csv(path: Path, rows: list[dict[str, Any]]) -> Non
 def main(argv: list[str] | None = None) -> int:
     """Run the §3 end-to-end simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator end-to-end",
         description=__doc__,
     )
     parser.add_argument(

@@ -103,9 +103,7 @@ def calibration_specs(
     _validate_unique("api reference", api_references)
     _validate_unique("percentile envelope", percentile_envelopes)
     base_reference = (
-        DEFAULT_API_REFERENCE
-        if DEFAULT_API_REFERENCE in api_references
-        else api_references[0]
+        DEFAULT_API_REFERENCE if DEFAULT_API_REFERENCE in api_references else api_references[0]
     )
     base_percentile = (
         DEFAULT_PERCENTILE_ENVELOPE
@@ -164,10 +162,7 @@ def calibration_policy_name(
     """Return a stable policy name for one calibration spec."""
     if p is not None:
         alpha = p
-    return (
-        "effective_cost_calibration__"
-        f"{spec.label}__q={quota_curve}__{common.alpha_label(alpha)}"
-    )
+    return f"effective_cost_calibration__{spec.label}__q={quota_curve}__{common.alpha_label(alpha)}"
 
 
 def make_calibration_presets(
@@ -225,9 +220,7 @@ def build_calibration_policy(
     params = dict(preset.get("params", {}))
     spec = params.pop("cost_envelope_spec", None)
     if not isinstance(spec, EnvelopeSpec):
-        raise ValueError(
-            f"effective-cost calibration preset {policy_name!r} lacks EnvelopeSpec"
-        )
+        raise ValueError(f"effective-cost calibration preset {policy_name!r} lacks EnvelopeSpec")
     params["cost_envelope"] = workload_cost_envelope(
         scenario.providers,
         requests,
@@ -330,18 +323,14 @@ def _make_clean_quota_scenario_for_plan(
             plan=plan,
             subscription_count=subscription_count,
             latency_family=(
-                curve_harness.DEFAULT_LATENCY_FAMILY
-                if ttft_dist is not None
-                else latency_family
+                curve_harness.DEFAULT_LATENCY_FAMILY if ttft_dist is not None else latency_family
             ),
         ),
         common.make_api_provider(
             "api_cheap",
             cost_per_million_tokens=common.COST_RATIO_PER_MILLION[0],
             latency_family=(
-                curve_harness.DEFAULT_LATENCY_FAMILY
-                if ttft_dist is not None
-                else latency_family
+                curve_harness.DEFAULT_LATENCY_FAMILY if ttft_dist is not None else latency_family
             ),
         ),
     ]
@@ -403,9 +392,7 @@ def _make_clean_quota_scenario_for_plan(
                     "name": window.name,
                     "quota_requests": window.quota_requests,
                     "quota_window_sec": window.quota_window_sec,
-                    "aggregate_quota_requests": (
-                        window.quota_requests * subscription_count
-                    ),
+                    "aggregate_quota_requests": (window.quota_requests * subscription_count),
                 }
                 for window in plan.quota_windows
             ],
@@ -454,10 +441,7 @@ def enrich_calibration_rows(
         presets=presets,
         requests=requests,
     )
-    by_key = {
-        (record["scenario"], record["policy"]): record
-        for record in records
-    }
+    by_key = {(record["scenario"], record["policy"]): record for record in records}
     enriched: list[dict[str, Any]] = []
     for row in rows:
         key = (row.get("scenario"), row.get("policy"))
@@ -480,7 +464,6 @@ def enrich_calibration_rows(
 def main(argv: list[str] | None = None) -> int:
     """Run the envelope calibration ablation harness."""
     parser = argparse.ArgumentParser(
-        prog="routewise ablation effective-cost-calibration",
         description=__doc__,
     )
     parser.add_argument(
@@ -524,8 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         "--subscription-plan",
         default=curve_harness.DEFAULT_SUBSCRIPTION_PLAN,
         help=(
-            "Quota subscription plan id. Defaults to "
-            f"{curve_harness.DEFAULT_SUBSCRIPTION_PLAN}."
+            f"Quota subscription plan id. Defaults to {curve_harness.DEFAULT_SUBSCRIPTION_PLAN}."
         ),
     )
     parser.add_argument(
@@ -564,9 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     api_references = tuple(args.api_references) if args.api_references else API_REFERENCES
     percentile_envelopes = (
-        tuple(args.percentile_envelopes)
-        if args.percentile_envelopes
-        else PERCENTILE_ENVELOPES
+        tuple(args.percentile_envelopes) if args.percentile_envelopes else PERCENTILE_ENVELOPES
     )
     specs = calibration_specs(
         sweep=args.sweep,
@@ -574,9 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         percentile_envelopes=percentile_envelopes,
     )
     alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
-    qstar_values = (
-        tuple(args.qstar_values) if args.qstar_values else (curve_harness.DEFAULT_QSTAR,)
-    )
+    qstar_values = tuple(args.qstar_values) if args.qstar_values else (curve_harness.DEFAULT_QSTAR,)
     scenarios = make_scenarios(
         subscription_plan=args.subscription_plan,
         qstar=qstar_values,
@@ -688,8 +666,7 @@ def _validate_latency_family(latency_family: str) -> None:
     known = ("uniform", "normal", "heavy_tail", "real_world")
     if latency_family not in known:
         raise ValueError(
-            f"unknown calibration latency family {latency_family!r}; "
-            f"known: {', '.join(known)}"
+            f"unknown calibration latency family {latency_family!r}; known: {', '.join(known)}"
         )
 
 
@@ -795,9 +772,7 @@ def _preset_envelope_spec(
     params = preset.get("params", {})
     spec = params.get("cost_envelope_spec")
     if not isinstance(spec, EnvelopeSpec):
-        raise ValueError(
-            f"effective-cost calibration preset {policy_name!r} lacks EnvelopeSpec"
-        )
+        raise ValueError(f"effective-cost calibration preset {policy_name!r} lacks EnvelopeSpec")
     return spec
 
 
@@ -832,3 +807,7 @@ __all__ = [
     "run_calibration_cell",
     "run_calibration_policy",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

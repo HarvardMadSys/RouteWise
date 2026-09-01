@@ -24,7 +24,6 @@ from llm_routewise.sim.policies.routewise import RouteWisePolicy
 from llm_routewise.sim.world.distributions import Uniform
 from llm_routewise.sim.world.providers import TieredProvider
 from llm_routewise.sim.world.scenarios import ScenarioConfig
-from routewise_cli.main import ABLATION_COMMANDS, main as routewise_main
 
 
 def test_presets_define_core_hedging_ablation_grid() -> None:
@@ -240,10 +239,8 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(
     output_dir = tmp_path / "hedging-ablation"
 
     assert (
-        routewise_main(
+        harness.main(
             [
-                "ablation",
-                "hedging",
                 "--scenario",
                 "hedging_heavy_tail",
                 "--seed",
@@ -277,10 +274,6 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(
     assert csv_rows[0]["production_baseline_policy"] == production_baseline_policy_name()
     assert csv_rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert csv_rows[0]["latency_profile_mode"] == "configured"
-
-
-def test_routewise_cli_registers_hedging_ablation() -> None:
-    assert ABLATION_COMMANDS["hedging"] == "experiments.ablations.hedging.harness"
 
 
 def test_harness_lists_section_hedging_scenarios() -> None:

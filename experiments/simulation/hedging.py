@@ -167,10 +167,8 @@ def _make_real_world_pool_scenario(
     providers = [
         TieredProvider(
             name=provider_name,
-            cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
-            / 1_000_000.0,
-            input_cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
-            / 1_000_000.0,
+            cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
+            input_cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
             output_cost_per_token=latency_layer.LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS
             / 1_000_000.0,
             ttft_dist=ttft_dist,
@@ -359,12 +357,8 @@ def _enrich_rows_with_hedging_metadata(
                 "latency_generation_version": meta.get("latency_generation_version"),
                 "latency_anchor_kind": meta.get("latency_anchor_kind"),
                 "latency_anchor_ms": meta.get("latency_anchor_ms"),
-                "latency_distribution_mean_ms": meta.get(
-                    "latency_distribution_mean_ms"
-                ),
-                "latency_distribution_p50_ms": meta.get(
-                    "latency_distribution_p50_ms"
-                ),
+                "latency_distribution_mean_ms": meta.get("latency_distribution_mean_ms"),
+                "latency_distribution_p50_ms": meta.get("latency_distribution_p50_ms"),
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
@@ -388,11 +382,7 @@ def _enrich_rows_with_hedging_metadata(
         enriched.append(merged)
 
     baseline_policy = routewise_lp_policy_name(alpha_value)
-    baselines = {
-        row["scenario"]: row
-        for row in enriched
-        if row["policy"] == baseline_policy
-    }
+    baselines = {row["scenario"]: row for row in enriched if row["policy"] == baseline_policy}
     for row in enriched:
         baseline = baselines.get(row["scenario"])
         _add_baseline_deltas(row, baseline)
@@ -431,9 +421,7 @@ def _add_baseline_deltas(
         before=baseline["p99_ms"],
         after=row["p99_ms"],
     )
-    row["mean_ttft_delta_vs_lp_only_ms"] = (
-        row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
-    )
+    row["mean_ttft_delta_vs_lp_only_ms"] = row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
     row["p50_delta_vs_lp_only_ms"] = row["p50_ms"] - baseline["p50_ms"]
     row["hedge_rate_delta_vs_lp_only"] = row["hedge_rate"] - baseline["hedge_rate"]
     base_cost = _row_cost_for_multiplier(baseline)
@@ -532,7 +520,6 @@ def _write_hedging_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the §2.2 hedging simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator hedging",
         description=__doc__,
     )
     parser.add_argument(
@@ -618,9 +605,7 @@ def main(argv: list[str] | None = None) -> int:
         policies=policies,
         presets=presets,
         seeds=tuple(args.seed) if args.seed else DEFAULT_SEEDS,
-        section_runners={
-            policy: _make_serial_runner(policy, presets) for policy in policies
-        },
+        section_runners={policy: _make_serial_runner(policy, presets) for policy in policies},
         workload_dataset=args.workload,
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,
@@ -663,3 +648,7 @@ __all__ = [
     "run_hedging_cell",
     "run_hedging_policy",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

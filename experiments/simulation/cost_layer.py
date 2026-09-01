@@ -508,7 +508,6 @@ def _validate_subscription_counts(
 def main(argv: list[str] | None = None) -> int:
     """Run the cost-layer simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator cost-layer",
         description=__doc__,
     )
     parser.add_argument(
