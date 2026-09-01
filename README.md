@@ -76,8 +76,25 @@ keys and no network access** and ends with `artifact smoke test: PASS`.
 
 Each subsection gives the command, the expected artifacts, and the rough
 runtime. Outputs land under `outputs/`; compare the produced figures and
-printed statistics against the paper. Figure numbering follows the pinned
-arXiv version.
+printed statistics against the paper. The map below ties results to
+subsections; paper figure numbers are pinned against the frozen arXiv
+version once recorded above.
+
+| Paper result | How | Where |
+|---|---|---|
+| Provider TTFT drift panels | committed CSVs → plot script | §4.1 |
+| Simulator studies: cost tiers, latency overlap, hedging, end-to-end frontier | trace-driven simulation, deterministic per seed | §4.2 |
+| End-to-end frontier / SLO / TTFT-distribution / provider-mix figures | section output → frontier plotter | §4.2 |
+| Output-length misprediction ablation | one-command pipeline | §4.2 |
+| Quota / concurrency effective-cost curves | one-command pipeline | §4.2 |
+| 24-hour live-provider figures and tables | recorded data re-analysis (records pending) | §4.3 |
+
+### Resource requirements
+
+Around 10 GB of free disk (1 GB of downloads, a 5.6 GB composed workload,
+caches and outputs) and roughly 2-4 GB of RAM per simulator worker — with
+16 GB of RAM prefer `--jobs 4`; the measured times below used `--jobs 24`
+on a 64-core, 500 GB server. No GPU.
 
 ### 4.1 Provider TTFT drift over wall-clock time (~1 minute)
 
@@ -159,7 +176,31 @@ redo such an experiment with your own provider keys (`cp .env.example .env`).
 It **spends real money**, and its results are a new measurement — comparable
 in trend, not in exact numbers.
 
-## 5. License and data provenance
+## 5. Troubleshooting
+
+- **`Disk quota exceeded` from `pulp/mps_lp.py`** — the LP solver writes
+  scratch files to the system temp directory; point `TMPDIR` at a volume
+  with space (`export TMPDIR=/path/with/space`).
+- **Workers killed / machine unresponsive** — each simulator worker holds
+  the full 1.8M-request trace; lower `--jobs` (see resource requirements).
+- **First section run is slow to start** — the workload is being pickled
+  into a cache on first load; later runs start in seconds.
+- **A figure script fails with `No module named 'experiments'`** — run it
+  from the repository root, and run `plots.end_to_end.plot_simulation_frontier`
+  via `python -m` (as documented), not by file path.
+
+## 6. Citation
+
+```bibtex
+@inproceedings{routewise-eurosys27,
+  title     = {RouteWise: Latency--Cost Optimization for Multi-Provider LLM Routing},
+  author    = {Tian, Muxin and Ni, Haoran and Zhai, Yiyan and Park, Yangsun and Yang, Juncheng},
+  booktitle = {Proceedings of the Twenty-Second European Conference on Computer Systems (EuroSys '27)},
+  year      = {2027}
+}
+```
+
+## 7. License and data provenance
 
 The code is MIT-licensed (`LICENSE`). The BurstGPT and ShareGPT source
 traces are downloaded from their original public hosts at pinned URLs with
