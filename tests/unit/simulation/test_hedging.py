@@ -8,7 +8,6 @@ import json
 import pytest
 
 from experiments.simulation import hedging
-from routewise_cli.main import main as routewise_main
 
 
 def test_hedging_scenarios_match_section_contract():
@@ -74,10 +73,8 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require
     output_dir = tmp_path / "hedging"
 
     assert (
-        routewise_main(
+        hedging.main(
             [
-                "simulator",
-                "hedging",
                 "--scenario",
                 "hedging_heavy_tail",
                 "--seed",

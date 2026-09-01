@@ -65,7 +65,9 @@ def build_ablation_policy(
         preset = presets[policy_name]
     except KeyError as exc:
         known = ", ".join(sorted(presets))
-        raise ValueError(f"unknown hedging ablation policy {policy_name!r}; known: {known}") from exc
+        raise ValueError(
+            f"unknown hedging ablation policy {policy_name!r}; known: {known}"
+        ) from exc
     if preset.get("policy") != "HedgingAblationPolicy":
         raise ValueError(f"unsupported hedging ablation preset {policy_name!r}: {preset!r}")
 
@@ -134,7 +136,6 @@ def run_hedging_ablation_cell(
 def main(argv: list[str] | None = None) -> int:
     """Run the hedging ablation harness."""
     parser = argparse.ArgumentParser(
-        prog="routewise ablation hedging",
         description=__doc__,
     )
     parser.add_argument(
@@ -309,9 +310,8 @@ def _enrich_rows(
     baselines = {
         (row["scenario"], parse_ablation_policy_name(row["policy"])[2]): row
         for row in enriched
-        if row["policy"] == production_baseline_policy_name(
-            alpha=parse_ablation_policy_name(row["policy"])[2]
-        )
+        if row["policy"]
+        == production_baseline_policy_name(alpha=parse_ablation_policy_name(row["policy"])[2])
     }
     for row in enriched:
         alpha_value = parse_ablation_policy_name(row["policy"])[2]
@@ -332,9 +332,7 @@ def _add_production_deltas(
         row["cost_multiplier_vs_production"] = None
         return
     row["p99_delta_vs_production_ms"] = row["p99_ms"] - baseline["p99_ms"]
-    row["mean_ttft_delta_vs_production_ms"] = (
-        row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
-    )
+    row["mean_ttft_delta_vs_production_ms"] = row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
     row["p50_delta_vs_production_ms"] = row["p50_ms"] - baseline["p50_ms"]
     row["hedge_rate_delta_vs_production"] = row["hedge_rate"] - baseline["hedge_rate"]
     base_cost = _row_cost_for_multiplier(baseline)
@@ -427,3 +425,7 @@ __all__ = [
     "run_ablation_policy",
     "run_hedging_ablation_cell",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

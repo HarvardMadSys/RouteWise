@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "== simulator section on the committed fixture =="
-uv run python -m routewise_cli.main simulator cost-layer \
+uv run python -m experiments.simulation.cost_layer \
     --scenario cost_layer_uniform \
     --workload smoke \
     --max-requests 100 \

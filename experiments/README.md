@@ -13,12 +13,10 @@ Config-driven experiment packages should combine:
 The simulator paper line is section-driven instead of config-driven. Its
 entrypoints live directly under `experiments/simulation/`.
 
-Use the repository-only CLI module to inspect available entrypoints:
-
-```bash
-uv run python -m routewise_cli.main list
-uv run python -m routewise_cli.main simulator list
-```
+Each simulator section is a directly runnable module (`uv run python -m
+experiments.simulation.<section> --help` lists its scenarios and policies);
+config-driven packages are registered in
+`experiments.available_experiments()`.
 
 Earlier latency-phase replay packages were retired; the current paper-facing
 simulator method lives under `simulation/`.

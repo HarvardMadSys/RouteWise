@@ -17,7 +17,6 @@ from experiments.ablations.effective_cost_calibration.envelope import (
 from experiments.simulation.common import make_api_provider, make_quota_provider
 from llm_routewise.schemas import Request
 from llm_routewise.sim.world.scenarios import ScenarioConfig
-from routewise_cli.main import ABLATION_COMMANDS
 
 
 def _requests() -> list[Request]:
@@ -303,10 +302,3 @@ def test_cli_default_grid_uses_clean_q16_and_four_calibrations(monkeypatch, tmp_
     assert len(captured["policies"]) == 4
     assert captured["workload_dataset"] == "burstgpt"
     assert captured["retain_records"] is False
-
-
-def test_routewise_cli_registers_effective_cost_calibration() -> None:
-    assert (
-        ABLATION_COMMANDS["effective-cost-calibration"]
-        == "experiments.ablations.effective_cost_calibration.harness"
-    )

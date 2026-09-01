@@ -84,9 +84,7 @@ def _scenario_name(family: str, overlap_label: str | None = None) -> str:
 def list_scenarios() -> tuple[str, ...]:
     """Return all §2.1 scenario names (6 synthetic + 1 real-world)."""
     synthetic = tuple(
-        _scenario_name(family, label)
-        for family in SYNTHETIC_FAMILIES
-        for label in OVERLAP_TARGETS
+        _scenario_name(family, label) for family in SYNTHETIC_FAMILIES for label in OVERLAP_TARGETS
     )
     return (*synthetic, REAL_WORLD_SCENARIO_NAME)
 
@@ -152,8 +150,7 @@ def _make_latency_layer_scenario(
             name=provider_name,
             cost_per_token=LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
             input_cost_per_token=LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
-            output_cost_per_token=LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS
-            / 1_000_000.0,
+            output_cost_per_token=LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS / 1_000_000.0,
             ttft_dist=ttft_dist,
             tps_dist=make_tps_distribution(),
             tier=ProviderTier.S_A,
@@ -343,7 +340,6 @@ def _write_latency_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the §2.1 latency-layer simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator latency-layer",
         description=__doc__,
     )
     parser.add_argument(
@@ -443,9 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
-        raise SystemExit(
-            f"unknown latency-layer policy {unknown[0]!r}; known policies: {known}"
-        )
+        raise SystemExit(f"unknown latency-layer policy {unknown[0]!r}; known policies: {known}")
 
     rows = run_section(
         section_name=SECTION_NAME,
@@ -510,3 +504,7 @@ __all__ = [
     "policies_for_section",
     "run_latency_layer_cell",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

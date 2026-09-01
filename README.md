@@ -110,10 +110,10 @@ and takes `--jobs N` to parallelize):
 
 | Command | Paper part | Wall time (64-core server, `--jobs 24`) |
 |---|---|---|
-| `uv run python -m routewise_cli.main simulator cost-layer --jobs 24` | §3.2, quota/concurrency cost tiers | ~17 min (120 cells) |
-| `uv run python -m routewise_cli.main simulator latency-layer --jobs 24` | §3.3, latency-band overlap | ~2 min (21 cells) |
-| `uv run python -m routewise_cli.main simulator hedging --jobs 24` | §3.4, hedging stress test | ~16 min (8 cells) |
-| `uv run python -m routewise_cli.main simulator end-to-end --jobs 24` | §3.5, joint cost+latency routing | ~24 min (39 cells) |
+| `uv run python -m experiments.simulation.cost_layer --jobs 24` | §3.2, quota/concurrency cost tiers | ~17 min (120 cells) |
+| `uv run python -m experiments.simulation.latency_layer --jobs 24` | §3.3, latency-band overlap | ~2 min (21 cells) |
+| `uv run python -m experiments.simulation.hedging --jobs 24` | §3.4, hedging stress test | ~16 min (8 cells) |
+| `uv run python -m experiments.simulation.end_to_end --jobs 24` | §3.5, joint cost+latency routing | ~24 min (39 cells) |
 
 On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
 section also accepts `--max-requests` for a truncated pass.

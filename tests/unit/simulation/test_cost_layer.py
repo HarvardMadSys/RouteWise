@@ -15,7 +15,6 @@ from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
 from llm_routewise.metrics import Run
 from llm_routewise.schemas import Request
 from llm_routewise.sim.world.scenarios import ScenarioConfig
-from routewise_cli.main import main as routewise_main
 
 
 def test_cost_layer_scenarios_match_section_contract():
@@ -617,18 +616,16 @@ def test_offline_joint_exact_rejects_unknown_milp_solver(monkeypatch, require_bu
         )
 
 
-def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
-    assert routewise_main(["simulator", "list"]) == 0
-    payload = json.loads(capsys.readouterr().out)
+def test_cost_layer_section_lists_runnable_scenarios_and_policies():
+    scenarios = cost_layer.list_scenarios()
+    policies = cost_layer.policies_for_section()
 
-    assert payload["sections"][0]["name"] == "cost-layer"
-    assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
-    assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
-    assert "cost_layer_real_world" in payload["sections"][0]["scenarios"]
-    assert "quota" in payload["sections"][0]["scenarios"]
-    assert "cost_layer_quota_q1" not in payload["sections"][0]["scenarios"]
-    assert "offline" in payload["sections"][0]["policies"]
-    assert "ablation_lp_only_alpha75" in payload["sections"][0]["policies"]
+    assert "cost_layer_uniform" in scenarios
+    assert "cost_layer_real_world" in scenarios
+    assert "quota" in scenarios
+    assert "cost_layer_quota_q1" not in scenarios
+    assert "offline" in policies
+    assert "ablation_lp_only_alpha75" in policies
 
 
 def test_subscription_plan_loader_validates_and_exposes_chutes():
@@ -1152,10 +1149,8 @@ def test_cost_layer_cli_accepts_jobs(tmp_path):
     output_dir = tmp_path / "cli"
 
     assert (
-        routewise_main(
+        cost_layer.main(
             [
-                "simulator",
-                "cost-layer",
                 "--scenario",
                 "cost_layer_uniform",
                 "--workload",

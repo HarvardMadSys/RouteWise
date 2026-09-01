@@ -1,8 +1,8 @@
 # Simulation Experiments
 
-Paper-facing simulator harness. Each section is implemented as a dedicated
-Python module and exposed through the repository-only CLI module:
-`uv run python -m routewise_cli.main simulator <section>`.
+Paper-facing simulator harness. Each section is implemented as a dedicated,
+directly runnable Python module:
+`uv run python -m experiments.simulation.<section>`.
 
 ## Common Setup
 
@@ -105,19 +105,14 @@ experiments/simulation/
   latency_profiles/    # empirical latency artifacts
 ```
 
-## CLI
+## Running Sections
 
-List sections:
-
-```bash
-uv run python -m routewise_cli.main simulator list
-```
-
+Each section prints its scenarios, policies, and options with `--help`.
 Run a section:
 
 ```bash
-uv run python -m routewise_cli.main simulator cost-layer
-uv run python -m routewise_cli.main simulator latency-layer
-uv run python -m routewise_cli.main simulator hedging
-uv run python -m routewise_cli.main simulator end-to-end
+uv run python -m experiments.simulation.cost_layer
+uv run python -m experiments.simulation.latency_layer
+uv run python -m experiments.simulation.hedging
+uv run python -m experiments.simulation.end_to_end
 ```

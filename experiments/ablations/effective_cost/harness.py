@@ -203,7 +203,6 @@ def run_effective_cost_cell(
 def main(argv: list[str] | None = None) -> int:
     """Run the effective-cost ablation harness."""
     parser = argparse.ArgumentParser(
-        prog="routewise ablation effective-cost",
         description=__doc__,
     )
     parser.add_argument(
@@ -697,3 +696,7 @@ __all__ = [
     "run_ablation_policy",
     "run_effective_cost_cell",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

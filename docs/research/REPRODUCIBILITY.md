@@ -54,17 +54,11 @@ python3 scripts/idle_compress_trace.py \
 
 ## Discover Experiments
 
-Config-driven experiments:
-
-```bash
-uv run python -m routewise_cli.main list
-```
-
-Paper-facing simulator sections:
-
-```bash
-uv run python -m routewise_cli.main simulator list
-```
+The paper-facing simulator sections are the four directly runnable modules
+under `experiments/simulation/` — `cost_layer`, `latency_layer`, `hedging`,
+and `end_to_end`; each lists its scenarios and policies via `--help`.
+Config-driven experiment packages are registered in
+`experiments.available_experiments()`.
 
 ## Run One Simulator Section
 
@@ -72,8 +66,8 @@ Each section runner exposes `--help` for scenario, policy, seed, and output
 options:
 
 ```bash
-uv run python -m routewise_cli.main simulator cost-layer --help
-uv run python -m routewise_cli.main simulator cost-layer
+uv run python -m experiments.simulation.cost_layer --help
+uv run python -m experiments.simulation.cost_layer
 ```
 
 The simulator is organized one Python file per paper section. See

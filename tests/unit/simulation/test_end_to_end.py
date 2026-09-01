@@ -10,7 +10,6 @@ import pytest
 from experiments.simulation import end_to_end
 from llm_routewise.capacity import ProviderTier
 from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
-from routewise_cli.main import main as routewise_main
 
 
 def test_end_to_end_scenarios_match_section_contract():
@@ -198,10 +197,8 @@ def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, requ
     output_dir = tmp_path / "end_to_end"
 
     assert (
-        routewise_main(
+        end_to_end.main(
             [
-                "simulator",
-                "end-to-end",
                 "--scenario",
                 "end_to_end_rw3",
                 "--p",
