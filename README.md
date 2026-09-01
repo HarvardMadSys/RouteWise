@@ -131,14 +131,17 @@ On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
 module also accepts `--max-requests` for a truncated pass.
 
 **PROD agentic workload (Figure 8).** The paper's Figure 8 replays a
-sampled trace from our production system (an agentic workload with heavy
-context reuse) through the same simulator. The de-identified trace export
-(arrival times, token counts, and session structure only — no text) lands
-in `data/`; once present, run the end-to-end module against it and rebuild
-the four Figure 8 panels:
+sampled 7-day trace from our production router — about 24K agentic
+requests with a ~48K-token mean prompt and a 65% prefix-cache hit rate —
+through the same simulator, with provider-local prefix-cache accounting
+enabled (cache reuse is central to this workload). The de-identified trace
+export (arrival times, token counts, and session structure only — no text)
+lands in `data/`; once present, run the end-to-end module against it and
+rebuild the four Figure 8 panels:
 
 ```bash
-uv run python -m experiments.simulation.end_to_end --workload freeinference --jobs 24
+uv run python -m experiments.simulation.end_to_end \
+    --workload freeinference --prefix-cache-enabled --jobs 24
 uv run python -m plots.end_to_end.plot_simulation_frontier \
     --summary-csv outputs/simulation/end_to_end/summary.csv \
     --histograms-json outputs/simulation/end_to_end/ttft_histograms.json \
@@ -152,7 +155,14 @@ uv run python -m plots.end_to_end.plot_simulation_frontier \
 The same two commands with the default workload produce the equivalent
 figures for the 30-day BurstGPT replay.
 
-### 4.3 Ablation study (Figure 9)
+### 4.3 Ablation study (Figure 9 and the offline analysis)
+
+**Offline analysis.** The paper's offline oracle — a clairvoyant lower
+bound on prepaid-capacity allocation — runs as the `offline` policy inside
+the cost-layer module, so the §4.2 cost-layer run already produces it: in
+`outputs/simulation/cost_layer/summary.json`, compare the `offline` rows
+against the other policies within the quota and concurrency scenarios to
+obtain the online-to-offline gaps discussed in the paper.
 
 ```bash
 # Output-length misprediction, Figure 9a (runs + plot, one command; ~1 h):
