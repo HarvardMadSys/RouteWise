@@ -12,13 +12,9 @@
   at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
 </p>
 
-This branch (`eurosys27-ae`) is the evaluated research artifact for the paper.
-It is calibrated against one pinned arXiv version of the paper (the exact
-version and its PDF SHA-256 will be recorded here once frozen). The legacy
-branch `eurosys2027` is not part of the submitted artifact. The `main` branch
-hosts the separately released `llm-routewise` library, which evolves
-independently — do **not** `pip install llm-routewise` to evaluate this
-artifact; everything below runs from this checkout.
+This repository is the research artifact for the paper: the routing core,
+the trace-driven simulator, the experiment and figure pipelines, and the
+instructions to run them.
 
 ## 1. Overview
 
@@ -77,8 +73,7 @@ keys and no network access** and ends with `artifact smoke test: PASS`.
 Each subsection gives the command, the expected artifacts, and the rough
 runtime. Outputs land under `outputs/`; compare the produced figures and
 printed statistics against the paper. The map below ties results to
-subsections; paper figure numbers are pinned against the frozen arXiv
-version once recorded above.
+subsections.
 
 | Paper result | How | Where |
 |---|---|---|
