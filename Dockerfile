@@ -1,6 +1,6 @@
 # Uniform evaluation environment for the EuroSys'27 artifact.
 #
-# Build and kick the tires:
+# Build and run the smoke test:
 #     docker build -t routewise-ae .
 #     docker run --rm routewise-ae
 # Interactive shell for the other commands in the README:
@@ -22,4 +22,4 @@ WORKDIR /artifact
 COPY . .
 RUN uv sync --frozen
 
-CMD ["bash", "scripts/kick_the_tires.sh"]
+CMD ["bash", "scripts/artifact_smoke_test.sh"]

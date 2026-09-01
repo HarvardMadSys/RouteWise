@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Kick-the-tires check for the EuroSys'27 artifact.
+# Smoke test for the EuroSys'27 artifact.
 #
 # Replays the committed 120-request synthetic fixture through the cost-layer
-# simulator section, compares behavior-sensitive outputs against the golden
-# digests, and runs the fast unit tests. Needs no API keys and no network
-# access; finishes in a couple of minutes on a laptop.
+# simulator section and runs the fast unit tests. Needs no API keys and no
+# network access; finishes in a couple of minutes on a laptop.
 #
 # Usage (from the repository root):
-#     bash scripts/kick_the_tires.sh
+#     bash scripts/artifact_smoke_test.sh
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,4 +23,4 @@ uv run python -m routewise_cli.main simulator cost-layer \
 echo "== fast unit tests =="
 uv run pytest -q -m "not slow" tests/test_architecture_scaffold.py tests/unit/simulation
 
-echo "kick-the-tires: PASS"
+echo "artifact smoke test: PASS"

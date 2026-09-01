@@ -30,7 +30,7 @@ artifact; everything below runs from this checkout.
 | `experiments/real_evaluation/` | Live-provider runner (optional; needs keys, costs money) |
 | `plots/` | Figure-generation scripts |
 | `data/` | Committed inputs: motivation CSVs, smoke fixture |
-| `scripts/` | Workload preparation, kick-the-tires, run helpers |
+| `scripts/` | Workload preparation, smoke test, run helpers |
 | `docs/research/REPRODUCIBILITY.md` | Extended operational notes |
 
 ## 2. Setup
@@ -54,7 +54,7 @@ uv on the host:
 
 ```bash
 docker build -t routewise-ae .
-docker run --rm routewise-ae            # runs the kick-the-tires check
+docker run --rm routewise-ae            # runs the artifact smoke test
 docker run --rm -it routewise-ae bash   # shell for every other command below
 ```
 
@@ -62,15 +62,15 @@ Every command in the following sections works the same inside the
 container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
 keep generated figures on the host.
 
-## 3. Kick the tires (~2 minutes)
+## 3. Getting started (~2 minutes)
 
 ```bash
-bash scripts/kick_the_tires.sh
+bash scripts/artifact_smoke_test.sh
 ```
 
 This replays the committed 120-request synthetic fixture through the
 cost-layer simulator section and runs the fast unit tests. It needs **no API
-keys and no network access** and ends with `kick-the-tires: PASS`.
+keys and no network access** and ends with `artifact smoke test: PASS`.
 
 ## 4. Reproducing the paper's results
 
