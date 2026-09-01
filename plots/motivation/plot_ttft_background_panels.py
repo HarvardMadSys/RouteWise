@@ -14,12 +14,44 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from plot_ttft_context_length import DEFAULT_SOURCE_CSV, bucket_values, load_points
-from plot_ttft_duration_share import DEFAULT_PROVIDER_SERIES, load_provider_series
+import pandas as pd
+
+from plots.motivation.plot_ttft_context_length import bucket_values, load_points
+from plots.motivation.plot_ttft_duration_share import (
+    DEFAULT_PROVIDER_SERIES,
+    load_provider_series,
+)
 
 SIMULATOR_DIR = Path(__file__).resolve().parents[2]
 WORKSPACE_DIR = SIMULATOR_DIR.parent
 DEFAULT_OUTPUT_DIR = WORKSPACE_DIR / "paper" / "figures"
+DEFAULT_SOURCE_JSONL = (
+    SIMULATOR_DIR
+    / "data"
+    / "motivation"
+    / "ttft_duration"
+    / "requests_minimax-m2.5_mixed-providers_20260301-20260515.jsonl"
+)
+
+
+def load_points_jsonl(source_jsonl: Path) -> pd.DataFrame:
+    """Load the committed production export into the context-length schema."""
+    records = []
+    with source_jsonl.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                records.append(json.loads(line))
+    df = pd.DataFrame.from_records(records)
+    status = pd.to_numeric(df.get("status_code"), errors="coerce")
+    df = df[status.isna() | (status < 400)]
+    df = df.dropna(subset=["prompt_tokens", "ttft_ms"]).copy()
+    df["prompt_tokens"] = df["prompt_tokens"].astype(int)
+    df["ttft_ms"] = df["ttft_ms"].astype(float)
+    df = df[(df["prompt_tokens"] > 0) & (df["ttft_ms"] > 0)]
+    if df.empty:
+        raise ValueError(f"{source_jsonl} has no positive prompt_tokens/ttft_ms rows")
+    df["ttft_s"] = df["ttft_ms"] / 1000.0
+    return df
 
 
 def apply_style() -> None:
@@ -93,13 +125,22 @@ def plot_ttft_share_panel(ax: plt.Axes, output_input_ratio: float) -> dict[str, 
         columnspacing=0.8,
         borderaxespad=0.0,
     )
-    ax.text(0.5, 1.06, "(a)", transform=ax.transAxes, ha="center", fontsize=9.0, fontweight="bold", clip_on=False)
+    ax.text(
+        0.5,
+        1.06,
+        "(a)",
+        transform=ax.transAxes,
+        ha="center",
+        fontsize=9.0,
+        fontweight="bold",
+        clip_on=False,
+    )
     return summary
 
 
-def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, float | int | str]]:
-    df = load_points(source_csv)
-    values, labels, summary = bucket_values(df)
+def plot_context_length_panel(ax: plt.Axes, source: Path) -> list[dict[str, float | int | str]]:
+    df = load_points_jsonl(source) if source.suffix == ".jsonl" else load_points(source)
+    values, _labels, summary = bucket_values(df)
     compact_labels = ["<=20", "20-40", "40-80", ">80"]
 
     bp = ax.boxplot(
@@ -126,12 +167,21 @@ def plot_context_length_panel(ax: plt.Axes, source_csv: Path) -> list[dict[str, 
     ax.set_yticks([0, 10, 20])
     ax.grid(axis="y", linestyle=":", linewidth=0.45, alpha=0.6)
     ax.grid(axis="x", visible=False)
-    ax.text(0.5, 1.06, "(b)", transform=ax.transAxes, ha="center", fontsize=9.0, fontweight="bold", clip_on=False)
+    ax.text(
+        0.5,
+        1.06,
+        "(b)",
+        transform=ax.transAxes,
+        ha="center",
+        fontsize=9.0,
+        fontweight="bold",
+        clip_on=False,
+    )
     return summary
 
 
 def plot_combined(
-    source_csv: Path,
+    source: Path,
     output_dir: Path,
     basename: str,
     output_input_ratio: float,
@@ -146,7 +196,7 @@ def plot_combined(
         gridspec_kw={"width_ratios": [0.98, 1.12], "wspace": 0.5},
     )
     share_summary = plot_ttft_share_panel(ax_share, output_input_ratio)
-    context_summary = plot_context_length_panel(ax_context, source_csv)
+    context_summary = plot_context_length_panel(ax_context, source)
     fig.subplots_adjust(left=0.13, right=0.985, bottom=0.26, top=0.83, wspace=0.52)
 
     for suffix in ("pdf", "png"):
@@ -164,16 +214,25 @@ def plot_combined(
     print(f"Saved: {summary_path}")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-csv", type=Path, default=DEFAULT_SOURCE_CSV)
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=DEFAULT_SOURCE_JSONL,
+        help=(
+            "Panel (b) source: the committed production JSONL export by default, "
+            "or a CSV with prompt_tokens/ttft_ms/cache_hit columns."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--basename", default="figB02-ttft-background-panels")
+    parser.add_argument("--basename", default="figure03_ttft_background_panels")
     parser.add_argument("--output-input-ratio", type=float, default=0.01)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    plot_combined(args.source_csv, args.output_dir, args.basename, args.output_input_ratio)
+    plot_combined(args.source, args.output_dir, args.basename, args.output_input_ratio)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
