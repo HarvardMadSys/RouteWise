@@ -1,0 +1,7 @@
+{
+  "inventory": "experiments/real_evaluation/data/pilot_or_minimax_subscription_or8_true24h.json",
+  "trace": "data/real_eval/burstgpt_day0_24h.jsonl",
+  "slo_ms": "3000.0",
+  "max_requests": "None",
+  "duration_sec": "90000.0"
+}

@@ -17,6 +17,8 @@ artifacts/
 /data/*
 !/data/fixtures/
 !/data/real_eval_records/
+!/data/freeinference.jsonl
+!/data/README.md
 outputs/*
 !outputs/.gitkeep
 *.egg-info/
