@@ -46,6 +46,10 @@ jobs:
         run: |
           uv run python plots/motivation/drift_wall_clock.py \
               --source-dir data/drift_source --output-dir outputs/figures
+      - name: Rebuild the TTFT background panels from the committed export
+        run: |
+          uv run python -m plots.motivation.plot_ttft_background_panels \
+              --output-dir outputs/figures
       - name: Recompute and check the recorded real-world results
         run: uv run python scripts/reproduce_real_world.py
       - name: Replay PROD with the paper simulator and check Figure 8

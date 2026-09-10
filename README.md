@@ -74,7 +74,7 @@ The paper's evaluation has two arms, and this section mirrors them: the
 real-world experiments against live providers (Figures 1, 6, 7) and the
 trace-driven simulator experiments (Figure 8 and the 30-day results),
 followed by the ablation study (Figure 9) and the background measurement
-figures (Figure 2). Outputs land under `outputs/`; compare the produced
+figures (Figures 2 and 3). Outputs land under `outputs/`; compare the produced
 figures and printed statistics against the paper.
 
 ### Resource requirements
@@ -97,8 +97,9 @@ Run the analysis, plot the six panels, and check the numeric results with:
 uv run python scripts/reproduce_real_world.py
 ```
 
-Outputs go to `outputs/figures/real_world/`: `figure01_ttft.pdf`,
-`figure01_slo.pdf`, `figure06a_ttft_distribution.pdf`,
+Outputs go to `outputs/figures/real_world/`: `figure01_ttft.pdf` (the
+cost vs. mean-TTFT frontier of all ten policies) and `figure01_slo.pdf` (the
+SLO-violation bars), `figure06a_ttft_distribution.pdf`,
 `figure06b_provider_mix.pdf`, `figure07a_provider_latency.pdf`, and
 `figure07b_provider_pricing.pdf`, plus a recomputed `real_world_summary.json`
 and a LaTeX table. The command fixes the billing window at 86,400 seconds
@@ -152,6 +153,23 @@ with `--help`, writes `summary.{json,csv}` plus TTFT histograms under
 On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
 module also accepts `--max-requests` for a truncated pass.
 
+The paper (§4.3.1) states the 30-day result qualitatively and attaches no
+numbers to it: RouteWise exposes a cost–latency frontier, scales to a much
+larger request volume than the 24-hour replay, and reduces SLO violations
+compared with cost-oriented baselines. Check those three claims in
+`outputs/simulation/end_to_end/summary.csv` on the rows with
+`scenario = end_to_end_rw8`, the eight-provider pool of the real-world
+experiment: every row has `n_requests = 1813565` (the 30-day
+BurstGPT+ShareGPT composition, against 14,233 in the real-world replay);
+across `ablation_lp_hedging_alpha0` … `ablation_lp_hedging_alpha100`
+(RouteWise with hedging) and likewise across the `ablation_lp_only_*` rows
+(LP routing alone), `total_cost_usd` rises and `mean_ttft_ms` falls as α
+increases; and every `ablation_lp_hedging_*` row has a lower
+`slo_violation_rate` than `greedy_cost` (the LP-only α = 0 point is
+cost-first and matches Greedy-cost, as expected). The exact values depend
+on the simulator revision, so this section is checked for those relations
+rather than against archived numbers.
+
 **PROD agentic workload (Figure 8; ~1 minute).** The de-identified trace is
 included as [data/freeinference.jsonl](data/freeinference.jsonl), with
 timestamps, token and cache counters, measurement metadata, and per-account
@@ -179,7 +197,13 @@ relative/absolute tolerance `1e-9`, against
 [figure8_reference_summary.csv](data/figure8_reference_summary.csv).
 For example, the SLO-violation rates are 35.00% for Greedy-cost,
 4.18% for RouteWise at α = 0.25, and 0.86% for Greedy-latency.
-Any mismatch makes the command fail. Independently generated summaries
+Any mismatch makes the command fail. The paper's §4.3.2 claims read
+directly off `outputs/figure8/simulation/summary.csv`: moving from α = 0 to
+α = 0.25 cuts mean TTFT from roughly 3.6 s to 1.0 s (`mean_ttft_ms` 3576 to
+1022) and SLO violations from 32.5% to 4.2%; beyond α = 0.5 the frontier
+flattens (α = 0.75 and α = 1 coincide with Greedy-latency at 0.86%); and
+the `provider_mix` column shows Inceptron's share rising to 73.6% at
+α = 0.25 and 91.9% at α = 0.5. Independently generated summaries
 and histograms go to `outputs/figure8/simulation/`; panels
 `figure08a_freeinference_mean_ttft.pdf`, `figure08b_slo_violations.pdf`,
 `figure08c_ttft_distribution.pdf`, and `figure08d_provider_mix.pdf`
@@ -203,9 +227,9 @@ uv run python scripts/run_output_length_prediction_ablation.py
 uv run python scripts/run_effective_cost_ablation.py --jobs 8
 ```
 
-### 4.4 Background measurement figures (Figure 2, ~1 minute)
+### 4.4 Background measurement figures (Figures 2 and 3, ~1 minute)
 
-Both source CSVs are committed in `data/drift_source/`.
+Both Figure 2 source CSVs are committed in `data/drift_source/`.
 
 ```bash
 uv run python plots/motivation/drift_wall_clock.py \
@@ -216,6 +240,17 @@ Produces `drift_wall_clock_llama.{pdf,png}` and
 `drift_wall_clock_gpt4o.{pdf,png}` in `outputs/figures/`, and prints each
 panel's statistics (row count, global P99, max rolling P99) for comparison
 with the paper.
+
+Figure 3 draws the two TTFT background panels from the sanitized production
+request export committed in `data/motivation/ttft_duration/`:
+
+```bash
+uv run python -m plots.motivation.plot_ttft_background_panels \
+    --output-dir outputs/figures
+```
+
+Produces `figure03_ttft_background_panels.{pdf,png}` in `outputs/figures/`
+together with a `.summary.json` of the plotted bucket statistics.
 
 ## 5. Troubleshooting
 

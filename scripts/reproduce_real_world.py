@@ -75,9 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         "--policies",
         *POLICIES,
         "--mean-ttft-out",
-        str(output / "real_world_mean_ttft.pdf"),
+        str(output / "figure01_ttft.pdf"),
         "--slo-out",
-        str(output / "real_world_slo_frontier.pdf"),
+        str(output / "figure01_slo.pdf"),
         "--table-out",
         str(output / "real_world_rows.tex"),
         "--summary-out",
@@ -98,22 +98,6 @@ def main(argv: list[str] | None = None) -> int:
         str(output / "figure07b_provider_pricing.pdf"),
     ]
     subprocess.run(command, cwd=ROOT, check=True)
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "plots.front_page.make_front_page_teaser",
-            "--real-summary-json",
-            str(summary),
-            "--out-dir",
-            str(output),
-            "--out-stem",
-            "figure01",
-            "--no-combined",
-        ],
-        cwd=ROOT,
-        check=True,
-    )
     check_summary(summary, source / "reference_summary.json")
     print(f"Figures and the recomputed summary: {output}")
     print(

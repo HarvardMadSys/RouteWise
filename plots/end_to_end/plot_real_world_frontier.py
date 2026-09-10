@@ -34,6 +34,7 @@ from matplotlib.colors import to_rgb
 
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
+    FRONT_PAGE_POLICY_COLORS,
     MIX_FIGSIZE,
     PAPER_PANEL_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
@@ -1214,9 +1215,11 @@ def plot_metric_frontier(
         "xlabel": xlabel,
         "routewise_alphas": routewise_alphas,
         "baseline_order": BASELINE_ORDER,
+        "policy_colors": FRONT_PAGE_POLICY_COLORS,
     }
     if attr == "ttft_mean_ms":
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
+        kwargs["figsize"] = PAPER_PANEL_FIGSIZE
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         figsize, margins = aligned_panel_geometry(len(points))
