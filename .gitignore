@@ -17,6 +17,11 @@ artifacts/
 /data/*
 !/data/fixtures/
 !/data/real_eval_records/
+!/data/freeinference.jsonl
+!/data/README.md
+!/data/SHA256SUMS
+!/data/figure8_reference_summary.csv
+!/experiments/simulation/paper_figure8_source.tar.gz
 outputs/*
 !outputs/.gitkeep
 *.egg-info/

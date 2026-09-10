@@ -91,9 +91,18 @@ POLICY_COLORS = {
     "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
     "greedy_latency": ROUTER_STRATEGY_COLORS.get("greedy_latency", "#2ca02c"),
     "random": ROUTER_STRATEGY_COLORS.get("random", "#7f8c8d"),
-    "or_auto": ONLINE_POLICY_COLORS.get("openrouter_auto", "#1f77b4"),
+    # Orange, so OR-auto does not share Greedy-cost's blue (paper Figure 6a).
+    "or_auto": "#ff7f0e",
     "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#17becf"),
     "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#e377c2"),
+}
+# The paper's front-page Figure 1 (frontier + SLO bars) uses its own palette.
+FRONT_PAGE_POLICY_COLORS = {
+    "greedy_cost": "#4472c4",
+    "greedy_latency": "#3d8b3d",
+    "or_auto": "#cc7a8f",
+    "or_sort_cost": "#ad8a1f",
+    "or_sort_latency": "#7e3f9d",
 }
 POLICY_MARKERS = {
     "greedy_cost": "s",
@@ -114,11 +123,11 @@ BASELINE_LABEL_OFFSETS_BY_METRIC = {
         "random": (6, 4),
     },
     "mean_ttft_ms": {
-        "greedy_cost": (6, -9),
-        "greedy_latency": (0, -12),
+        "greedy_cost": (7, -3),
+        "greedy_latency": (0, 8),
         "or_auto": (6, -12),
-        "or_sort_cost": (6, -10),
-        "or_sort_latency": (-6, 7),
+        "or_sort_cost": (6, -11),
+        "or_sort_latency": (-3, -14),
         "random": (6, 4),
     },
 }
@@ -131,11 +140,11 @@ ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
         1.0: (5, 21),
     },
     "mean_ttft_ms": {
-        0.0: (8, 10),
-        0.25: (4, -24),
-        0.5: (10, 14),
-        0.75: (-8, -16),
-        1.0: (10, 0),
+        0.0: (-4, 9),
+        0.25: (-6, -10),
+        0.5: (0, 9),
+        0.75: (0, -14),
+        1.0: (0, -14),
     },
 }
 CDF_LINESTYLES = {
@@ -259,10 +268,15 @@ def policy_plot_label(
     return POLICY_PLOT_LABELS.get(policy, policy.replace("_", " "))
 
 
-def policy_color(policy: str, *, alpha: float | None = None) -> str:
+def policy_color(
+    policy: str,
+    *,
+    alpha: float | None = None,
+    palette: Mapping[str, str] | None = None,
+) -> str:
     if alpha is not None:
         return ROUTEWISE_COLOR
-    return POLICY_COLORS.get(policy, "#555555")
+    return (palette or POLICY_COLORS).get(policy, "#555555")
 
 
 def policy_marker(policy: str) -> str:
@@ -330,6 +344,7 @@ def _annotate_baseline(
     attr: str,
     *,
     label_offsets: Mapping[str, tuple[int, int]] | None = None,
+    palette: Mapping[str, str] | None = None,
 ) -> None:
     offset = (label_offsets or {}).get(
         point.policy,
@@ -344,7 +359,7 @@ def _annotate_baseline(
         xytext=offset,
         textcoords="offset points",
         fontsize=ANNOTATION_FONT_SIZE,
-        color=policy_color(point.policy),
+        color=policy_color(point.policy, palette=palette),
         ha="center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left"),
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
         clip_on=False,
@@ -367,7 +382,7 @@ def _annotate_routewise(
         ),
     )
     if attr == "mean_ttft_ms":
-        ha = "right" if offset[0] < 0 else "left"
+        ha = "center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left")
     else:
         x_min, x_max = ax.get_xlim()
         if point.total_cost_usd > (x_min + x_max) / 2.0:
@@ -468,10 +483,10 @@ def _cost_label(value: float) -> str:
     return rf"\${value:.2f}"
 
 
-def _slo_bar_color(point: FrontierPoint) -> str:
+def _slo_bar_color(point: FrontierPoint, palette: Mapping[str, str] | None = None) -> str:
     if point.alpha is not None:
         return ROUTEWISE_COLOR
-    return policy_color(point.policy)
+    return policy_color(point.policy, palette=palette)
 
 
 def plot_metric_frontier(
@@ -486,6 +501,7 @@ def plot_metric_frontier(
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
     figsize: tuple[float, float] = COLUMN_FIGSIZE,
+    policy_colors: Mapping[str, str] | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -523,7 +539,8 @@ def plot_metric_frontier(
         routewise_hedged,
         attr=attr,
         color=ROUTEWISE_HEDGE_COLOR,
-        marker="s",
+        # Squares only distinguish hedged points when unhedged ones are drawn too.
+        marker="s" if routewise_no_hedge else "o",
         label="RouteWise + hedge",
         annotate_count=routewise_count,
     )
@@ -533,7 +550,7 @@ def plot_metric_frontier(
             metric_value(point, attr),
             marker=policy_marker(point.policy),
             s=24,
-            color=policy_color(point.policy),
+            color=policy_color(point.policy, palette=policy_colors),
             edgecolor="white",
             linewidth=0.5,
             zorder=3,
@@ -543,6 +560,7 @@ def plot_metric_frontier(
             point,
             attr,
             label_offsets=baseline_label_offsets,
+            palette=policy_colors,
         )
     for point in [*routewise_no_hedge, *routewise_hedged]:
         _annotate_routewise(
@@ -573,6 +591,7 @@ def plot_slo_bar(
     ylabel: str | None = None,
     figsize: tuple[float, float] = SLO_BAR_FIGSIZE,
     margins: tuple[float, float, float, float] = (0.33, 0.99, 0.16, 0.98),
+    policy_colors: Mapping[str, str] | None = None,
 ) -> None:
     apply_column_figure_style()
     rows = _ordered_slo_bar_points(
@@ -596,7 +615,7 @@ def plot_slo_bar(
         y,
         slo_values,
         height=ALIGNED_BAR_THICKNESS,
-        color=[_slo_bar_color(point) for point in rows],
+        color=[_slo_bar_color(point, policy_colors) for point in rows],
         edgecolor="white",
         linewidth=0.45,
     )
