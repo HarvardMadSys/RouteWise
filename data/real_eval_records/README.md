@@ -4,8 +4,9 @@ Request-level records of the paper's real-world evaluation: a 24-hour
 segment of the BurstGPT workload (14,233 requests) replayed once per policy
 against MiniMax-M2.5 served by the MiniMax token plan (quota provider), the
 Featherless concurrency subscription, and eight OpenRouter on-demand
-providers. Figures 1, 6, and 7 and the real-world numbers in the paper are
-computed from these files.
+providers. Figures 1 and 6 and the real-world policy-level summary metrics
+are computed from these files. Figure 7 uses the separate sources described
+below.
 
 ## Layout
 
@@ -20,7 +21,8 @@ and `args.json` (the provider inventory the run used and the SLO):
 
 `reference_summary.json` holds the per-policy aggregates the paper reports
 (total cost, mean and P99 TTFT, SLO-violation rate), for checking a rerun of
-the analysis. `SHA256SUMS` covers every file.
+the analysis. `SHA256SUMS` covers the CSVs, per-policy arguments, and reference
+summary.
 
 The five baselines ran concurrently in one 24-hour window and the five
 RouteWise operating points in a later window, against the same provider pool
@@ -54,8 +56,19 @@ referenced in `args.json`
 Subscription fixed costs are prorated over the 24-hour replay window; the
 prorated fixed cost of the two subscriptions for one non-OpenRouter policy
 run is $1.5476333333333334 (the value recorded with the paper run). The
-README's section 4.1 command passes these two parameters; running the
-script with its defaults would prorate over 8 hours and change total costs.
+`uv run python scripts/reproduce_real_world.py` command passes these two
+parameters, recomputes the aggregates, and checks all ten policies against
+`reference_summary.json` (exact counts; relative/absolute numeric tolerance
+`1e-9`). Calling the underlying plot module with its defaults would prorate
+over 8 hours and change total costs.
+
+Figure 7a uses `plots/end_to_end/paper_minimax_provider_latency.json`, an
+author-reconstructed snapshot of the paper's provider mean TTFT values
+(seconds). Its original profiling logs are unavailable. This redraw is
+not an independent reconstruction from the released request records, whose
+per-provider aggregate means can differ. Figure 7b uses the prices in the
+inventory referenced by `args.json`; it does not query current provider
+prices.
 
 Regenerated from the private run archive with
 `scripts/export_ae_data.py real-eval-records`, which keeps the columns above

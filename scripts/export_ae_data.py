@@ -13,7 +13,8 @@ Two exports, both reduced to the fields the reproduction scripts read:
     The PROD agentic workload sample behind Figure 8. Keeps the numeric and
     categorical fields the simulator loader consumes; drops user names, user
     e-mails, and error strings; replaces the account identifier with a stable
-    per-account pseudonym so prefix-cache locality is preserved.
+    per-account pseudonym so account grouping is preserved. Cache discounts
+    use the trace's cache_read_tokens counters, which are retained unchanged.
 
 Both commands write a SHA256SUMS file next to the exported data. The
 private source directories are not part of the repository.
@@ -48,7 +49,7 @@ RECORD_FIELDS = (
     "hedge_winner",
     "rate_limited",
 )
-RECORD_ARGS_KEYS = ("policy", "inventory", "trace", "slo_ms", "max_requests", "duration_sec")
+RECORD_ARGS_KEYS = ("policy", "inventory", "slo_ms")
 
 TRACE_FIELDS = (
     "request_id",
@@ -148,13 +149,17 @@ def export_prod_trace(source: Path, dest: Path) -> int:
             record = json.loads(line)
             exported = {key: record.get(key) for key in TRACE_FIELDS}
             user_id = record.get("user_id")
-            if user_id:
+            if user_id is not None and str(user_id).strip():
                 exported["user_id"] = pseudonyms.setdefault(
                     str(user_id), f"account-{len(pseudonyms) + 1:02d}"
                 )
             out.write(json.dumps(exported, sort_keys=True) + "\n")
             count += 1
-    _write_checksums(dest.parent, [dest])
+    files = [dest]
+    reference = dest.parent / "figure8_reference_summary.csv"
+    if reference.exists():
+        files.append(reference)
+    _write_checksums(dest.parent, files)
     print(f"exported {count} requests ({len(pseudonyms)} pseudonymous accounts) to {dest}")
     return 0
 
