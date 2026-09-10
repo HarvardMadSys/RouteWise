@@ -291,7 +291,7 @@ def _plot_panel(
     x_max = max(xs.max(), 1.0, float(_select(df, "greedy_latency")["total_cost_usd"]) / base_cost) + 0.07
     ax.set_xlim(x_min, x_max)
     tick_start = math.ceil(x_min * 10) / 10
-    tick_step = 0.1 if (x_max - x_min) <= 0.45 else 0.2
+    tick_step = max(0.1, math.ceil((x_max - x_min) / 4 * 10) / 10)
     ax.set_xticks(np.arange(tick_start, math.ceil(x_max * 10) / 10 + 0.001, tick_step))
     ax.set_xticklabels([f"{tick:.1f}x" for tick in ax.get_xticks()])
 
