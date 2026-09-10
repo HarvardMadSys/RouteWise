@@ -764,18 +764,19 @@ def plot_ttft_boxplot(
 def write_table(rows: list[Row], output_path: Path) -> None:
     by_policy = {row.policy: row for row in rows}
     lines: list[str] = []
-    groups = (
-        TABLE_POLICIES,
-        tuple(f"ablation_lp_only_alpha{int(alpha * 100)}" for alpha in ROUTEWISE_TABLE_ALPHAS),
-        tuple(f"ablation_lp_hedging_alpha{int(alpha * 100)}" for alpha in ROUTEWISE_TABLE_ALPHAS),
-    )
-    for group in groups:
-        selected = [by_policy[policy] for policy in group if policy in by_policy]
-        if not selected:
-            continue
-        if lines:
-            lines.append(r"\midrule")
-        lines.extend(_format_table_row(row) for row in selected)
+    for policy in TABLE_POLICIES:
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
+    lines.append(r"\midrule")
+    for alpha in ROUTEWISE_TABLE_ALPHAS:
+        policy = f"ablation_lp_only_alpha{int(alpha * 100)}"
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
+    lines.append(r"\midrule")
+    for alpha in ROUTEWISE_TABLE_ALPHAS:
+        policy = f"ablation_lp_hedging_alpha{int(alpha * 100)}"
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

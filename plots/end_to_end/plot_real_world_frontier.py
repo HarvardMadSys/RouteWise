@@ -629,7 +629,7 @@ def plot_provider_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=4,
+        legend_ncols=5,
         margins=margins,
         show_legend=True,
         x_max=102.0,
@@ -1219,8 +1219,6 @@ def plot_metric_frontier(
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
-        figsize, margins = aligned_panel_geometry(len(points))
-        kwargs.update(figsize=figsize, margins=margins)
         plot_slo_frontier(points, path, **kwargs)
     else:
         raise ValueError(f"unsupported frontier metric: {attr}")
