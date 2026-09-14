@@ -33,7 +33,7 @@ from __future__ import annotations
 import random
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -121,6 +121,15 @@ class RoutingDecision:
     c_eff_map: dict[str, float] | None = None
     tier_mix: dict[str, float] | None = None
     notes: str = ""
+    # Router state captured for the revision measurements; see
+    # docs/research/REVISION_MEASUREMENTS.md. Filled by the LP policies.
+    latency_objective_ms: dict[str, float] | None = None
+    c_min_usd: float | None = None
+    predicted_output_tokens: int | None = None
+    candidates: tuple[str, ...] | None = None
+    quota_fraction_used: dict[str, float] | None = None
+    concurrency_in_flight: dict[str, int] | None = None
+    hedge_success_probability: float | None = None
 
 
 @dataclass(frozen=True)
@@ -989,6 +998,7 @@ class BudgetRangePolicy(BasePolicy):
             return RoutingDecision(primary=None, notes="none_available")
 
         result = self.router.route(self._views(feasible, ctx), now)
+        snapshot = self._decision_snapshot(feasible, now, ctx)
         if result.lp_status is LPStatus.FALLBACK_MIN_COST:
             return RoutingDecision(
                 primary=result.primary,
@@ -998,6 +1008,9 @@ class BudgetRangePolicy(BasePolicy):
                 reference_cost_usd=float(result.c_max),
                 c_eff_map=result.c_eff,
                 notes="fallback_affordable_range",
+                latency_objective_ms=dict(result.latency_objective_ms),
+                c_min_usd=float(result.c_min),
+                **snapshot,
             )
         return RoutingDecision(
             primary=result.primary,
@@ -1008,7 +1021,38 @@ class BudgetRangePolicy(BasePolicy):
             c_eff_map=result.c_eff,
             tier_mix=_tier_mix_from_weights(result.weights, self.states),
             notes=self.name,
+            latency_objective_ms=dict(result.latency_objective_ms),
+            c_min_usd=float(result.c_min),
+            **snapshot,
         )
+
+    def _decision_snapshot(
+        self,
+        feasible: list[ProviderState],
+        now: float,
+        ctx: RequestContext,
+    ) -> dict[str, Any]:
+        """Per-decision state the recorder persists for the revision measurements.
+
+        ``candidates`` is the availability-filtered set the LP saw;
+        ``quota_fraction_used`` / ``concurrency_in_flight`` describe every
+        capacity-limited provider, available or not, so an analysis can tell a
+        provider that lost the LP from one that was not offered.
+        """
+        quota_fraction_used: dict[str, float] = {}
+        concurrency_in_flight: dict[str, int] = {}
+        for state in self.states.values():
+            if state.quota is not None:
+                quota_fraction_used[state.spec.name] = float(state.quota.fraction_used(now))
+            if state.concurrency is not None:
+                state.concurrency.utilization(now)  # prunes expired leases
+                concurrency_in_flight[state.spec.name] = len(state.concurrency.active)
+        return {
+            "predicted_output_tokens": self._predicted_output_tokens(ctx),
+            "candidates": tuple(state.spec.name for state in feasible),
+            "quota_fraction_used": quota_fraction_used or None,
+            "concurrency_in_flight": concurrency_in_flight or None,
+        }
 
     def rate_limit_fallback_candidates(
         self,

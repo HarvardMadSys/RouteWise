@@ -79,6 +79,16 @@ CSV_FIELDS: tuple[str, ...] = (
     "model",
     "hedge_algorithm",
     "hedge_schedule",
+    "latency_objective_ms",
+    "c_eff",
+    "c_min_usd",
+    "predicted_output_tokens",
+    "candidates",
+    "quota_fraction_used",
+    "concurrency_in_flight",
+    "hedge_success_probability",
+    "primary_generation_id",
+    "backup_generation_id",
 )
 
 
@@ -140,6 +150,19 @@ class RequestLogRow:
     model: str | None = None
     hedge_algorithm: str | None = None
     hedge_schedule: str | None = None
+    # Per-decision router state and per-leg provenance for the revision
+    # measurements (docs/research/REVISION_MEASUREMENTS.md). All optional so
+    # baselines that do not solve the LP leave them empty.
+    latency_objective_ms: dict[str, float] | None = None
+    c_eff: dict[str, float] | None = None
+    c_min_usd: float | None = None
+    predicted_output_tokens: int | None = None
+    candidates: list[str] | None = None
+    quota_fraction_used: dict[str, float] | None = None
+    concurrency_in_flight: dict[str, int] | None = None
+    hedge_success_probability: float | None = None
+    primary_generation_id: str | None = None
+    backup_generation_id: str | None = None
 
     def to_csv_dict(self) -> dict[str, str]:
         def _maybe_json(value: Any) -> str:
@@ -224,6 +247,22 @@ class RequestLogRow:
             "model": self.model or "",
             "hedge_algorithm": self.hedge_algorithm or "",
             "hedge_schedule": self.hedge_schedule or "",
+            "latency_objective_ms": _maybe_json(self.latency_objective_ms),
+            "c_eff": _maybe_json(self.c_eff),
+            "c_min_usd": (f"{self.c_min_usd:.8f}" if self.c_min_usd is not None else ""),
+            "predicted_output_tokens": (
+                "" if self.predicted_output_tokens is None else str(self.predicted_output_tokens)
+            ),
+            "candidates": _maybe_json(self.candidates),
+            "quota_fraction_used": _maybe_json(self.quota_fraction_used),
+            "concurrency_in_flight": _maybe_json(self.concurrency_in_flight),
+            "hedge_success_probability": (
+                f"{self.hedge_success_probability:.6f}"
+                if self.hedge_success_probability is not None
+                else ""
+            ),
+            "primary_generation_id": self.primary_generation_id or "",
+            "backup_generation_id": self.backup_generation_id or "",
         }
 
 
@@ -401,6 +440,18 @@ class Recorder:
             model=ctx_model,
             hedge_algorithm=hedge_algorithm,
             hedge_schedule=hedge_schedule,
+            latency_objective_ms=getattr(decision, "latency_objective_ms", None),
+            c_eff=getattr(decision, "c_eff_map", None),
+            c_min_usd=getattr(decision, "c_min_usd", None),
+            predicted_output_tokens=getattr(decision, "predicted_output_tokens", None),
+            candidates=(
+                list(decision.candidates) if getattr(decision, "candidates", None) else None
+            ),
+            quota_fraction_used=getattr(decision, "quota_fraction_used", None),
+            concurrency_in_flight=getattr(decision, "concurrency_in_flight", None),
+            hedge_success_probability=getattr(decision, "hedge_success_probability", None),
+            primary_generation_id=primary_result.generation_id,
+            backup_generation_id=(backup_result.generation_id if backup_result else None),
         )
         # routing_estimated_cost_usd: sum of primary + backup LP estimates.
         # The recorder receives these as kwargs; sum them so default metrics can

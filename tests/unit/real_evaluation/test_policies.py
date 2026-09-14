@@ -780,3 +780,27 @@ def test_routing_cache_diagnostics_returns_zero_when_trace_field_missing() -> No
 
     assert policy.routing_cache_diagnostics("OR_cached", ctx_missing)[0] == 0
     assert policy.routing_cache_diagnostics("OR_cached", ctx_with_field)[0] == 40
+
+
+def test_budget_range_decision_records_router_state() -> None:
+    fast = _api_spec("OR_fast", 0.3, 1.2)
+    cheap = _api_spec("OR_cheap", 0.1, 0.5)
+    policy = BudgetRangePolicy([fast, cheap], slo_ms=3000.0, budget_percentile=50)
+    policy.set_cost_envelope((1.0e-4, 2.0e-4))
+    now = 100.0
+    for _ in range(10):
+        policy.add_sample("OR_fast", now, 400.0)
+        policy.add_sample("OR_cheap", now, 900.0)
+
+    decision = policy.route(now, RequestContext(prompt_tokens=100, completion_tokens_budget=64))
+
+    assert decision.candidates == ("OR_fast", "OR_cheap")
+    assert set(decision.latency_objective_ms) == {"OR_fast", "OR_cheap"}
+    assert decision.latency_objective_ms["OR_fast"] < decision.latency_objective_ms["OR_cheap"]
+    assert decision.c_min_usd is not None
+    assert decision.c_min_usd <= min(decision.c_eff_map.values()) + 1e-12
+    assert decision.predicted_output_tokens is not None
+    assert decision.predicted_output_tokens >= 1
+    assert decision.quota_fraction_used is None
+    assert decision.concurrency_in_flight is None
+    assert decision.hedge_success_probability is None

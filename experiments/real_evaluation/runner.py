@@ -1686,6 +1686,7 @@ class RealExperimentRunner:
                 prepared.hedge_delay_sec = elapsed_sec
                 decision.hedge = backup
                 decision.hedge_delay_sec = elapsed_sec
+                decision.hedge_success_probability = checkpoint_decision.success_probability
                 (
                     prepared.backup_cached_input_tokens,
                     prepared.backup_routing_estimated_cost_usd,

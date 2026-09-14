@@ -93,6 +93,7 @@ class SingleRequestResult:
     rate_limited: bool = False
     cache_read_tokens_observed: int | None = None
     cost_source: str = "missing"
+    generation_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.physical_cost_usd is None:
@@ -349,6 +350,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
         reported_cost_usd: float | None = None
         observed_cached_tokens: int | None = None
         reported_provider: str | None = None
+        generation_id: str | None = None
         saw_rate_limit = False
 
         if ttft_info is not None:
@@ -444,6 +446,12 @@ class OpenAICompatStreamingTransport(BaseTransport):
                     provider_field = chunk.get("provider")
                     if isinstance(provider_field, str):
                         reported_provider = provider_field
+                    # OpenRouter stamps every chunk with the generation id; keep it
+                    # so a canceled leg's real charge can be fetched afterwards
+                    # from /api/v1/generation?id=.
+                    chunk_id = chunk.get("id")
+                    if generation_id is None and isinstance(chunk_id, str) and chunk_id:
+                        generation_id = chunk_id
 
                     choices = chunk.get("choices") or []
                     if choices:
@@ -529,6 +537,7 @@ class OpenAICompatStreamingTransport(BaseTransport):
             rate_limited=saw_rate_limit,
             cache_read_tokens_observed=observed_cached_tokens,
             cost_source=cost_source,
+            generation_id=generation_id,
         )
 
     def _resolve_costs(
