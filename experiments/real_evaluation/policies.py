@@ -880,6 +880,7 @@ class RandomPolicy(BasePolicy):
         choice = random.Random(int(now * 1e6)).choice(candidates)
         return RoutingDecision(primary=choice, notes="random")
 
+
     def rate_limit_fallback_candidates(
         self,
         now: float,
@@ -897,6 +898,47 @@ class RandomPolicy(BasePolicy):
         rng.shuffle(candidates)
         return candidates
 
+class SingleProviderPolicy(BasePolicy):
+    """Pin every request to one metered API provider: ``single_<ProviderName>``.
+
+    The "buy one on-demand provider" baseline. No hedging, no fallback: when
+    the pinned provider is unavailable (cooldown after a 429) the request is
+    recorded as unrouted rather than spilling to another provider. Restricted
+    to ``tier == "api"`` so the launcher can treat it like the OR-only
+    baselines (no subscription keys, no fixed subscription cost).
+    """
+
+    def __init__(self, *, provider_name: str, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        state = self.states.get(provider_name)
+        if state is None:
+            raise ValueError(
+                f"single-provider policy: {provider_name!r} not in inventory "
+                f"({sorted(self.states)})"
+            )
+        if state.spec.tier != "api":
+            raise ValueError(
+                f"single-provider policy: {provider_name!r} has tier "
+                f"{state.spec.tier!r}; only metered 'api' providers are supported"
+            )
+        self.provider_name = provider_name
+        self.name = f"single_{provider_name}"
+
+    def route(self, now: float, ctx: RequestContext) -> RoutingDecision:
+        state = self.states[self.provider_name]
+        if not state.is_available(now):
+            return RoutingDecision(primary=None, notes="none_available")
+        return RoutingDecision(primary=self.provider_name, notes="single_provider")
+
+    def rate_limit_fallback_candidates(
+        self,
+        now: float,
+        ctx: RequestContext,
+        *,
+        excluded: set[str],
+    ) -> list[str]:
+        del now, ctx, excluded
+        return []
 
 class TierFirstPolicy(BasePolicy):
     """Fill preferred tier first, spill on exhaustion."""
@@ -1118,7 +1160,8 @@ def build_policy(
     Recognized names:
       * Baselines: ``or_auto``, ``or_sort_latency``, ``or_sort_cost``,
         ``greedy_cost``, ``greedy_latency``, ``random``, ``quota_first``,
-        ``concurrency_first``
+        ``concurrency_first``, ``single_<ProviderName>`` (one metered API
+        provider, no fallback)
       * Paper line: ``budget_range_alpha<PP>`` and
         ``budget_range_alpha<PP>_hedge`` (PP in ``[0, 100]``)
     """
@@ -1151,6 +1194,8 @@ def build_policy(
         return QuotaFirstPolicy(**common)
     if name == "concurrency_first":
         return ConcurrencyFirstPolicy(**common)
+    if name.startswith("single_"):
+        return SingleProviderPolicy(**common, provider_name=name[len("single_") :])
 
     if name.startswith("budget_range_alpha") and name.endswith("_hedge"):
         try:
@@ -1206,6 +1251,7 @@ __all__ = [
     "RandomPolicy",
     "RequestContext",
     "RoutingDecision",
+    "SingleProviderPolicy",
     "TierFirstPolicy",
     "build_policy",
     "request_cost_for_spec",

@@ -180,7 +180,7 @@ is_native_or_baseline() {
 
 requires_featherless_key() {
   case "$1" in
-    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
       return 1
       ;;
     *)
@@ -193,7 +193,7 @@ requires_featherless_key() {
 # MiniMax_Plus_SQ, etc.) need a dedicated native API key. OR-only baselines do not.
 requires_chutes_key() {
   case "$1" in
-    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
       return 1
       ;;
     *)

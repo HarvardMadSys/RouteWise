@@ -804,3 +804,31 @@ def test_budget_range_decision_records_router_state() -> None:
     assert decision.quota_fraction_used is None
     assert decision.concurrency_in_flight is None
     assert decision.hedge_success_probability is None
+
+
+def test_single_provider_policy_pins_one_api_provider_without_fallback() -> None:
+    """``single_<name>`` is the one-on-demand-provider baseline: every
+    request goes to the pinned metered provider, nothing spills elsewhere,
+    and pinning a subscription tier or an unknown name is rejected."""
+    cheap_or = _api_spec("OR_cheap", 0.05, 0.2)
+    expensive_or = _api_spec("OR_expensive", 0.5, 2.0)
+    sub = ProviderSpec(
+        name="Chutes_SQ",
+        tier="quota",
+        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
+        quota_window_sec=3600,
+        quota_requests=100,
+    )
+    specs = [cheap_or, expensive_or, sub]
+
+    policy = build_policy("single_OR_expensive", specs=specs, slo_ms=2000.0)
+    assert policy.name == "single_OR_expensive"
+    decision = policy.route(0.0, RequestContext(10, 8))
+    assert decision.primary == "OR_expensive"
+    assert decision.hedge is None
+    assert policy.rate_limit_fallback_candidates(0.0, RequestContext(10, 8), excluded=set()) == []
+
+    with pytest.raises(ValueError, match="only metered"):
+        build_policy("single_Chutes_SQ", specs=specs, slo_ms=2000.0)
+    with pytest.raises(ValueError, match="not in inventory"):
+        build_policy("single_OR_missing", specs=specs, slo_ms=2000.0)

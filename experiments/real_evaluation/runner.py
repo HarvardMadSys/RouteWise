@@ -2101,7 +2101,7 @@ class RealExperimentRunner:
         if fixed_cost <= 0.0:
             return {}
         return {
-            policy_name: 0.0 if policy_name.startswith("or_") else fixed_cost
+            policy_name: 0.0 if policy_name.startswith(("or_", "single_")) else fixed_cost
             for policy_name in self.policies
         }
 
