@@ -37,6 +37,21 @@ cp .env.example .env
 Fill in only the providers used by the run. The pure simulator path does not
 require API keys.
 
+`experiments/real_evaluation/data/pilot_or_minimax_m3_subscription_or6_true24h.json`
+is the paper's true-24h inventory moved to `minimax/minimax-m3`: on 2026-09-14
+OpenRouter listed only seven providers for M2.5 (six of the paper's eight pins had
+dropped the model) but thirteen for M3, at the same $0.30/$1.20 price point for
+most. Its six-provider API pool (Together, GMICloud, Minimax, AtlasCloud, Novita,
+StreamLake) came from a ten-minute uniform probe survey of all thirteen. Excluded:
+CoreWeave (fastest and cheapest at once, so every cost-aware policy would collapse
+onto it), Parasail and DeepInfra (two thirds of probes rate-limited on one key),
+Venice (30-40 s stalls), Mara (broken), and SambaNova and ModelRun (2-2.5x the
+standard price but no faster, which only inflates `c_max` and flattens the alpha
+sweep). The quota emulation pins Minimax on M3 at the same price. The
+`single_<Provider>` baseline (for example `single_OR_Together`) pins every request
+to one of these metered providers with no hedge and no fallback, as the
+"buy one on-demand provider" comparison point.
+
 The live real-evaluation replay defaults to the day-0 24-hour trace and its
 idle-compressed variants under `data/real_eval/`. Regenerate those inputs with:
 
