@@ -177,6 +177,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--p99-bar-out", type=Path, default=None)
     parser.add_argument("--cdf-out", type=Path, default=None)
     parser.add_argument(
+        "--label-offsets",
+        type=json.loads,
+        default=None,
+        help=(
+            "Optional JSON overriding label offsets (points) in the mean-TTFT frontier: "
+            '{"baselines": {"<policy>": [dx, dy]}, "routewise": {"<alpha>": [dx, dy]}}.'
+        ),
+    )
+    parser.add_argument(
+        "--cdf-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact policy names to include in the TTFT CDF. "
+            "Defaults to representative policies."
+        ),
+    )
+    parser.add_argument(
+        "--tier-policies",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional exact RouteWise policy names to include in the tier-mix figure. "
+            "Defaults to the no-hedging alpha sweep."
+        ),
+    )
+    parser.add_argument(
         "--boxplot-out",
         type=Path,
         default=None,
@@ -414,6 +441,7 @@ def plot_frontier(
     output_path: Path,
     baseline_policies: list[str] | None = None,
     routewise_policies: list[str] | None = None,
+    label_offsets: dict | None = None,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
@@ -423,6 +451,18 @@ def plot_frontier(
         kwargs.update(
             routewise_label_offsets=FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
             baseline_label_offsets=FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+        )
+    if label_offsets:
+        # Partial overrides; unlisted points keep the shared defaults.
+        kwargs.update(
+            routewise_label_offsets={
+                float(alpha): tuple(offset)
+                for alpha, offset in label_offsets.get("routewise", {}).items()
+            },
+            baseline_label_offsets={
+                policy: tuple(offset)
+                for policy, offset in label_offsets.get("baselines", {}).items()
+            },
         )
     plot_mean_ttft_frontier(
         selected_frontier_points(rows, mean_baselines, routewise_policies),
@@ -442,19 +482,31 @@ def plot_slo(
     plot_slo_frontier(points, output_path, figsize=figsize, margins=margins)
 
 
-def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
-    selected = routewise_rows(rows, hedging=False)
+def plot_tier_mix(
+    rows: list[Row],
+    output_path: Path,
+    policies: list[str] | None = None,
+) -> None:
+    if policies is None:
+        selected = routewise_rows(rows, hedging=False)
+    else:
+        wanted = set(policies)
+        selected = sorted(
+            (row for row in rows if row.alpha is not None and row.policy in wanted),
+            key=lambda row: (row.hedging, row.alpha or 0.0),
+        )
     mix_rows = [
         MixRow(
-            label="RouteWise-0.25"
-            if row.alpha == 0.25
-            else rf"RW $\alpha={row.alpha:g}$",
+            label=(
+                rf"RW+h $\alpha={row.alpha:g}$" if row.hedging else rf"RW $\alpha={row.alpha:g}$"
+            ),
             shares=row.tier_mix,
         )
         for row in selected
     ]
     segments = [MixSegment(key, label, color) for key, label, color in TIER_MIX_SEGMENTS]
-    plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3)
+    # x_max leaves the 100% tick label inside the canvas.
+    plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3, x_max=102.0)
 
 
 # Short forms shared with the real-eval provider-mix legend so both figures
@@ -669,17 +721,19 @@ def plot_ttft_cdf(
     rows: list[Row],
     histograms: dict[str, dict[str, object]],
     output_path: Path,
+    policies: list[str] | None = None,
 ) -> None:
+    cdf_policies = tuple(policies) if policies else CDF_POLICIES
     by_policy = {row.policy: row for row in rows}
     p99_values = [
         by_policy[policy].p99_ms
-        for policy in CDF_POLICIES
+        for policy in cdf_policies
         if policy in by_policy and policy != "random"
     ]
     x_max_sec = max(12.0, (max(p99_values) / 1000.0 * 1.05) if p99_values else 12.0)
     x_ms = [x_max_sec * 1000.0 * idx / 299.0 for idx in range(300)]
     series: list[CdfSeries] = []
-    for policy in CDF_POLICIES:
+    for policy in cdf_policies:
         histogram = histograms.get(policy)
         if histogram is None or policy not in by_policy:
             continue
@@ -833,6 +887,7 @@ def main() -> int:
         args.frontier_out,
         args.frontier_baselines,
         args.routewise_frontier_policies,
+        args.label_offsets,
     )
     plot_slo(
         rows,
@@ -841,7 +896,7 @@ def main() -> int:
         args.routewise_frontier_policies,
     )
     if args.tier_out is not None:
-        plot_tier_mix(rows, args.tier_out)
+        plot_tier_mix(rows, args.tier_out, args.tier_policies)
     if args.provider_latency_out is not None:
         plot_provider_latency(
             rows,
@@ -859,7 +914,7 @@ def main() -> int:
     if args.cdf_out is not None:
         if not histograms:
             raise SystemExit("--cdf-out requires --histograms-json")
-        plot_ttft_cdf(rows, histograms, args.cdf_out)
+        plot_ttft_cdf(rows, histograms, args.cdf_out, args.cdf_policies)
     if args.boxplot_out is not None:
         if not histograms:
             raise SystemExit("--boxplot-out requires --histograms-json")
