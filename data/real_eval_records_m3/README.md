@@ -48,22 +48,16 @@ The subscription fixed cost is prorated over the 24-hour window at $1.50 per
 non-OpenRouter policy (MiniMax Plus $20 and Featherless Premium $25 per
 30-day month), the value the run recorded; OpenRouter-only policies and
 `single_OR_Together` carry none. `reference_summary.json` holds the
-per-policy aggregates recomputed from these files with:
+per-policy aggregates recomputed from these files. Regenerate the six
+panels (cost frontiers, TTFT distribution, provider mix, provider TTFT,
+provider pricing) and check the aggregates with:
 
 ```bash
-uv run python -m plots.end_to_end.plot_real_world_frontier \
-    --input-dir data/real_eval_records_m3 \
-    --billing-duration-sec 86400 --fixed-cost-non-or 1.5 --slo-ms 3000 \
-    --routewise-plot-alphas 0 0.25 0.5 0.75 1 \
-    --policies budget_range_alpha0_hedge budget_range_alpha25_hedge \
-        budget_range_alpha50_hedge budget_range_alpha75_hedge \
-        budget_range_alpha100_hedge greedy_cost greedy_latency \
-        or_auto or_sort_latency or_sort_cost single_OR_Together \
-    --mean-ttft-out outputs/figures/real_world_m3/ttft.pdf \
-    --slo-out outputs/figures/real_world_m3/slo.pdf \
-    --table-out outputs/figures/real_world_m3/rows.tex \
-    --summary-out outputs/figures/real_world_m3/summary.json
+uv run python scripts/reproduce_real_world_m3.py
 ```
+
+Outputs go to `outputs/figures/real_world_m3/`. Unlike the paper's Figure 7a,
+the provider-TTFT panel here is aggregated from these request records.
 
 Regenerated from the run archive with
 `scripts/export_ae_data.py real-eval-records --inventory experiments/real_evaluation/data/pilot_or_minimax_m3_subscription_or6_true24h.json`,
