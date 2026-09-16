@@ -23,6 +23,13 @@ profiles:
     metadata: minimax_m25_shared_profile_8h.json
     price_source: static_from_inventory
 
+  minimax_m3_shared_profile_24h:
+    model: minimax/minimax-m3
+    source: real_eval_minimax_m3_burstgpt_day0_24h
+    artifact: minimax_m3_shared_profile_24h.npz
+    metadata: minimax_m3_shared_profile_24h.json
+    price_source: static_from_inventory
+
 pools:
   rw3:
     description: "Small real-world S_A pool with clear latency spread."
@@ -96,6 +103,19 @@ pools:
       - SiliconFlow
       - AkashML
       - WandB
+
+  minimax_m3_rw6:
+    description: "MiniMax M3 OpenRouter S_A pool: the six metered providers of the 2026-09-15 24h real-eval rerun."
+    profile: minimax_m3_shared_profile_24h
+    pricing:
+      source: metadata_openrouter_price
+    providers:
+      - Minimax
+      - Together
+      - GMICloud
+      - AtlasCloud
+      - Novita
+      - StreamLake
 
 pooled:
   rw8_pooled:

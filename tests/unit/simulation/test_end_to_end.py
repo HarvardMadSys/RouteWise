@@ -17,7 +17,31 @@ def test_end_to_end_scenarios_match_section_contract():
         "end_to_end_rw3",
         "end_to_end_3sa_cost_tiers",
         "end_to_end_rw8",
+        "end_to_end_m3_rw6",
     )
+
+
+def test_end_to_end_m3_rw6_takes_every_tier_from_the_m3_profile():
+    """The M3 rerun measured all three tiers in one run, so the scenario must
+    not fall back to the MiniMax M2.5 subscription probes for quota and
+    concurrency."""
+    scenario = end_to_end.make_scenario("end_to_end_m3_rw6")
+
+    assert scenario.metadata["real_world_pool"] == "minimax_m3_rw6"
+    assert scenario.metadata["api_provider_count"] == 6
+    assert scenario.metadata["api_price_source"] == "metadata_openrouter_price"
+    assert scenario.metadata["subscription_plan"] == "minimax_subscription_plus"
+    assert scenario.metadata["concurrency_plan"] == "featherless_premium"
+    assert scenario.metadata["latency_profile"] == "minimax_m3_shared_profile_24h"
+    assert [provider.tier for provider in scenario.providers] == [
+        ProviderTier.S_Q,
+        ProviderTier.S_C,
+        *[ProviderTier.S_A] * 6,
+    ]
+    labels = [provider.ttft_dist.label for provider in scenario.providers]
+    assert labels[0] == "minimax_m3_shared_profile_24h/MiniMax_Plus_SQ"
+    assert labels[1] == "minimax_m3_shared_profile_24h/Featherless_SC"
+    assert all(label.startswith("minimax_m3_shared_profile_24h/") for label in labels)
 
 
 def test_end_to_end_rw3_uses_one_api_plus_quota_and_concurrency():

@@ -67,9 +67,11 @@ PUBLIC_SCENARIO_TAG = "end_to_end"
 RW3_SCENARIO_NAME = "end_to_end_rw3"
 COST_TIERED_SCENARIO_NAME = "end_to_end_3sa_cost_tiers"
 RW8_SCENARIO_NAME = "end_to_end_rw8"
+M3_RW6_SCENARIO_NAME = "end_to_end_m3_rw6"
 RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
+MINIMAX_M3_RW6_POOL_NAME = "minimax_m3_rw6"
 
 # Match the live real-eval setup: one Chutes quota subscription and one
 # Featherless Premium account, whose ge_70b weighted capacity admits one
@@ -83,6 +85,12 @@ DEFAULT_ROUTEWISE_ALPHA_VALUES = P_SWEEP
 DEFAULT_SLO_MS = DEFAULT_PRIMARY_SLO_MS
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
+# The MiniMax M3 rerun measured its own quota and concurrency tiers, so that
+# scenario takes all three tiers from one profile instead of the M2.5 probes.
+MINIMAX_M3_SUBSCRIPTION_PROFILE = "minimax_m3_shared_profile_24h"
+MINIMAX_M3_QUOTA_PLAN = "minimax_subscription_plus"
+MINIMAX_M3_QUOTA_PROFILE_PROVIDER = "MiniMax_Plus_SQ"
+MINIMAX_M3_CONCURRENCY_PROFILE_PROVIDER = "Featherless_SC"
 _SCENARIO_KWARGS_PRESET_KEY = "__end_to_end_scenario_kwargs__"
 
 _QUOTA_PROFILE_PROVIDER_KEYS = {
@@ -110,6 +118,7 @@ def list_scenarios() -> tuple[str, ...]:
         RW3_SCENARIO_NAME,
         COST_TIERED_SCENARIO_NAME,
         RW8_SCENARIO_NAME,
+        M3_RW6_SCENARIO_NAME,
     )
 
 
@@ -200,6 +209,27 @@ def make_scenario(
                 concurrency_count=concurrency_count,
                 model=model,
                 slo_ms=slo_ms,
+            ),
+            enabled=prefix_cache_enabled,
+            cached_input_price_fraction=cached_input_price_fraction,
+        )
+    if name == M3_RW6_SCENARIO_NAME:
+        return _with_prefix_cache_config(
+            _make_end_to_end_scenario(
+                scenario_name=name,
+                pool_name=MINIMAX_M3_RW6_POOL_NAME,
+                api_provider_limit=None,
+                quota_plan_id=(
+                    MINIMAX_M3_QUOTA_PLAN if quota_plan == DEFAULT_QUOTA_PLAN else quota_plan
+                ),
+                quota_count=quota_count,
+                concurrency_plan_id=concurrency_plan,
+                concurrency_count=concurrency_count,
+                model=model,
+                slo_ms=slo_ms,
+                subscription_profile=MINIMAX_M3_SUBSCRIPTION_PROFILE,
+                quota_profile_provider=MINIMAX_M3_QUOTA_PROFILE_PROVIDER,
+                concurrency_profile_provider=MINIMAX_M3_CONCURRENCY_PROFILE_PROVIDER,
             ),
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
@@ -347,6 +377,9 @@ def _make_end_to_end_scenario(
     api_specs: tuple[tuple[str, str, float, float], ...] | None = None,
     api_price_source: str | None = None,
     slo_ms: float = DEFAULT_SLO_MS,
+    subscription_profile: str = SUBSCRIPTION_LATENCY_PROFILE,
+    quota_profile_provider: str | None = None,
+    concurrency_profile_provider: str | None = None,
 ) -> ScenarioConfig:
     plans = load_subscription_plans()
     quota_plan = _require_plan(plans, quota_plan_id, tier="quota")
@@ -440,16 +473,20 @@ def _make_end_to_end_scenario(
         model=model,
         latency_family="heavy_tail",
     )
-    quota_profile_key = _subscription_latency_profile_key(quota_plan.plan_id)
-    concurrency_profile_key = _subscription_latency_profile_key(concurrency_plan.plan_id)
+    quota_profile_key = quota_profile_provider or _subscription_latency_profile_key(
+        quota_plan.plan_id
+    )
+    concurrency_profile_key = concurrency_profile_provider or _subscription_latency_profile_key(
+        concurrency_plan.plan_id
+    )
     if quota_profile_key is not None:
         quota_provider.ttft_dist = load_empirical_distribution(
-            SUBSCRIPTION_LATENCY_PROFILE,
+            subscription_profile,
             quota_profile_key,
         )
     if concurrency_profile_key is not None:
         concurrency_provider.ttft_dist = load_empirical_distribution(
-            SUBSCRIPTION_LATENCY_PROFILE,
+            subscription_profile,
             concurrency_profile_key,
         )
 
@@ -496,7 +533,7 @@ def _make_end_to_end_scenario(
                 if concurrency_provider.concurrency is not None
                 else 0
             ),
-            "latency_profile": SUBSCRIPTION_LATENCY_PROFILE,
+            "latency_profile": subscription_profile,
             "quota_latency_profile_provider": quota_profile_key,
             "concurrency_latency_profile_provider": concurrency_profile_key,
             "api_latency_family": "real_world",
