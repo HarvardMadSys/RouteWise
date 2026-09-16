@@ -93,7 +93,7 @@ def _write_checksums(root: Path, files: list[Path]) -> None:
     (root / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def export_real_eval_records(source: Path, dest: Path) -> int:
+def export_real_eval_records(source: Path, dest: Path, inventory: str | None = None) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     policies = sorted(p.parent.name for p in source.glob("*/requests.csv"))
@@ -122,6 +122,8 @@ def export_real_eval_records(source: Path, dest: Path) -> int:
         kept = {key: args[key] for key in RECORD_ARGS_KEYS if key in args}
         if "policy" in kept:
             kept["policy"] = exported_name
+        if inventory is not None and "inventory" in kept:
+            kept["inventory"] = inventory
         (policy_dir / "args.json").write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
         written.append(policy_dir / "args.json")
 
@@ -171,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     records = subparsers.add_parser("real-eval-records", help="Export the 24h replay records.")
     records.add_argument("--source", type=Path, required=True, help="Private run directory.")
     records.add_argument("--dest", type=Path, default=ROOT_DIR / "data" / "real_eval_records")
+    records.add_argument(
+        "--inventory",
+        default=None,
+        help="Repository inventory path written to the exported args.json in place of the run's.",
+    )
 
     trace = subparsers.add_parser("prod-trace", help="Export the de-identified PROD trace.")
     trace.add_argument("--source", type=Path, required=True, help="Private trace JSONL.")
@@ -178,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "real-eval-records":
-        return export_real_eval_records(args.source, args.dest)
+        return export_real_eval_records(args.source, args.dest, inventory=args.inventory)
     return export_prod_trace(args.source, args.dest)
 
 

@@ -60,7 +60,9 @@ def test_prod_export_removes_private_fields_without_changing_replay(tmp_path):
         assert original == published
 
 
-@pytest.mark.parametrize("directory", ["data", "data/real_eval_records"])
+@pytest.mark.parametrize(
+    "directory", ["data", "data/real_eval_records", "data/real_eval_records_m3"]
+)
 def test_committed_data_checksums(directory):
     root = ROOT / directory
     entries = (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
@@ -96,10 +98,14 @@ def test_committed_prod_schema_and_filtered_population():
     assert requests[-1].timestamp == pytest.approx(608638.2867529392)
 
 
-def test_committed_real_records_have_only_release_fields():
-    root = ROOT / "data/real_eval_records"
+@pytest.mark.parametrize(
+    ("directory", "n_policies"),
+    [("data/real_eval_records", 10), ("data/real_eval_records_m3", 11)],
+)
+def test_committed_real_records_have_only_release_fields(directory, n_policies):
+    root = ROOT / directory
     paths = sorted(root.glob("*/requests.csv"))
-    assert len(paths) == 10
+    assert len(paths) == n_policies
     for path in paths:
         with path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
