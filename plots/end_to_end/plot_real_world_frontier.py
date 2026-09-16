@@ -378,7 +378,7 @@ def table_label(policy: str, alpha: float | None) -> str:
 
 
 def fixed_cost_for_policy(policy: str, args: argparse.Namespace) -> float:
-    if policy.startswith("or_"):
+    if policy.startswith(("or_", "single_")):
         return 0.0
     if args.fixed_cost_non_or is not None:
         return args.fixed_cost_non_or
