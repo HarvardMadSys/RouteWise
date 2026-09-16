@@ -61,6 +61,9 @@ SPEEDUP="${SPEEDUP:-1.0}"
 QUOTA_WINDOW_ANCHOR="${QUOTA_WINDOW_ANCHOR:-wall_clock}"
 # Optional inventory-SLO override. When set, passes --slo-ms to every runner
 # process. Useful for SLO ablations without editing the inventory file.
+# A single policy can override it with a "__slo<ms>" suffix in POLICY_LIST,
+# so one pass can sweep the SLO for the same policy:
+#   POLICY_LIST="budget_range_alpha50_hedge__slo2000 budget_range_alpha50_hedge__slo5000"
 SLO_MS="${SLO_MS:-}"
 # Optional wall-clock cap on the replay phase. Defensive: if a policy hangs
 # the runner stops dispatching new trace requests after this many seconds.
@@ -120,6 +123,22 @@ DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_alpha0_hedge
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
 
+# A POLICY_LIST entry may carry a per-process SLO as a "__slo<ms>" suffix.
+# The suffixed label is the process identity (output directory, policies.txt,
+# key assignments); the base name is what the runner's --policy expects, so
+# the same policy can appear several times at different SLOs in one pass.
+policy_base() {
+  printf '%s' "${1%%__slo*}"
+}
+
+policy_slo_override() {
+  local suffix="${1#*__slo}"
+  if [[ "$suffix" == "$1" ]]; then
+    return 0
+  fi
+  printf '%s' "$suffix"
+}
+
 if [[ ! -f "$TRACE" ]]; then
   echo "TRACE file not found: $TRACE" >&2
   echo "Set TRACE to an existing JSONL workload before starting real eval." >&2
@@ -165,10 +184,15 @@ for policy in "${POLICIES[@]}"; do
     echo "inventory file not found for policy $policy: $policy_inventory" >&2
     exit 2
   fi
+  policy_slo="$(policy_slo_override "$policy")"
+  if [[ -n "$policy_slo" && ! "$policy_slo" =~ ^[1-9][0-9]*$ ]]; then
+    echo "invalid __slo suffix for policy $policy: ${policy_slo:-<empty>}" >&2
+    exit 2
+  fi
 done
 
 is_native_or_baseline() {
-  case "$1" in
+  case "$(policy_base "$1")" in
     or_auto|or_sort_latency|or_sort_cost|or_sort_throughput)
       return 0
       ;;
@@ -179,7 +203,7 @@ is_native_or_baseline() {
 }
 
 requires_featherless_key() {
-  case "$1" in
+  case "$(policy_base "$1")" in
     or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
       return 1
       ;;
@@ -192,7 +216,7 @@ requires_featherless_key() {
 # Joint-pool policies that use the inventory quota tier (Chutes_SQ or
 # MiniMax_Plus_SQ, etc.) need a dedicated native API key. OR-only baselines do not.
 requires_chutes_key() {
-  case "$1" in
+  case "$(policy_base "$1")" in
     or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
       return 1
       ;;
@@ -578,6 +602,12 @@ for i in "${!POLICIES[@]}"; do
     dedicated_or_idx=$((dedicated_or_idx + 1))
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" "$policy_inventory" >> "$ASSIGNMENTS_PATH"
+  policy_slo_args=()
+  policy_slo="$(policy_slo_override "$policy")"
+  if [[ -n "$policy_slo" ]]; then
+    # Placed after EXTRA_RUNNER_ARGS: argparse keeps the last --slo-ms.
+    policy_slo_args=(--slo-ms "$policy_slo")
+  fi
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
   echo "launching $policy -> $out (start_delay=${start_delay}s)"
@@ -595,7 +625,7 @@ for i in "${!POLICIES[@]}"; do
     CHUTES_API_KEY="$chutes_for_run" MINIMAX_API_KEY="$minimax_for_run" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
       --inventory "$policy_inventory" \
       --trace "$TRACE" \
-      --policy "$policy" \
+      --policy "$(policy_base "$policy")" \
       --output "$out" \
       --speedup "$SPEEDUP" \
       --max-cost-usd "$MAX_COST_USD" \
@@ -605,6 +635,7 @@ for i in "${!POLICIES[@]}"; do
       "${SHARED_PROFILE_ARGS[@]}" \
       "${TRACE_ARGS[@]}" \
       "${EXTRA_RUNNER_ARGS[@]}" \
+      "${policy_slo_args[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
       --min-profile-success-samples "$MIN_PROFILE_SUCCESS_SAMPLES" \
