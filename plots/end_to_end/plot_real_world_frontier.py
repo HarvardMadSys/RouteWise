@@ -31,6 +31,7 @@ from statistics import mean
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgb
+from matplotlib.patches import Patch
 
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
@@ -74,6 +75,7 @@ POLICY_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
+    "single_OR_Together": "Together-only",
 }
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
@@ -154,6 +156,7 @@ class ProviderDiagnostics:
     n: int
     share: float
     mean_ttft_ms: float
+    p99_ttft_ms: float
     input_price_per_m: float | None
     cached_input_price_per_m: float | None
     output_price_per_m: float | None
@@ -278,6 +281,48 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--slo-ms", type=float, default=3000.0)
+    parser.add_argument(
+        "--drop-failed-mix",
+        action="store_true",
+        help=(
+            "Leave requests that failed before any provider served them (recorded under "
+            "the policy's own sentinel name) out of the provider-mix figure."
+        ),
+    )
+    parser.add_argument(
+        "--provider-latency-p99",
+        action="store_true",
+        help=(
+            "Draw the tail (P99) TTFT beside the mean in the provider latency panel. "
+            "Ignored when --provider-latency-values-json supplies the values."
+        ),
+    )
+    parser.add_argument(
+        "--provider-latency-xmax",
+        type=float,
+        default=None,
+        help="Upper x-limit (seconds) for the provider mean-TTFT panel; default fits 6 s.",
+    )
+    parser.add_argument(
+        "--emphasize-routewise",
+        action="store_true",
+        help="Draw the RouteWise curve heavier and the baselines lighter in the mean-TTFT frontier.",
+    )
+    parser.add_argument(
+        "--frontier-x-max",
+        type=float,
+        default=None,
+        help="Right x-limit (normalized cost) of the mean-TTFT frontier, to make room for labels.",
+    )
+    parser.add_argument(
+        "--label-offsets",
+        type=json.loads,
+        default=None,
+        help=(
+            "Optional JSON overriding label offsets (points) in the mean-TTFT frontier: "
+            '{"baselines": {"<policy>": [dx, dy]}, "routewise": {"<alpha>": [dx, dy]}}.'
+        ),
+    )
     parser.add_argument(
         "--billing-duration-sec",
         type=float,
@@ -510,6 +555,8 @@ def provider_mix_legend_label(provider: str) -> str:
         "OR_Novita": "Novita",
         "OR_Phala": "Phala",
         "OR_SiliconFlow": "SFlow",
+        "OR_GMICloud": "GMI",
+        "OR_StreamLake": "SLake",
     }
     return labels.get(provider, provider_label(provider))
 
@@ -579,6 +626,8 @@ def provider_mix_by_policy(
                 row.get("actual_provider") or row.get("primary_provider") or "",
                 hint_to_name=hint_to_name,
             )
+            if args.drop_failed_mix and provider.startswith("__"):
+                continue
             counts[provider] += 1
             total_counts[provider] += 1
         per_policy[policy_dir.name] = counts
@@ -669,6 +718,7 @@ def provider_diagnostics(
                 n=counts.get(provider, 0),
                 share=(counts.get(provider, 0) / total) if total else 0.0,
                 mean_ttft_ms=mean(ttft) if ttft else float("nan"),
+                p99_ttft_ms=percentile(ttft, 99.0) if ttft else float("nan"),
                 input_price_per_m=info.input_price_per_m if info else None,
                 cached_input_price_per_m=(info.cached_input_price_per_m if info else None),
                 output_price_per_m=info.output_price_per_m if info else None,
@@ -750,10 +800,21 @@ def load_provider_latency_values(path: Path) -> list[tuple[str, float]]:
     return values
 
 
+def latency_ticks(xmax: float) -> list[float]:
+    """Round tick positions covering ``[0, xmax]``, at most five of them."""
+    for step in (0.25, 0.5, 1.0, 2.0, 2.5, 5.0):
+        if xmax / step <= 5.0:
+            break
+    count = int(xmax / step)
+    return [step * index for index in range(count + 1)]
+
+
 def plot_provider_latency(
     diagnostics: list[ProviderDiagnostics],
     output_path: Path,
     values_sec: list[tuple[str, float]] | None = None,
+    xmax: float | None = None,
+    show_p99: bool = False,
 ) -> None:
     apply_style("paper")
     plt.rcParams.update(
@@ -766,13 +827,19 @@ def plot_provider_latency(
             "savefig.pad_inches": 0.01,
         }
     )
+    p99_by_provider: dict[str, float] = {}
     if values_sec is None:
-        values_sec = [
-            (item.provider, item.mean_ttft_ms / 1000.0)
-            for item in diagnostics
-            if item.n > 0 and not math.isnan(item.mean_ttft_ms)
-        ]
-        values_sec = sorted(values_sec, key=lambda item: item[1])
+        usable = [item for item in diagnostics if item.n > 0 and not math.isnan(item.mean_ttft_ms)]
+        values_sec = sorted(
+            ((item.provider, item.mean_ttft_ms / 1000.0) for item in usable),
+            key=lambda item: item[1],
+        )
+        if show_p99:
+            p99_by_provider = {
+                item.provider: item.p99_ttft_ms / 1000.0
+                for item in usable
+                if not math.isnan(item.p99_ttft_ms)
+            }
     labels = [provider_mix_legend_label(provider) for provider, _ in values_sec]
     values = [value for _, value in values_sec]
     colors = [
@@ -782,12 +849,61 @@ def plot_provider_latency(
 
     fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
     y = list(range(len(values_sec)))
-    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.62)
+    plotted = list(values)
+    if p99_by_provider:
+        tails = [p99_by_provider.get(provider, 0.0) for provider, _ in values_sec]
+        plotted += tails
+        ax.barh(
+            [pos - 0.17 for pos in y],
+            values,
+            color=colors,
+            edgecolor="white",
+            linewidth=0.35,
+            height=0.32,
+            label="Mean",
+        )
+        ax.barh(
+            [pos + 0.17 for pos in y],
+            tails,
+            color=[lightened_provider_color(color) for color in colors],
+            edgecolor="white",
+            linewidth=0.35,
+            height=0.32,
+            label="P99",
+        )
+        handles = [
+            Patch(facecolor="#4d4d4d", edgecolor="white", linewidth=0.35, label="Mean"),
+            Patch(
+                facecolor=lightened_provider_color("#4d4d4d"),
+                edgecolor="white",
+                linewidth=0.35,
+                label="P99",
+            ),
+        ]
+        ax.legend(
+            handles=handles,
+            loc="upper right",
+            fontsize=8.5,
+            frameon=True,
+            framealpha=0.85,
+            edgecolor="none",
+            handlelength=1.1,
+            handleheight=0.9,
+            borderpad=0.35,
+            labelspacing=0.25,
+        )
+    else:
+        ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.62)
     ax.set_yticks(y, labels)
     ax.invert_yaxis()
-    ax.set_xlabel("Mean TTFT (s)")
-    ax.set_xlim(0, max(6.0, max(values) * 1.08))
-    ax.set_xticks([0, 2, 4, 6])
+    ax.set_xlabel("TTFT (s)" if p99_by_provider else "Mean TTFT (s)")
+    if xmax is None:
+        ax.set_xlim(0, max(6.0, max(plotted) * 1.08))
+        ax.set_xticks([0, 2, 4, 6])
+    else:
+        ax.set_xlim(0, xmax)
+        ticks = latency_ticks(xmax)
+        ax.set_xticks(ticks, [f"{tick:g}" for tick in ticks])
     ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
@@ -1207,6 +1323,9 @@ def plot_metric_frontier(
     xlabel: str,
     routewise_alphas: tuple[float, ...],
     title: str | None = None,
+    label_offsets: dict | None = None,
+    emphasize_routewise: bool = False,
+    x_max: float | None = None,
 ) -> None:
     if title:
         raise ValueError("shared frontier plots do not support per-panel titles")
@@ -1220,6 +1339,17 @@ def plot_metric_frontier(
     if attr == "ttft_mean_ms":
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
         kwargs["figsize"] = PAPER_PANEL_FIGSIZE
+        kwargs["emphasize_routewise"] = emphasize_routewise
+        kwargs["x_max"] = x_max
+        if label_offsets:
+            kwargs["baseline_label_offsets"] = {
+                policy: tuple(offset)
+                for policy, offset in label_offsets.get("baselines", {}).items()
+            }
+            kwargs["routewise_label_offsets"] = {
+                float(alpha): tuple(offset)
+                for alpha, offset in label_offsets.get("routewise", {}).items()
+            }
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         figsize, margins = aligned_panel_geometry(len(points))
@@ -1264,6 +1394,9 @@ def main() -> int:
         ylabel="Mean TTFT (s)",
         xlabel=args.x_label,
         routewise_alphas=tuple(args.routewise_plot_alphas),
+        label_offsets=args.label_offsets,
+        emphasize_routewise=args.emphasize_routewise,
+        x_max=args.frontier_x_max,
     )
     plot_metric_frontier(
         summaries,
@@ -1307,7 +1440,13 @@ def main() -> int:
             if args.provider_latency_values_json is not None
             else None
         )
-        plot_provider_latency(diagnostics, args.provider_latency_out, values_sec)
+        plot_provider_latency(
+            diagnostics,
+            args.provider_latency_out,
+            values_sec,
+            xmax=args.provider_latency_xmax,
+            show_p99=args.provider_latency_p99,
+        )
         print(f"wrote {args.provider_latency_out}")
     if args.provider_pricing_out is not None:
         plot_provider_pricing(providers, args.provider_pricing_out)

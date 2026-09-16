@@ -77,6 +77,7 @@ DEFAULT_BASELINE_ORDER = (
     "or_auto",
     "or_sort_latency",
     "or_sort_cost",
+    "single_OR_Together",
     "random",
 )
 POLICY_PLOT_LABELS = {
@@ -86,6 +87,7 @@ POLICY_PLOT_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
+    "single_OR_Together": "Together-only",
 }
 POLICY_COLORS = {
     "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
@@ -95,6 +97,7 @@ POLICY_COLORS = {
     "or_auto": "#ff7f0e",
     "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#17becf"),
     "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#e377c2"),
+    "single_OR_Together": "#8c564b",
 }
 # The paper's front-page Figure 1 (frontier + SLO bars) uses its own palette.
 FRONT_PAGE_POLICY_COLORS = {
@@ -103,6 +106,7 @@ FRONT_PAGE_POLICY_COLORS = {
     "or_auto": "#cc7a8f",
     "or_sort_cost": "#ad8a1f",
     "or_sort_latency": "#7e3f9d",
+    "single_OR_Together": "#8c564b",
 }
 POLICY_MARKERS = {
     "greedy_cost": "s",
@@ -110,6 +114,7 @@ POLICY_MARKERS = {
     "or_auto": "D",
     "or_sort_cost": "D",
     "or_sort_latency": "D",
+    "single_OR_Together": "^",
     "random": "x",
 }
 BASELINE_LABEL_OFFSET = (4, 3)
@@ -154,6 +159,7 @@ CDF_LINESTYLES = {
     "or_auto": (0, (1.5, 1.5)),
     "or_sort_cost": (0, (5, 2)),
     "or_sort_latency": (0, (3, 1.2, 1, 1.2)),
+    "single_OR_Together": (0, (6, 1.2, 1, 1.2, 1, 1.2)),
     "random": (0, (1, 1.2)),
 }
 PROVIDER_COLOR_CYCLE = (
@@ -180,6 +186,10 @@ PROVIDER_MIX_COLORS = {
     "OR_Novita": "#e377c2",
     "OR_Phala": "#bcbd22",
     "OR_SiliconFlow": "#7f7f7f",
+    "OR_Minimax": "#1f77b4",
+    "OR_GMICloud": "#8e63b0",
+    "OR_Together": "#17becf",
+    "OR_StreamLake": "#7f7f7f",
 }
 TIER_MIX_SEGMENTS = (
     ("quota", r"$\mathcal{P}_Q$", TIER_COLORS.get("quota", "#2ca02c")),
@@ -345,6 +355,7 @@ def _annotate_baseline(
     *,
     label_offsets: Mapping[str, tuple[int, int]] | None = None,
     palette: Mapping[str, str] | None = None,
+    muted: bool = False,
 ) -> None:
     offset = (label_offsets or {}).get(
         point.policy,
@@ -358,7 +369,7 @@ def _annotate_baseline(
         (point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
-        fontsize=ANNOTATION_FONT_SIZE,
+        fontsize=ANNOTATION_FONT_SIZE - 1.0 if muted else ANNOTATION_FONT_SIZE,
         color=policy_color(point.policy, palette=palette),
         ha="center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left"),
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
@@ -424,6 +435,7 @@ def _plot_routewise_group(
     marker: str,
     label: str,
     annotate_count: int,
+    emphasize: bool = False,
 ) -> None:
     if not points:
         return
@@ -433,8 +445,8 @@ def _plot_routewise_group(
             [point.total_cost_usd for point in ordered],
             [metric_value(point, attr) for point in ordered],
             color=ROUTEWISE_COLOR,
-            linewidth=1.0,
-            alpha=0.85,
+            linewidth=1.7 if emphasize else 1.0,
+            alpha=0.95 if emphasize else 0.85,
             zorder=2,
         )
     for point in ordered:
@@ -502,6 +514,8 @@ def plot_metric_frontier(
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
     figsize: tuple[float, float] = COLUMN_FIGSIZE,
     policy_colors: Mapping[str, str] | None = None,
+    emphasize_routewise: bool = False,
+    x_max: float | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -533,6 +547,7 @@ def plot_metric_frontier(
         marker="o",
         label="RouteWise",
         annotate_count=routewise_count,
+        emphasize=emphasize_routewise,
     )
     _plot_routewise_group(
         ax,
@@ -543,13 +558,14 @@ def plot_metric_frontier(
         marker="s" if routewise_no_hedge else "o",
         label="RouteWise + hedge",
         annotate_count=routewise_count,
+        emphasize=emphasize_routewise,
     )
     for point in baselines:
         ax.scatter(
             point.total_cost_usd,
             metric_value(point, attr),
             marker=policy_marker(point.policy),
-            s=24,
+            s=14 if emphasize_routewise else 24,
             color=policy_color(point.policy, palette=policy_colors),
             edgecolor="white",
             linewidth=0.5,
@@ -561,6 +577,7 @@ def plot_metric_frontier(
             attr,
             label_offsets=baseline_label_offsets,
             palette=policy_colors,
+            muted=emphasize_routewise,
         )
     for point in [*routewise_no_hedge, *routewise_hedged]:
         _annotate_routewise(
@@ -575,6 +592,8 @@ def plot_metric_frontier(
     ax.set_ylabel(ylabel)
     ax.grid(True, linewidth=0.35, alpha=0.35)
     _pad_axes(ax)
+    if x_max is not None:
+        ax.set_xlim(right=x_max)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
