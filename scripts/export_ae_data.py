@@ -64,8 +64,10 @@ HEDGE_LEG_FIELDS = (
     "hedge_delay_ms",
     "primary_ttft_ms",
     "backup_ttft_ms",
+    "loser_provider",
     "loser_billed_cost_usd",
     "loser_physical_cost_usd",
+    "loser_estimated_cost_usd",
 )
 
 TRACE_FIELDS = (
@@ -203,11 +205,18 @@ def export_hedge_legs(source: Path, dest: Path, policies: list[str] | None = Non
                         "hedge_delay_ms": row.get("hedge_delay_ms") or "",
                         "primary_ttft_ms": _leg_ttft_ms(row, "primary"),
                         "backup_ttft_ms": _leg_ttft_ms(row, "backup"),
+                        "loser_provider": (row.get(f"{loser}_provider") or "" if loser else ""),
                         "loser_billed_cost_usd": (
                             row.get(f"{loser}_cost_usd") or "" if loser else ""
                         ),
                         "loser_physical_cost_usd": (
                             row.get(f"{loser}_physical_cost_usd") or "" if loser else ""
+                        ),
+                        # What the router predicted that leg would cost if it
+                        # ran to completion; the upper bound on what cancelling
+                        # it saved.
+                        "loser_estimated_cost_usd": (
+                            row.get(f"{loser}_routing_estimated_cost_usd") or "" if loser else ""
                         ),
                     }
                 )

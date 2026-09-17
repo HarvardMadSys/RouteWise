@@ -16,7 +16,11 @@
     "billed_cost_usd": 0.9555288400000032,
     "total_cost_usd": 2.455528840000003,
     "hedge_extra_cost_usd": 0.00425536,
+    "hedge_extra_cost_usd_upper": 0.16729068,
     "hedge_extra_cost_share_of_billed": 0.004453408229938916,
+    "hedge_extra_cost_share_of_billed_upper": 0.17507653667470618,
+    "metered_losing_legs": 543,
+    "metered_losing_legs_reporting_zero": 509,
     "censored_hedges": 52
   },
   {
@@ -36,7 +40,11 @@
     "billed_cost_usd": 1.1366434200000086,
     "total_cost_usd": 2.6366434200000084,
     "hedge_extra_cost_usd": 0.00416511,
+    "hedge_extra_cost_usd_upper": 0.1846094999999999,
     "hedge_extra_cost_share_of_billed": 0.0036643945908735108,
+    "hedge_extra_cost_share_of_billed_upper": 0.1624163715301308,
+    "metered_losing_legs": 592,
+    "metered_losing_legs_reporting_zero": 563,
     "censored_hedges": 35
   },
   {
@@ -56,7 +64,11 @@
     "billed_cost_usd": 1.4142064399999974,
     "total_cost_usd": 2.9142064399999974,
     "hedge_extra_cost_usd": 0.0045409000000000005,
+    "hedge_extra_cost_usd_upper": 0.16646316000000003,
     "hedge_extra_cost_share_of_billed": 0.0032109173537634354,
+    "hedge_extra_cost_share_of_billed_upper": 0.11770782206309309,
+    "metered_losing_legs": 479,
+    "metered_losing_legs_reporting_zero": 449,
     "censored_hedges": 28
   },
   {
@@ -76,7 +88,11 @@
     "billed_cost_usd": 1.6335556600000043,
     "total_cost_usd": 3.1335556600000043,
     "hedge_extra_cost_usd": 0.00175574,
+    "hedge_extra_cost_usd_upper": 0.16396043999999999,
     "hedge_extra_cost_share_of_billed": 0.001074796557590205,
+    "hedge_extra_cost_share_of_billed_upper": 0.10037028061841465,
+    "metered_losing_legs": 493,
+    "metered_losing_legs_reporting_zero": 480,
     "censored_hedges": 22
   },
   {
@@ -96,7 +112,11 @@
     "billed_cost_usd": 1.7521221500000073,
     "total_cost_usd": 3.252122150000007,
     "hedge_extra_cost_usd": 0.00220706,
+    "hedge_extra_cost_usd_upper": 0.14325485999999998,
     "hedge_extra_cost_share_of_billed": 0.0012596496197482526,
+    "hedge_extra_cost_share_of_billed_upper": 0.08176077221556693,
+    "metered_losing_legs": 398,
+    "metered_losing_legs_reporting_zero": 375,
     "censored_hedges": 22
   }
 ]

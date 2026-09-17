@@ -49,6 +49,8 @@ HEDGING_METRICS = (
     "ttft_p99_ms_no_hedge",
     "hedge_extra_cost_usd",
     "hedge_extra_cost_share_of_billed",
+    "hedge_extra_cost_usd_upper",
+    "hedge_extra_cost_share_of_billed_upper",
 )
 SLO_METRICS = ("total_cost_usd", "ttft_mean_ms", "ttft_p99_ms", "slo_violation_rate", "hedge_rate")
 
@@ -74,11 +76,20 @@ class HedgingRow:
     ttft_p99_ms_no_hedge: float
     billed_cost_usd: float
     total_cost_usd: float
+    # What the losing legs actually reported. A cancelled leg usually reports
+    # no usage at all, so this is a floor rather than an estimate.
     hedge_extra_cost_usd: float
-    # Share of the run's metered spend. The subscription tiers cost the same
+    # What those legs would have cost had every metered one run to completion,
+    # from the router's own per-leg estimate. The true figure is between the
+    # two; see data/real_eval_records_m3/README.md.
+    hedge_extra_cost_usd_upper: float
+    # Shares of the run's metered spend. The subscription tiers cost the same
     # whether or not a request is hedged, so the metered spend is the
     # denominator that hedging can actually move.
     hedge_extra_cost_share_of_billed: float
+    hedge_extra_cost_share_of_billed_upper: float
+    metered_losing_legs: int
+    metered_losing_legs_reporting_zero: int
     censored_hedges: int
 
 
@@ -119,6 +130,11 @@ def load_hedging_rows(source: Path) -> list[HedgingRow]:
         policy = f"budget_range_alpha{alpha}_hedge"
         policy_dir = source / policy
         rows, slo_ms = _read_policy(policy_dir)
+        inventory = json.loads((policy_dir / "args.json").read_text(encoding="utf-8"))["inventory"]
+        tiers = {
+            entry["name"]: entry.get("tier")
+            for entry in json.loads((ROOT / inventory).read_text(encoding="utf-8"))["providers"]
+        }
         with (policy_dir / "hedge_legs.csv").open(newline="", encoding="utf-8") as handle:
             legs = {leg["req_id"]: leg for leg in csv.DictReader(handle)}
         if set(legs) != {row["req_id"] for row in rows}:
@@ -129,7 +145,8 @@ def load_hedging_rows(source: Path) -> list[HedgingRow]:
         violations = violations_no_hedge = 0
         scored_no_hedge = censored = 0
         hedged = backup_wins = hedged_meeting_slo = 0
-        billed = extra_cost = 0.0
+        billed = extra_cost = extra_cost_upper = 0.0
+        metered_losers = metered_losers_zero = 0
         for row in rows:
             leg = legs[row["req_id"]]
             billed += _float(row.get("billed_cost_usd")) or 0.0
@@ -162,7 +179,15 @@ def load_hedging_rows(source: Path) -> list[HedgingRow]:
             scored_no_hedge += 1
             if primary_ttft > slo_ms:
                 violations_no_hedge += 1
-            extra_cost += _float(leg.get("loser_billed_cost_usd")) or 0.0
+            recorded = _float(leg.get("loser_billed_cost_usd")) or 0.0
+            extra_cost += recorded
+            if tiers.get(leg.get("loser_provider") or "") == "api":
+                metered_losers += 1
+                if recorded <= 0.0:
+                    metered_losers_zero += 1
+                extra_cost_upper += _float(leg.get("loser_estimated_cost_usd")) or 0.0
+            else:
+                extra_cost_upper += recorded
 
         rows_out.append(
             HedgingRow(
@@ -182,7 +207,13 @@ def load_hedging_rows(source: Path) -> list[HedgingRow]:
                 billed_cost_usd=billed,
                 total_cost_usd=billed + FIXED_COST_USD,
                 hedge_extra_cost_usd=extra_cost,
+                hedge_extra_cost_usd_upper=extra_cost_upper,
                 hedge_extra_cost_share_of_billed=(extra_cost / billed if billed else 0.0),
+                hedge_extra_cost_share_of_billed_upper=(
+                    extra_cost_upper / billed if billed else 0.0
+                ),
+                metered_losing_legs=metered_losers,
+                metered_losing_legs_reporting_zero=metered_losers_zero,
                 censored_hedges=censored,
             )
         )
@@ -253,7 +284,8 @@ def write_hedging_table(rows: list[HedgingRow], path: Path) -> None:
         f"{100.0 * row.slo_violation_rate:.2f}\\% / {100.0 * row.slo_violation_rate_no_hedge:.2f}\\% & "
         f"{row.ttft_mean_ms / 1000.0:.2f} / {row.ttft_mean_ms_no_hedge / 1000.0:.2f} & "
         f"{row.ttft_p99_ms / 1000.0:.2f} / {row.ttft_p99_ms_no_hedge / 1000.0:.2f} & "
-        f"{row.hedge_extra_cost_usd:.4f} ({100.0 * row.hedge_extra_cost_share_of_billed:.2f}\\%) \\\\"
+        f"{100.0 * row.hedge_extra_cost_share_of_billed:.2f}\\% -- "
+        f"{100.0 * row.hedge_extra_cost_share_of_billed_upper:.1f}\\% \\\\"
         for row in rows
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

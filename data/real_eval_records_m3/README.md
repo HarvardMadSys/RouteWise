@@ -64,12 +64,33 @@ out of every "without hedge" statistic. Those excluded requests are the ones
 where the primary was slowest, so the comparison understates what hedging is
 worth.
 
-A losing leg that is cancelled often reports no usage, so
-`loser_billed_cost_usd` is a lower bound on what hedging added. The table
-reports that sum both in dollars and as a share of the run's metered spend:
+### What hedging costs, and why the recorded figure is only a floor
+
+Hedging fires on 5 to 8% of requests, so a first guess is that it adds a
+similar share to the bill. The recorded figure is far lower, about 0.1 to
+0.5% of metered spend, for two reasons that pull in the same direction.
+
+About half of all losing legs land on the quota or concurrency tier, which
+bills nothing per request, so those hedges are genuinely free. Of the losing
+legs that do land on a metered provider, 94 to 97% report no usage at all:
+the leg was cancelled once the winner answered, and the provider returned no
+token counts for it. Four of the six metered providers in this inventory are
+marked `stream_cancel_billing: continues`, meaning they keep generating and
+charging after a cancel, so most of those zeros are a reporting gap rather
+than a real saving.
+
+The table therefore gives a range rather than one number. The floor is what
+the legs reported. The ceiling charges every metered losing leg the router's
+own estimate of a complete request at that provider, which overshoots because
+a cancelled leg rarely runs to completion. The truth lies between, nearer the
+floor for the two `stops` providers and nearer the ceiling for the four
+`continues` ones. Both ends are expressed against the run's metered spend:
 the subscription tiers cost the same whether or not a request is hedged, so
-the metered spend is the denominator hedging can actually move, and it is the
-smaller of the two available denominators.
+that is the denominator hedging can move.
+
+Settling it exactly needs the per-leg charges that the provider reports after
+the fact. The runs record each leg's generation id for that purpose, but
+those ids are not part of this export.
 
 `hedging_reference_summary.json` holds the per-alpha aggregates computed from
 these files.
