@@ -9,6 +9,12 @@ Two exports, both reduced to the fields the reproduction scripts read:
     inventory reference and SLO. Free-text columns (notes, error messages),
     per-leg timing internals, and LP weights are not exported.
 
+``hedge-legs``
+    Per-leg hedging columns for the RouteWise hedging policies of an already
+    exported record set: each leg's time to first token and the losing leg's
+    charge. These are what a hedging analysis needs and the request-level
+    release columns do not carry.
+
 ``prod-trace``
     The PROD agentic workload sample behind Figure 8. Keeps the numeric and
     categorical fields the simulator loader consumes; drops user names, user
@@ -50,6 +56,17 @@ RECORD_FIELDS = (
     "rate_limited",
 )
 RECORD_ARGS_KEYS = ("policy", "inventory", "slo_ms")
+
+HEDGE_LEG_FIELDS = (
+    "req_id",
+    "hedge_triggered",
+    "hedge_winner",
+    "hedge_delay_ms",
+    "primary_ttft_ms",
+    "backup_ttft_ms",
+    "loser_billed_cost_usd",
+    "loser_physical_cost_usd",
+)
 
 TRACE_FIELDS = (
     "request_id",
@@ -140,6 +157,72 @@ def export_real_eval_records(source: Path, dest: Path, inventory: str | None = N
     return 0
 
 
+def _leg_ttft_ms(row: dict[str, str], leg: str) -> str:
+    """Observed time to first token of one leg, blank when it produced none.
+
+    A losing leg is canceled once the winner answers. The runs record the
+    loser's first token when it arrives before that, so this is empty only for
+    a leg that never produced one.
+    """
+    start, first = row.get(f"{leg}_start_ts"), row.get(f"{leg}_first_token_ts")
+    if start in {"", None} or first in {"", None}:
+        return ""
+    return f"{(float(first) - float(start)) * 1000.0:.3f}"
+
+
+def export_hedge_legs(source: Path, dest: Path, policies: list[str] | None = None) -> int:
+    """Add hedging leg columns to an existing exported record set."""
+    wanted = set(policies) if policies else None
+    written = 0
+    for source_csv in sorted(source.glob("*/requests.csv")):
+        policy = source_csv.parent.name
+        if wanted is not None and policy not in wanted:
+            continue
+        policy_dir = dest / _policy_name(policy)
+        if not policy_dir.is_dir():
+            raise SystemExit(f"{policy_dir} does not exist; export the records first")
+        seen: set[str] = set()
+        with (
+            source_csv.open(newline="", encoding="utf-8") as src,
+            (policy_dir / "hedge_legs.csv").open("w", newline="", encoding="utf-8") as out,
+        ):
+            writer = csv.DictWriter(out, fieldnames=HEDGE_LEG_FIELDS)
+            writer.writeheader()
+            for row in csv.DictReader(src):
+                req_id = row["req_id"]
+                if req_id in seen:
+                    raise SystemExit(f"{policy}: duplicate req_id {req_id!r}")
+                seen.add(req_id)
+                winner = row.get("hedge_winner") or ""
+                loser = "backup" if winner == "primary" else "primary" if winner else ""
+                writer.writerow(
+                    {
+                        "req_id": req_id,
+                        "hedge_triggered": row.get("hedge_triggered") or "",
+                        "hedge_winner": winner,
+                        "hedge_delay_ms": row.get("hedge_delay_ms") or "",
+                        "primary_ttft_ms": _leg_ttft_ms(row, "primary"),
+                        "backup_ttft_ms": _leg_ttft_ms(row, "backup"),
+                        "loser_billed_cost_usd": (
+                            row.get(f"{loser}_cost_usd") or "" if loser else ""
+                        ),
+                        "loser_physical_cost_usd": (
+                            row.get(f"{loser}_physical_cost_usd") or "" if loser else ""
+                        ),
+                    }
+                )
+        written += 1
+    if not written:
+        raise SystemExit(f"no matching policy directories with requests.csv under {source}")
+    files = sorted(dest.glob("*/*.csv")) + sorted(dest.glob("*/args.json"))
+    reference = dest / "reference_summary.json"
+    if reference.exists():
+        files.append(reference)
+    _write_checksums(dest, files)
+    print(f"exported hedging legs for {written} policies to {dest}")
+    return 0
+
+
 def export_prod_trace(source: Path, dest: Path) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
     pseudonyms: dict[str, str] = {}
@@ -179,6 +262,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Repository inventory path written to the exported args.json in place of the run's.",
     )
 
+    legs = subparsers.add_parser("hedge-legs", help="Add hedging leg columns to a record set.")
+    legs.add_argument("--source", type=Path, required=True, help="Private run directory.")
+    legs.add_argument("--dest", type=Path, default=ROOT_DIR / "data" / "real_eval_records")
+    legs.add_argument(
+        "--policy",
+        action="append",
+        dest="policies",
+        help="Only export this policy. Repeatable; defaults to every policy in --source.",
+    )
+
     trace = subparsers.add_parser("prod-trace", help="Export the de-identified PROD trace.")
     trace.add_argument("--source", type=Path, required=True, help="Private trace JSONL.")
     trace.add_argument("--dest", type=Path, default=ROOT_DIR / "data" / "freeinference.jsonl")
@@ -186,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "real-eval-records":
         return export_real_eval_records(args.source, args.dest, inventory=args.inventory)
+    if args.command == "hedge-legs":
+        return export_hedge_legs(args.source, args.dest, policies=args.policies)
     return export_prod_trace(args.source, args.dest)
 
 

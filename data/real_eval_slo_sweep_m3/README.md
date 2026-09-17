@@ -31,13 +31,16 @@ covers every file.
 ## Reproducing
 
 ```bash
-uv run python scripts/reproduce_real_world_slo_sweep.py
+uv run python scripts/reproduce_hedging_tables.py
 ```
 
-That recomputes the aggregates from the CSVs, writes two panels and a LaTeX
-table to `outputs/figures/real_world_slo_sweep/`, and checks the result
-against `reference_summary.json`. Subscription fixed cost is prorated over
-the 24-hour window at $1.50 per run, the value the runs recorded.
+That recomputes the aggregates from the CSVs, writes this sweep as
+`table2_slo_sweep.tex` plus two panels under
+`outputs/figures/hedging_tables/`, and checks the result against
+`reference_summary.json`. The same command also produces the per-alpha
+hedging table from [`../real_eval_records_m3/`](../real_eval_records_m3/).
+Subscription fixed cost is prorated over the 24-hour window at $1.50 per run,
+the value the runs recorded.
 
 A sweep like this runs in a single launcher pass: a `POLICY_LIST` entry may
 carry a `__slo<ms>` suffix, which names the process and overrides the SLO for

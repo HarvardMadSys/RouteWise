@@ -42,6 +42,34 @@ router state (candidate set, latency objectives, effective costs, quota and
 concurrency occupancy, predicted output length) and per-leg generation ids;
 those columns are not part of this export.
 
+## Hedging legs
+
+The five `budget_range_alpha*_hedge` directories carry an extra
+`hedge_legs.csv`, keyed by `req_id`, holding what a hedging analysis needs and
+the release columns do not: each leg's observed time to first token, the hedge
+delay, and the losing leg's charge.
+
+| Column | Meaning |
+|---|---|
+| `hedge_triggered`, `hedge_winner`, `hedge_delay_ms` | Whether a backup was dispatched, which leg answered first, and how long after the primary |
+| `primary_ttft_ms`, `backup_ttft_ms` | Each leg's own time to first token, blank when that leg produced none |
+| `loser_billed_cost_usd`, `loser_physical_cost_usd` | The charge recorded for the leg that lost the race |
+
+These support the counterfactual behind the per-alpha hedging table: for a
+hedged request, the primary's own time to first token is what the request
+would have seen had no backup been dispatched. The runs let a losing leg
+reach its first token before cancelling it, so `primary_ttft_ms` is present
+for 97% of hedged requests; the rest produced no token at all and are left
+out of every "without hedge" statistic. Those excluded requests are the ones
+where the primary was slowest, so the comparison understates what hedging is
+worth.
+
+A losing leg that is cancelled often reports no usage, so
+`loser_billed_cost_usd` is a lower bound on what hedging added.
+
+`hedging_reference_summary.json` holds the per-alpha aggregates computed from
+these files.
+
 ## Aggregates
 
 The subscription fixed cost is prorated over the 24-hour window at $1.50 per

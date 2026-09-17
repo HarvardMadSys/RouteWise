@@ -84,7 +84,8 @@ def test_committed_data_checksums(directory):
     else:
         expected = {p.relative_to(root).as_posix() for p in root.glob("*/*.csv")}
         expected.update(p.relative_to(root).as_posix() for p in root.glob("*/args.json"))
-        assert names == expected | {"reference_summary.json"}
+        expected.update(p.name for p in root.glob("*.json"))
+        assert names == expected
 
 
 def test_committed_prod_schema_and_filtered_population():
