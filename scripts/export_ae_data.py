@@ -68,6 +68,8 @@ HEDGE_LEG_FIELDS = (
     "loser_billed_cost_usd",
     "loser_physical_cost_usd",
     "loser_estimated_cost_usd",
+    "loser_cached_input_tokens",
+    "primary_estimated_cost_usd",
 )
 
 TRACE_FIELDS = (
@@ -217,6 +219,14 @@ def export_hedge_legs(source: Path, dest: Path, policies: list[str] | None = Non
                         # it saved.
                         "loser_estimated_cost_usd": (
                             row.get(f"{loser}_routing_estimated_cost_usd") or "" if loser else ""
+                        ),
+                        "loser_cached_input_tokens": (
+                            row.get(f"{loser}_cached_input_tokens") or "" if loser else ""
+                        ),
+                        # Present on every request, hedged or not, so the same
+                        # estimator can be calibrated against real charges.
+                        "primary_estimated_cost_usd": (
+                            row.get("primary_routing_estimated_cost_usd") or ""
                         ),
                     }
                 )

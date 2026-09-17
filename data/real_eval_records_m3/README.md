@@ -79,18 +79,30 @@ marked `stream_cancel_billing: continues`, meaning they keep generating and
 charging after a cancel, so most of those zeros are a reporting gap rather
 than a real saving.
 
-The table therefore gives a range rather than one number. The floor is what
-the legs reported. The ceiling charges every metered losing leg the router's
-own estimate of a complete request at that provider, which overshoots because
-a cancelled leg rarely runs to completion. The truth lies between, nearer the
-floor for the two `stops` providers and nearer the ceiling for the four
-`continues` ones. Both ends are expressed against the run's metered spend:
-the subscription tiers cost the same whether or not a request is hedged, so
-that is the denominator hedging can move.
+The table therefore reports an estimate built from each provider's own
+cancellation rule, with the floor and a ceiling kept beside it in
+`hedging_reference_summary.json`.
 
-Settling it exactly needs the per-leg charges that the provider reports after
-the fact. The runs record each leg's generation id for that purpose, but
-those ids are not part of this export.
+A losing leg on a `stops` provider is charged for the prompt it had already
+processed and nothing more, priced from the inventory using the leg's own
+cached-token count. A leg on a `continues` provider is charged for a whole
+request. Pricing that whole request uses the router's per-request cost
+estimate, which reads about 1.8x high: comparing it with the real charge on
+the unhedged metered requests of the same run, where both numbers are known,
+gives a correction of roughly 0.55, and the estimate applies that correction.
+Free-tier losing legs stay at zero.
+
+That puts the cost of hedging at 5 to 12% of metered spend, falling as alpha
+rises because fewer requests are hedged. It sits close to the hedge rate,
+which is what one would expect once the free-tier legs and the discount for a
+cancelled leg are accounted for. The ceiling, which charges every metered
+losing leg an uncorrected full request, is 8 to 18%.
+
+Every figure is expressed against the run's metered spend: the subscription
+tiers cost the same whether or not a request is hedged, so that is the
+denominator hedging can move. Settling the question exactly needs the per-leg
+charges the provider reports after the fact. The runs record each leg's
+generation id for that purpose, but those ids are not part of this export.
 
 `hedging_reference_summary.json` holds the per-alpha aggregates computed from
 these files.
