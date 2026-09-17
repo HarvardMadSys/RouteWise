@@ -1,6 +1,6 @@
 """Export the artifact's recorded evaluation data from the private run archives.
 
-Two exports, both reduced to the fields the reproduction scripts read:
+Four exports, all reduced to the fields the reproduction scripts read:
 
 ``real-eval-records``
     The 24-hour live-provider replay (10 policies x 14,233 requests). Keeps
@@ -15,6 +15,13 @@ Two exports, both reduced to the fields the reproduction scripts read:
     charge. These are what a hedging analysis needs and the request-level
     release columns do not carry.
 
+``router-state``
+    The per-decision router state of the RouteWise policies of an already
+    exported record set: the candidate set, latency objectives, effective
+    costs and budget the LP saw, the quota and concurrency occupancy at that
+    moment, and the predicted output length. These are what the mechanism
+    analysis reads.
+
 ``prod-trace``
     The PROD agentic workload sample behind Figure 8. Keeps the numeric and
     categorical fields the simulator loader consumes; drops user names, user
@@ -22,7 +29,7 @@ Two exports, both reduced to the fields the reproduction scripts read:
     per-account pseudonym so account grouping is preserved. Cache discounts
     use the trace's cache_read_tokens counters, which are retained unchanged.
 
-Both commands write a SHA256SUMS file next to the exported data. The
+Every command writes a SHA256SUMS file next to the exported data. The
 private source directories are not part of the repository.
 """
 
@@ -30,7 +37,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
+import io
 import json
 from pathlib import Path
 
@@ -70,6 +79,35 @@ HEDGE_LEG_FIELDS = (
     "loser_estimated_cost_usd",
     "loser_cached_input_tokens",
     "primary_estimated_cost_usd",
+)
+
+# Per-decision router state, present only for RouteWise policies. Everything
+# the mechanism analysis needs and the release columns do not: what the LP saw
+# (candidates, latency objectives, effective costs, budget), the capacity
+# state it saw it under, and the output length it predicted. The per-provider
+# maps become one column per provider (``latency_objective_ms:<name>`` and so
+# on) so the file stays small; the header is built from the run's inventory.
+ROUTER_STATE_SCALAR_FIELDS = (
+    "req_id",
+    "predicted_output_tokens",
+    "quota_fraction_used",
+    "concurrency_in_flight",
+    "unavailable",
+    "c_min_usd",
+    "budget_usd",
+    "c_max_usd",
+)
+ROUTER_STATE_MAP_FIELDS = (
+    ("latency_objective_ms", "latency_objective_ms", ".0f"),
+    ("c_eff", "c_eff", ".4e"),
+    ("lp_weights", "weight", ".4f"),
+)
+
+# Archived aggregates kept next to the records; checksummed with them.
+REFERENCE_SUMMARIES = (
+    "reference_summary.json",
+    "hedging_reference_summary.json",
+    "mechanisms_reference_summary.json",
 )
 
 TRACE_FIELDS = (
@@ -242,6 +280,94 @@ def export_hedge_legs(source: Path, dest: Path, policies: list[str] | None = Non
     return 0
 
 
+def _single_value(raw: str) -> str:
+    """Return the one value of a recorded ``{provider: number}`` map."""
+    if raw in {"", None}:
+        return ""
+    values = json.loads(raw)
+    if len(values) != 1:
+        raise SystemExit(f"expected one capacity-limited provider, got {sorted(values)}")
+    return f"{next(iter(values.values())):g}"
+
+
+def export_router_state(source: Path, dest: Path, policies: list[str] | None = None) -> int:
+    """Add the per-decision router state of the RouteWise runs to a record set."""
+    wanted = set(policies) if policies else None
+    written = 0
+    for source_csv in sorted(source.glob("*/requests.csv")):
+        policy = source_csv.parent.name
+        if wanted is not None and policy not in wanted:
+            continue
+        policy_dir = dest / _policy_name(policy)
+        if not policy_dir.is_dir():
+            raise SystemExit(f"{policy_dir} does not exist; export the records first")
+        with source_csv.open(newline="", encoding="utf-8") as src:
+            rows = list(csv.DictReader(src))
+        # Baselines carry no router state; skip them silently unless asked for.
+        if not any(row.get("candidates") for row in rows):
+            if wanted is not None:
+                raise SystemExit(f"{policy}: requests.csv has no router-state columns")
+            continue
+        providers: list[str] = []
+        for row in rows:
+            for name in json.loads(row["latency_objective_ms"] or "{}"):
+                if name not in providers:
+                    providers.append(name)
+        fields = list(ROUTER_STATE_SCALAR_FIELDS) + [
+            f"{prefix}:{name}" for _, prefix, _ in ROUTER_STATE_MAP_FIELDS for name in providers
+        ]
+        seen: set[str] = set()
+        # mtime=0 keeps the archive byte-identical across exports so the
+        # checksums are reproducible.
+        with (
+            (policy_dir / "router_state.csv.gz").open("wb") as raw,
+            gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed,
+            io.TextIOWrapper(compressed, encoding="utf-8", newline="") as out,
+        ):
+            writer = csv.DictWriter(out, fieldnames=fields)
+            writer.writeheader()
+            for row in rows:
+                req_id = row["req_id"]
+                if req_id in seen:
+                    raise SystemExit(f"{policy}: duplicate req_id {req_id!r}")
+                seen.add(req_id)
+                candidates = set(json.loads(row["candidates"]) if row.get("candidates") else [])
+                out_row = {
+                    "req_id": req_id,
+                    "predicted_output_tokens": row.get("predicted_output_tokens") or "",
+                    "quota_fraction_used": _single_value(row.get("quota_fraction_used") or ""),
+                    "concurrency_in_flight": _single_value(row.get("concurrency_in_flight") or ""),
+                    # Providers the LP did not see for this decision (no free
+                    # slot, quota exhausted, or cooling down after an error).
+                    "unavailable": "|".join(name for name in providers if name not in candidates),
+                    "c_min_usd": row.get("c_min_usd") or "",
+                    "budget_usd": row.get("budget_usd") or "",
+                    "c_max_usd": row.get("reference_cost_usd") or "",
+                }
+                for source_field, prefix, fmt in ROUTER_STATE_MAP_FIELDS:
+                    values = json.loads(row.get(source_field) or "{}")
+                    for name in providers:
+                        value = values.get(name)
+                        out_row[f"{prefix}:{name}"] = (
+                            "" if value is None else format(float(value), fmt)
+                        )
+                writer.writerow(out_row)
+        written += 1
+    if not written:
+        raise SystemExit(f"no policy directories with router-state columns under {source}")
+    files = (
+        sorted(dest.glob("*/*.csv"))
+        + sorted(dest.glob("*/*.csv.gz"))
+        + sorted(dest.glob("*/args.json"))
+    )
+    for name in REFERENCE_SUMMARIES:
+        if (dest / name).exists():
+            files.append(dest / name)
+    _write_checksums(dest, files)
+    print(f"exported router state for {written} policies to {dest}")
+    return 0
+
+
 def export_prod_trace(source: Path, dest: Path) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
     pseudonyms: dict[str, str] = {}
@@ -291,6 +417,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Only export this policy. Repeatable; defaults to every policy in --source.",
     )
 
+    state = subparsers.add_parser(
+        "router-state", help="Add the RouteWise per-decision router state to a record set."
+    )
+    state.add_argument("--source", type=Path, required=True, help="Private run directory.")
+    state.add_argument("--dest", type=Path, default=ROOT_DIR / "data" / "real_eval_records")
+    state.add_argument(
+        "--policy",
+        action="append",
+        dest="policies",
+        help="Only export this policy. Repeatable; defaults to every RouteWise policy in --source.",
+    )
+
     trace = subparsers.add_parser("prod-trace", help="Export the de-identified PROD trace.")
     trace.add_argument("--source", type=Path, required=True, help="Private trace JSONL.")
     trace.add_argument("--dest", type=Path, default=ROOT_DIR / "data" / "freeinference.jsonl")
@@ -300,6 +438,8 @@ def main(argv: list[str] | None = None) -> int:
         return export_real_eval_records(args.source, args.dest, inventory=args.inventory)
     if args.command == "hedge-legs":
         return export_hedge_legs(args.source, args.dest, policies=args.policies)
+    if args.command == "router-state":
+        return export_router_state(args.source, args.dest, policies=args.policies)
     return export_prod_trace(args.source, args.dest)
 
 

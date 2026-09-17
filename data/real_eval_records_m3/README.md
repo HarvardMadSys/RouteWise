@@ -107,6 +107,44 @@ generation id for that purpose, but those ids are not part of this export.
 `hedging_reference_summary.json` holds the per-alpha aggregates computed from
 these files.
 
+## Router state
+
+The five `budget_range_alpha*_hedge` directories also carry
+`router_state.csv.gz`, keyed by `req_id`: what the RouteWise LP saw at each
+decision. The baselines keep no such state. Per-provider quantities are one
+column per provider, `latency_objective_ms:<provider>`, `c_eff:<provider>` and
+`weight:<provider>`, blank for a provider the LP was not offered.
+
+| Column | Meaning |
+|---|---|
+| `predicted_output_tokens` | The router's own output-length estimate for the request, from its online predictor |
+| `quota_fraction_used` | Fraction `z` of the quota tier consumed in its tightest window at decision time |
+| `concurrency_in_flight` | Requests occupying the concurrency tier's slots at decision time |
+| `unavailable` | Providers the LP was not offered (no free slot, quota exhausted, or cooling down after an error), `|`-separated |
+| `latency_objective_ms:<provider>` | The rolling mean time to first token the LP minimized, whole milliseconds; `1e9` is the penalty a provider carries right after a failure |
+| `c_eff:<provider>` | The effective request cost the LP charged: the metered price for an on-demand provider, the shadow price `psi(z) = L (U/L)^z` for the quota tier, zero for the concurrency tier |
+| `c_min_usd`, `c_max_usd`, `budget_usd` | The cheapest and dearest effective cost among the candidates and the budget `(1 - alpha) c_min + alpha c_max` the LP was held to |
+| `weight:<provider>` | The LP's dispatch probabilities; the primary was sampled from them |
+
+The cost envelope of the run was `L = $0.000143808`, `U = $0.00084768`, the
+P10 and P90 of the cheapest on-demand price over the trace.
+
+These columns feed the mechanism measurements of the revision: how the
+effective-cost comparison decided quota against metered dispatch, whether the
+concurrency slot was offered whenever free and taken whenever fastest, quota
+consumption over the day against Greedy-cost and an offline "quota whenever
+available" replay, and whether short predicted responses went to the metered
+tier while the subscription tiers took the long ones. Regenerate the figures
+and table rows, and check the aggregates against
+`mechanisms_reference_summary.json`, with:
+
+```bash
+uv run python scripts/reproduce_real_world_mechanisms.py
+```
+
+Outputs go to `outputs/figures/real_world_m3/` as `mechanism_*.pdf` and
+`mechanism_*_rows.tex`.
+
 ## Aggregates
 
 The subscription fixed cost is prorated over the 24-hour window at $1.50 per
@@ -127,4 +165,5 @@ the provider-TTFT panel here is aggregated from these request records.
 Regenerated from the run archive with
 `scripts/export_ae_data.py real-eval-records --inventory experiments/real_evaluation/data/pilot_or_minimax_m3_subscription_or6_true24h.json`,
 which keeps the release columns and writes the repository inventory path
-into each `args.json`.
+into each `args.json`; `scripts/export_ae_data.py hedge-legs` and
+`scripts/export_ae_data.py router-state` add the two per-policy extras.
