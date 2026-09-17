@@ -65,7 +65,11 @@ where the primary was slowest, so the comparison understates what hedging is
 worth.
 
 A losing leg that is cancelled often reports no usage, so
-`loser_billed_cost_usd` is a lower bound on what hedging added.
+`loser_billed_cost_usd` is a lower bound on what hedging added. The table
+reports that sum both in dollars and as a share of the run's metered spend:
+the subscription tiers cost the same whether or not a request is hedged, so
+the metered spend is the denominator hedging can actually move, and it is the
+smaller of the two available denominators.
 
 `hedging_reference_summary.json` holds the per-alpha aggregates computed from
 these files.

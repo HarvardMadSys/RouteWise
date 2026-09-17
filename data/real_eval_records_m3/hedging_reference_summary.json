@@ -14,7 +14,9 @@
     "ttft_p99_ms": 2844.143800000001,
     "ttft_p99_ms_no_hedge": 7960.801120000016,
     "billed_cost_usd": 0.9555288400000032,
+    "total_cost_usd": 2.455528840000003,
     "hedge_extra_cost_usd": 0.00425536,
+    "hedge_extra_cost_share_of_billed": 0.004453408229938916,
     "censored_hedges": 52
   },
   {
@@ -32,7 +34,9 @@
     "ttft_p99_ms": 2684.1074399999993,
     "ttft_p99_ms_no_hedge": 6011.585109999997,
     "billed_cost_usd": 1.1366434200000086,
+    "total_cost_usd": 2.6366434200000084,
     "hedge_extra_cost_usd": 0.00416511,
+    "hedge_extra_cost_share_of_billed": 0.0036643945908735108,
     "censored_hedges": 35
   },
   {
@@ -50,7 +54,9 @@
     "ttft_p99_ms": 2683.791760000002,
     "ttft_p99_ms_no_hedge": 5510.81935999995,
     "billed_cost_usd": 1.4142064399999974,
+    "total_cost_usd": 2.9142064399999974,
     "hedge_extra_cost_usd": 0.0045409000000000005,
+    "hedge_extra_cost_share_of_billed": 0.0032109173537634354,
     "censored_hedges": 28
   },
   {
@@ -68,7 +74,9 @@
     "ttft_p99_ms": 2651.3777200000004,
     "ttft_p99_ms_no_hedge": 4976.888099999997,
     "billed_cost_usd": 1.6335556600000043,
+    "total_cost_usd": 3.1335556600000043,
     "hedge_extra_cost_usd": 0.00175574,
+    "hedge_extra_cost_share_of_billed": 0.001074796557590205,
     "censored_hedges": 22
   },
   {
@@ -86,7 +94,9 @@
     "ttft_p99_ms": 2717.084639999998,
     "ttft_p99_ms_no_hedge": 4366.920860000005,
     "billed_cost_usd": 1.7521221500000073,
+    "total_cost_usd": 3.252122150000007,
     "hedge_extra_cost_usd": 0.00220706,
+    "hedge_extra_cost_share_of_billed": 0.0012596496197482526,
     "censored_hedges": 22
   }
 ]

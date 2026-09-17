@@ -48,6 +48,7 @@ HEDGING_METRICS = (
     "ttft_p99_ms",
     "ttft_p99_ms_no_hedge",
     "hedge_extra_cost_usd",
+    "hedge_extra_cost_share_of_billed",
 )
 SLO_METRICS = ("total_cost_usd", "ttft_mean_ms", "ttft_p99_ms", "slo_violation_rate", "hedge_rate")
 
@@ -72,7 +73,12 @@ class HedgingRow:
     ttft_p99_ms: float
     ttft_p99_ms_no_hedge: float
     billed_cost_usd: float
+    total_cost_usd: float
     hedge_extra_cost_usd: float
+    # Share of the run's metered spend. The subscription tiers cost the same
+    # whether or not a request is hedged, so the metered spend is the
+    # denominator that hedging can actually move.
+    hedge_extra_cost_share_of_billed: float
     censored_hedges: int
 
 
@@ -174,7 +180,9 @@ def load_hedging_rows(source: Path) -> list[HedgingRow]:
                 ttft_p99_ms=percentile(observed, 99.0),
                 ttft_p99_ms_no_hedge=percentile(counterfactual, 99.0),
                 billed_cost_usd=billed,
+                total_cost_usd=billed + FIXED_COST_USD,
                 hedge_extra_cost_usd=extra_cost,
+                hedge_extra_cost_share_of_billed=(extra_cost / billed if billed else 0.0),
                 censored_hedges=censored,
             )
         )
@@ -245,7 +253,7 @@ def write_hedging_table(rows: list[HedgingRow], path: Path) -> None:
         f"{100.0 * row.slo_violation_rate:.2f}\\% / {100.0 * row.slo_violation_rate_no_hedge:.2f}\\% & "
         f"{row.ttft_mean_ms / 1000.0:.2f} / {row.ttft_mean_ms_no_hedge / 1000.0:.2f} & "
         f"{row.ttft_p99_ms / 1000.0:.2f} / {row.ttft_p99_ms_no_hedge / 1000.0:.2f} & "
-        f"{row.hedge_extra_cost_usd:.4f} \\\\"
+        f"{row.hedge_extra_cost_usd:.4f} ({100.0 * row.hedge_extra_cost_share_of_billed:.2f}\\%) \\\\"
         for row in rows
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
