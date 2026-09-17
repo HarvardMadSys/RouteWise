@@ -456,8 +456,12 @@ class RealExperimentRunner:
         prefix_cache_routing: bool = False,
         shared_profile_events_path: Path | None = None,
         shared_profile_poll_sec: float = 1.0,
+        hedge_observe_loser_ttft: bool = False,
     ) -> None:
         self.inventory = inventory
+        # Delay canceling a hedge loser until its first token so the
+        # counterfactual TTFT lands in the request log.
+        self.hedge_observe_loser_ttft = hedge_observe_loser_ttft
         self.slo_ms = slo_ms if slo_ms is not None else inventory.primary_slo_ms
         self.slo_sec = self.slo_ms / 1000.0
         self.max_cost_usd = max_cost_usd
@@ -1713,6 +1717,7 @@ class RealExperimentRunner:
                     prompt=prepared.prompt,
                     max_tokens=req.max_tokens,
                     timeout=self.timeout_sec,
+                    observe_loser_first_token=self.hedge_observe_loser_ttft,
                 )
             finally:
                 policy.release_capacity(
@@ -2248,6 +2253,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Per-request timeout.",
     )
     parser.add_argument(
+        "--hedge-observe-loser-ttft",
+        action="store_true",
+        help=(
+            "Cancel a hedge loser only after its first token, so the request log "
+            "carries the counterfactual TTFT of the leg that lost (costs the "
+            "loser's streaming up to that token)."
+        ),
+    )
+    parser.add_argument(
         "--profile-window-sec",
         type=float,
         default=15 * 60.0,
@@ -2377,6 +2391,7 @@ def main(argv: list[str] | None = None) -> int:
         prefix_cache_routing=args.prefix_cache_routing,
         shared_profile_events_path=args.shared_profile_events,
         shared_profile_poll_sec=args.shared_profile_poll_sec,
+        hedge_observe_loser_ttft=args.hedge_observe_loser_ttft,
     )
 
     cost_envelope = workload_cost_envelope(

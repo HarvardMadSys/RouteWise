@@ -36,6 +36,27 @@ def _ttft_succeeded(
     return ttft_info.get("ttft_ms", -1.0) > 0
 
 
+def _cancel_loser(
+    cancel_event: threading.Event,
+    loser_ttft: threading.Event,
+    loser_thread: threading.Thread,
+    deadline: float,
+    poll_sec: float,
+    *,
+    observe_first_token: bool,
+) -> None:
+    """Cancel the losing leg, optionally after it has reported its first token.
+
+    ``loser_ttft`` is set by the transport both when a visible token arrives
+    and when the stream ends without one, so waiting on it never outlives the
+    leg itself.
+    """
+    if observe_first_token:
+        while time.time() < deadline and not loser_ttft.is_set() and loser_thread.is_alive():
+            time.sleep(poll_sec)
+    cancel_event.set()
+
+
 def _race_monitor_loop(
     primary_ttft: threading.Event,
     primary_ttft_info: dict[str, Any],
@@ -47,6 +68,7 @@ def _race_monitor_loop(
     backup_cancel: threading.Event,
     deadline_sec: float,
     poll_sec: float,
+    observe_loser_first_token: bool = False,
 ) -> None:
     """Cancel the hedge loser once the winner produces a visible token.
 
@@ -55,16 +77,35 @@ def _race_monitor_loop(
     both reach first token in the same poll interval we cancel neither
     (effectively a tie — both will return shortly anyway). Exits early when
     both transport threads have died (both errored / both finished cleanly).
+
+    With ``observe_loser_first_token`` the loser is canceled only after it
+    reports its own first token (or gives up), so its TTFT is measured: that
+    is the counterfactual latency the request would have seen without the
+    hedge. It costs the loser's extra streaming up to that token.
     """
     deadline = time.time() + deadline_sec
     while time.time() < deadline:
         p_won = _ttft_succeeded(primary_ttft, primary_ttft_info)
         b_won = _ttft_succeeded(backup_ttft, backup_ttft_info)
         if p_won and not b_won:
-            backup_cancel.set()
+            _cancel_loser(
+                backup_cancel,
+                backup_ttft,
+                backup_thread,
+                deadline,
+                poll_sec,
+                observe_first_token=observe_loser_first_token,
+            )
             return
         if b_won and not p_won:
-            primary_cancel.set()
+            _cancel_loser(
+                primary_cancel,
+                primary_ttft,
+                primary_thread,
+                deadline,
+                poll_sec,
+                observe_first_token=observe_loser_first_token,
+            )
             return
         if p_won and b_won:
             # Photo finish — both produced a visible token within one poll
@@ -157,12 +198,14 @@ def send_checkpoint_hedged_request(
     timeout: int = 60,
     cancel_loser_after_first_token: bool = True,
     race_monitor_poll_sec: float = 0.005,
+    observe_loser_first_token: bool = False,
 ) -> HedgedResult:
     """Dispatch a primary and evaluate hedge decisions at SLO checkpoints.
 
     The caller supplies the RouteWise checkpoint schedule and a selector that
     re-evaluates the probability target using current state to pick a backup
-    on the fly.
+    on the fly. ``observe_loser_first_token`` delays canceling the losing leg
+    until it has produced its first token, so the loser's TTFT is recorded.
     """
     checkpoints = tuple(
         sorted(
@@ -282,6 +325,7 @@ def send_checkpoint_hedged_request(
                     backup_cancel,
                     timeout + 5,
                     race_monitor_poll_sec,
+                    observe_loser_first_token,
                 ),
                 name="hedge-race-monitor",
                 daemon=True,
