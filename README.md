@@ -73,9 +73,10 @@ keys and no network access** and ends with `artifact smoke test: PASS`.
 The paper's evaluation has two arms, and this section mirrors them: the
 real-world experiments against live providers (Figures 1, 6, 7) and the
 trace-driven simulator experiments (Figure 8 and the 30-day results),
-followed by the ablation study (Figure 9) and the background measurement
-figures (Figures 2 and 3). Outputs land under `outputs/`; compare the produced
-figures and printed statistics against the paper.
+followed by the ablation study (Figure 9), the stale-telemetry robustness
+experiment, and the background measurement figures (Figures 2 and 3).
+Outputs land under `outputs/`; compare the produced figures and printed
+statistics against the paper.
 
 ### Resource requirements
 
@@ -227,7 +228,32 @@ uv run python scripts/run_output_length_prediction_ablation.py
 uv run python scripts/run_effective_cost_ablation.py --jobs 8
 ```
 
-### 4.4 Background measurement figures (Figures 2 and 3, ~1 minute)
+### 4.4 Robustness to stale telemetry (simulation, ~10 min with `--jobs 18`)
+
+This experiment asks whether hedging can mitigate a sudden provider-side
+latency increase before the latency profiler has been updated, by sending a
+backup request to a provider that is not experiencing the same load spike.
+Such conditions are hard to control against live providers, so it runs in
+the simulator: the §2.2 same-cost RW3 scenario with a recurring spike on the
+baseline-fastest provider (TTFT x2 / x3 / x5 for 10 minutes every hour), and
+LP-only versus LP+hedging RouteWise under frozen (`stale`), rolling-window
+(`observed`), and oracle (`fresh`) latency beliefs.
+
+```bash
+uv run python scripts/run_stale_telemetry_experiment.py --jobs 18
+```
+
+Outputs land in `outputs/ablations/stale_telemetry/`: `summary.csv` with
+per-phase metrics (`baseline_*`, `spike_*`, `post_spike_*`) and spike-phase
+deltas against the no-mitigation `routewise_lp_stale` row,
+`spike_timeseries.csv` with onset-aligned 1-minute bins, and `figures/`.
+The 18 cells replay the full 30-day trace (each worker holds the trace,
+about 2.5 GB); add `--duration-sec 259200` for a three-day pass that takes
+about a minute. The environment model,
+telemetry regimes, and caveats are documented in
+`experiments/ablations/stale_telemetry/README.md`.
+
+### 4.5 Background measurement figures (Figures 2 and 3, ~1 minute)
 
 Both Figure 2 source CSVs are committed in `data/drift_source/`.
 
