@@ -4,6 +4,7 @@
 |---|---|---|
 | `real_eval_records/` | 24-hour real-provider replay records (10 policies × 14,233 requests) | Figures 1 and 6; Figure 7 provenance is documented separately |
 | `real_eval_records_m3/` | 24-hour real-provider replay records on MiniMax-M3 (11 policies × 14,233 requests, 2026-09-15) | Paper revision; not a paper figure |
+| `real_eval_slo_sweep_m3/` | The same 24-hour replay at four SLO targets, one RouteWise operating point (2026-09-16) | Paper revision; not a paper figure |
 | `freeinference.jsonl` | De-identified PROD agentic-workload trace (24,035 requests, 7 days) | Figure 8 |
 | `figure8_reference_summary.csv` | Archived aggregates for the eight Figure 8 policies | Checked after an independent simulation |
 | `drift_source/` | Provider TTFT measurements over 50 days (Llama-3.3-70B, gpt-4o-mini) | Figure 2 |

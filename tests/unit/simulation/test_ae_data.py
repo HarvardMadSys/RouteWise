@@ -61,7 +61,13 @@ def test_prod_export_removes_private_fields_without_changing_replay(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "directory", ["data", "data/real_eval_records", "data/real_eval_records_m3"]
+    "directory",
+    [
+        "data",
+        "data/real_eval_records",
+        "data/real_eval_records_m3",
+        "data/real_eval_slo_sweep_m3",
+    ],
 )
 def test_committed_data_checksums(directory):
     root = ROOT / directory
@@ -100,7 +106,11 @@ def test_committed_prod_schema_and_filtered_population():
 
 @pytest.mark.parametrize(
     ("directory", "n_policies"),
-    [("data/real_eval_records", 10), ("data/real_eval_records_m3", 11)],
+    [
+        ("data/real_eval_records", 10),
+        ("data/real_eval_records_m3", 11),
+        ("data/real_eval_slo_sweep_m3", 4),
+    ],
 )
 def test_committed_real_records_have_only_release_fields(directory, n_policies):
     root = ROOT / directory

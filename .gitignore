@@ -18,6 +18,7 @@ artifacts/
 !/data/fixtures/
 !/data/real_eval_records/
 !/data/real_eval_records_m3/
+!/data/real_eval_slo_sweep_m3/
 !/data/freeinference.jsonl
 !/data/README.md
 !/data/SHA256SUMS
