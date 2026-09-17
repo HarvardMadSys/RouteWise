@@ -8,7 +8,14 @@ Each workload is simulated first, then plotted:
         --output-dir outputs/simulation/end_to_end_m3
     uv run python scripts/plot_simulation_m3.py --workload burstgpt30d
 
-    # 7-day PROD, with the Figure 8 replay settings
+    # 8-day PROD export of 2026-08-25..09-01, same replay settings
+    uv run python -m experiments.simulation.end_to_end \
+        --scenario end_to_end_m3_rw6 --workload freeinference_20260825 \
+        --prefix-cache-enabled --seed 42 --slo-ms 3000 --predictor bucket_mean \
+        --jobs 13 --output-dir outputs/simulation/prod_20260825
+    uv run python scripts/plot_simulation_m3.py --workload prod20260825
+
+    # 7-day PROD released with the paper, with the Figure 8 replay settings
     uv run python -m experiments.simulation.end_to_end \
         --scenario end_to_end_m3_rw6 --workload freeinference \
         --prefix-cache-enabled --seed 42 --slo-ms 3000 --predictor bucket_mean \
@@ -54,6 +61,12 @@ WORKLOADS = {
         prefix="e2e_m3_",
         # alpha=0 sits just below and right of Greedy-cost.
         label_offsets={"routewise": {"0.0": [-6, -13]}},
+    ),
+    "prod20260825": Workload(
+        input_dir=ROOT / "outputs" / "simulation" / "prod_20260825",
+        output_dir=ROOT / "outputs" / "figures" / "simulation_m3_prod20260825",
+        prefix="prod20260825_m3_",
+        label_offsets={},
     ),
     "prod": Workload(
         input_dir=ROOT / "outputs" / "simulation" / "prod_m3",

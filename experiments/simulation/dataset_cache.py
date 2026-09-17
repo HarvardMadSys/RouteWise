@@ -51,7 +51,13 @@ if str(_ROOT) not in sys.path:
 from llm_routewise.schemas import Request
 from llm_routewise.sim.data import DataLoader, normalize_model_name
 
-TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
+TRACE_WORKLOAD_DATASETS = (
+    "burstgpt",
+    "freeinference",
+    "freeinference_20260825",
+    "rednote",
+    "sharegpt",
+)
 
 _TRACE_DATA_ROOT = _ROOT / "data"
 _DATASET_CACHE_ROOT = _ROOT / "outputs" / "cache" / "dataset"
@@ -69,6 +75,11 @@ _TRACE_DATASET_PATHS = {
     ],
     "burstgpt": [
         _TRACE_DATA_ROOT / "burstgpt_30d.jsonl",
+    ],
+    # Later PROD export, same schema as `freeinference` and loaded the same
+    # way; kept as its own dataset so the released trace stays untouched.
+    "freeinference_20260825": [
+        _TRACE_DATA_ROOT / "freeinference_20260825.jsonl",
     ],
     "sharegpt": [
         _TRACE_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
@@ -461,7 +472,7 @@ def build_cache(dataset_name: str, *, force: bool = False) -> Path:
     print(f"          source sha256={fingerprint['source_sha256'][:16]}... ({elapsed_hash:.1f}s)")
 
     t1 = time.monotonic()
-    if dataset_name == "freeinference" and _looks_like_jsonl(source_path):
+    if dataset_name.startswith("freeinference") and _looks_like_jsonl(source_path):
         requests = _load_freeinference_jsonl_requests(source_path)
     elif source_path.suffix == ".jsonl":
         requests = _load_sharegpt_jsonl_requests(source_path)

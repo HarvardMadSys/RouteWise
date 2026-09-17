@@ -97,7 +97,7 @@ _WORKLOAD_PATHS = {
     # full pipeline with no downloaded traces.
     "smoke": DATA_DIR / "fixtures" / "burstgpt_smoke.jsonl",
 }
-_TRACE_CACHE_WORKLOADS = ("freeinference", "rednote")
+_TRACE_CACHE_WORKLOADS = ("freeinference", "freeinference_20260825", "rednote")
 WORKLOAD_CHOICES = (*_WORKLOAD_PATHS, *_TRACE_CACHE_WORKLOADS)
 
 
