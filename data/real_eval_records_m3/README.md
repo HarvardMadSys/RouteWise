@@ -133,9 +133,34 @@ These columns feed the mechanism measurements of the revision: how the
 effective-cost comparison decided quota against metered dispatch, whether the
 concurrency slot was offered whenever free and taken whenever fastest, quota
 consumption over the day against Greedy-cost and an offline "quota whenever
-available" replay, and whether short predicted responses went to the metered
-tier while the subscription tiers took the long ones. Regenerate the figures
-and table rows, and check the aggregates against
+available" replay, what a tight budget reserves quota for, and whether short
+predicted responses went to the metered tier while the subscription tiers took
+the long ones.
+
+### What the budget reserves quota for
+
+RouteWise never exhausts a quota window, and its quota use *rises* with alpha
+(1,458 requests at alpha = 0 against 3,113 at alpha = 1) although a higher
+alpha is the less cost-sensitive setting. The resolution is that a tight budget
+does not use less quota indiscriminately, it spends quota on different
+requests. Measured over the decisions where the concurrency slot was busy, the
+only ones in which the budget weighs quota against a metered price, the mean
+response length of a quota-served request falls from 51 tokens at alpha = 0 to
+13 at alpha = 1, and the share of quota spent on responses over 50 tokens falls
+from 16.5% to 2.4%. Per length bin the two ends cross over: the shortest bin's
+quota share rises from 20% to 61% with alpha while the longest bin's falls from
+88% to 22%.
+
+The reason is that a long response is dear on a metered provider and free of
+marginal charge on quota, so it is the request a binding budget sends to quota
+first. The `cheaper_share` column of the per-bin curve makes this exact: at
+alpha = 0 the budget equals the cheapest effective cost, and the share sent to
+quota matches the share for which quota was the cheaper option to within
+0.0002 in every bin. At alpha = 1 the budget never binds and the gap reaches
+0.69: quota undercut every metered provider for 91% of the longest requests,
+and the latency-led LP sent it only 22% of them.
+
+Regenerate the figures and table rows, and check the aggregates against
 `mechanisms_reference_summary.json`, with:
 
 ```bash

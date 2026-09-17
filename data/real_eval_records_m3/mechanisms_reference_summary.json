@@ -234,6 +234,78 @@
       "quota_api_equivalent_usd_per_1000": 0.3884336884967764
     }
   ],
+  "quota_length": [
+    {
+      "policy": "budget_range_alpha0_hedge",
+      "alpha": 0.0,
+      "contested_decisions": 8933,
+      "quota_requests": 1377,
+      "quota_mean_output_tokens": 51.11764705882353,
+      "quota_median_output_tokens": 9.0,
+      "quota_long_share": 0.16485112563543936,
+      "quota_long_share_ci_low": 0.14619037887568742,
+      "quota_long_share_ci_high": 0.18537668862865192,
+      "quota_share_shortest_bin": 0.19545903257650543,
+      "quota_share_longest_bin": 0.8774193548387097,
+      "cheaper_share_max_gap": 0.00019743336623889718
+    },
+    {
+      "policy": "budget_range_alpha25_hedge",
+      "alpha": 0.25,
+      "contested_decisions": 8743,
+      "quota_requests": 1620,
+      "quota_mean_output_tokens": 28.483950617283952,
+      "quota_median_output_tokens": 9.0,
+      "quota_long_share": 0.09074074074074075,
+      "quota_long_share_ci_low": 0.07770437951915543,
+      "quota_long_share_ci_high": 0.10571351050164463,
+      "quota_share_shortest_bin": 0.2506470236910213,
+      "quota_share_longest_bin": 0.6568627450980392,
+      "cheaper_share_max_gap": 0.20588235294117652
+    },
+    {
+      "policy": "budget_range_alpha50_hedge",
+      "alpha": 0.5,
+      "contested_decisions": 8393,
+      "quota_requests": 1631,
+      "quota_mean_output_tokens": 25.998160637645615,
+      "quota_median_output_tokens": 9.0,
+      "quota_long_share": 0.07173513182096873,
+      "quota_long_share_ci_low": 0.06019213679653189,
+      "quota_long_share_ci_high": 0.08529082620122887,
+      "quota_share_shortest_bin": 0.2652102899142507,
+      "quota_share_longest_bin": 0.6170212765957447,
+      "cheaper_share_max_gap": 0.25531914893617025
+    },
+    {
+      "policy": "budget_range_alpha75_hedge",
+      "alpha": 0.75,
+      "contested_decisions": 5878,
+      "quota_requests": 1966,
+      "quota_mean_output_tokens": 18.311291963377418,
+      "quota_median_output_tokens": 9.0,
+      "quota_long_share": 0.04781281790437437,
+      "quota_long_share_ci_low": 0.039230835471316554,
+      "quota_long_share_ci_high": 0.05815851806858229,
+      "quota_share_shortest_bin": 0.39665765544359793,
+      "quota_share_longest_bin": 0.42528735632183906,
+      "cheaper_share_max_gap": 0.43678160919540227
+    },
+    {
+      "policy": "budget_range_alpha100_hedge",
+      "alpha": 1.0,
+      "contested_decisions": 5210,
+      "quota_requests": 2693,
+      "quota_mean_output_tokens": 12.82844411437059,
+      "quota_median_output_tokens": 9.0,
+      "quota_long_share": 0.024136650575566285,
+      "quota_long_share_ci_low": 0.018982543211476667,
+      "quota_long_share_ci_high": 0.03064647467374136,
+      "quota_share_shortest_bin": 0.6108165429480382,
+      "quota_share_longest_bin": 0.2159090909090909,
+      "cheaper_share_max_gap": 0.6931818181818181
+    }
+  ],
   "length": [
     {
       "policy": "budget_range_alpha0_hedge",
@@ -588,6 +660,198 @@
         "ratio_geomean": 2.8946498789972788,
         "n": 30,
         "quota_share": 0.1
+      }
+    ]
+  },
+  "quota_share_by_length": {
+    "budget_range_alpha0_hedge": [
+      {
+        "bin": "1-10",
+        "n": 5065,
+        "quota_requests": 990,
+        "cheaper_share": 0.19526159921026653,
+        "quota_share": 0.19545903257650543,
+        "ci_low": 0.18477039115034397,
+        "ci_high": 0.2066092881830958
+      },
+      {
+        "bin": "11-50",
+        "n": 3593,
+        "quota_requests": 160,
+        "cheaper_share": 0.044531032563317564,
+        "quota_share": 0.044531032563317564,
+        "ci_low": 0.03825879876090583,
+        "ci_high": 0.05177619193760032
+      },
+      {
+        "bin": "51-200",
+        "n": 120,
+        "quota_requests": 91,
+        "cheaper_share": 0.7583333333333333,
+        "quota_share": 0.7583333333333333,
+        "ci_low": 0.6744968590361364,
+        "ci_high": 0.8261426675849666
+      },
+      {
+        "bin": ">200",
+        "n": 155,
+        "quota_requests": 136,
+        "cheaper_share": 0.8774193548387097,
+        "quota_share": 0.8774193548387097,
+        "ci_low": 0.8164788974678148,
+        "ci_high": 0.9201039624379026
+      }
+    ],
+    "budget_range_alpha25_hedge": [
+      {
+        "bin": "1-10",
+        "n": 5023,
+        "quota_requests": 1259,
+        "cheaper_share": 0.15767469639657575,
+        "quota_share": 0.2506470236910213,
+        "ci_low": 0.23885534690430707,
+        "ci_high": 0.26281982026228917
+      },
+      {
+        "bin": "11-50",
+        "n": 3516,
+        "quota_requests": 214,
+        "cheaper_share": 0.030716723549488054,
+        "quota_share": 0.0608646188850967,
+        "ci_low": 0.05343093355734516,
+        "ci_high": 0.06925686012064305
+      },
+      {
+        "bin": "51-200",
+        "n": 102,
+        "quota_requests": 80,
+        "cheaper_share": 0.7843137254901961,
+        "quota_share": 0.7843137254901961,
+        "ci_low": 0.6949596365633389,
+        "ci_high": 0.8530290559734329
+      },
+      {
+        "bin": ">200",
+        "n": 102,
+        "quota_requests": 67,
+        "cheaper_share": 0.8627450980392157,
+        "quota_share": 0.6568627450980392,
+        "ci_low": 0.5605422456017035,
+        "ci_high": 0.7417963433841017
+      }
+    ],
+    "budget_range_alpha50_hedge": [
+      {
+        "bin": "1-10",
+        "n": 4898,
+        "quota_requests": 1299,
+        "cheaper_share": 0.16047366271947733,
+        "quota_share": 0.2652102899142507,
+        "ci_low": 0.2530347848972824,
+        "ci_high": 0.27775380688422263
+      },
+      {
+        "bin": "11-50",
+        "n": 3312,
+        "quota_requests": 215,
+        "cheaper_share": 0.03170289855072464,
+        "quota_share": 0.06491545893719806,
+        "ci_low": 0.05701832060166152,
+        "ci_high": 0.07382073998555108
+      },
+      {
+        "bin": "51-200",
+        "n": 89,
+        "quota_requests": 59,
+        "cheaper_share": 0.7752808988764045,
+        "quota_share": 0.6629213483146067,
+        "ci_low": 0.5597868598433597,
+        "ci_high": 0.752573116718871
+      },
+      {
+        "bin": ">200",
+        "n": 94,
+        "quota_requests": 58,
+        "cheaper_share": 0.8723404255319149,
+        "quota_share": 0.6170212765957447,
+        "ci_low": 0.5159937196695321,
+        "ci_high": 0.7088595124934742
+      }
+    ],
+    "budget_range_alpha75_hedge": [
+      {
+        "bin": "1-10",
+        "n": 4069,
+        "quota_requests": 1614,
+        "cheaper_share": 0.18260014745637748,
+        "quota_share": 0.39665765544359793,
+        "ci_low": 0.38173041426579407,
+        "ci_high": 0.4117798464818864
+      },
+      {
+        "bin": "11-50",
+        "n": 1633,
+        "quota_requests": 258,
+        "cheaper_share": 0.06307409675443969,
+        "quota_share": 0.15799142682180037,
+        "ci_low": 0.14110624213310274,
+        "ci_high": 0.17648197165618507
+      },
+      {
+        "bin": "51-200",
+        "n": 89,
+        "quota_requests": 57,
+        "cheaper_share": 0.7303370786516854,
+        "quota_share": 0.6404494382022472,
+        "ci_low": 0.5368521850687317,
+        "ci_high": 0.7324236567952603
+      },
+      {
+        "bin": ">200",
+        "n": 87,
+        "quota_requests": 37,
+        "cheaper_share": 0.8620689655172413,
+        "quota_share": 0.42528735632183906,
+        "ci_low": 0.3267307291558499,
+        "ci_high": 0.5301630287700343
+      }
+    ],
+    "budget_range_alpha100_hedge": [
+      {
+        "bin": "1-10",
+        "n": 3772,
+        "quota_requests": 2304,
+        "cheaper_share": 0.19989395546129374,
+        "quota_share": 0.6108165429480382,
+        "ci_low": 0.5951515481651509,
+        "ci_high": 0.6262560447804854
+      },
+      {
+        "bin": "11-50",
+        "n": 1265,
+        "quota_requests": 324,
+        "cheaper_share": 0.08063241106719368,
+        "quota_share": 0.25612648221343876,
+        "ci_low": 0.23283592223843944,
+        "ci_high": 0.2808937663215826
+      },
+      {
+        "bin": "51-200",
+        "n": 85,
+        "quota_requests": 46,
+        "cheaper_share": 0.8352941176470589,
+        "quota_share": 0.5411764705882353,
+        "ci_low": 0.4357614755911955,
+        "ci_high": 0.6430304417088081
+      },
+      {
+        "bin": ">200",
+        "n": 88,
+        "quota_requests": 19,
+        "cheaper_share": 0.9090909090909091,
+        "quota_share": 0.2159090909090909,
+        "ci_low": 0.14280713983318927,
+        "ci_high": 0.31277725765117514
       }
     ]
   }

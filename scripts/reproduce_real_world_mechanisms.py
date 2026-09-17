@@ -15,7 +15,12 @@ the per-decision router state of the five RouteWise runs:
    five-hour window over the day for RouteWise, Greedy-cost (the live policy
    closest to "use quota whenever it is available") and an offline replay
    that sends every arrival to quota until the window is exhausted; the table
-   adds what each unit of quota bought.
+   adds what each unit of quota bought. A second figure and table explain why
+   RouteWise's quota use rises with alpha although a higher alpha is less
+   cost-sensitive: a tight budget does not use less quota indiscriminately, it
+   reserves quota for the long requests, where the metered alternative is dear.
+   Both are measured over the decisions where the concurrency slot was busy,
+   the only ones in which the budget weighs quota against a metered price.
 4. Output-length awareness. The figure and table ask whether short predicted
    responses went to the metered on-demand tier while the subscription tiers
    took the long ones.
@@ -85,6 +90,20 @@ QUOTA_METRICS = (
     "quota_mean_output_tokens",
     "quota_api_equivalent_usd",
     "quota_api_equivalent_usd_per_1000",
+)
+# Coarser than the tier-mix bins: these count only the decisions where the
+# concurrency slot was busy, and the long bins are thin.
+QUOTA_LENGTH_BIN_EDGES = (0, 10, 50, 200, float("inf"))
+QUOTA_LENGTH_BIN_LABELS = ("1-10", "11-50", "51-200", ">200")
+QUOTA_LONG_TOKENS = 50
+QUOTA_LENGTH_METRICS = (
+    "contested_decisions",
+    "quota_requests",
+    "quota_mean_output_tokens",
+    "quota_long_share",
+    "quota_share_shortest_bin",
+    "quota_share_longest_bin",
+    "cheaper_share_max_gap",
 )
 LENGTH_METRICS = (
     "trace_output_tokens_api",
@@ -382,32 +401,14 @@ def write_quota_table(rows: list[dict], size: int, path: Path) -> None:
 
 def plot_quota_over_time(
     timelines: dict[str, pd.DataFrame],
-    arrivals_hours: pd.Series,
+    span_hours: float,
     window_sec: float,
     size: int,
     output: Path,
 ) -> None:
     apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
     fig, ax = plt.subplots(figsize=LEGEND_BELOW_FIGSIZE)
-    span = float(arrivals_hours.max())
-    # Trace load as a backdrop so the peak window is visible.
-    load = ax.twinx()
-    load.hist(
-        arrivals_hours,
-        bins=np.arange(0.0, math.ceil(span) + 0.5, 0.5),
-        color="#d9d9d9",
-        edgecolor="none",
-        zorder=0,
-    )
-    load.set_ylabel("arrivals / 30 min", color="#7f7f7f")
-    load.tick_params(axis="y", colors="#7f7f7f", labelsize=ANNOTATION_FONT_SIZE - 1)
-    load.set_ylim(0, load.get_ylim()[1] * 2.8)
-    load.grid(False)
-    for spine in ("top", "right"):
-        load.spines[spine].set_visible(spine == "right")
-    ax.set_zorder(load.get_zorder() + 1)
-    ax.patch.set_visible(False)
-
+    span = float(span_hours)
     for boundary in np.arange(window_sec / 3600.0, span, window_sec / 3600.0):
         ax.axvline(boundary, color="#bbbbbb", linewidth=0.6, linestyle=":")
     ax.axhline(size, color="#444444", linewidth=0.8, linestyle="--")
@@ -446,6 +447,159 @@ def plot_quota_over_time(
         frameon=False,
         handlelength=1.8,
         fontsize=ANNOTATION_FONT_SIZE - 1,
+        columnspacing=1.0,
+    )
+    fig.tight_layout()
+    _save(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# 3b. What the budget reserves quota for: length of the quota-served requests.
+# ---------------------------------------------------------------------------
+
+
+def _wilson(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval for a proportion; closed form, so it reproduces."""
+    if total == 0:
+        return (float("nan"), float("nan"))
+    phat = successes / total
+    denominator = 1.0 + z**2 / total
+    center = (phat + z**2 / (2 * total)) / denominator
+    margin = z * math.sqrt(phat * (1 - phat) / total + z**2 / (4 * total**2)) / denominator
+    return (max(0.0, center - margin), min(1.0, center + margin))
+
+
+def contested_decisions(records: Records, quota: str, concurrency: str) -> pd.Series:
+    """Decisions that were a real quota-versus-metered choice.
+
+    The concurrency slot is free of charge, so whenever it is available the
+    budget never has to weigh quota against a metered price. Restricting to the
+    decisions where the slot was busy isolates the comparison the budget makes,
+    and keeps the five operating points comparable even though they leave the
+    slot busy for different shares of the day.
+    """
+    frame = records.frame
+    return frame["unavailable"].str.contains(concurrency) & frame[f"c_eff:{quota}"].notna()
+
+
+def quota_cheaper(records: Records, quota: str) -> pd.Series:
+    """Whether the quota tier's shadow price undercut every metered candidate."""
+    frame = records.frame
+    metered = [
+        column
+        for column in frame.columns
+        if column.startswith("c_eff:") and column != f"c_eff:{quota}"
+    ]
+    return frame[f"c_eff:{quota}"] < frame[metered].min(axis=1)
+
+
+def quota_by_length(records: Records, quota: str, concurrency: str) -> pd.DataFrame:
+    """Share of requests sent to quota per response-length bin.
+
+    ``cheaper_share`` is the share of the same decisions in which quota was the
+    cheaper option at all. At alpha = 0 the budget equals the cheapest
+    effective cost, so the two columns should agree; that agreement is what
+    ties the routing pattern to the budget rather than to latency.
+    """
+    frame = records.frame
+    contested = contested_decisions(records, quota, concurrency)
+    bins = pd.cut(frame["max_tokens"], QUOTA_LENGTH_BIN_EDGES, labels=list(QUOTA_LENGTH_BIN_LABELS))
+    taken = pd.DataFrame(
+        {
+            "bin": bins,
+            "quota": frame["primary_provider"] == quota,
+            "cheaper": quota_cheaper(records, quota),
+        }
+    )[contested]
+    grouped = taken.groupby("bin", observed=True)
+    out = grouped.agg(
+        n=("quota", "size"),
+        quota_requests=("quota", "sum"),
+        cheaper_share=("cheaper", "mean"),
+    )
+    out["quota_share"] = out["quota_requests"] / out["n"]
+    intervals = [_wilson(row.quota_requests, row.n) for row in out.itertuples()]
+    out["ci_low"] = [low for low, _ in intervals]
+    out["ci_high"] = [high for _, high in intervals]
+    return out.reset_index()
+
+
+def quota_length_row(records: Records, quota: str, concurrency: str) -> dict[str, float]:
+    frame = records.frame
+    contested = contested_decisions(records, quota, concurrency)
+    served = frame[contested & (frame["primary_provider"] == quota)]
+    long_requests = int((served["max_tokens"] > QUOTA_LONG_TOKENS).sum())
+    low, high = _wilson(long_requests, len(served))
+    curve = quota_by_length(records, quota, concurrency).set_index("bin")
+    return {
+        "policy": records.policy,
+        "alpha": records.alpha,
+        "contested_decisions": int(contested.sum()),
+        "quota_requests": len(served),
+        "quota_mean_output_tokens": float(served["max_tokens"].mean()),
+        "quota_median_output_tokens": float(served["max_tokens"].median()),
+        "quota_long_share": long_requests / len(served),
+        "quota_long_share_ci_low": low,
+        "quota_long_share_ci_high": high,
+        "quota_share_shortest_bin": float(curve.loc[QUOTA_LENGTH_BIN_LABELS[0], "quota_share"]),
+        "quota_share_longest_bin": float(curve.loc[QUOTA_LENGTH_BIN_LABELS[-1], "quota_share"]),
+        # Largest gap, over the bins, between what was sent to quota and what
+        # quota was the cheaper option for. Near zero means the budget alone
+        # explains the pattern.
+        "cheaper_share_max_gap": float((curve["quota_share"] - curve["cheaper_share"]).abs().max()),
+    }
+
+
+def write_quota_length_table(rows: list[dict], path: Path) -> None:
+    lines = [
+        f"{row['alpha']:g} & "
+        f"{row['contested_decisions']:,} & "
+        f"{row['quota_requests']:,} & "
+        f"{row['quota_mean_output_tokens']:.0f} & "
+        f"{100.0 * row['quota_long_share']:.1f}\\% & "
+        f"{100.0 * row['quota_share_shortest_bin']:.0f}\\% & "
+        f"{100.0 * row['quota_share_longest_bin']:.0f}\\% \\\\"
+        for row in rows
+    ]
+    _write_text(path, lines)
+
+
+def plot_quota_by_length(curves: dict[str, pd.DataFrame], output: Path) -> None:
+    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
+    fig, ax = plt.subplots(figsize=LEGEND_BELOW_FIGSIZE)
+    x = np.arange(len(QUOTA_LENGTH_BIN_LABELS))
+    for policy, curve in curves.items():
+        indexed = curve.set_index("bin").reindex(list(QUOTA_LENGTH_BIN_LABELS))
+        share = 100.0 * indexed["quota_share"].to_numpy()
+        errors = np.vstack(
+            [
+                share - 100.0 * indexed["ci_low"].to_numpy(),
+                100.0 * indexed["ci_high"].to_numpy() - share,
+            ]
+        )
+        ax.errorbar(
+            x,
+            share,
+            yerr=errors,
+            marker="o",
+            markersize=3.5,
+            linewidth=1.4,
+            capsize=2.0,
+            elinewidth=0.8,
+            color=_color(policy),
+            label=_label(policy),
+        )
+    ax.set_xticks(x, list(QUOTA_LENGTH_BIN_LABELS), fontsize=ANNOTATION_FONT_SIZE)
+    ax.set_xlabel("response length in the trace (tokens)")
+    ax.set_ylabel("sent to quota (%)")
+    ax.set_ylim(0, 100)
+    ax.grid(True, axis="y", linewidth=0.35, alpha=0.35)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.2),
+        ncol=2,
+        frameon=False,
+        handlelength=1.6,
         columnspacing=1.0,
     )
     fig.tight_layout()
@@ -545,6 +699,7 @@ def check_summary(summary: dict, reference_path: Path) -> None:
     checks = (
         ("concurrency", CONCURRENCY_METRICS),
         ("quota", QUOTA_METRICS),
+        ("quota_length", QUOTA_LENGTH_METRICS),
         ("length", LENGTH_METRICS),
     )
     compared = 0
@@ -620,11 +775,20 @@ def main(argv: list[str] | None = None) -> int:
             policy: timelines[policy]
             for policy in (*ROUTEWISE_POLICIES, *BASELINE_POLICIES, QUOTA_FIRST_OFFLINE)
         },
-        trace["hours"],
+        float(trace["hours"].max()),
         window_sec,
         size,
         output / "mechanism_quota_over_time.pdf",
     )
+
+    # 3b. What the budget reserves quota for.
+    concurrency = provider_by_tier(inventory, "concurrency")
+    quota_length_curves = {
+        policy: quota_by_length(rec, quota, concurrency) for policy, rec in routewise.items()
+    }
+    quota_length_rows = [quota_length_row(rec, quota, concurrency) for rec in routewise.values()]
+    write_quota_length_table(quota_length_rows, output / "mechanism_quota_length_rows.tex")
+    plot_quota_by_length(quota_length_curves, output / "mechanism_quota_by_length.pdf")
 
     # 4. Output-length awareness.
     length_rows = [length_row(rec) for rec in {**routewise, **baselines}.values()]
@@ -639,10 +803,14 @@ def main(argv: list[str] | None = None) -> int:
         "quota_window_requests": size,
         "concurrency": concurrency_rows,
         "quota": quota_rows,
+        "quota_length": quota_length_rows,
         "length": length_rows,
         "quota_share_by_price_ratio": {
             policy: curve.reset_index(drop=True).to_dict(orient="records")
             for policy, curve in curves.items()
+        },
+        "quota_share_by_length": {
+            policy: curve.to_dict(orient="records") for policy, curve in quota_length_curves.items()
         },
     }
     summary_path = output / "mechanisms_summary.json"
