@@ -8,7 +8,7 @@ Each workload is simulated first, then plotted:
         --output-dir outputs/simulation/end_to_end_m3
     uv run python scripts/plot_simulation_m3.py --workload burstgpt30d
 
-    # 8-day PROD export of 2026-08-25..09-01, same replay settings
+    # 7-day PROD export of 2026-08-25..08-31, same replay settings
     uv run python -m experiments.simulation.end_to_end \
         --scenario end_to_end_m3_rw6 --workload freeinference_20260825 \
         --prefix-cache-enabled --seed 42 --slo-ms 3000 --predictor bucket_mean \
