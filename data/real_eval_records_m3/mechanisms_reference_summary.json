@@ -281,5 +281,69 @@
       "share_51-200": 0.10405395910911262,
       "share_>200": 0.14473406871355302
     }
+  ],
+  "lp_policy": "budget_range_alpha50_hedge",
+  "lp_bins": 40,
+  "lp_rebalancing": [
+    {
+      "provider": "OR_Minimax",
+      "n": 40,
+      "share_of_traffic": 38.99900934448114,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 11.066652692210093,
+      "weight_min": 0.0,
+      "weight_max": 75.21970509383378,
+      "latency_min_ms": 702.0,
+      "latency_max_ms": 1094.5,
+      "latency_weight_spearman": -0.5419514516147531
+    },
+    {
+      "provider": "Featherless_SC",
+      "n": 40,
+      "share_of_traffic": 27.246413264947655,
+      "offered_share": 41.03140588772571,
+      "mean_weight_over_bins": 50.85317977011768,
+      "weight_min": 8.096479328165374,
+      "weight_max": 100.0,
+      "latency_min_ms": 388.5,
+      "latency_max_ms": 4103.0,
+      "latency_weight_spearman": -0.5338899579024091
+    },
+    {
+      "provider": "MiniMax_Plus_SQ",
+      "n": 40,
+      "share_of_traffic": 16.375216749806786,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 20.613785965872815,
+      "weight_min": 0.0,
+      "weight_max": 77.57368866328258,
+      "latency_min_ms": 694.0,
+      "latency_max_ms": 953.0,
+      "latency_weight_spearman": -0.22498593663788952
+    },
+    {
+      "provider": "OR_GMICloud",
+      "n": 40,
+      "share_of_traffic": 10.683345043209442,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 4.136331468106427,
+      "weight_min": 0.0,
+      "weight_max": 22.584432092798455,
+      "latency_min_ms": 771.0,
+      "latency_max_ms": 1964.0,
+      "latency_weight_spearman": -0.3627863873389686
+    },
+    {
+      "provider": "OR_Together",
+      "n": 40,
+      "share_of_traffic": 6.559024801517599,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 12.7567486661268,
+      "weight_min": 0.0,
+      "weight_max": 43.64190476190476,
+      "latency_min_ms": 586.0,
+      "latency_max_ms": 1060.0,
+      "latency_weight_spearman": -0.5433615650582765
+    }
   ]
 }

@@ -129,10 +129,11 @@ column per provider, `latency_objective_ms:<provider>`, `c_eff:<provider>` and
 The cost envelope of the run was `L = $0.000143808`, `U = $0.00084768`, the
 P10 and P90 of the cheapest on-demand price over the trace.
 
-These columns feed three mechanism measurements of the revision: whether the
+These columns feed four mechanism measurements of the revision: whether the
 concurrency slot was offered whenever free and taken whenever fastest, quota
 consumption over the day against Greedy-cost and an offline "quota whenever
-available" replay, and what a tight budget reserves quota for.
+available" replay, what a tight budget reserves quota for, and how the LP
+rebalances traffic as provider latency moves.
 
 ### What the budget reserves quota for
 
@@ -160,7 +161,37 @@ of the workload: at those lengths the prompt dominates the request's metered
 price, so an 11-50 token response costs about what a 1-10 token one does and
 the budget has little reason to prefer quota for it.
 
-Regenerate the three figures and the table rows, and check the aggregates
+### The LP rebalancing traffic
+
+The last figure puts the LP's input and its output on one time axis for a
+single operating point, alpha = 0.5, over hours 10 to 24; the first ten hours
+of the trace hold 3% of its requests, too few to measure a traffic share in.
+The upper panel is each provider's rolling mean time to first token, which is
+the quantity the LP minimizes, and the lower panel is the dispatch
+distribution it solved for, averaged over 20-minute bins. Bins holding fewer
+than 15 decisions are left blank rather than interpolated.
+
+Read together, the bands narrow as the lines rise. GMICloud is the clearest
+case: its rolling latency goes from 1.47x the best alternative before hour 16
+to 2.53x after it, and its share of traffic falls from 14.7% to 0.4%. That is
+the LP moving traffic, not the provider dropping out, and the `offered_share`
+column of `lp_rebalancing` in the summary is what rules the second reading
+out: GMICloud was a candidate in 100% of decisions, was never rate-limited and
+never failed. The concurrency slot is the one provider whose availability does
+move, at 41%, because its two slots are often full.
+
+Across the 20-minute bins each provider's traffic share runs against its
+latency, with Spearman correlations of -0.54 for the Minimax API endpoint,
+-0.54 for Together, -0.53 for the Featherless slot and -0.36 for GMICloud. The
+quota tier is the exception at -0.22, which is what one would expect: its
+share answers to the shadow price and the budget as much as to latency.
+
+The point of the panel is the dashed line in the upper half. Individual
+providers swing by more than a factor of two over the day, and GMICloud ends
+it at about 1.9 s, while the time to first token the policy actually achieves
+stays between roughly 0.4 and 1.0 s throughout.
+
+Regenerate the four figures and the table rows, and check the aggregates
 against `mechanisms_reference_summary.json`, with:
 
 ```bash
@@ -168,8 +199,8 @@ uv run python scripts/reproduce_real_world_mechanisms.py
 ```
 
 Outputs go to `outputs/figures/real_world_m3/`:
-`mechanism_concurrency_rows.tex`, `mechanism_quota_over_time.pdf` and
-`mechanism_quota_by_length.pdf`.
+`mechanism_concurrency_rows.tex`, `mechanism_quota_over_time.pdf`,
+`mechanism_quota_by_length.pdf` and `mechanism_lp_rebalancing.pdf`.
 
 `mechanisms_reference_summary.json` is that run's `mechanisms_summary.json`
 copied here. `SHA256SUMS` covers it, and the checksums are written by the

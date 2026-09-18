@@ -1,6 +1,6 @@
 """Measure how RouteWise's components behaved in the MiniMax-M3 24-hour run.
 
-Three measurements, from the committed records and the per-decision router
+Four measurements, from the committed records and the per-decision router
 state of the five RouteWise runs:
 
 1. Concurrency-limited provider. The table asks whether the LP considered the
@@ -18,6 +18,12 @@ state of the five RouteWise runs:
    where the concurrency slot was busy, the only ones in which the budget
    weighs quota against a metered price.
 
+4. The LP rebalancing traffic. At one operating point, each provider's rolling
+   latency belief over the day against the dispatch distribution the LP solved
+   for, so the two can be read together: when a provider slows, its band
+   narrows, and the time to first token the policy achieves stays flat while
+   individual providers swing by more than a factor of two.
+
     uv run python scripts/reproduce_real_world_mechanisms.py
 """
 
@@ -34,6 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import to_hex, to_rgb
+from matplotlib.patches import Patch
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -45,6 +52,7 @@ from plots.end_to_end.frontier_plotting import (
     PAPER_PANEL_FIGSIZE,
     POLICY_COLORS,
     POLICY_PLOT_LABELS,
+    PROVIDER_MIX_COLORS,
     ROUTEWISE_COLOR,
     apply_column_figure_style,
 )
@@ -81,6 +89,46 @@ QUOTA_METRICS = (
     "requests_after_exhaustion",
 )
 QUOTA_LENGTH_METRICS = tuple(f"share_{name}" for name in QUOTA_LENGTH_BIN_LABELS)
+# One operating point is enough to show the LP rebalancing, and the middle of
+# the range is the one where neither the budget nor latency dominates.
+LP_POLICY = "budget_range_alpha50_hedge"
+# The first ten hours of the trace hold 3% of its requests, too few to measure
+# a traffic share in, so the panel starts where the workload does.
+LP_WINDOW_START_HOURS = 10.0
+LP_BIN_MINUTES = 20.0
+LP_MIN_DECISIONS = 15
+# A provider needs this much of the run's traffic to earn its own band; the
+# rest are pooled, and none of them reaches 0.2%.
+LP_PROVIDER_MIN_WEIGHT = 0.01
+LP_OTHER_LABEL = "Other"
+# The inventory holds both a quota-backed and a metered endpoint on Minimax,
+# so the raw names differ only in capitalization; spell the tier out instead.
+LP_PROVIDER_LABELS = {
+    "MiniMax_Plus_SQ": "MiniMax quota",
+    "Featherless_SC": "Featherless slot",
+    "OR_Minimax": "Minimax API",
+    "OR_GMICloud": "GMICloud",
+    "OR_Together": "Together",
+    "OR_AtlasCloud": "AtlasCloud",
+    "OR_Novita": "Novita",
+    "OR_StreamLake": "StreamLake",
+}
+LP_OTHER_COLOR = "#c7c7c7"
+# A rolling profile that has just seen a failure carries a 60 s synthetic
+# sample, which is a penalty flag rather than a latency measurement.
+LP_LATENCY_PENALTY_MS = 1e8
+# Full text width and its own geometry: unlike the two quota panels this one
+# is not half of a side-by-side row, so it is not on the aligned band layout.
+LP_FIGSIZE = (6.9, 4.0)
+LP_METRICS = (
+    "n",
+    "share_of_traffic",
+    "offered_share",
+    "mean_weight_over_bins",
+    "weight_min",
+    "weight_max",
+    "latency_weight_spearman",
+)
 
 
 def _alpha_color(alpha: float) -> str:
@@ -485,6 +533,170 @@ def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 4. The LP rebalancing traffic as provider latency moves.
+# ---------------------------------------------------------------------------
+
+
+def lp_providers(records: Records) -> tuple[list[str], list[str]]:
+    """Providers that carry their own band, by mean LP weight, and the rest."""
+    frame = records.frame
+    names = [
+        column.split(":", 1)[1]
+        for column in frame.columns
+        if column.startswith("latency_objective_ms:")
+    ]
+    weights = {name: float(frame[f"weight:{name}"].fillna(0.0).mean()) for name in names}
+    ranked = sorted(names, key=lambda name: weights[name], reverse=True)
+    shown = [name for name in ranked if weights[name] >= LP_PROVIDER_MIN_WEIGHT]
+    return shown, [name for name in ranked if name not in shown]
+
+
+def lp_bins(records: Records, shown: list[str], pooled: list[str]) -> pd.DataFrame:
+    """Per time bin: each provider's latency belief and the traffic the LP gave it.
+
+    The latency column is the rolling mean time to first token the LP
+    minimizes, which is its input, and the weight columns are the dispatch
+    distribution it solved for, which is its output. ``achieved_ttft_ms`` is
+    what the requests dispatched in that bin actually saw.
+    """
+    frame = records.frame[records.frame["hours"] >= LP_WINDOW_START_HOURS].copy()
+    width = LP_BIN_MINUTES / 60.0
+    frame["bin"] = (
+        LP_WINDOW_START_HOURS
+        + ((frame["hours"] - LP_WINDOW_START_HOURS) / width).astype(int) * width
+    )
+    grouped = frame.groupby("bin")
+    out = pd.DataFrame({"n": grouped.size(), "achieved_ttft_ms": grouped["ttft_ms"].mean()})
+    for name in shown:
+        objective = frame[f"latency_objective_ms:{name}"]
+        # Drop the failure penalty so one error does not redraw the axis.
+        objective = objective.where(objective < LP_LATENCY_PENALTY_MS)
+        out[f"latency_{name}"] = objective.groupby(frame["bin"]).median()
+        out[f"weight_{name}"] = (
+            100.0 * frame[f"weight:{name}"].fillna(0.0).groupby(frame["bin"]).mean()
+        )
+    pooled_weight = frame[[f"weight:{name}" for name in pooled]].fillna(0.0).sum(axis=1)
+    out[f"weight_{LP_OTHER_LABEL}"] = 100.0 * pooled_weight.groupby(frame["bin"]).mean()
+    return out[out["n"] >= LP_MIN_DECISIONS].reset_index()
+
+
+def lp_rows(bins: pd.DataFrame, shown: list[str], records: Records) -> list[dict[str, float]]:
+    """How tightly each provider's traffic tracked its latency, across the bins."""
+    frame = records.frame
+    rows = []
+    for name in shown:
+        latency, weight = bins[f"latency_{name}"], bins[f"weight_{name}"]
+        usable = latency.notna() & weight.notna()
+        rows.append(
+            {
+                "provider": name,
+                "n": int(usable.sum()),
+                # Over the whole run, weighted by request: this is the mix the
+                # provider-mix panel reports.
+                "share_of_traffic": 100.0 * float(frame[f"weight:{name}"].fillna(0.0).mean()),
+                # Share of decisions in which the provider was a candidate at
+                # all. A band that narrows while this stays at 100% narrowed
+                # because the LP moved traffic, not because the provider went
+                # away; the concurrency slot is the one that does go away.
+                "offered_share": 100.0 * float((~frame["unavailable"].str.contains(name)).mean()),
+                # Over the bins of the figure, each bin counting once however
+                # many requests it held, which is what the bands average to.
+                "mean_weight_over_bins": float(weight[usable].mean()),
+                "weight_min": float(weight[usable].min()),
+                "weight_max": float(weight[usable].max()),
+                "latency_min_ms": float(latency[usable].min()),
+                "latency_max_ms": float(latency[usable].max()),
+                # Negative means the LP moved traffic away as the provider slowed.
+                "latency_weight_spearman": float(
+                    latency[usable].corr(weight[usable], method="spearman")
+                ),
+            }
+        )
+    return rows
+
+
+def plot_lp_rebalancing(
+    bins: pd.DataFrame, shown: list[str], records: Records, output: Path
+) -> None:
+    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
+    fig, (top, bottom) = plt.subplots(
+        2, 1, figsize=LP_FIGSIZE, sharex=True, height_ratios=(1.0, 1.0)
+    )
+    width = LP_BIN_MINUTES / 60.0
+    x = bins["bin"].to_numpy()
+
+    for name in shown:
+        top.plot(
+            x + width / 2.0,
+            bins[f"latency_{name}"],
+            linewidth=1.3,
+            color=PROVIDER_MIX_COLORS.get(name, "#555555"),
+            label=LP_PROVIDER_LABELS.get(name, name),
+        )
+    top.plot(
+        x + width / 2.0,
+        bins["achieved_ttft_ms"],
+        linewidth=2.2,
+        color="#111111",
+        linestyle=(0, (4, 1.6)),
+        label="achieved",
+        zorder=5,
+    )
+    top.set_yscale("log")
+    top.set_yticks([500, 1000, 2000, 4000], ["0.5", "1", "2", "4"])
+    top.set_ylabel("time to first\ntoken (s)")
+    top.grid(True, axis="y", linewidth=0.35, alpha=0.35)
+    handles, labels = top.get_legend_handles_labels()
+    handles.append(Patch(facecolor=LP_OTHER_COLOR))
+    labels.append(LP_OTHER_LABEL)
+    top.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=7,
+        frameon=False,
+        handlelength=1.4,
+        columnspacing=1.1,
+        handletextpad=0.5,
+    )
+
+    bottom_stack = np.zeros(len(bins))
+    for name in [*shown, LP_OTHER_LABEL]:
+        values = bins[f"weight_{name}"].to_numpy()
+        bottom.bar(
+            x,
+            values,
+            bottom=bottom_stack,
+            width=width,
+            align="edge",
+            color=LP_OTHER_COLOR
+            if name == LP_OTHER_LABEL
+            else PROVIDER_MIX_COLORS.get(name, "#555555"),
+            linewidth=0,
+        )
+        bottom_stack += values
+    bottom.set_ylim(0, 100)
+    bottom.set_ylabel("traffic the LP\nassigns (%)")
+    bottom.set_xlabel("hour of the run")
+    bottom.set_xlim(x.min(), x.max() + width)
+    bottom.grid(False)
+
+    alpha = records.alpha
+    top.annotate(
+        rf"RouteWise $\alpha={alpha:g}$",
+        (0.995, 0.93),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
+        fontsize=ANNOTATION_FONT_SIZE,
+    )
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0.12)
+    _save(fig, output)
+
+
+# ---------------------------------------------------------------------------
 # Output helpers and the reference check.
 # ---------------------------------------------------------------------------
 
@@ -512,11 +724,13 @@ def check_summary(summary: dict, reference_path: Path) -> None:
         ("concurrency", CONCURRENCY_METRICS),
         ("quota", QUOTA_METRICS),
         ("quota_length_mix", QUOTA_LENGTH_METRICS),
+        ("lp_rebalancing", LP_METRICS),
     )
     compared = 0
     for table, metrics in checks:
-        generated = {row["policy"]: row for row in summary[table]}
-        archived = {row["policy"]: row for row in expected[table]}
+        key = "provider" if table == "lp_rebalancing" else "policy"
+        generated = {row[key]: row for row in summary[table]}
+        archived = {row[key]: row for row in expected[table]}
         if generated.keys() != archived.keys():
             raise ValueError(f"{reference_path.name}: {table} rows differ from the reference")
         for policy, row in generated.items():
@@ -588,6 +802,13 @@ def main(argv: list[str] | None = None) -> int:
     quota_mix_rows = quota_length_mixes(routewise, quota, concurrency)
     plot_quota_length_mix(quota_mix_rows, output / "mechanism_quota_by_length.pdf")
 
+    # 4. The LP rebalancing traffic as provider latency moves.
+    lp_records = routewise[LP_POLICY]
+    shown, pooled = lp_providers(lp_records)
+    bins = lp_bins(lp_records, shown, pooled)
+    lp_provider_rows = lp_rows(bins, shown, lp_records)
+    plot_lp_rebalancing(bins, shown, lp_records, output / "mechanism_lp_rebalancing.pdf")
+
     summary = {
         "quota_provider": quota,
         "quota_window_sec": window_sec,
@@ -595,6 +816,9 @@ def main(argv: list[str] | None = None) -> int:
         "concurrency": concurrency_rows,
         "quota": quota_rows,
         "quota_length_mix": quota_mix_rows,
+        "lp_policy": LP_POLICY,
+        "lp_bins": len(bins),
+        "lp_rebalancing": lp_provider_rows,
     }
     summary_path = output / "mechanisms_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
