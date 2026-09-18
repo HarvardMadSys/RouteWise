@@ -66,7 +66,9 @@ WORKLOADS = {
         input_dir=ROOT / "outputs" / "simulation" / "prod_20260825",
         output_dir=ROOT / "outputs" / "figures" / "simulation_m3_prod20260825",
         prefix="prod20260825_m3_",
-        label_offsets={},
+        # alpha=0 is the leftmost point, so its default up-left label runs off
+        # the axis and into Greedy-cost.
+        label_offsets={"routewise": {"0.0": [-2, -13]}},
     ),
     "prod": Workload(
         input_dir=ROOT / "outputs" / "simulation" / "prod_m3",
