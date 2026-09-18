@@ -40,12 +40,13 @@ from plots.end_to_end.frontier_plotting import (
     PAPER_PANEL_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
-    aligned_panel_geometry,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
     MixRow,
     MixSegment,
+    aligned_panel_geometry,
+    aligned_top_in,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
     plot_stacked_mix,
@@ -83,6 +84,9 @@ DEFAULT_BOXPLOT_POLICIES = tuple(
     policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
 )
 PROVIDER_DIAGNOSTIC_FIGSIZE = PAPER_PANEL_FIGSIZE
+# Figure 1 pairs the mean-TTFT frontier with the SLO bars. Neither carries a
+# legend, so the pair's top band is only the tick clearance.
+FIGURE1_TOP_IN = aligned_top_in(0)
 PROVIDER_PRICING_ORDER = (
     "OR_DeepInfra",
     "OR_AtlasCloud",
@@ -1336,9 +1340,10 @@ def plot_metric_frontier(
         "baseline_order": BASELINE_ORDER,
         "policy_colors": FRONT_PAGE_POLICY_COLORS,
     }
+    figsize, margins = aligned_panel_geometry(len(points), top_in=FIGURE1_TOP_IN)
+    kwargs.update(figsize=figsize, margins=margins)
     if attr == "ttft_mean_ms":
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
-        kwargs["figsize"] = PAPER_PANEL_FIGSIZE
         kwargs["emphasize_routewise"] = emphasize_routewise
         kwargs["x_max"] = x_max
         if label_offsets:
@@ -1352,8 +1357,6 @@ def plot_metric_frontier(
             }
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
-        figsize, margins = aligned_panel_geometry(len(points))
-        kwargs.update(figsize=figsize, margins=margins)
         plot_slo_frontier(points, path, **kwargs)
     else:
         raise ValueError(f"unsupported frontier metric: {attr}")

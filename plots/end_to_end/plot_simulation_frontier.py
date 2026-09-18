@@ -35,17 +35,18 @@ import matplotlib.pyplot as plt
 from experiments.simulation.latency_profiles import load_empirical_distribution
 from experiments.simulation.provider_profiles import load_provider_pool
 from plots.end_to_end.frontier_plotting import (
+    ALIGNED_TOP_IN,
     MIX_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
-    PAPER_PANEL_FIGSIZE,
     TIER_MIX_SEGMENTS,
-    aligned_panel_geometry,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
     MixRow,
     MixSegment,
+    aligned_panel_geometry,
+    aligned_top_in,
     plot_hedging_p99 as plot_common_hedging_p99,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
@@ -113,9 +114,10 @@ FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
     "greedy_cost": (8, 9),
     "greedy_latency": (0, -15),
 }
-# Fig 8b/8c/8d top band: the 8d legend needs three rows at ncols=4, so the
-# whole aligned set reserves the taller band.
-ALIGNED_PANEL_TOP_IN = 0.78
+# Fig 8a-8d are one aligned set. Its top band holds the 8d legend, whose row
+# count depends on how many providers the selected policies used, so main()
+# sizes the band once and hands it to every panel.
+PROVIDER_MIX_LEGEND_NCOLS = 4
 
 
 @dataclass(frozen=True)
@@ -442,11 +444,14 @@ def plot_frontier(
     baseline_policies: list[str] | None = None,
     routewise_policies: list[str] | None = None,
     label_offsets: dict | None = None,
+    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
-    kwargs = {"figsize": PAPER_PANEL_FIGSIZE}
+    points = selected_frontier_points(rows, mean_baselines, routewise_policies)
+    figsize, margins = aligned_panel_geometry(len(points), top_in=top_in)
+    kwargs = {"figsize": figsize, "margins": margins}
     if "freeinference" in output_path.name:
         kwargs.update(
             routewise_label_offsets=FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
@@ -464,11 +469,7 @@ def plot_frontier(
                 for policy, offset in label_offsets.get("baselines", {}).items()
             },
         )
-    plot_mean_ttft_frontier(
-        selected_frontier_points(rows, mean_baselines, routewise_policies),
-        output_path,
-        **kwargs,
-    )
+    plot_mean_ttft_frontier(points, output_path, **kwargs)
 
 
 def plot_slo(
@@ -476,9 +477,10 @@ def plot_slo(
     output_path: Path,
     baseline_policies: list[str] | None = None,
     routewise_policies: list[str] | None = None,
+    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     points = selected_frontier_points(rows, baseline_policies, routewise_policies)
-    figsize, margins = aligned_panel_geometry(len(points), top_in=ALIGNED_PANEL_TOP_IN)
+    figsize, margins = aligned_panel_geometry(len(points), top_in=top_in)
     plot_slo_frontier(points, output_path, figsize=figsize, margins=margins)
 
 
@@ -574,18 +576,30 @@ def provider_mix_policy_rows(
     return selected
 
 
+def provider_mix_totals(rows: list[Row], requested_policies: list[str] | None) -> Counter[str]:
+    """Share summed over the selected policies, for the providers any of them used."""
+    totals: Counter[str] = Counter()
+    for row in provider_mix_policy_rows(rows, requested_policies):
+        for provider, share in row.provider_mix.items():
+            if share > 0.0:
+                totals[provider] += share
+    return totals
+
+
+def provider_mix_legend_rows(rows: list[Row], requested_policies: list[str] | None) -> int:
+    """Rows the provider-mix legend takes, which size the top band of the whole set."""
+    providers = provider_mix_totals(rows, requested_policies)
+    return math.ceil(len(providers) / PROVIDER_MIX_LEGEND_NCOLS)
+
+
 def plot_provider_mix(
     rows: list[Row],
     output_path: Path,
     requested_policies: list[str] | None = None,
+    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     selected = provider_mix_policy_rows(rows, requested_policies)
-    totals: Counter[str] = Counter()
-    for row in selected:
-        for provider, share in row.provider_mix.items():
-            if share > 0.0:
-                totals[provider] += share
-
+    totals = provider_mix_totals(rows, requested_policies)
     providers = sorted(totals, key=lambda provider: provider_sort_key(provider, totals))
     segments = [
         MixSegment(
@@ -602,12 +616,12 @@ def plot_provider_mix(
         )
         for row in selected
     ]
-    figsize, margins = aligned_panel_geometry(len(mix_rows), top_in=ALIGNED_PANEL_TOP_IN)
+    figsize, margins = aligned_panel_geometry(len(mix_rows), top_in=top_in)
     plot_stacked_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=4,
+        legend_ncols=PROVIDER_MIX_LEGEND_NCOLS,
         margins=margins,
         show_legend=True,
         x_max=102.0,
@@ -778,6 +792,7 @@ def plot_ttft_boxplot(
     histograms: dict[str, dict[str, object]],
     output_path: Path,
     requested_policies: list[str] | None = None,
+    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     by_policy = {row.policy: row for row in rows}
     policies = requested_policies or list(BOXPLOT_POLICIES)
@@ -805,7 +820,7 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError("no histogram-backed series available for boxplot")
     slo_sec = rows[0].slo_ms / 1000.0 if rows else 3.0
-    figsize, margins = aligned_panel_geometry(len(series), top_in=ALIGNED_PANEL_TOP_IN)
+    figsize, margins = aligned_panel_geometry(len(series), top_in=top_in)
     plot_common_ttft_boxplot(
         series,
         output_path,
@@ -882,18 +897,24 @@ def main() -> int:
     args = parse_args()
     histograms = load_histograms(args.histograms_json)
     rows = load_rows(args.summary_csv, histograms)
+    legend_rows = 0
+    if args.provider_mix_out is not None:
+        legend_rows = provider_mix_legend_rows(rows, args.provider_mix_policies)
+    top_in = aligned_top_in(legend_rows)
     plot_frontier(
         rows,
         args.frontier_out,
         args.frontier_baselines,
         args.routewise_frontier_policies,
         args.label_offsets,
+        top_in=top_in,
     )
     plot_slo(
         rows,
         args.slo_out,
         args.frontier_baselines,
         args.routewise_frontier_policies,
+        top_in=top_in,
     )
     if args.tier_out is not None:
         plot_tier_mix(rows, args.tier_out, args.tier_policies)
@@ -908,6 +929,7 @@ def main() -> int:
             rows,
             args.provider_mix_out,
             args.provider_mix_policies,
+            top_in=top_in,
         )
     if args.p99_bar_out is not None:
         plot_hedging_p99(rows, args.p99_bar_out)
@@ -918,7 +940,9 @@ def main() -> int:
     if args.boxplot_out is not None:
         if not histograms:
             raise SystemExit("--boxplot-out requires --histograms-json")
-        plot_ttft_boxplot(rows, histograms, args.boxplot_out, args.boxplot_policies)
+        plot_ttft_boxplot(
+            rows, histograms, args.boxplot_out, args.boxplot_policies, top_in=top_in
+        )
     write_table(rows, args.table_out)
     write_summary(rows, args.summary_out)
     return 0

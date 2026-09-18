@@ -75,8 +75,9 @@ WORKLOADS = {
         output_dir=ROOT / "outputs" / "figures" / "simulation_m3_prod",
         prefix="prod_m3_",
         # alpha=0 and alpha=0.25 sit close together at the cheap end, so their
-        # labels are anchored on opposite sides instead of both centred.
-        label_offsets={"routewise": {"0.0": [-8, -13], "0.25": [8, -11]}},
+        # labels are anchored on opposite sides instead of both centred, and
+        # alpha=0.5 goes up and right, off the height of Greedy-cost's label.
+        label_offsets={"routewise": {"0.0": [-8, -13], "0.25": [8, -11], "0.5": [6, 6]}},
     ),
 }
 

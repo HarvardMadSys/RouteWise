@@ -38,14 +38,24 @@ LEGEND_FONT_SIZE = 10.0
 # height equalization, which is where clipping bugs creep in).
 PAPER_PANEL_FIGSIZE = (3.35, 3.18)
 
-# Horizontal-category panels that LaTeX places side by side (Fig 6a/6b,
-# Fig 8b/8c/8d) must put the same policy row at the same physical height.
-# All panels of a set share this absolute geometry: the rows split the space
-# between a fixed bottom band (ticks + xlabel) and a fixed top band (legend
-# on mix panels, blank elsewhere) evenly.
+# Panels that LaTeX places side by side (Fig 1a/1b, Fig 6a/6b, Fig 8a-8d)
+# must put their plot boxes, and on horizontal-category panels the same policy
+# row, at the same physical height. All panels of a set share this absolute
+# geometry: the plot box fills the space between a fixed bottom band (ticks +
+# xlabel) and a fixed top band, which holds the legend of the set's mix panel
+# and is blank on the others.
 ALIGNED_BOTTOM_IN = 0.46
 ALIGNED_TOP_IN = 0.62
 ALIGNED_BAR_THICKNESS = 0.62
+# The top band is sized to the legend the set carries: the clearance the top
+# tick label and the boxplot's SLO marker need, plus one legend row each.
+ALIGNED_TOP_CLEARANCE_IN = 0.20
+ALIGNED_LEGEND_ROW_IN = 0.21
+
+
+def aligned_top_in(legend_rows: int) -> float:
+    """Top band of an aligned set whose mix legend has ``legend_rows`` rows."""
+    return ALIGNED_TOP_CLEARANCE_IN + legend_rows * ALIGNED_LEGEND_ROW_IN
 
 
 def aligned_panel_geometry(
@@ -57,8 +67,8 @@ def aligned_panel_geometry(
 ) -> tuple[tuple[float, float], tuple[float, float, float, float]]:
     """Return (figsize, margins) shared by every panel of an aligned set.
 
-    ``top_in`` sizes the top band and must be identical across a set; a set
-    whose mix legend needs three rows (ncols=4) should pass ~0.78.
+    ``top_in`` sizes the top band and must be identical across a set;
+    ``aligned_top_in`` derives it from the rows of the set's mix legend.
     """
     height = PAPER_PANEL_FIGSIZE[1]
     margins = (
@@ -513,6 +523,7 @@ def plot_metric_frontier(
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
     figsize: tuple[float, float] = COLUMN_FIGSIZE,
+    margins: tuple[float, float, float, float] | None = None,
     policy_colors: Mapping[str, str] | None = None,
     emphasize_routewise: bool = False,
     x_max: float | None = None,
@@ -594,10 +605,29 @@ def plot_metric_frontier(
     _pad_axes(ax)
     if x_max is not None:
         ax.set_xlim(right=x_max)
+    if margins is not None:
+        _pin_plot_box(fig, ax, margins)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
     plt.close(fig)
+
+
+def _pin_plot_box(
+    fig: plt.Figure, ax: plt.Axes, margins: tuple[float, float, float, float]
+) -> None:
+    """Pin the plot box to an aligned set's bands, keeping the horizontal fit.
+
+    Constrained layout has just sized the axes so the tick labels and the
+    point labels fit the figure. Its vertical placement is then replaced by
+    the set's bottom and top bands, so the plot box lines up with the bar
+    panels beside it; the horizontal placement it found is kept, as the
+    frontier's y tick labels are much narrower than the bar panels' names.
+    """
+    fig.canvas.draw()
+    position = ax.get_position()
+    fig.set_layout_engine("none")
+    ax.set_position((position.x0, margins[2], position.width, margins[3] - margins[2]))
 
 
 def plot_slo_bar(
