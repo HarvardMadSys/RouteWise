@@ -183,6 +183,11 @@ uv run python scripts/reproduce_real_world_mechanisms.py
 Outputs go to `outputs/figures/real_world_m3/` as `mechanism_*.pdf` and
 `mechanism_*_rows.tex`.
 
+`mechanisms_reference_summary.json` is that run's `mechanisms_summary.json`
+copied here. `SHA256SUMS` covers it, and the checksums are written by the
+export commands below, so re-run `scripts/export_ae_data.py router-state`
+after replacing the reference or the checksum for it goes stale.
+
 ## Aggregates
 
 The subscription fixed cost is prorated over the 24-hour window at $1.50 per
