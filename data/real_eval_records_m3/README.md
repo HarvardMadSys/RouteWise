@@ -149,7 +149,20 @@ response length of a quota-served request falls from 51 tokens at alpha = 0 to
 13 at alpha = 1, and the share of quota spent on responses over 50 tokens falls
 from 16.5% to 2.4%. Per length bin the two ends cross over: the shortest bin's
 quota share rises from 20% to 61% with alpha while the longest bin's falls from
-88% to 22%.
+88% to 22%. Those per-bin shares are in the table and in
+`quota_share_by_length` of the summary; the figure shows the composition
+instead.
+
+The figure shows this as a composition: one 100% stacked bar per operating
+point, holding the length mix of the requests that went to quota, over two
+reference bars. The reference bars are needed because the three distributions
+differ. `All requests` is the trace itself, where responses over 50 tokens are
+24.9% of the workload. `Contested` is the pool of decisions in which the budget
+actually had to weigh quota against a metered price, where they are only 3.1%:
+the concurrency slot takes most long requests whenever it is free, so they
+never reach that comparison. Against that pool, quota traffic at alpha = 0 is
+enriched in long responses more than fivefold, and the enrichment disappears as
+alpha rises.
 
 The reason is that a long response is dear on a metered provider and free of
 marginal charge on quota, so it is the request a binding budget sends to quota

@@ -95,6 +95,8 @@ QUOTA_METRICS = (
 # concurrency slot was busy, and the long bins are thin.
 QUOTA_LENGTH_BIN_EDGES = (0, 10, 50, 200, float("inf"))
 QUOTA_LENGTH_BIN_LABELS = ("1-10", "11-50", "51-200", ">200")
+# Sequential, because the bins are ordered; the ramp also survives greyscale.
+QUOTA_LENGTH_COLORS = ("#dbe6ec", "#9dbdcf", "#4f86a0", "#1d4657")
 QUOTA_LONG_TOKENS = 50
 QUOTA_LENGTH_METRICS = (
     "contested_decisions",
@@ -564,43 +566,129 @@ def write_quota_length_table(rows: list[dict], path: Path) -> None:
     _write_text(path, lines)
 
 
-def plot_quota_by_length(curves: dict[str, pd.DataFrame], output: Path) -> None:
+def length_mix(lengths: pd.Series) -> pd.Series:
+    """Share of the requests falling in each response-length bin."""
+    bins = pd.cut(lengths, QUOTA_LENGTH_BIN_EDGES, labels=list(QUOTA_LENGTH_BIN_LABELS))
+    counts = bins.value_counts().reindex(list(QUOTA_LENGTH_BIN_LABELS)).fillna(0)
+    return counts / counts.sum()
+
+
+def quota_length_mixes(
+    routewise: dict[str, Records], quota: str, concurrency: str
+) -> list[dict[str, float]]:
+    """Length mix of the quota traffic, with the two pools it is drawn from.
+
+    The reference rows matter because the three distributions differ. The
+    concurrency slot takes most long requests whenever it is free, so the pool
+    of decisions in which the budget actually has to weigh quota against a
+    metered price holds far fewer long requests than the trace does. Comparing
+    quota's mix with the trace alone would understate how much the budget
+    favours long requests.
+    """
+    rows: list[dict[str, float]] = []
+    for policy, records in routewise.items():
+        frame = records.frame
+        contested = contested_decisions(records, quota, concurrency)
+        served = frame[contested & (frame["primary_provider"] == quota)]
+        rows.append(
+            {
+                "row": policy,
+                "label": _label(policy),
+                "alpha": records.alpha,
+                "n": len(served),
+                **{
+                    f"share_{name}": value
+                    for name, value in length_mix(served["max_tokens"]).items()
+                },
+            }
+        )
+    reference = next(iter(routewise.values()))
+    frame = reference.frame
+    contested = contested_decisions(reference, quota, concurrency)
+    for row, label, lengths in (
+        (
+            "contested",
+            f"Contested ($\\alpha={reference.alpha:g}$)",
+            frame.loc[contested, "max_tokens"],
+        ),
+        ("trace", "All requests", frame["max_tokens"]),
+    ):
+        rows.append(
+            {
+                "row": row,
+                "label": label,
+                "alpha": None,
+                "n": len(lengths),
+                **{f"share_{name}": value for name, value in length_mix(lengths).items()},
+            }
+        )
+    return rows
+
+
+def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
     apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = plt.subplots(figsize=LEGEND_BELOW_FIGSIZE)
-    x = np.arange(len(QUOTA_LENGTH_BIN_LABELS))
-    for policy, curve in curves.items():
-        indexed = curve.set_index("bin").reindex(list(QUOTA_LENGTH_BIN_LABELS))
-        share = 100.0 * indexed["quota_share"].to_numpy()
-        errors = np.vstack(
-            [
-                share - 100.0 * indexed["ci_low"].to_numpy(),
-                100.0 * indexed["ci_high"].to_numpy() - share,
-            ]
+    fig, ax = plt.subplots(figsize=(PAPER_PANEL_FIGSIZE[0], 3.05))
+    # A gap between the operating points and the two reference rows.
+    positions = [index + (0.6 if row["alpha"] is None else 0.0) for index, row in enumerate(rows)]
+    left = np.zeros(len(rows))
+    for name, color in zip(QUOTA_LENGTH_BIN_LABELS, QUOTA_LENGTH_COLORS, strict=True):
+        widths = np.array([100.0 * row[f"share_{name}"] for row in rows])
+        ax.barh(positions, widths, left=left, height=0.68, color=color, label=name)
+        for position, width, start in zip(positions, widths, left, strict=True):
+            if width >= 7.0:
+                ax.text(
+                    start + width / 2.0,
+                    position,
+                    f"{width:.0f}",
+                    ha="center",
+                    va="center",
+                    fontsize=ANNOTATION_FONT_SIZE - 1.5,
+                    color="white" if color in QUOTA_LENGTH_COLORS[2:] else "#222222",
+                )
+        left += widths
+    # The claim lives in the two dark segments, so spell their sum out rather
+    # than making the reader add them.
+    long_labels = QUOTA_LENGTH_BIN_LABELS[2:]
+    ax.text(
+        119.0,
+        min(positions) - 0.85,
+        r"$\geq$50 tok",
+        ha="center",
+        va="center",
+        fontsize=ANNOTATION_FONT_SIZE - 1.5,
+        color="#444444",
+    )
+    for position, row in zip(positions, rows, strict=True):
+        share = 100.0 * sum(row[f"share_{name}"] for name in long_labels)
+        ax.text(
+            119.0,
+            position,
+            f"{share:.1f}%",
+            ha="center",
+            va="center",
+            fontsize=ANNOTATION_FONT_SIZE - 1,
+            color="#555555" if row["alpha"] is None else "#222222",
         )
-        ax.errorbar(
-            x,
-            share,
-            yerr=errors,
-            marker="o",
-            markersize=3.5,
-            linewidth=1.4,
-            capsize=2.0,
-            elinewidth=0.8,
-            color=_color(policy),
-            label=_label(policy),
-        )
-    ax.set_xticks(x, list(QUOTA_LENGTH_BIN_LABELS), fontsize=ANNOTATION_FONT_SIZE)
-    ax.set_xlabel("response length in the trace (tokens)")
-    ax.set_ylabel("sent to quota (%)")
-    ax.set_ylim(0, 100)
-    ax.grid(True, axis="y", linewidth=0.35, alpha=0.35)
+    ax.set_yticks(positions, [row["label"] for row in rows], fontsize=ANNOTATION_FONT_SIZE)
+    for tick, row in zip(ax.get_yticklabels(), rows, strict=True):
+        if row["alpha"] is None:
+            tick.set_color("#555555")
+    ax.invert_yaxis()
+    ax.set_xlim(0, 136)
+    ax.set_xticks([0, 50, 100])
+    ax.spines["bottom"].set_bounds(0, 100)
+    ax.set_xlabel("share of requests (%)")
+    ax.grid(False)
     ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.2),
-        ncol=2,
+        title="response length (tokens)",
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=4,
         frameon=False,
-        handlelength=1.6,
-        columnspacing=1.0,
+        handlelength=1.1,
+        columnspacing=0.9,
+        handletextpad=0.5,
+        title_fontsize=ANNOTATION_FONT_SIZE - 1,
     )
     fig.tight_layout()
     _save(fig, output)
@@ -788,7 +876,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     quota_length_rows = [quota_length_row(rec, quota, concurrency) for rec in routewise.values()]
     write_quota_length_table(quota_length_rows, output / "mechanism_quota_length_rows.tex")
-    plot_quota_by_length(quota_length_curves, output / "mechanism_quota_by_length.pdf")
+    quota_mix_rows = quota_length_mixes(routewise, quota, concurrency)
+    plot_quota_length_mix(quota_mix_rows, output / "mechanism_quota_by_length.pdf")
 
     # 4. Output-length awareness.
     length_rows = [length_row(rec) for rec in {**routewise, **baselines}.values()]
