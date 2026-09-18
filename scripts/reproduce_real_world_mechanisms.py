@@ -1,29 +1,22 @@
 """Measure how RouteWise's components behaved in the MiniMax-M3 24-hour run.
 
-Four questions from the revision plan, answered from the committed records and
-the per-decision router state of the five RouteWise runs:
+Three measurements, from the committed records and the per-decision router
+state of the five RouteWise runs:
 
-1. Effective cost. The quota tier is priced by the shadow price
-   psi(z) = L (U/L)^z of its fraction used z, the metered tiers by their real
-   request price. The figure asks whether that comparison is what decides the
-   quota-versus-metered choice: the quota share of dispatches as a function of
-   psi(z) over the cheapest metered price for the same request.
-2. Concurrency-limited provider. The table asks whether the LP considered the
+1. Concurrency-limited provider. The table asks whether the LP considered the
    concurrency slot whenever it was free and took it whenever it was the
    lowest-latency candidate.
-3. Quota-limited provider. The figure plots quota consumed in the current
+2. Quota-limited provider. The figure plots quota consumed in the current
    five-hour window over the day for RouteWise, Greedy-cost (the live policy
-   closest to "use quota whenever it is available") and an offline replay
-   that sends every arrival to quota until the window is exhausted; the table
-   adds what each unit of quota bought. A second figure and table explain why
-   RouteWise's quota use rises with alpha although a higher alpha is less
-   cost-sensitive: a tight budget does not use less quota indiscriminately, it
-   reserves quota for the long requests, where the metered alternative is dear.
-   Both are measured over the decisions where the concurrency slot was busy,
-   the only ones in which the budget weighs quota against a metered price.
-4. Output-length awareness. The figure and table ask whether short predicted
-   responses went to the metered on-demand tier while the subscription tiers
-   took the long ones.
+   closest to "use quota whenever it is available") and an offline replay that
+   sends every arrival to quota until the window is exhausted.
+3. What the budget reserves quota for. RouteWise never exhausts a window, and
+   its quota use rises with alpha although a higher alpha is the less
+   cost-sensitive setting. The figure resolves that: a tight budget does not
+   use less quota indiscriminately, it spends quota on the long responses,
+   where the metered alternative is dear. It is measured over the decisions
+   where the concurrency slot was busy, the only ones in which the budget
+   weighs quota against a metered price.
 
     uv run python scripts/reproduce_real_world_mechanisms.py
 """
@@ -55,25 +48,14 @@ from plots.end_to_end.frontier_plotting import (
     apply_column_figure_style,
 )
 from plots.end_to_end.plot_real_world_frontier import parse_alpha
-from plots.palettes import TIER_COLORS
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTEWISE_POLICIES = tuple(f"budget_range_alpha{alpha}_hedge" for alpha in (0, 25, 50, 75, 100))
 BASELINE_POLICIES = ("greedy_latency", "greedy_cost")
 QUOTA_FIRST_OFFLINE = "quota_first_offline"
-LENGTH_FIGURE_POLICIES = ("budget_range_alpha25_hedge", "greedy_cost")
-# Trace output length (tokens) bins shared by every policy; the trace is the
-# same for all of them, so the bins hold the same requests in every panel.
-LENGTH_BIN_EDGES = (0, 10, 20, 50, 100, 200, 500, float("inf"))
-LENGTH_BIN_LABELS = ("1-10", "11-20", "21-50", "51-100", "101-200", "201-500", ">500")
-# psi(z) / cheapest metered price, log-spaced bins (a factor of ~1.2 apart).
-RATIO_BIN_EDGES = np.logspace(np.log10(0.1), np.log10(4.0), 21)
-RATIO_BIN_MIN_COUNT = 30
 # The two line figures carry their legend below the axes, so they are taller
 # than the shared panel size.
 LEGEND_BELOW_FIGSIZE = (PAPER_PANEL_FIGSIZE[0], 3.9)
-TIER_LABELS = {"api": "Metered API", "quota": "Quota", "concurrency": "Concurrency"}
-TIER_ORDER = ("api", "quota", "concurrency")
 CONCURRENCY_METRICS = (
     "free_slot_decisions",
     "offered_when_free_rate",
@@ -82,36 +64,19 @@ CONCURRENCY_METRICS = (
     "picked_when_not_lowest_latency_rate",
     "share_of_requests",
 )
-QUOTA_METRICS = (
-    "quota_requests",
-    "peak_window_quota_requests",
-    "peak_fraction_used",
-    "requests_after_exhaustion",
-    "quota_mean_output_tokens",
-    "quota_api_equivalent_usd",
-    "quota_api_equivalent_usd_per_1000",
-)
 # Coarser than the tier-mix bins: these count only the decisions where the
 # concurrency slot was busy, and the long bins are thin.
 QUOTA_LENGTH_BIN_EDGES = (0, 10, 50, 200, float("inf"))
 QUOTA_LENGTH_BIN_LABELS = ("1-10", "11-50", "51-200", ">200")
 # Sequential, because the bins are ordered; the ramp also survives greyscale.
 QUOTA_LENGTH_COLORS = ("#dbe6ec", "#9dbdcf", "#4f86a0", "#1d4657")
-QUOTA_LONG_TOKENS = 50
-QUOTA_LENGTH_METRICS = (
-    "contested_decisions",
+QUOTA_METRICS = (
     "quota_requests",
-    "quota_mean_output_tokens",
-    "quota_long_share",
-    "quota_share_shortest_bin",
-    "quota_share_longest_bin",
-    "cheaper_share_max_gap",
+    "peak_window_quota_requests",
+    "peak_fraction_used",
+    "requests_after_exhaustion",
 )
-LENGTH_METRICS = (
-    "trace_output_tokens_api",
-    "trace_output_tokens_quota",
-    "trace_output_tokens_concurrency",
-)
+QUOTA_LENGTH_METRICS = tuple(f"share_{name}" for name in QUOTA_LENGTH_BIN_LABELS)
 
 
 def _alpha_color(alpha: float) -> str:
@@ -185,93 +150,8 @@ def provider_by_tier(inventory, tier: str) -> str:
     return names[0]
 
 
-def cheapest_metered_cost(
-    inventory, prompt_tokens: pd.Series, output_tokens: pd.Series
-) -> pd.Series:
-    """Cheapest metered price of each request at the inventory's list prices."""
-    costs = [
-        (prompt_tokens * spec.input_price_per_m + output_tokens * spec.output_price_per_m) / 1e6
-        for spec in inventory.providers
-        if spec.tier == "api"
-    ]
-    return pd.concat(costs, axis=1).min(axis=1)
-
-
 # ---------------------------------------------------------------------------
-# 1. Effective cost: quota share versus psi(z) / cheapest metered price.
-# ---------------------------------------------------------------------------
-
-
-def quota_share_by_price_ratio(records: Records, inventory) -> pd.DataFrame:
-    quota = provider_by_tier(inventory, "quota")
-    concurrency = provider_by_tier(inventory, "concurrency")
-    frame = records.frame
-    metered = [f"c_eff:{spec.name}" for spec in inventory.providers if spec.tier == "api"]
-    # Only decisions that were a straight quota-versus-metered choice: quota
-    # offered and the concurrency slot busy, so the zero-cost slot did not
-    # absorb the request.
-    mask = frame[f"c_eff:{quota}"].notna() & frame["unavailable"].str.contains(concurrency)
-    sub = frame[mask]
-    ratio = sub[f"c_eff:{quota}"] / sub[metered].min(axis=1)
-    picked = sub["primary_provider"] == quota
-    bins = pd.cut(ratio, RATIO_BIN_EDGES)
-    grouped = picked.groupby(bins, observed=True)
-    out = pd.DataFrame(
-        {
-            "ratio_geomean": ratio.groupby(bins, observed=True).apply(
-                lambda values: float(np.exp(np.log(values).mean()))
-            ),
-            "n": grouped.size(),
-            "quota_share": grouped.mean(),
-        }
-    )
-    return out[out["n"] >= RATIO_BIN_MIN_COUNT]
-
-
-def plot_quota_share_vs_ratio(curves: dict[str, pd.DataFrame], output: Path) -> None:
-    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = plt.subplots(figsize=LEGEND_BELOW_FIGSIZE)
-    for policy, curve in curves.items():
-        ax.plot(
-            curve["ratio_geomean"],
-            100.0 * curve["quota_share"],
-            marker="o",
-            markersize=3,
-            linewidth=1.4,
-            color=_color(policy),
-            label=_label(policy),
-        )
-    ax.axvline(1.0, color="#444444", linewidth=0.8, linestyle="--")
-    ax.annotate(
-        "break-even",
-        (0.93, 45),
-        fontsize=ANNOTATION_FONT_SIZE - 1,
-        ha="right",
-        va="center",
-        rotation=90,
-        color="#444444",
-    )
-    ax.set_xscale("log")
-    ax.set_xlim(0.12, 3.3)
-    ax.set_xticks([0.2, 0.5, 1.0, 2.0], ["0.2", "0.5", "1", "2"])
-    ax.set_xlabel(r"quota shadow price $\psi(z)$ / metered price")
-    ax.set_ylabel("sent to quota (%)")
-    ax.set_ylim(0, 105)
-    ax.grid(True, linewidth=0.35, alpha=0.35)
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.2),
-        ncol=2,
-        frameon=False,
-        handlelength=1.6,
-        columnspacing=1.0,
-    )
-    fig.tight_layout()
-    _save(fig, output)
-
-
-# ---------------------------------------------------------------------------
-# 2. Concurrency-limited provider: offered whenever free, taken when fastest.
+# 1. Concurrency-limited provider: offered whenever free, taken when fastest.
 # ---------------------------------------------------------------------------
 
 
@@ -318,7 +198,7 @@ def write_concurrency_table(rows: list[dict], path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Quota-limited provider: consumption over time and what it bought.
+# 2. Quota-limited provider: consumption over the day.
 # ---------------------------------------------------------------------------
 
 
@@ -352,10 +232,10 @@ def quota_row(
     policy: str,
     frame: pd.DataFrame,
     used: pd.Series,
-    inventory,
     window_sec: float,
     size: int,
 ) -> dict[str, float]:
+    """The numbers the figure draws, kept so the reference check can see them."""
     timeline = quota_timeline(frame, used, window_sec)
     per_window = timeline.groupby("window")["used"].max()
     peak_window = int(per_window.idxmax())
@@ -365,8 +245,6 @@ def quota_row(
     if exhausted_at is not None:
         in_window = timeline["window"] == peak_window
         after = int((in_window & (timeline["hours"] >= exhausted_at)).sum()) - 1
-    equivalent = cheapest_metered_cost(inventory, frame["prompt_tokens"], frame["max_tokens"])
-    quota_value = float(equivalent[used].sum())
     return {
         "policy": policy,
         "alpha": parse_alpha(policy),
@@ -378,27 +256,7 @@ def quota_row(
         "peak_fraction_used": float(per_window.max() / size),
         "exhausted_at_hours": exhausted_at,
         "requests_after_exhaustion": after,
-        "quota_mean_output_tokens": float(frame.loc[used, "max_tokens"].mean()),
-        "quota_api_equivalent_usd": quota_value,
-        "quota_api_equivalent_usd_per_1000": 1000.0 * quota_value / used.sum(),
     }
-
-
-def write_quota_table(rows: list[dict], size: int, path: Path) -> None:
-    lines = []
-    for row in rows:
-        exhausted = f"{row['exhausted_at_hours']:.1f}\\,h" if row["exhausted_at_hours"] else "--"
-        lines.append(
-            f"{_label(row['policy'])} & "
-            f"{row['quota_requests']:,} & "
-            f"{row['peak_window_quota_requests']:,}/{size:,} & "
-            f"{exhausted} & "
-            f"{row['requests_after_exhaustion']:,} & "
-            f"{row['quota_mean_output_tokens']:.0f} & "
-            f"{row['quota_api_equivalent_usd']:.3f} & "
-            f"{row['quota_api_equivalent_usd_per_1000']:.3f} \\\\"
-        )
-    _write_text(path, lines)
 
 
 def plot_quota_over_time(
@@ -456,19 +314,8 @@ def plot_quota_over_time(
 
 
 # ---------------------------------------------------------------------------
-# 3b. What the budget reserves quota for: length of the quota-served requests.
+# 3. What the budget reserves quota for.
 # ---------------------------------------------------------------------------
-
-
-def _wilson(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
-    """Wilson score interval for a proportion; closed form, so it reproduces."""
-    if total == 0:
-        return (float("nan"), float("nan"))
-    phat = successes / total
-    denominator = 1.0 + z**2 / total
-    center = (phat + z**2 / (2 * total)) / denominator
-    margin = z * math.sqrt(phat * (1 - phat) / total + z**2 / (4 * total**2)) / denominator
-    return (max(0.0, center - margin), min(1.0, center + margin))
 
 
 def contested_decisions(records: Records, quota: str, concurrency: str) -> pd.Series:
@@ -482,88 +329,6 @@ def contested_decisions(records: Records, quota: str, concurrency: str) -> pd.Se
     """
     frame = records.frame
     return frame["unavailable"].str.contains(concurrency) & frame[f"c_eff:{quota}"].notna()
-
-
-def quota_cheaper(records: Records, quota: str) -> pd.Series:
-    """Whether the quota tier's shadow price undercut every metered candidate."""
-    frame = records.frame
-    metered = [
-        column
-        for column in frame.columns
-        if column.startswith("c_eff:") and column != f"c_eff:{quota}"
-    ]
-    return frame[f"c_eff:{quota}"] < frame[metered].min(axis=1)
-
-
-def quota_by_length(records: Records, quota: str, concurrency: str) -> pd.DataFrame:
-    """Share of requests sent to quota per response-length bin.
-
-    ``cheaper_share`` is the share of the same decisions in which quota was the
-    cheaper option at all. At alpha = 0 the budget equals the cheapest
-    effective cost, so the two columns should agree; that agreement is what
-    ties the routing pattern to the budget rather than to latency.
-    """
-    frame = records.frame
-    contested = contested_decisions(records, quota, concurrency)
-    bins = pd.cut(frame["max_tokens"], QUOTA_LENGTH_BIN_EDGES, labels=list(QUOTA_LENGTH_BIN_LABELS))
-    taken = pd.DataFrame(
-        {
-            "bin": bins,
-            "quota": frame["primary_provider"] == quota,
-            "cheaper": quota_cheaper(records, quota),
-        }
-    )[contested]
-    grouped = taken.groupby("bin", observed=True)
-    out = grouped.agg(
-        n=("quota", "size"),
-        quota_requests=("quota", "sum"),
-        cheaper_share=("cheaper", "mean"),
-    )
-    out["quota_share"] = out["quota_requests"] / out["n"]
-    intervals = [_wilson(row.quota_requests, row.n) for row in out.itertuples()]
-    out["ci_low"] = [low for low, _ in intervals]
-    out["ci_high"] = [high for _, high in intervals]
-    return out.reset_index()
-
-
-def quota_length_row(records: Records, quota: str, concurrency: str) -> dict[str, float]:
-    frame = records.frame
-    contested = contested_decisions(records, quota, concurrency)
-    served = frame[contested & (frame["primary_provider"] == quota)]
-    long_requests = int((served["max_tokens"] > QUOTA_LONG_TOKENS).sum())
-    low, high = _wilson(long_requests, len(served))
-    curve = quota_by_length(records, quota, concurrency).set_index("bin")
-    return {
-        "policy": records.policy,
-        "alpha": records.alpha,
-        "contested_decisions": int(contested.sum()),
-        "quota_requests": len(served),
-        "quota_mean_output_tokens": float(served["max_tokens"].mean()),
-        "quota_median_output_tokens": float(served["max_tokens"].median()),
-        "quota_long_share": long_requests / len(served),
-        "quota_long_share_ci_low": low,
-        "quota_long_share_ci_high": high,
-        "quota_share_shortest_bin": float(curve.loc[QUOTA_LENGTH_BIN_LABELS[0], "quota_share"]),
-        "quota_share_longest_bin": float(curve.loc[QUOTA_LENGTH_BIN_LABELS[-1], "quota_share"]),
-        # Largest gap, over the bins, between what was sent to quota and what
-        # quota was the cheaper option for. Near zero means the budget alone
-        # explains the pattern.
-        "cheaper_share_max_gap": float((curve["quota_share"] - curve["cheaper_share"]).abs().max()),
-    }
-
-
-def write_quota_length_table(rows: list[dict], path: Path) -> None:
-    lines = [
-        f"{row['alpha']:g} & "
-        f"{row['contested_decisions']:,} & "
-        f"{row['quota_requests']:,} & "
-        f"{row['quota_mean_output_tokens']:.0f} & "
-        f"{100.0 * row['quota_long_share']:.1f}\\% & "
-        f"{100.0 * row['quota_share_shortest_bin']:.0f}\\% & "
-        f"{100.0 * row['quota_share_longest_bin']:.0f}\\% \\\\"
-        for row in rows
-    ]
-    _write_text(path, lines)
 
 
 def length_mix(lengths: pd.Series) -> pd.Series:
@@ -592,7 +357,7 @@ def quota_length_mixes(
         served = frame[contested & (frame["primary_provider"] == quota)]
         rows.append(
             {
-                "row": policy,
+                "policy": policy,
                 "label": _label(policy),
                 "alpha": records.alpha,
                 "n": len(served),
@@ -605,7 +370,7 @@ def quota_length_mixes(
     reference = next(iter(routewise.values()))
     frame = reference.frame
     contested = contested_decisions(reference, quota, concurrency)
-    for row, label, lengths in (
+    for name, label, lengths in (
         (
             "contested",
             f"Contested ($\\alpha={reference.alpha:g}$)",
@@ -615,7 +380,7 @@ def quota_length_mixes(
     ):
         rows.append(
             {
-                "row": row,
+                "policy": name,
                 "label": label,
                 "alpha": None,
                 "n": len(lengths),
@@ -695,75 +460,6 @@ def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Output-length awareness.
-# ---------------------------------------------------------------------------
-
-
-def length_row(records: Records) -> dict[str, float]:
-    frame = records.frame
-    row: dict[str, float] = {"policy": records.policy, "alpha": records.alpha, "n": len(frame)}
-    for tier in TIER_ORDER:
-        sub = frame[frame["tier"] == tier]
-        row[f"requests_{tier}"] = len(sub)
-        row[f"trace_output_tokens_{tier}"] = float(sub["max_tokens"].mean())
-        row[f"predicted_output_tokens_{tier}"] = (
-            float(sub["predicted_output_tokens"].mean()) if records.has_state else None
-        )
-    return row
-
-
-def write_length_table(rows: list[dict], path: Path) -> None:
-    lines = []
-    for row in rows:
-        predicted = " & ".join(
-            f"{row[f'predicted_output_tokens_{tier}']:.0f}"
-            if row[f"predicted_output_tokens_{tier}"] is not None
-            else "--"
-            for tier in TIER_ORDER
-        )
-        realized = " & ".join(f"{row[f'trace_output_tokens_{tier}']:.0f}" for tier in TIER_ORDER)
-        lines.append(f"{_label(row['policy'])} & {predicted} & {realized} \\\\")
-    _write_text(path, lines)
-
-
-def tier_mix_by_length(frame: pd.DataFrame) -> pd.DataFrame:
-    bins = pd.cut(frame["max_tokens"], LENGTH_BIN_EDGES, labels=LENGTH_BIN_LABELS)
-    counts = pd.crosstab(bins, frame["tier"]).reindex(columns=list(TIER_ORDER), fill_value=0)
-    return counts.div(counts.sum(axis=1), axis=0)
-
-
-def plot_tier_mix_by_length(records: Records, output: Path) -> None:
-    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = plt.subplots(figsize=PAPER_PANEL_FIGSIZE)
-    mix = tier_mix_by_length(records.frame)
-    bottom = np.zeros(len(mix))
-    x = np.arange(len(mix))
-    for tier in TIER_ORDER:
-        values = 100.0 * mix[tier].to_numpy()
-        ax.bar(
-            x, values, bottom=bottom, color=TIER_COLORS[tier], width=0.72, label=TIER_LABELS[tier]
-        )
-        bottom += values
-    ax.set_xticks(x, list(mix.index), fontsize=ANNOTATION_FONT_SIZE, rotation=35, ha="right")
-    ax.set_xlabel("response length in the trace (tokens)")
-    ax.set_ylabel("share of requests (%)")
-    ax.set_ylim(0, 100)
-    ax.set_title(_label(records.policy), fontsize=ANNOTATION_FONT_SIZE + 1, pad=20)
-    ax.grid(False)
-    ax.legend(
-        loc="lower center",
-        bbox_to_anchor=(0.5, 1.0),
-        ncol=3,
-        frameon=False,
-        handlelength=1.2,
-        columnspacing=1.0,
-        borderaxespad=0.1,
-    )
-    fig.tight_layout()
-    _save(fig, output)
-
-
-# ---------------------------------------------------------------------------
 # Output helpers and the reference check.
 # ---------------------------------------------------------------------------
 
@@ -787,8 +483,7 @@ def check_summary(summary: dict, reference_path: Path) -> None:
     checks = (
         ("concurrency", CONCURRENCY_METRICS),
         ("quota", QUOTA_METRICS),
-        ("quota_length", QUOTA_LENGTH_METRICS),
-        ("length", LENGTH_METRICS),
+        ("quota_length_mix", QUOTA_LENGTH_METRICS),
     )
     compared = 0
     for table, metrics in checks:
@@ -834,30 +529,21 @@ def main(argv: list[str] | None = None) -> int:
     quota = provider_by_tier(inventory, "quota")
     window_sec, size = quota_windows(inventory)
 
-    # 1. Effective cost.
-    curves = {
-        policy: quota_share_by_price_ratio(rec, inventory) for policy, rec in routewise.items()
-    }
-    plot_quota_share_vs_ratio(curves, output / "mechanism_quota_vs_effective_cost.pdf")
-
-    # 2. Concurrency-limited provider.
+    # 1. Concurrency-limited provider.
     concurrency_rows = [concurrency_row(rec, inventory) for rec in routewise.values()]
     write_concurrency_table(concurrency_rows, output / "mechanism_concurrency_rows.tex")
 
-    # 3. Quota-limited provider.
+    # 2. Quota-limited provider.
     timelines: dict[str, pd.DataFrame] = {}
     quota_rows: list[dict] = []
     for policy, rec in {**routewise, **baselines}.items():
         used = quota_legs(rec.frame, quota)
         timelines[policy] = quota_timeline(rec.frame, used, window_sec)
-        quota_rows.append(quota_row(policy, rec.frame, used, inventory, window_sec, size))
+        quota_rows.append(quota_row(policy, rec.frame, used, window_sec, size))
     trace = baselines["greedy_cost"].frame
     offline_used = quota_first_offline_usage(trace, window_sec, size)
     timelines[QUOTA_FIRST_OFFLINE] = quota_timeline(trace, offline_used, window_sec)
-    quota_rows.append(
-        quota_row(QUOTA_FIRST_OFFLINE, trace, offline_used, inventory, window_sec, size)
-    )
-    write_quota_table(quota_rows, size, output / "mechanism_quota_rows.tex")
+    quota_rows.append(quota_row(QUOTA_FIRST_OFFLINE, trace, offline_used, window_sec, size))
     plot_quota_over_time(
         {
             policy: timelines[policy]
@@ -869,22 +555,10 @@ def main(argv: list[str] | None = None) -> int:
         output / "mechanism_quota_over_time.pdf",
     )
 
-    # 3b. What the budget reserves quota for.
+    # 3. What the budget reserves quota for.
     concurrency = provider_by_tier(inventory, "concurrency")
-    quota_length_curves = {
-        policy: quota_by_length(rec, quota, concurrency) for policy, rec in routewise.items()
-    }
-    quota_length_rows = [quota_length_row(rec, quota, concurrency) for rec in routewise.values()]
-    write_quota_length_table(quota_length_rows, output / "mechanism_quota_length_rows.tex")
     quota_mix_rows = quota_length_mixes(routewise, quota, concurrency)
     plot_quota_length_mix(quota_mix_rows, output / "mechanism_quota_by_length.pdf")
-
-    # 4. Output-length awareness.
-    length_rows = [length_row(rec) for rec in {**routewise, **baselines}.values()]
-    write_length_table(length_rows, output / "mechanism_length_rows.tex")
-    for policy in LENGTH_FIGURE_POLICIES:
-        rec = routewise.get(policy) or baselines[policy]
-        plot_tier_mix_by_length(rec, output / f"mechanism_tier_by_length_{policy}.pdf")
 
     summary = {
         "quota_provider": quota,
@@ -892,15 +566,7 @@ def main(argv: list[str] | None = None) -> int:
         "quota_window_requests": size,
         "concurrency": concurrency_rows,
         "quota": quota_rows,
-        "quota_length": quota_length_rows,
-        "length": length_rows,
-        "quota_share_by_price_ratio": {
-            policy: curve.reset_index(drop=True).to_dict(orient="records")
-            for policy, curve in curves.items()
-        },
-        "quota_share_by_length": {
-            policy: curve.to_dict(orient="records") for policy, curve in quota_length_curves.items()
-        },
+        "quota_length_mix": quota_mix_rows,
     }
     summary_path = output / "mechanisms_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

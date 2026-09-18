@@ -81,10 +81,7 @@
       "peak_window_quota_requests": 1199,
       "peak_fraction_used": 0.26644444444444443,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 56.016460905349795,
-      "quota_api_equivalent_usd": 0.42305447999999996,
-      "quota_api_equivalent_usd_per_1000": 0.29016082304526747
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "budget_range_alpha25_hedge",
@@ -102,10 +99,7 @@
       "peak_window_quota_requests": 1626,
       "peak_fraction_used": 0.36133333333333334,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 96.00212765957447,
-      "quota_api_equivalent_usd": 0.841308,
-      "quota_api_equivalent_usd_per_1000": 0.3580034042553191
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "budget_range_alpha50_hedge",
@@ -123,10 +117,7 @@
       "peak_window_quota_requests": 1685,
       "peak_fraction_used": 0.37444444444444447,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 84.58571428571429,
-      "quota_api_equivalent_usd": 0.7711783200000001,
-      "quota_api_equivalent_usd_per_1000": 0.3240245042016807
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "budget_range_alpha75_hedge",
@@ -144,10 +135,7 @@
       "peak_window_quota_requests": 2028,
       "peak_fraction_used": 0.45066666666666666,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 64.85150018989745,
-      "quota_api_equivalent_usd": 0.7045296,
-      "quota_api_equivalent_usd_per_1000": 0.2675767565514622
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "budget_range_alpha100_hedge",
@@ -165,10 +153,7 @@
       "peak_window_quota_requests": 2718,
       "peak_fraction_used": 0.604,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 31.677481529071635,
-      "quota_api_equivalent_usd": 0.67153008,
-      "quota_api_equivalent_usd_per_1000": 0.215717982653389
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "greedy_latency",
@@ -186,10 +171,7 @@
       "peak_window_quota_requests": 2366,
       "peak_fraction_used": 0.5257777777777778,
       "exhausted_at_hours": null,
-      "requests_after_exhaustion": 0,
-      "quota_mean_output_tokens": 30.54855258336387,
-      "quota_api_equivalent_usd": 0.58265448,
-      "quota_api_equivalent_usd_per_1000": 0.21350475632099666
+      "requests_after_exhaustion": 0
     },
     {
       "policy": "greedy_cost",
@@ -207,10 +189,7 @@
       "peak_window_quota_requests": 4500,
       "peak_fraction_used": 1.0,
       "exhausted_at_hours": 13.62722252978219,
-      "requests_after_exhaustion": 4626,
-      "quota_mean_output_tokens": 23.269467213114755,
-      "quota_api_equivalent_usd": 1.04709528,
-      "quota_api_equivalent_usd_per_1000": 0.2145687049180328
+      "requests_after_exhaustion": 4626
     },
     {
       "policy": "quota_first_offline",
@@ -228,631 +207,79 @@
       "peak_window_quota_requests": 4500,
       "peak_fraction_used": 1.0,
       "exhausted_at_hours": 13.505835455060005,
-      "requests_after_exhaustion": 5392,
-      "quota_mean_output_tokens": 119.09512498586133,
-      "quota_api_equivalent_usd": 3.43414224,
-      "quota_api_equivalent_usd_per_1000": 0.3884336884967764
+      "requests_after_exhaustion": 5392
     }
   ],
-  "quota_length": [
+  "quota_length_mix": [
     {
       "policy": "budget_range_alpha0_hedge",
+      "label": "RouteWise $\\alpha=0$",
       "alpha": 0.0,
-      "contested_decisions": 8933,
-      "quota_requests": 1377,
-      "quota_mean_output_tokens": 51.11764705882353,
-      "quota_median_output_tokens": 9.0,
-      "quota_long_share": 0.16485112563543936,
-      "quota_long_share_ci_low": 0.14619037887568742,
-      "quota_long_share_ci_high": 0.18537668862865192,
-      "quota_share_shortest_bin": 0.19545903257650543,
-      "quota_share_longest_bin": 0.8774193548387097,
-      "cheaper_share_max_gap": 0.00019743336623889718
+      "n": 1377,
+      "share_1-10": 0.7189542483660131,
+      "share_11-50": 0.11619462599854757,
+      "share_51-200": 0.06608569353667393,
+      "share_>200": 0.09876543209876543
     },
     {
       "policy": "budget_range_alpha25_hedge",
+      "label": "RouteWise $\\alpha=0.25$",
       "alpha": 0.25,
-      "contested_decisions": 8743,
-      "quota_requests": 1620,
-      "quota_mean_output_tokens": 28.483950617283952,
-      "quota_median_output_tokens": 9.0,
-      "quota_long_share": 0.09074074074074075,
-      "quota_long_share_ci_low": 0.07770437951915543,
-      "quota_long_share_ci_high": 0.10571351050164463,
-      "quota_share_shortest_bin": 0.2506470236910213,
-      "quota_share_longest_bin": 0.6568627450980392,
-      "cheaper_share_max_gap": 0.20588235294117652
+      "n": 1620,
+      "share_1-10": 0.7771604938271605,
+      "share_11-50": 0.13209876543209875,
+      "share_51-200": 0.04938271604938271,
+      "share_>200": 0.04135802469135803
     },
     {
       "policy": "budget_range_alpha50_hedge",
+      "label": "RouteWise $\\alpha=0.5$",
       "alpha": 0.5,
-      "contested_decisions": 8393,
-      "quota_requests": 1631,
-      "quota_mean_output_tokens": 25.998160637645615,
-      "quota_median_output_tokens": 9.0,
-      "quota_long_share": 0.07173513182096873,
-      "quota_long_share_ci_low": 0.06019213679653189,
-      "quota_long_share_ci_high": 0.08529082620122887,
-      "quota_share_shortest_bin": 0.2652102899142507,
-      "quota_share_longest_bin": 0.6170212765957447,
-      "cheaper_share_max_gap": 0.25531914893617025
+      "n": 1631,
+      "share_1-10": 0.7964438994481913,
+      "share_11-50": 0.13182096873083998,
+      "share_51-200": 0.036174126302881665,
+      "share_>200": 0.035561005518087066
     },
     {
       "policy": "budget_range_alpha75_hedge",
+      "label": "RouteWise $\\alpha=0.75$",
       "alpha": 0.75,
-      "contested_decisions": 5878,
-      "quota_requests": 1966,
-      "quota_mean_output_tokens": 18.311291963377418,
-      "quota_median_output_tokens": 9.0,
-      "quota_long_share": 0.04781281790437437,
-      "quota_long_share_ci_low": 0.039230835471316554,
-      "quota_long_share_ci_high": 0.05815851806858229,
-      "quota_share_shortest_bin": 0.39665765544359793,
-      "quota_share_longest_bin": 0.42528735632183906,
-      "cheaper_share_max_gap": 0.43678160919540227
+      "n": 1966,
+      "share_1-10": 0.8209562563580874,
+      "share_11-50": 0.13123092573753814,
+      "share_51-200": 0.02899287894201424,
+      "share_>200": 0.018819938962360123
     },
     {
       "policy": "budget_range_alpha100_hedge",
+      "label": "RouteWise $\\alpha=1$",
       "alpha": 1.0,
-      "contested_decisions": 5210,
-      "quota_requests": 2693,
-      "quota_mean_output_tokens": 12.82844411437059,
-      "quota_median_output_tokens": 9.0,
-      "quota_long_share": 0.024136650575566285,
-      "quota_long_share_ci_low": 0.018982543211476667,
-      "quota_long_share_ci_high": 0.03064647467374136,
-      "quota_share_shortest_bin": 0.6108165429480382,
-      "quota_share_longest_bin": 0.2159090909090909,
-      "cheaper_share_max_gap": 0.6931818181818181
-    }
-  ],
-  "length": [
-    {
-      "policy": "budget_range_alpha0_hedge",
-      "alpha": 0.0,
-      "n": 14233,
-      "requests_api": 7700,
-      "trace_output_tokens_api": 18.636233766233765,
-      "predicted_output_tokens_api": 20.687272727272727,
-      "requests_quota": 1399,
-      "trace_output_tokens_quota": 54.753395282344535,
-      "predicted_output_tokens_quota": 64.09077912794854,
-      "requests_concurrency": 5134,
-      "trace_output_tokens_concurrency": 182.7559407869108,
-      "predicted_output_tokens_concurrency": 147.6416049863654
+      "n": 2693,
+      "share_1-10": 0.8555514296323803,
+      "share_11-50": 0.12031191979205347,
+      "share_51-200": 0.01708132194578537,
+      "share_>200": 0.007055328629780914
     },
     {
-      "policy": "budget_range_alpha25_hedge",
-      "alpha": 0.25,
-      "n": 14233,
-      "requests_api": 7712,
-      "trace_output_tokens_api": 26.84686203319502,
-      "predicted_output_tokens_api": 28.79823651452282,
-      "requests_quota": 2256,
-      "trace_output_tokens_quota": 97.78767730496453,
-      "predicted_output_tokens_quota": 102.13076241134752,
-      "requests_concurrency": 4265,
-      "trace_output_tokens_concurrency": 171.3284876905041,
-      "predicted_output_tokens_concurrency": 136.64947245017586
+      "policy": "contested",
+      "label": "Contested ($\\alpha=0$)",
+      "alpha": null,
+      "n": 8933,
+      "share_1-10": 0.566998768610769,
+      "share_11-50": 0.40221650061569464,
+      "share_51-200": 0.01343333706481585,
+      "share_>200": 0.017351393708720474
     },
     {
-      "policy": "budget_range_alpha50_hedge",
-      "alpha": 0.5,
-      "n": 14233,
-      "requests_api": 8142,
-      "trace_output_tokens_api": 40.63141734217637,
-      "predicted_output_tokens_api": 39.731884057971016,
-      "requests_quota": 2280,
-      "trace_output_tokens_quota": 84.1921052631579,
-      "predicted_output_tokens_quota": 87.50745614035088,
-      "requests_concurrency": 3811,
-      "trace_output_tokens_concurrency": 166.77748622408816,
-      "predicted_output_tokens_concurrency": 134.47704014694307
-    },
-    {
-      "policy": "budget_range_alpha75_hedge",
-      "alpha": 0.75,
-      "n": 14233,
-      "requests_api": 8468,
-      "trace_output_tokens_api": 54.015824279641,
-      "predicted_output_tokens_api": 50.82404345772319,
-      "requests_quota": 2544,
-      "trace_output_tokens_quota": 60.945361635220124,
-      "predicted_output_tokens_quota": 65.48113207547169,
-      "requests_concurrency": 3221,
-      "trace_output_tokens_concurrency": 169.48680533995653,
-      "predicted_output_tokens_concurrency": 138.12977336230983
-    },
-    {
-      "policy": "budget_range_alpha100_hedge",
-      "alpha": 1.0,
-      "n": 14233,
-      "requests_api": 8373,
-      "trace_output_tokens_api": 68.15072256061148,
-      "predicted_output_tokens_api": 62.358533381105936,
-      "requests_quota": 3022,
-      "trace_output_tokens_quota": 30.09364659166115,
-      "predicted_output_tokens_quota": 39.727663798808734,
-      "requests_concurrency": 2838,
-      "trace_output_tokens_concurrency": 175.05250176180408,
-      "predicted_output_tokens_concurrency": 141.3664552501762
-    },
-    {
-      "policy": "greedy_latency",
+      "policy": "trace",
+      "label": "All requests",
       "alpha": null,
       "n": 14233,
-      "requests_api": 8688,
-      "trace_output_tokens_api": 63.81687384898711,
-      "predicted_output_tokens_api": null,
-      "requests_quota": 2729,
-      "trace_output_tokens_quota": 30.54855258336387,
-      "predicted_output_tokens_quota": null,
-      "requests_concurrency": 2816,
-      "trace_output_tokens_concurrency": 184.85795454545453,
-      "predicted_output_tokens_concurrency": null
-    },
-    {
-      "policy": "greedy_cost",
-      "alpha": null,
-      "n": 14233,
-      "requests_api": 4071,
-      "trace_output_tokens_api": 11.481208548268238,
-      "predicted_output_tokens_api": null,
-      "requests_quota": 4880,
-      "trace_output_tokens_quota": 23.269467213114755,
-      "predicted_output_tokens_quota": null,
-      "requests_concurrency": 5282,
-      "trace_output_tokens_concurrency": 188.9574024990534,
-      "predicted_output_tokens_concurrency": null
+      "share_1-10": 0.39436520761610344,
+      "share_11-50": 0.35684676456123093,
+      "share_51-200": 0.10405395910911262,
+      "share_>200": 0.14473406871355302
     }
-  ],
-  "quota_share_by_price_ratio": {
-    "budget_range_alpha0_hedge": [
-      {
-        "ratio_geomean": 0.13753238811530305,
-        "n": 41,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 0.14630116509625019,
-        "n": 58,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 0.4731527509391174,
-        "n": 50,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 0.597339284892542,
-        "n": 157,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 0.6949348081774804,
-        "n": 208,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 0.8431640653033816,
-        "n": 386,
-        "quota_share": 1.0
-      },
-      {
-        "ratio_geomean": 1.0417483143837956,
-        "n": 2506,
-        "quota_share": 0.17517956903431764
-      },
-      {
-        "ratio_geomean": 1.1792553505090329,
-        "n": 4983,
-        "quota_share": 0.0
-      },
-      {
-        "ratio_geomean": 1.3965235400742335,
-        "n": 488,
-        "quota_share": 0.0
-      }
-    ],
-    "budget_range_alpha25_hedge": [
-      {
-        "ratio_geomean": 0.15281166700119775,
-        "n": 39,
-        "quota_share": 0.717948717948718
-      },
-      {
-        "ratio_geomean": 0.4702546707496899,
-        "n": 50,
-        "quota_share": 0.72
-      },
-      {
-        "ratio_geomean": 0.5919517474133776,
-        "n": 129,
-        "quota_share": 0.7906976744186046
-      },
-      {
-        "ratio_geomean": 0.6875268544649571,
-        "n": 242,
-        "quota_share": 0.8347107438016529
-      },
-      {
-        "ratio_geomean": 0.8371817431736858,
-        "n": 344,
-        "quota_share": 0.9534883720930233
-      },
-      {
-        "ratio_geomean": 1.015866651423955,
-        "n": 562,
-        "quota_share": 0.9288256227758007
-      },
-      {
-        "ratio_geomean": 1.2456958574434094,
-        "n": 3055,
-        "quota_share": 0.1204582651391162
-      },
-      {
-        "ratio_geomean": 1.4104002795002126,
-        "n": 3964,
-        "quota_share": 0.0
-      },
-      {
-        "ratio_geomean": 1.6813786106818946,
-        "n": 309,
-        "quota_share": 0.0
-      }
-    ],
-    "budget_range_alpha50_hedge": [
-      {
-        "ratio_geomean": 0.14912096881383263,
-        "n": 43,
-        "quota_share": 0.6744186046511628
-      },
-      {
-        "ratio_geomean": 0.4737929092426019,
-        "n": 49,
-        "quota_share": 0.46938775510204084
-      },
-      {
-        "ratio_geomean": 0.5909159827233277,
-        "n": 121,
-        "quota_share": 0.4793388429752066
-      },
-      {
-        "ratio_geomean": 0.6887532887082831,
-        "n": 258,
-        "quota_share": 0.751937984496124
-      },
-      {
-        "ratio_geomean": 0.8390856832676808,
-        "n": 337,
-        "quota_share": 0.9643916913946587
-      },
-      {
-        "ratio_geomean": 1.0097146868923061,
-        "n": 455,
-        "quota_share": 0.9956043956043956
-      },
-      {
-        "ratio_geomean": 1.2497007135955505,
-        "n": 1852,
-        "quota_share": 0.2726781857451404
-      },
-      {
-        "ratio_geomean": 1.4245179478542487,
-        "n": 4689,
-        "quota_share": 0.001492855619535082
-      },
-      {
-        "ratio_geomean": 1.6780605688564583,
-        "n": 537,
-        "quota_share": 0.03165735567970205
-      }
-    ],
-    "budget_range_alpha75_hedge": [
-      {
-        "ratio_geomean": 0.14977738564465054,
-        "n": 44,
-        "quota_share": 0.29545454545454547
-      },
-      {
-        "ratio_geomean": 0.4748799041990166,
-        "n": 49,
-        "quota_share": 0.30612244897959184
-      },
-      {
-        "ratio_geomean": 0.5853582980144151,
-        "n": 109,
-        "quota_share": 0.5137614678899083
-      },
-      {
-        "ratio_geomean": 0.6879695391856666,
-        "n": 242,
-        "quota_share": 0.9545454545454546
-      },
-      {
-        "ratio_geomean": 0.8396053687288618,
-        "n": 310,
-        "quota_share": 0.9838709677419355
-      },
-      {
-        "ratio_geomean": 1.009418378673125,
-        "n": 446,
-        "quota_share": 0.9798206278026906
-      },
-      {
-        "ratio_geomean": 1.2163338933719199,
-        "n": 668,
-        "quota_share": 0.7020958083832335
-      },
-      {
-        "ratio_geomean": 1.4837720050208039,
-        "n": 2001,
-        "quota_share": 0.1454272863568216
-      },
-      {
-        "ratio_geomean": 1.693931809956895,
-        "n": 1812,
-        "quota_share": 0.0673289183222958
-      },
-      {
-        "ratio_geomean": 2.0245183716935338,
-        "n": 159,
-        "quota_share": 0.08176100628930817
-      }
-    ],
-    "budget_range_alpha100_hedge": [
-      {
-        "ratio_geomean": 0.15258389697447625,
-        "n": 50,
-        "quota_share": 0.0
-      },
-      {
-        "ratio_geomean": 0.47528292129604455,
-        "n": 44,
-        "quota_share": 0.3181818181818182
-      },
-      {
-        "ratio_geomean": 0.5826176130778737,
-        "n": 108,
-        "quota_share": 0.9351851851851852
-      },
-      {
-        "ratio_geomean": 0.6899784834292433,
-        "n": 249,
-        "quota_share": 0.9518072289156626
-      },
-      {
-        "ratio_geomean": 0.8381901818820414,
-        "n": 329,
-        "quota_share": 0.9544072948328267
-      },
-      {
-        "ratio_geomean": 1.0046349150800433,
-        "n": 419,
-        "quota_share": 0.9785202863961814
-      },
-      {
-        "ratio_geomean": 1.2050866322373446,
-        "n": 458,
-        "quota_share": 0.9519650655021834
-      },
-      {
-        "ratio_geomean": 1.44913901489215,
-        "n": 450,
-        "quota_share": 0.9533333333333334
-      },
-      {
-        "ratio_geomean": 1.7657209093485675,
-        "n": 720,
-        "quota_share": 0.625
-      },
-      {
-        "ratio_geomean": 2.094197532485306,
-        "n": 1895,
-        "quota_share": 0.13825857519788917
-      },
-      {
-        "ratio_geomean": 2.437238236416116,
-        "n": 420,
-        "quota_share": 0.08095238095238096
-      },
-      {
-        "ratio_geomean": 2.8946498789972788,
-        "n": 30,
-        "quota_share": 0.1
-      }
-    ]
-  },
-  "quota_share_by_length": {
-    "budget_range_alpha0_hedge": [
-      {
-        "bin": "1-10",
-        "n": 5065,
-        "quota_requests": 990,
-        "cheaper_share": 0.19526159921026653,
-        "quota_share": 0.19545903257650543,
-        "ci_low": 0.18477039115034397,
-        "ci_high": 0.2066092881830958
-      },
-      {
-        "bin": "11-50",
-        "n": 3593,
-        "quota_requests": 160,
-        "cheaper_share": 0.044531032563317564,
-        "quota_share": 0.044531032563317564,
-        "ci_low": 0.03825879876090583,
-        "ci_high": 0.05177619193760032
-      },
-      {
-        "bin": "51-200",
-        "n": 120,
-        "quota_requests": 91,
-        "cheaper_share": 0.7583333333333333,
-        "quota_share": 0.7583333333333333,
-        "ci_low": 0.6744968590361364,
-        "ci_high": 0.8261426675849666
-      },
-      {
-        "bin": ">200",
-        "n": 155,
-        "quota_requests": 136,
-        "cheaper_share": 0.8774193548387097,
-        "quota_share": 0.8774193548387097,
-        "ci_low": 0.8164788974678148,
-        "ci_high": 0.9201039624379026
-      }
-    ],
-    "budget_range_alpha25_hedge": [
-      {
-        "bin": "1-10",
-        "n": 5023,
-        "quota_requests": 1259,
-        "cheaper_share": 0.15767469639657575,
-        "quota_share": 0.2506470236910213,
-        "ci_low": 0.23885534690430707,
-        "ci_high": 0.26281982026228917
-      },
-      {
-        "bin": "11-50",
-        "n": 3516,
-        "quota_requests": 214,
-        "cheaper_share": 0.030716723549488054,
-        "quota_share": 0.0608646188850967,
-        "ci_low": 0.05343093355734516,
-        "ci_high": 0.06925686012064305
-      },
-      {
-        "bin": "51-200",
-        "n": 102,
-        "quota_requests": 80,
-        "cheaper_share": 0.7843137254901961,
-        "quota_share": 0.7843137254901961,
-        "ci_low": 0.6949596365633389,
-        "ci_high": 0.8530290559734329
-      },
-      {
-        "bin": ">200",
-        "n": 102,
-        "quota_requests": 67,
-        "cheaper_share": 0.8627450980392157,
-        "quota_share": 0.6568627450980392,
-        "ci_low": 0.5605422456017035,
-        "ci_high": 0.7417963433841017
-      }
-    ],
-    "budget_range_alpha50_hedge": [
-      {
-        "bin": "1-10",
-        "n": 4898,
-        "quota_requests": 1299,
-        "cheaper_share": 0.16047366271947733,
-        "quota_share": 0.2652102899142507,
-        "ci_low": 0.2530347848972824,
-        "ci_high": 0.27775380688422263
-      },
-      {
-        "bin": "11-50",
-        "n": 3312,
-        "quota_requests": 215,
-        "cheaper_share": 0.03170289855072464,
-        "quota_share": 0.06491545893719806,
-        "ci_low": 0.05701832060166152,
-        "ci_high": 0.07382073998555108
-      },
-      {
-        "bin": "51-200",
-        "n": 89,
-        "quota_requests": 59,
-        "cheaper_share": 0.7752808988764045,
-        "quota_share": 0.6629213483146067,
-        "ci_low": 0.5597868598433597,
-        "ci_high": 0.752573116718871
-      },
-      {
-        "bin": ">200",
-        "n": 94,
-        "quota_requests": 58,
-        "cheaper_share": 0.8723404255319149,
-        "quota_share": 0.6170212765957447,
-        "ci_low": 0.5159937196695321,
-        "ci_high": 0.7088595124934742
-      }
-    ],
-    "budget_range_alpha75_hedge": [
-      {
-        "bin": "1-10",
-        "n": 4069,
-        "quota_requests": 1614,
-        "cheaper_share": 0.18260014745637748,
-        "quota_share": 0.39665765544359793,
-        "ci_low": 0.38173041426579407,
-        "ci_high": 0.4117798464818864
-      },
-      {
-        "bin": "11-50",
-        "n": 1633,
-        "quota_requests": 258,
-        "cheaper_share": 0.06307409675443969,
-        "quota_share": 0.15799142682180037,
-        "ci_low": 0.14110624213310274,
-        "ci_high": 0.17648197165618507
-      },
-      {
-        "bin": "51-200",
-        "n": 89,
-        "quota_requests": 57,
-        "cheaper_share": 0.7303370786516854,
-        "quota_share": 0.6404494382022472,
-        "ci_low": 0.5368521850687317,
-        "ci_high": 0.7324236567952603
-      },
-      {
-        "bin": ">200",
-        "n": 87,
-        "quota_requests": 37,
-        "cheaper_share": 0.8620689655172413,
-        "quota_share": 0.42528735632183906,
-        "ci_low": 0.3267307291558499,
-        "ci_high": 0.5301630287700343
-      }
-    ],
-    "budget_range_alpha100_hedge": [
-      {
-        "bin": "1-10",
-        "n": 3772,
-        "quota_requests": 2304,
-        "cheaper_share": 0.19989395546129374,
-        "quota_share": 0.6108165429480382,
-        "ci_low": 0.5951515481651509,
-        "ci_high": 0.6262560447804854
-      },
-      {
-        "bin": "11-50",
-        "n": 1265,
-        "quota_requests": 324,
-        "cheaper_share": 0.08063241106719368,
-        "quota_share": 0.25612648221343876,
-        "ci_low": 0.23283592223843944,
-        "ci_high": 0.2808937663215826
-      },
-      {
-        "bin": "51-200",
-        "n": 85,
-        "quota_requests": 46,
-        "cheaper_share": 0.8352941176470589,
-        "quota_share": 0.5411764705882353,
-        "ci_low": 0.4357614755911955,
-        "ci_high": 0.6430304417088081
-      },
-      {
-        "bin": ">200",
-        "n": 88,
-        "quota_requests": 19,
-        "cheaper_share": 0.9090909090909091,
-        "quota_share": 0.2159090909090909,
-        "ci_low": 0.14280713983318927,
-        "ci_high": 0.31277725765117514
-      }
-    ]
-  }
+  ]
 }

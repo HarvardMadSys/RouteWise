@@ -129,13 +129,10 @@ column per provider, `latency_objective_ms:<provider>`, `c_eff:<provider>` and
 The cost envelope of the run was `L = $0.000143808`, `U = $0.00084768`, the
 P10 and P90 of the cheapest on-demand price over the trace.
 
-These columns feed the mechanism measurements of the revision: how the
-effective-cost comparison decided quota against metered dispatch, whether the
+These columns feed three mechanism measurements of the revision: whether the
 concurrency slot was offered whenever free and taken whenever fastest, quota
 consumption over the day against Greedy-cost and an offline "quota whenever
-available" replay, what a tight budget reserves quota for, and whether short
-predicted responses went to the metered tier while the subscription tiers took
-the long ones.
+available" replay, and what a tight budget reserves quota for.
 
 ### What the budget reserves quota for
 
@@ -143,45 +140,36 @@ RouteWise never exhausts a quota window, and its quota use *rises* with alpha
 (1,458 requests at alpha = 0 against 3,113 at alpha = 1) although a higher
 alpha is the less cost-sensitive setting. The resolution is that a tight budget
 does not use less quota indiscriminately, it spends quota on different
-requests. Measured over the decisions where the concurrency slot was busy, the
-only ones in which the budget weighs quota against a metered price, the mean
-response length of a quota-served request falls from 51 tokens at alpha = 0 to
-13 at alpha = 1, and the share of quota spent on responses over 50 tokens falls
-from 16.5% to 2.4%. Per length bin the two ends cross over: the shortest bin's
-quota share rises from 20% to 61% with alpha while the longest bin's falls from
-88% to 22%. Those per-bin shares are in the table and in
-`quota_share_by_length` of the summary; the figure shows the composition
-instead.
+requests: the long responses, which are dear on a metered provider and free of
+marginal charge on quota.
 
-The figure shows this as a composition: one 100% stacked bar per operating
-point, holding the length mix of the requests that went to quota, over two
-reference bars. The reference bars are needed because the three distributions
+The figure shows this as a composition. One 100% stacked bar per operating
+point holds the length mix of the requests that went to quota, over two
+reference bars. Both references are needed because the three distributions
 differ. `All requests` is the trace itself, where responses over 50 tokens are
 24.9% of the workload. `Contested` is the pool of decisions in which the budget
-actually had to weigh quota against a metered price, where they are only 3.1%:
-the concurrency slot takes most long requests whenever it is free, so they
-never reach that comparison. Against that pool, quota traffic at alpha = 0 is
-enriched in long responses more than fivefold, and the enrichment disappears as
-alpha rises.
+actually had to weigh quota against a metered price, meaning the concurrency
+slot was busy; there they are only 3.1%, because the free slot takes most long
+requests before that comparison ever happens. Against that pool, quota traffic
+at alpha = 0 is enriched in long responses more than fivefold, 16.5% against
+3.1%, and the enrichment falls away to 2.4% at alpha = 1.
 
-The reason is that a long response is dear on a metered provider and free of
-marginal charge on quota, so it is the request a binding budget sends to quota
-first. The `cheaper_share` column of the per-bin curve makes this exact: at
-alpha = 0 the budget equals the cheapest effective cost, and the share sent to
-quota matches the share for which quota was the cheaper option to within
-0.0002 in every bin. At alpha = 1 the budget never binds and the gap reaches
-0.69: quota undercut every metered provider for 91% of the longest requests,
-and the latency-led LP sent it only 22% of them.
+Note that the 11-50 token band is a third of the trace but only an eighth of
+quota traffic at every alpha. That is a routing effect rather than a property
+of the workload: at those lengths the prompt dominates the request's metered
+price, so an 11-50 token response costs about what a 1-10 token one does and
+the budget has little reason to prefer quota for it.
 
-Regenerate the figures and table rows, and check the aggregates against
-`mechanisms_reference_summary.json`, with:
+Regenerate the three figures and the table rows, and check the aggregates
+against `mechanisms_reference_summary.json`, with:
 
 ```bash
 uv run python scripts/reproduce_real_world_mechanisms.py
 ```
 
-Outputs go to `outputs/figures/real_world_m3/` as `mechanism_*.pdf` and
-`mechanism_*_rows.tex`.
+Outputs go to `outputs/figures/real_world_m3/`:
+`mechanism_concurrency_rows.tex`, `mechanism_quota_over_time.pdf` and
+`mechanism_quota_by_length.pdf`.
 
 `mechanisms_reference_summary.json` is that run's `mechanisms_summary.json`
 copied here. `SHA256SUMS` covers it, and the checksums are written by the
