@@ -75,7 +75,7 @@ POLICY_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
-    "single_OR_Together": "Together-only",
+    "single_OR_Together": "Single-provider",
 }
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES

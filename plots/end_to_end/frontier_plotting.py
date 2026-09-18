@@ -87,7 +87,7 @@ POLICY_PLOT_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
-    "single_OR_Together": "Together-only",
+    "single_OR_Together": "Single-provider",
 }
 POLICY_COLORS = {
     "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
