@@ -28,6 +28,7 @@ from plots.end_to_end.frontier_plotting import (
     PAPER_PANEL_FIGSIZE,
     ROUTEWISE_COLOR,
     aligned_panel_geometry,
+    aligned_top_in,
     apply_column_figure_style,
 )
 from plots.end_to_end.plot_real_world_frontier import parse_alpha, percentile, truthy
@@ -354,7 +355,9 @@ def write_slo_table(rows: list[SloRow], path: Path) -> None:
 
 
 def _slo_axes(rows: list[SloRow]):
-    figsize, margins = aligned_panel_geometry(len(rows))
+    # The two sweep panels sit side by side and neither carries a legend, so
+    # the pair's top band is only the tick clearance.
+    figsize, margins = aligned_panel_geometry(len(rows), top_in=aligned_top_in(0))
     fig, ax = plt.subplots(figsize=figsize or PAPER_PANEL_FIGSIZE, constrained_layout=False)
     _, right, bottom, top = margins
     fig.subplots_adjust(left=0.20, right=right, bottom=bottom, top=top)
