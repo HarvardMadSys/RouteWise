@@ -40,6 +40,7 @@ if __package__ in {None, ""}:
 
 from experiments.real_evaluation.inventory import load_inventory
 from plots.end_to_end.frontier_plotting import (
+    ALIGNED_BOTTOM_IN,
     ANNOTATION_FONT_SIZE,
     PAPER_PANEL_FIGSIZE,
     POLICY_COLORS,
@@ -53,9 +54,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTEWISE_POLICIES = tuple(f"budget_range_alpha{alpha}_hedge" for alpha in (0, 25, 50, 75, 100))
 BASELINE_POLICIES = ("greedy_latency", "greedy_cost")
 QUOTA_FIRST_OFFLINE = "quota_first_offline"
-# The two line figures carry their legend below the axes, so they are taller
-# than the shared panel size.
-LEGEND_BELOW_FIGSIZE = (PAPER_PANEL_FIGSIZE[0], 3.9)
+# LaTeX places the two quota panels side by side, so they are one aligned set:
+# both are drawn at the shared panel size and split it into the same absolute
+# bands, a top band holding the legend and a bottom band holding the ticks and
+# the x label. The panels then have the same height, their plot boxes have the
+# same top and bottom, and their legends start at the same line.
+QUOTA_PANEL_TOP_IN = 0.72
 CONCURRENCY_METRICS = (
     "free_slot_decisions",
     "offered_when_free_rate",
@@ -105,6 +109,31 @@ def _color(policy: str) -> str:
     if policy == QUOTA_FIRST_OFFLINE:
         return "#7f7f7f"
     return POLICY_COLORS.get(policy, "#555555")
+
+
+def _quota_panel(left: float):
+    """One panel of the side-by-side quota set, on the shared band geometry."""
+    height = PAPER_PANEL_FIGSIZE[1]
+    fig, ax = plt.subplots(figsize=PAPER_PANEL_FIGSIZE)
+    fig.subplots_adjust(
+        left=left,
+        right=0.97,
+        bottom=ALIGNED_BOTTOM_IN / height,
+        top=1.0 - QUOTA_PANEL_TOP_IN / height,
+    )
+    return fig, ax
+
+
+def _panel_legend(ax, **kwargs):
+    """Legend sitting in the top band, its top on the figure's top edge."""
+    return ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.99),
+        bbox_transform=ax.figure.transFigure,
+        frameon=False,
+        borderpad=0.0,
+        **kwargs,
+    )
 
 
 class Records:
@@ -267,7 +296,7 @@ def plot_quota_over_time(
     output: Path,
 ) -> None:
     apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = plt.subplots(figsize=LEGEND_BELOW_FIGSIZE)
+    fig, ax = _quota_panel(left=0.205)
     span = float(span_hours)
     for boundary in np.arange(window_sec / 3600.0, span, window_sec / 3600.0):
         ax.axvline(boundary, color="#bbbbbb", linewidth=0.6, linestyle=":")
@@ -300,16 +329,15 @@ def plot_quota_over_time(
     ax.set_xlabel("hour of the run")
     ax.set_ylabel(f"quota used in {window_sec / 3600:g} h window")
     ax.grid(True, axis="y", linewidth=0.35, alpha=0.35)
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.2),
+    _panel_legend(
+        ax,
         ncol=2,
-        frameon=False,
-        handlelength=1.8,
+        handlelength=1.4,
+        handletextpad=0.4,
         fontsize=ANNOTATION_FONT_SIZE - 1,
-        columnspacing=1.0,
+        columnspacing=0.8,
+        labelspacing=0.3,
     )
-    fig.tight_layout()
     _save(fig, output)
 
 
@@ -392,7 +420,7 @@ def quota_length_mixes(
 
 def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
     apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = plt.subplots(figsize=(PAPER_PANEL_FIGSIZE[0], 3.05))
+    fig, ax = _quota_panel(left=0.40)
     # A gap between the operating points and the two reference rows.
     positions = [index + (0.6 if row["alpha"] is None else 0.0) for index, row in enumerate(rows)]
     left = np.zeros(len(rows))
@@ -442,20 +470,17 @@ def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
     ax.set_xlim(0, 136)
     ax.set_xticks([0, 50, 100])
     ax.spines["bottom"].set_bounds(0, 100)
-    ax.set_xlabel("share of requests (%)")
+    ax.set_xlabel("share of requests (%)", x=50.0 / 136.0, ha="center")
     ax.grid(False)
-    ax.legend(
+    _panel_legend(
+        ax,
         title="response length (tokens)",
-        loc="lower center",
-        bbox_to_anchor=(0.5, 1.0),
         ncol=4,
-        frameon=False,
         handlelength=1.1,
         columnspacing=0.9,
         handletextpad=0.5,
         title_fontsize=ANNOTATION_FONT_SIZE - 1,
     )
-    fig.tight_layout()
     _save(fig, output)
 
 
@@ -472,7 +497,10 @@ def _write_text(path: Path, lines: list[str]) -> None:
 
 def _save(fig, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output)
+    # Not a tight bbox: the panels only stay aligned if the PDF keeps the
+    # authored figure size, so LaTeX scales both by the same factor.
+    with plt.rc_context({"savefig.bbox": None}):
+        fig.savefig(output)
     plt.close(fig)
     print(f"wrote {output}")
 
