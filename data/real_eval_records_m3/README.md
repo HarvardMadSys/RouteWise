@@ -168,8 +168,11 @@ single operating point, alpha = 0.5, over hours 10 to 24; the first ten hours
 of the trace hold 3% of its requests, too few to measure a traffic share in.
 The upper panel is each provider's rolling mean time to first token, which is
 the quantity the LP minimizes, and the lower panel is the dispatch
-distribution it solved for, averaged over 20-minute bins. Bins holding fewer
-than 15 decisions are left blank rather than interpolated.
+distribution it solved for, averaged over 20-minute bins. A slot holding fewer
+than 15 decisions is merged with the one after it rather than dropped, so a
+handful of bars are wider and the timeline has no holes; each bar covers
+exactly the period it summarizes, and the trace never goes quiet for a whole
+slot inside this window.
 
 Read together, the bands narrow as the lines rise. GMICloud is the clearest
 case: its rolling latency goes from 1.47x the best alternative before hour 16
@@ -180,11 +183,11 @@ out: GMICloud was a candidate in 100% of decisions, was never rate-limited and
 never failed. The concurrency slot is the one provider whose availability does
 move, at 41%, because its two slots are often full.
 
-Across the 20-minute bins each provider's traffic share runs against its
-latency, with Spearman correlations of -0.54 for the Minimax API endpoint,
--0.54 for Together, -0.53 for the Featherless slot and -0.36 for GMICloud. The
-quota tier is the exception at -0.22, which is what one would expect: its
-share answers to the shadow price and the budget as much as to latency.
+Across the bins each provider's traffic share runs against its latency, with
+Spearman correlations of -0.54 for the Featherless slot, -0.53 for the Minimax
+API endpoint, -0.50 for Together and -0.38 for GMICloud. The quota tier is the
+exception at -0.19, which is what one would expect: its share answers to the
+shadow price and the budget as much as to latency.
 
 The point of the panel is the dashed line in the upper half. Individual
 providers swing by more than a factor of two over the day, and GMICloud ends

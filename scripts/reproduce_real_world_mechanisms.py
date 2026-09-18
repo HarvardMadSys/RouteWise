@@ -96,6 +96,8 @@ LP_POLICY = "budget_range_alpha50_hedge"
 # a traffic share in, so the panel starts where the workload does.
 LP_WINDOW_START_HOURS = 10.0
 LP_BIN_MINUTES = 20.0
+# A bar needs this many decisions for its traffic share to mean anything; a
+# thinner slot is merged with the next one rather than left as a hole.
 LP_MIN_DECISIONS = 15
 # A provider needs this much of the run's traffic to earn its own band; the
 # rest are pooled, and none of them reaches 0.2%.
@@ -551,6 +553,35 @@ def lp_providers(records: Records) -> tuple[list[str], list[str]]:
     return shown, [name for name in ranked if name not in shown]
 
 
+def _coalesce_slots(slot: pd.Series) -> pd.Series:
+    """Group thin time slots with the ones after them until each is measurable.
+
+    A traffic share taken over a handful of decisions is noise, but dropping
+    those slots would punch holes in a timeline whose x-axis is real time. So
+    a run of thin slots is merged into one wider bar that still covers exactly
+    the period it summarizes. The trace never goes quiet for a whole slot here,
+    so the merged bars tile the window without gaps.
+    """
+    counts = slot.value_counts().sort_index()
+    group_of: dict[int, int] = {}
+    head, running = None, 0
+    for value, count in counts.items():
+        if head is None:
+            head = value
+        group_of[value] = head
+        running += count
+        if running >= LP_MIN_DECISIONS:
+            head, running = None, 0
+    if head is not None:
+        # The window ended mid-run; fold the remainder into the group before it.
+        trailing = [value for value, owner in group_of.items() if owner == head]
+        earlier = [owner for owner in group_of.values() if owner != head]
+        if earlier:
+            for value in trailing:
+                group_of[value] = max(earlier)
+    return slot.map(group_of)
+
+
 def lp_bins(records: Records, shown: list[str], pooled: list[str]) -> pd.DataFrame:
     """Per time bin: each provider's latency belief and the traffic the LP gave it.
 
@@ -561,12 +592,15 @@ def lp_bins(records: Records, shown: list[str], pooled: list[str]) -> pd.DataFra
     """
     frame = records.frame[records.frame["hours"] >= LP_WINDOW_START_HOURS].copy()
     width = LP_BIN_MINUTES / 60.0
-    frame["bin"] = (
-        LP_WINDOW_START_HOURS
-        + ((frame["hours"] - LP_WINDOW_START_HOURS) / width).astype(int) * width
-    )
+    slot = ((frame["hours"] - LP_WINDOW_START_HOURS) / width).astype(int)
+    frame["bin"] = _coalesce_slots(slot)
     grouped = frame.groupby("bin")
     out = pd.DataFrame({"n": grouped.size(), "achieved_ttft_ms": grouped["ttft_ms"].mean()})
+    # The span each bar covers: its own slot, or the run of thin slots it
+    # absorbed. Every decision in the window lands in exactly one of them.
+    edges = slot.groupby(frame["bin"])
+    out["start"] = LP_WINDOW_START_HOURS + edges.min() * width
+    out["width"] = (edges.max() - edges.min() + 1) * width
     for name in shown:
         objective = frame[f"latency_objective_ms:{name}"]
         # Drop the failure penalty so one error does not redraw the axis.
@@ -577,7 +611,7 @@ def lp_bins(records: Records, shown: list[str], pooled: list[str]) -> pd.DataFra
         )
     pooled_weight = frame[[f"weight:{name}" for name in pooled]].fillna(0.0).sum(axis=1)
     out[f"weight_{LP_OTHER_LABEL}"] = 100.0 * pooled_weight.groupby(frame["bin"]).mean()
-    return out[out["n"] >= LP_MIN_DECISIONS].reset_index()
+    return out.reset_index(drop=True)
 
 
 def lp_rows(bins: pd.DataFrame, shown: list[str], records: Records) -> list[dict[str, float]]:
@@ -622,19 +656,20 @@ def plot_lp_rebalancing(
     fig, (top, bottom) = plt.subplots(
         2, 1, figsize=LP_FIGSIZE, sharex=True, height_ratios=(1.0, 1.0)
     )
-    width = LP_BIN_MINUTES / 60.0
-    x = bins["bin"].to_numpy()
+    start = bins["start"].to_numpy()
+    width = bins["width"].to_numpy()
+    centre = start + width / 2.0
 
     for name in shown:
         top.plot(
-            x + width / 2.0,
+            centre,
             bins[f"latency_{name}"],
             linewidth=1.3,
             color=PROVIDER_MIX_COLORS.get(name, "#555555"),
             label=LP_PROVIDER_LABELS.get(name, name),
         )
     top.plot(
-        x + width / 2.0,
+        centre,
         bins["achieved_ttft_ms"],
         linewidth=2.2,
         color="#111111",
@@ -665,7 +700,7 @@ def plot_lp_rebalancing(
     for name in [*shown, LP_OTHER_LABEL]:
         values = bins[f"weight_{name}"].to_numpy()
         bottom.bar(
-            x,
+            start,
             values,
             bottom=bottom_stack,
             width=width,
@@ -679,7 +714,7 @@ def plot_lp_rebalancing(
     bottom.set_ylim(0, 100)
     bottom.set_ylabel("traffic the LP\nassigns (%)")
     bottom.set_xlabel("hour of the run")
-    bottom.set_xlim(x.min(), x.max() + width)
+    bottom.set_xlim(start.min(), (start + width).max())
     bottom.grid(False)
 
     alpha = records.alpha
