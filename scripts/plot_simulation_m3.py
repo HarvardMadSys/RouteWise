@@ -40,7 +40,10 @@ HEDGING = tuple(f"ablation_lp_hedging_alpha{alpha}" for alpha in (0, 25, 50, 75,
 # one frontier would collide: the shared plot labels a point by its alpha only,
 # so the two curves repeat each label. The no-hedging sweep is in the P99
 # panel, the table and the summary.
-PANEL_POLICIES = (*BASELINES, *HEDGING)
+# RouteWise first, then the baselines, the order the SLO panel builds for
+# itself and the one Figure 8 and the real-world panels are listed in, so a
+# policy sits on the same row in every panel of the paper.
+PANEL_POLICIES = (*HEDGING, *BASELINES)
 
 
 @dataclass(frozen=True)
