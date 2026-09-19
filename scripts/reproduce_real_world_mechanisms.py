@@ -146,7 +146,13 @@ LP_OTHER_COLOR = "#c7c7c7"
 LP_LATENCY_PENALTY_MS = 1e8
 # Full text width and its own geometry: unlike the two quota panels this one
 # is not half of a side-by-side row, so it is not on the aligned band layout.
-LP_FIGSIZE = (6.9, 4.0)
+# The paper runs this figure down one column, so LaTeX includes it at
+# \columnwidth = 241 pt. Same recipe as the quota pair above: author it at
+# 345 pt, keep the script's one font size (the paper's 10 pt), and let LaTeX
+# scale the PDF by 0.70 so the text lands at ~7 pt on the page. It used to be
+# authored at full text width (6.9 in) and the shipped copy was regenerated
+# out of tree with the fonts forced down to 5-6 pt; do not go back to that.
+LP_FIGSIZE = (4.79, 4.21)
 LP_METRICS = (
     "n",
     "share_of_traffic",
@@ -723,7 +729,7 @@ def lp_rows(bins: pd.DataFrame, shown: list[str], records: Records) -> list[dict
 def plot_lp_rebalancing(
     bins: pd.DataFrame, shown: list[str], records: Records, output: Path
 ) -> None:
-    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
+    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE)
     fig, (top, bottom) = plt.subplots(
         2, 1, figsize=LP_FIGSIZE, sharex=True, height_ratios=(1.0, 1.0)
     )
@@ -744,7 +750,10 @@ def plot_lp_rebalancing(
         bins["achieved_ttft_ms"],
         linewidth=2.2,
         color="#111111",
-        linestyle=(0, (4, 1.6)),
+        # Dashes are scaled by the 2.2 line width, so this is a 4.8 pt dash
+        # on a 2.4 pt gap: fine enough that two of them fit the legend handle
+        # and it still reads as dashed against the solid provider lines.
+        linestyle=(0, (2.2, 1.1)),
         label="achieved",
         zorder=5,
     )
@@ -760,7 +769,7 @@ def plot_lp_rebalancing(
         labels,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.0),
-        ncol=7,
+        ncol=4,
         frameon=False,
         handlelength=1.4,
         columnspacing=1.1,
