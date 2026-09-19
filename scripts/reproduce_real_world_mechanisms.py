@@ -133,7 +133,7 @@ LP_OTHER_LABEL = "Other"
 LP_PROVIDER_LABELS = {
     "MiniMax_Plus_SQ": "MiniMax quota",
     "Featherless_SC": "Featherless slot",
-    "OR_Minimax": "Minimax API",
+    "OR_Minimax": "MiniMax API",
     "OR_GMICloud": "GMICloud",
     "OR_Together": "Together",
     "OR_AtlasCloud": "AtlasCloud",

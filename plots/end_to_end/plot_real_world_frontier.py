@@ -533,6 +533,11 @@ def inventory_path_for_run(input_dir: Path) -> Path:
     raise FileNotFoundError(f"{input_dir}: could not find inventory in args.json")
 
 
+# The inventory key is spelled Minimax; the vendor, and the paper, spell it
+# MiniMax, so stripping the OR_ prefix is not enough for this one.
+PROVIDER_DISPLAY_NAMES = {"Minimax": "MiniMax"}
+
+
 def provider_label(provider: str) -> str:
     labels = {
         "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$",
@@ -542,7 +547,8 @@ def provider_label(provider: str) -> str:
     if provider in labels:
         return labels[provider]
     if provider.startswith("OR_"):
-        return provider.removeprefix("OR_")
+        name = provider.removeprefix("OR_")
+        return PROVIDER_DISPLAY_NAMES.get(name, name)
     return provider.replace("_", " ")
 
 

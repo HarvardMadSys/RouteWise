@@ -518,6 +518,9 @@ PROVIDER_SHORT_LABELS = {
     "SiliconFlow": "SFlow",
     "AkashML": "Akash",
     "WandB": "W&B",
+    # The inventory key is spelled Minimax; the vendor, and the paper, spell
+    # it MiniMax.
+    "Minimax": "MiniMax",
 }
 
 
