@@ -371,8 +371,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default="Normalized cost",
+        default=None,
         help="X-axis label for generated frontier figures.",
+    )
+    parser.add_argument(
+        "--absolute-cost",
+        action="store_true",
+        help=(
+            "Report cost in dollars rather than as a multiple of the cheapest "
+            "policy: the frontier's x axis and the cost beside each SLO bar."
+        ),
     )
     parser.add_argument(
         "--routewise-plot-alphas",
@@ -1330,12 +1338,13 @@ def plot_metric_frontier(
     *,
     attr: str,
     ylabel: str,
-    xlabel: str,
+    xlabel: str | None,
     routewise_alphas: tuple[float, ...],
     title: str | None = None,
     label_offsets: dict | None = None,
     emphasize_routewise: bool = False,
     x_max: float | None = None,
+    normalize_cost: bool = True,
 ) -> None:
     if title:
         raise ValueError("shared frontier plots do not support per-panel titles")
@@ -1345,6 +1354,7 @@ def plot_metric_frontier(
         "routewise_alphas": routewise_alphas,
         "baseline_order": BASELINE_ORDER,
         "policy_colors": FRONT_PAGE_POLICY_COLORS,
+        "normalize_cost": normalize_cost,
     }
     figsize, margins = aligned_panel_geometry(len(points), top_in=FIGURE1_TOP_IN)
     kwargs.update(figsize=figsize, margins=margins)
@@ -1406,6 +1416,7 @@ def main() -> int:
         label_offsets=args.label_offsets,
         emphasize_routewise=args.emphasize_routewise,
         x_max=args.frontier_x_max,
+        normalize_cost=not args.absolute_cost,
     )
     plot_metric_frontier(
         summaries,
@@ -1414,6 +1425,7 @@ def main() -> int:
         ylabel="SLO violations (%)",
         xlabel=args.x_label,
         routewise_alphas=tuple(args.routewise_plot_alphas),
+        normalize_cost=not args.absolute_cost,
     )
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)

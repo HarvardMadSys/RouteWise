@@ -517,7 +517,8 @@ def plot_metric_frontier(
     *,
     attr: str,
     ylabel: str,
-    xlabel: str = "Normalized cost",
+    xlabel: str | None = None,
+    normalize_cost: bool = True,
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
@@ -540,8 +541,10 @@ def plot_metric_frontier(
         alphas=routewise_alphas,
     )
     baselines = baseline_points(points, order=baseline_order)
+    if xlabel is None:
+        xlabel = "Normalized cost" if normalize_cost else "Total cost (USD)"
     plotted_points = [*routewise_no_hedge, *routewise_hedged, *baselines]
-    normalized = _normalized_points(plotted_points)
+    normalized = _normalized_points(plotted_points) if normalize_cost else list(plotted_points)
     split_no_hedge = len(routewise_no_hedge)
     split_hedged = split_no_hedge + len(routewise_hedged)
     routewise_no_hedge = normalized[:split_no_hedge]
@@ -641,6 +644,7 @@ def plot_slo_bar(
     figsize: tuple[float, float] = SLO_BAR_FIGSIZE,
     margins: tuple[float, float, float, float] = (0.33, 0.99, 0.16, 0.98),
     policy_colors: Mapping[str, str] | None = None,
+    normalize_cost: bool = True,
 ) -> None:
     apply_column_figure_style()
     rows = _ordered_slo_bar_points(
@@ -674,7 +678,12 @@ def plot_slo_bar(
             ax.text(
                 slo_value + text_pad,
                 row_idx,
-                f"{slo_value:.1f}%  {_normalized_cost_label(cost, cost_baseline)}",
+                f"{slo_value:.1f}%  "
+                + (
+                    _normalized_cost_label(cost, cost_baseline)
+                    if normalize_cost
+                    else _cost_label(cost)
+                ),
                 va="center",
                 ha="left",
                 fontsize=ANNOTATION_FONT_SIZE,

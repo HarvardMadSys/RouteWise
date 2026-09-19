@@ -71,8 +71,13 @@ def main(argv: list[str] | None = None) -> int:
         "--label-offsets",
         LABEL_OFFSETS,
         "--emphasize-routewise",
+        # Figure 1 reports dollars, not multiples of Greedy-cost: the run is a
+        # single day on one provider pool, so the absolute bill is small enough
+        # to print and it is what a reader can act on. The simulation figures
+        # stay normalized, where the pool and horizon are synthetic.
+        "--absolute-cost",
         "--frontier-x-max",
-        "1.95",
+        "3.85",
         "--drop-failed-mix",
         "--provider-latency-p99",
         "--provider-latency-xmax",
