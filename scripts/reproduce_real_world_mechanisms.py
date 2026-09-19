@@ -40,6 +40,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import to_hex, to_rgb
+from matplotlib.legend_handler import HandlerTuple
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 if __package__ in {None, ""}:
@@ -62,12 +64,25 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTEWISE_POLICIES = tuple(f"budget_range_alpha{alpha}_hedge" for alpha in (0, 25, 50, 75, 100))
 BASELINE_POLICIES = ("greedy_latency", "greedy_cost")
 QUOTA_FIRST_OFFLINE = "quota_first_offline"
+SYSTEM_NAME = "RouteWise"
+QUOTA_LEGEND_LABELS = {
+    "greedy_latency": "Greedy-lat.",
+    QUOTA_FIRST_OFFLINE: "Quota-first",
+}
 # LaTeX places the two quota panels side by side, so they are one aligned set:
 # both are drawn at the shared panel size and split it into the same absolute
 # bands, a top band holding the legend and a bottom band holding the ticks and
 # the x label. The panels then have the same height, their plot boxes have the
 # same top and bottom, and their legends start at the same line.
-QUOTA_PANEL_TOP_IN = 0.72
+#
+# The pair shares one column rather than one text width, so each panel is
+# included at 0.49\columnwidth = 118 pt. Authoring them at 168 pt and letting
+# LaTeX scale the PDF by 0.70 keeps a single font size in this script -- the
+# paper's 10 pt body size, as every other panel here -- and lands the text at
+# about 7 pt on the page, the size the ablation row already prints at. Do not
+# shrink the fonts instead: that is what made this pair unreadable.
+QUOTA_PANEL_FIGSIZE = (2.34, 2.25)
+QUOTA_PANEL_TOP_IN = 0.50
 CONCURRENCY_METRICS = (
     "free_slot_decisions",
     "offered_when_free_rate",
@@ -89,6 +104,16 @@ QUOTA_METRICS = (
     "requests_after_exhaustion",
 )
 QUOTA_LENGTH_METRICS = tuple(f"share_{name}" for name in QUOTA_LENGTH_BIN_LABELS)
+# The quota admissions are drawn from these arrivals, so this is the bar the
+# operating points have to be read against: "contested" named the mechanism
+# rather than the population, and the reader has to see a population.
+QUOTA_POOL_LABEL = "Request pool"
+# The whole trace's mix stays in the summary, but no paragraph reads it and a
+# seventh bar only crowds the panel, so it is not drawn.
+QUOTA_LENGTH_UNPLOTTED = ("trace",)
+# The bars span 0-100; the rest of the axis is the right-hand share column.
+QUOTA_LENGTH_XLIM = 148.0
+QUOTA_LONG_SHARE_X = 125.0
 # One operating point is enough to show the LP rebalancing, and the middle of
 # the range is the one where neither the budget nor latency dominates.
 LP_POLICY = "budget_range_alpha50_hedge"
@@ -143,6 +168,20 @@ def _alpha_color(alpha: float) -> str:
     return to_hex(base * (1.0 - mix))
 
 
+# The ramp is one legend entry, so the panel names its ends where the runs
+# separate: just right of the peak window, which every run has emptied by.
+QUOTA_RAMP_LABEL_HOUR = 15.1
+QUOTA_RAMP_ANNOTATIONS = {
+    "budget_range_alpha100_hedge": r"$\alpha=1$",
+    "budget_range_alpha0_hedge": r"$\alpha=0$",
+}
+
+
+def _legend_label(policy: str) -> str:
+    """Legend spelling: short enough for two columns at this panel width."""
+    return QUOTA_LEGEND_LABELS.get(policy, _label(policy))
+
+
 def _label(policy: str) -> str:
     alpha = parse_alpha(policy)
     if alpha is not None:
@@ -163,8 +202,8 @@ def _color(policy: str) -> str:
 
 def _quota_panel(left: float):
     """One panel of the side-by-side quota set, on the shared band geometry."""
-    height = PAPER_PANEL_FIGSIZE[1]
-    fig, ax = plt.subplots(figsize=PAPER_PANEL_FIGSIZE)
+    height = QUOTA_PANEL_FIGSIZE[1]
+    fig, ax = plt.subplots(figsize=QUOTA_PANEL_FIGSIZE)
     fig.subplots_adjust(
         left=left,
         right=0.97,
@@ -345,18 +384,18 @@ def plot_quota_over_time(
     size: int,
     output: Path,
 ) -> None:
-    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
-    fig, ax = _quota_panel(left=0.205)
+    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE)
+    fig, ax = _quota_panel(left=0.235)
     span = float(span_hours)
     for boundary in np.arange(window_sec / 3600.0, span, window_sec / 3600.0):
         ax.axvline(boundary, color="#bbbbbb", linewidth=0.6, linestyle=":")
-    ax.axhline(size, color="#444444", linewidth=0.8, linestyle="--")
+    ax.axhline(size, color="#444444", linewidth=0.9, linestyle="--")
     ax.annotate(
-        f"quota {size:,}",
-        (math.ceil(span) - 0.3, size),
-        xytext=(0, -9),
+        f"window {size:,}",
+        (span - 0.3, size),
+        xytext=(0, -10),
         textcoords="offset points",
-        fontsize=ANNOTATION_FONT_SIZE - 1,
+        fontsize=ANNOTATION_FONT_SIZE,
         ha="right",
         color="#444444",
     )
@@ -369,24 +408,65 @@ def plot_quota_over_time(
         ax.plot(
             plotted["hours"],
             plotted["used"],
-            linewidth=1.4,
+            linewidth=1.5,
             color=_color(policy),
             label=_label(policy),
             **style,
         )
+    # The five operating points share one legend entry, so name the ends of
+    # the ramp on the plot instead. The peak window is where they separate,
+    # and the space just right of it is empty on every run.
+    peaks = {
+        policy: float(timelines[policy]["used"].max()) for policy in QUOTA_RAMP_ANNOTATIONS
+    }
+    for policy, text in QUOTA_RAMP_ANNOTATIONS.items():
+        ax.annotate(
+            text,
+            (QUOTA_RAMP_LABEL_HOUR, peaks[policy]),
+            xytext=(3, 0),
+            textcoords="offset points",
+            fontsize=ANNOTATION_FONT_SIZE,
+            ha="left",
+            va="center",
+            color="#222222",
+        )
     ax.set_xlim(0, math.ceil(span))
     ax.set_ylim(0, size * 1.12)
+    ax.set_xticks(list(np.arange(0.0, span, window_sec / 3600.0)))
+    # Three gridlines are enough at this size, and "4k" keeps the left margin
+    # narrow; the dashed line carries the exact window size.
+    ax.set_yticks([0, 2000, 4000], ["0", "2k", "4k"])
     ax.set_xlabel("hour of the run")
     ax.set_ylabel(f"quota used in {window_sec / 3600:g} h window")
     ax.grid(True, axis="y", linewidth=0.35, alpha=0.35)
+    # One entry for the whole RouteWise ramp: five separate entries cost four
+    # legend rows, and at this panel width that is what forced the old
+    # unreadable font size.
+    ramp = tuple(
+        Line2D([], [], color=_color(policy), linewidth=1.5) for policy in ROUTEWISE_POLICIES
+    )
+    handles = [ramp] + [
+        Line2D(
+            [],
+            [],
+            color=_color(policy),
+            linewidth=1.5,
+            linestyle="--" if policy == QUOTA_FIRST_OFFLINE else "-",
+        )
+        for policy in (*BASELINE_POLICIES, QUOTA_FIRST_OFFLINE)
+    ]
+    labels = [SYSTEM_NAME] + [_legend_label(policy) for policy in (*BASELINE_POLICIES, QUOTA_FIRST_OFFLINE)]
     _panel_legend(
         ax,
+        handles=handles,
+        labels=labels,
+        handler_map={tuple: HandlerTuple(ndivide=None, pad=0.0)},
         ncol=2,
-        handlelength=1.4,
+        handlelength=1.6,
         handletextpad=0.4,
-        fontsize=ANNOTATION_FONT_SIZE - 1,
+        fontsize=ANNOTATION_FONT_SIZE,
         columnspacing=0.8,
-        labelspacing=0.3,
+        labelspacing=0.25,
     )
     _save(fig, output)
 
@@ -449,11 +529,7 @@ def quota_length_mixes(
     frame = reference.frame
     contested = contested_decisions(reference, quota, concurrency)
     for name, label, lengths in (
-        (
-            "contested",
-            f"Contested ($\\alpha={reference.alpha:g}$)",
-            frame.loc[contested, "max_tokens"],
-        ),
+        ("contested", QUOTA_POOL_LABEL, frame.loc[contested, "max_tokens"]),
         ("trace", "All requests", frame["max_tokens"]),
     ):
         rows.append(
@@ -469,67 +545,62 @@ def quota_length_mixes(
 
 
 def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
-    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE - 1)
+    apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE)
     fig, ax = _quota_panel(left=0.40)
-    # A gap between the operating points and the two reference rows.
-    positions = [index + (0.6 if row["alpha"] is None else 0.0) for index, row in enumerate(rows)]
-    left = np.zeros(len(rows))
+    drawn = [row for row in rows if row["policy"] not in QUOTA_LENGTH_UNPLOTTED]
+    # A gap between the operating points and the reference row.
+    positions = [index + (0.6 if row["alpha"] is None else 0.0) for index, row in enumerate(drawn)]
+    left = np.zeros(len(drawn))
     for name, color in zip(QUOTA_LENGTH_BIN_LABELS, QUOTA_LENGTH_COLORS, strict=True):
-        widths = np.array([100.0 * row[f"share_{name}"] for row in rows])
+        widths = np.array([100.0 * row[f"share_{name}"] for row in drawn])
         ax.barh(positions, widths, left=left, height=0.68, color=color, label=name)
-        for position, width, start in zip(positions, widths, left, strict=True):
-            if width >= 7.0:
-                ax.text(
-                    start + width / 2.0,
-                    position,
-                    f"{width:.0f}",
-                    ha="center",
-                    va="center",
-                    fontsize=ANNOTATION_FONT_SIZE - 1.5,
-                    color="white" if color in QUOTA_LENGTH_COLORS[2:] else "#222222",
-                )
         left += widths
     # The claim lives in the two dark segments, so spell their sum out rather
     # than making the reader add them.
     long_labels = QUOTA_LENGTH_BIN_LABELS[2:]
     ax.text(
-        119.0,
-        min(positions) - 0.85,
+        QUOTA_LONG_SHARE_X,
+        min(positions) - 0.95,
         r"$\geq$50 tok",
         ha="center",
         va="center",
-        fontsize=ANNOTATION_FONT_SIZE - 1.5,
+        fontsize=ANNOTATION_FONT_SIZE,
         color="#444444",
     )
-    for position, row in zip(positions, rows, strict=True):
+    for position, row in zip(positions, drawn, strict=True):
         share = 100.0 * sum(row[f"share_{name}"] for name in long_labels)
         ax.text(
-            119.0,
+            QUOTA_LONG_SHARE_X,
             position,
             f"{share:.1f}%",
             ha="center",
             va="center",
-            fontsize=ANNOTATION_FONT_SIZE - 1,
+            fontsize=ANNOTATION_FONT_SIZE,
             color="#555555" if row["alpha"] is None else "#222222",
         )
-    ax.set_yticks(positions, [row["label"] for row in rows], fontsize=ANNOTATION_FONT_SIZE)
-    for tick, row in zip(ax.get_yticklabels(), rows, strict=True):
+    ticks = [
+        rf"$\alpha={row['alpha']:g}$" if row["alpha"] is not None else row["label"]
+        for row in drawn
+    ]
+    ax.set_yticks(positions, ticks, fontsize=ANNOTATION_FONT_SIZE)
+    for tick, row in zip(ax.get_yticklabels(), drawn, strict=True):
         if row["alpha"] is None:
             tick.set_color("#555555")
     ax.invert_yaxis()
-    ax.set_xlim(0, 136)
+    ax.set_xlim(0, QUOTA_LENGTH_XLIM)
     ax.set_xticks([0, 50, 100])
     ax.spines["bottom"].set_bounds(0, 100)
-    ax.set_xlabel("share of requests (%)", x=50.0 / 136.0, ha="center")
+    ax.set_xlabel("share of requests (%)", x=50.0 / QUOTA_LENGTH_XLIM, ha="center")
     ax.grid(False)
     _panel_legend(
         ax,
         title="response length (tokens)",
         ncol=4,
-        handlelength=1.1,
-        columnspacing=0.9,
-        handletextpad=0.5,
-        title_fontsize=ANNOTATION_FONT_SIZE - 1,
+        handlelength=1.0,
+        columnspacing=0.7,
+        handletextpad=0.35,
+        fontsize=ANNOTATION_FONT_SIZE,
+        title_fontsize=ANNOTATION_FONT_SIZE,
     )
     _save(fig, output)
 
