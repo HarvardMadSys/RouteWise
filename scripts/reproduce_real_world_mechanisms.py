@@ -175,8 +175,10 @@ def _alpha_color(alpha: float) -> str:
 
 
 # The ramp is one legend entry, so the panel names its ends where the runs
-# separate: just right of the peak window, which every run has emptied by.
-QUOTA_RAMP_LABEL_HOUR = 15.1
+# separate: just left of the climb into the peak window, at the height each
+# run's plateau reaches. Right of the window the Quota-first curve climbs
+# through the space the alpha=0 label needs.
+QUOTA_RAMP_LABEL_HOUR = 12.35
 QUOTA_RAMP_ANNOTATIONS = {
     "budget_range_alpha100_hedge": r"$\alpha=1$",
     "budget_range_alpha0_hedge": r"$\alpha=0$",
@@ -429,10 +431,10 @@ def plot_quota_over_time(
         ax.annotate(
             text,
             (QUOTA_RAMP_LABEL_HOUR, peaks[policy]),
-            xytext=(3, 0),
+            xytext=(-2, 0),
             textcoords="offset points",
             fontsize=ANNOTATION_FONT_SIZE,
-            ha="left",
+            ha="right",
             va="center",
             color="#222222",
         )
@@ -443,7 +445,9 @@ def plot_quota_over_time(
     # narrow; the dashed line carries the exact window size.
     ax.set_yticks([0, 2000, 4000], ["0", "2k", "4k"])
     ax.set_xlabel("hour of the run")
-    ax.set_ylabel(f"quota used in {window_sec / 3600:g} h window")
+    # The plot box is 1.3 in tall; "quota used in 5 h window" was longer than
+    # that and ran up into the legend. The dashed line names the window.
+    ax.set_ylabel("quota used")
     ax.grid(True, axis="y", linewidth=0.35, alpha=0.35)
     # One entry for the whole RouteWise ramp: five separate entries cost four
     # legend rows, and at this panel width that is what forced the old
@@ -562,17 +566,9 @@ def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
         ax.barh(positions, widths, left=left, height=0.68, color=color, label=name)
         left += widths
     # The claim lives in the two dark segments, so spell their sum out rather
-    # than making the reader add them.
+    # than making the reader add them. The column carries no header: at this
+    # width one sat on top of the legend's last entry, so the caption names it.
     long_labels = QUOTA_LENGTH_BIN_LABELS[2:]
-    ax.text(
-        QUOTA_LONG_SHARE_X,
-        min(positions) - 0.95,
-        r"$\geq$50 tok",
-        ha="center",
-        va="center",
-        fontsize=ANNOTATION_FONT_SIZE,
-        color="#444444",
-    )
     for position, row in zip(positions, drawn, strict=True):
         share = 100.0 * sum(row[f"share_{name}"] for name in long_labels)
         ax.text(
