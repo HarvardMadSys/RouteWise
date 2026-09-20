@@ -41,6 +41,7 @@ from plots.end_to_end.frontier_plotting import (
     PAPER_PANEL_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
+    BaselineDisplayAdjustment,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
@@ -1384,6 +1385,18 @@ def plot_metric_frontier(
                 for alpha, offset in label_offsets.get("routewise", {}).items()
             }
             kwargs["baseline_leader_policies"] = tuple(label_offsets.get("leaders", ()))
+            kwargs["baseline_display_adjustments"] = {
+                policy: BaselineDisplayAdjustment(
+                    marker_offset_pt=tuple(adjustment.get("marker_offset_pt", (0, 0))),
+                    label_offset_pt=(
+                        tuple(adjustment["label_offset_pt"])
+                        if "label_offset_pt" in adjustment
+                        else None
+                    ),
+                    hide_leader=adjustment.get("hide_leader", False),
+                )
+                for policy, adjustment in label_offsets.get("display_adjustments", {}).items()
+            }
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         plot_slo_frontier(points, path, **kwargs)

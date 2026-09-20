@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
+from matplotlib.transforms import ScaledTranslation
 
 from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS, TIER_COLORS
 from plots.style import apply_style
@@ -20,6 +21,9 @@ from plots.style import apply_style
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
+
+    from matplotlib.collections import PathCollection
+    from matplotlib.text import Annotation
 
 
 COLUMN_FIGSIZE = (3.35, 2.45)
@@ -239,6 +243,15 @@ class FrontierPoint:
 
 
 @dataclass(frozen=True)
+class BaselineDisplayAdjustment:
+    """Display-only shifts in typographic points; measured coordinates stay intact."""
+
+    marker_offset_pt: tuple[float, float] = (0.0, 0.0)
+    label_offset_pt: tuple[float, float] | None = None
+    hide_leader: bool = False
+
+
+@dataclass(frozen=True)
 class CdfSeries:
     policy: str
     label: str
@@ -380,7 +393,7 @@ def _annotate_baseline(
     palette: Mapping[str, str] | None = None,
     muted: bool = False,
     leader: bool = False,
-) -> None:
+) -> Annotation:
     offset = (label_offsets or {}).get(
         point.policy,
         BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
@@ -389,7 +402,7 @@ def _annotate_baseline(
         ),
     )
     color = policy_color(point.policy, palette=palette)
-    ax.annotate(
+    return ax.annotate(
         POLICY_PLOT_LABELS.get(point.policy, point.label),
         (point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
@@ -553,6 +566,7 @@ def plot_metric_frontier(
     # joined to the marker by a leader line, so it cannot be read as a label
     # for whatever it happens to float over.
     baseline_leader_policies: Sequence[str] = (),
+    baseline_display_adjustments: Mapping[str, BaselineDisplayAdjustment] | None = None,
     figsize: tuple[float, float] = COLUMN_FIGSIZE,
     margins: tuple[float, float, float, float] | None = None,
     policy_colors: Mapping[str, str] | None = None,
@@ -607,8 +621,9 @@ def plot_metric_frontier(
         annotate_count=routewise_count,
         emphasize=emphasize_routewise,
     )
+    baseline_artists: dict[str, tuple[PathCollection, Annotation]] = {}
     for point in baselines:
-        ax.scatter(
+        marker = ax.scatter(
             point.total_cost_usd,
             metric_value(point, attr),
             marker=policy_marker(point.policy),
@@ -618,7 +633,7 @@ def plot_metric_frontier(
             linewidth=0.5,
             zorder=3,
         )
-        _annotate_baseline(
+        label = _annotate_baseline(
             ax,
             point,
             attr,
@@ -627,6 +642,7 @@ def plot_metric_frontier(
             muted=emphasize_routewise,
             leader=point.policy in baseline_leader_policies,
         )
+        baseline_artists[point.policy] = (marker, label)
     for point in [*routewise_no_hedge, *routewise_hedged]:
         _annotate_routewise(
             ax,
@@ -646,6 +662,24 @@ def plot_metric_frontier(
         ax.xaxis.set_major_locator(MultipleLocator(x_tick_step))
     if margins is not None:
         _pin_plot_box(fig, ax, margins)
+    if baseline_display_adjustments:
+        # Freeze the original layout before separating crowded markers so the
+        # axes and unrelated labels stay in place. Never alter source values.
+        if margins is None:
+            fig.canvas.draw()
+            fig.set_layout_engine("none")
+        for policy, adjustment in baseline_display_adjustments.items():
+            marker, label = baseline_artists[policy]
+            dx, dy = adjustment.marker_offset_pt
+            shifted = ax.transData + ScaledTranslation(
+                dx / 72.0, dy / 72.0, fig.dpi_scale_trans
+            )
+            marker.set_offset_transform(shifted)
+            label.xycoords = shifted
+            if adjustment.label_offset_pt is not None:
+                label.set_position(adjustment.label_offset_pt)
+            if adjustment.hide_leader and label.arrow_patch is not None:
+                label.arrow_patch.set_visible(False)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)

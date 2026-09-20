@@ -27,13 +27,10 @@ POLICIES = (
 # Prorated MiniMax Plus ($20) plus Featherless Premium ($25) over 24 h of a
 # 30-day month, the value recorded with the run; see data/real_eval_records_m3/README.md.
 FIXED_COST_NON_OR = "1.5"
-# Label offsets (points) for the mean-TTFT frontier, where five policies share
-# one cost level around 1.6x and the paper's default placements collide.
-# Single-provider, Greedy-latency and OR-latency all land within 0.1 in of each
-# other on the right. Only two of the three fit beside the cluster, so
-# Single-provider is parked in the empty band above it and given a leader line;
-# placed beside its marker it reaches back across the panel and reads as a
-# label for the RouteWise curve it floats over.
+# Mean-TTFT label offsets in typographic points. Keep the original anchors
+# through layout, then separate the three crowded baseline markers using
+# display-only shifts and hide the Single-provider leader. These shifts make
+# the symbols readable; measured costs, TTFTs, and summaries are unchanged.
 LABEL_OFFSETS = json.dumps(
     {
         "routewise": {
@@ -47,10 +44,24 @@ LABEL_OFFSETS = json.dumps(
             "single_OR_Together": [0, 17],
             "or_sort_latency": [10, 6],
             "greedy_latency": [6, -8],
-            # Lifted clear of the parked Single-provider label above the cluster.
             "greedy_cost": [7, 4],
         },
         "leaders": ["single_OR_Together"],
+        "display_adjustments": {
+            "single_OR_Together": {
+                "marker_offset_pt": [-1, 5],
+                "label_offset_pt": [0, 5],
+                "hide_leader": True,
+            },
+            "or_sort_latency": {
+                "marker_offset_pt": [3, 0],
+                "label_offset_pt": [5, 3],
+            },
+            "greedy_latency": {
+                "marker_offset_pt": [5, -4],
+                "label_offset_pt": [1, -10],
+            },
+        },
     }
 )
 
