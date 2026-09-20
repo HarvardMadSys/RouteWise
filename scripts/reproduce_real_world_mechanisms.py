@@ -401,10 +401,11 @@ def plot_quota_over_time(
     ax.annotate(
         f"window {size:,}",
         (span - 0.3, size),
-        xytext=(0, -10),
+        xytext=(0, 2.5),
         textcoords="offset points",
         fontsize=ANNOTATION_FONT_SIZE,
         ha="right",
+        va="bottom",
         color="#444444",
     )
     for policy, timeline in timelines.items():
