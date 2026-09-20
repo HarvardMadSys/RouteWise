@@ -111,9 +111,12 @@ QUOTA_POOL_LABEL = "Request pool"
 # The whole trace's mix stays in the summary, but no paragraph reads it and a
 # seventh bar only crowds the panel, so it is not drawn.
 QUOTA_LENGTH_UNPLOTTED = ("trace",)
-# The bars span 0-100; the rest of the axis is the right-hand share column.
-QUOTA_LENGTH_XLIM = 148.0
-QUOTA_LONG_SHARE_X = 125.0
+# The bars span 0-100; the rest of the axis is the right-hand share column,
+# left-aligned just past the bar ends so the widest value clears its bar.
+QUOTA_LENGTH_XLIM = 150.0
+QUOTA_LONG_SHARE_X = 104.0
+# The "RouteWise-0.25" row label is 0.98 in wide at 9 pt, plus tick and pad.
+QUOTA_LENGTH_LEFT = 0.48
 # One operating point is enough to show the LP rebalancing, and the middle of
 # the range is the one where neither the budget nor latency dominates.
 LP_POLICY = "budget_range_alpha50_hedge"
@@ -557,7 +560,7 @@ def quota_length_mixes(
 
 def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
     apply_column_figure_style(legend_fontsize=ANNOTATION_FONT_SIZE)
-    fig, ax = _quota_panel(left=0.40)
+    fig, ax = _quota_panel(left=QUOTA_LENGTH_LEFT)
     drawn = [row for row in rows if row["policy"] not in QUOTA_LENGTH_UNPLOTTED]
     # A gap between the operating points and the reference row.
     positions = [index + (0.6 if row["alpha"] is None else 0.0) for index, row in enumerate(drawn)]
@@ -576,13 +579,14 @@ def plot_quota_length_mix(rows: list[dict[str, float]], output: Path) -> None:
             QUOTA_LONG_SHARE_X,
             position,
             f"{share:.1f}%",
-            ha="center",
+            ha="left",
             va="center",
             fontsize=ANNOTATION_FONT_SIZE,
             color="#555555" if row["alpha"] is None else "#222222",
         )
+    # Spelled as Figure 1 spells the operating points.
     ticks = [
-        rf"$\alpha={row['alpha']:g}$" if row["alpha"] is not None else row["label"]
+        f"{SYSTEM_NAME}-{row['alpha']:g}" if row["alpha"] is not None else row["label"]
         for row in drawn
     ]
     ax.set_yticks(positions, ticks, fontsize=ANNOTATION_FONT_SIZE)
