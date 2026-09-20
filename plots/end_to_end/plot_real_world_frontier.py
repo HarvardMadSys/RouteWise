@@ -35,6 +35,7 @@ from matplotlib.patches import Patch
 
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
+    FIGURE1_PANEL_FIGSIZE,
     FRONT_PAGE_POLICY_COLORS,
     MIX_FIGSIZE,
     PAPER_PANEL_FIGSIZE,
@@ -87,6 +88,11 @@ PROVIDER_DIAGNOSTIC_FIGSIZE = PAPER_PANEL_FIGSIZE
 # Figure 1 pairs the mean-TTFT frontier with the SLO bars. Neither carries a
 # legend, so the pair's top band is only the tick clearance.
 FIGURE1_TOP_IN = aligned_top_in(0)
+# The SLO bars' policy names are an absolute width, so the narrower Figure 1
+# canvas needs a larger fraction of it than the default 0.40.
+FIGURE1_LEFT = 0.435
+# $0.50 steps, the density the panel had before it moved to its own canvas.
+FIGURE1_X_TICK_STEP = 0.5
 PROVIDER_PRICING_ORDER = (
     "OR_DeepInfra",
     "OR_AtlasCloud",
@@ -1356,12 +1362,18 @@ def plot_metric_frontier(
         "policy_colors": FRONT_PAGE_POLICY_COLORS,
         "normalize_cost": normalize_cost,
     }
-    figsize, margins = aligned_panel_geometry(len(points), top_in=FIGURE1_TOP_IN)
+    figsize, margins = aligned_panel_geometry(
+        len(points),
+        left=FIGURE1_LEFT,
+        top_in=FIGURE1_TOP_IN,
+        figsize=FIGURE1_PANEL_FIGSIZE,
+    )
     kwargs.update(figsize=figsize, margins=margins)
     if attr == "ttft_mean_ms":
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
         kwargs["emphasize_routewise"] = emphasize_routewise
         kwargs["x_max"] = x_max
+        kwargs["x_tick_step"] = FIGURE1_X_TICK_STEP
         if label_offsets:
             kwargs["baseline_label_offsets"] = {
                 policy: tuple(offset)
@@ -1371,6 +1383,7 @@ def plot_metric_frontier(
                 float(alpha): tuple(offset)
                 for alpha, offset in label_offsets.get("routewise", {}).items()
             }
+            kwargs["baseline_leader_policies"] = tuple(label_offsets.get("leaders", ()))
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         plot_slo_frontier(points, path, **kwargs)

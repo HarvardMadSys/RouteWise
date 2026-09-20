@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS, TIER_COLORS
 from plots.style import apply_style
@@ -37,6 +38,15 @@ LEGEND_FONT_SIZE = 10.0
 # identical \includegraphics line for all of them (no per-panel trims or
 # height equalization, which is where clipping bugs creep in).
 PAPER_PANEL_FIGSIZE = (3.35, 3.18)
+
+# Figure 1's two panels are the exception: the paper gives each of them
+# 0.50\linewidth, so LaTeX scales the 3.35in canvas by 0.50 and the 10pt text
+# prints at 5pt, half the size of every other figure's. Authoring them on a
+# smaller canvas leaves the printed panel exactly the same size but cuts the
+# scaling to 0.60, so the text prints at 6pt. The plot box pays for it, which
+# is what stops this going further: at 0.70 the SLO panel's policy names take
+# so much of the canvas that its bars lose half their length.
+FIGURE1_PANEL_FIGSIZE = (2.79, 2.65)
 
 # Panels that LaTeX places side by side (Fig 1a/1b, Fig 6a/6b, Fig 8a-8d)
 # must put their plot boxes, and on horizontal-category panels the same policy
@@ -64,20 +74,23 @@ def aligned_panel_geometry(
     left: float = 0.40,
     right: float = 0.97,
     top_in: float = ALIGNED_TOP_IN,
+    figsize: tuple[float, float] = PAPER_PANEL_FIGSIZE,
 ) -> tuple[tuple[float, float], tuple[float, float, float, float]]:
     """Return (figsize, margins) shared by every panel of an aligned set.
 
     ``top_in`` sizes the top band and must be identical across a set;
     ``aligned_top_in`` derives it from the rows of the set's mix legend.
+    ``figsize`` must be identical across a set too, and is only overridden
+    for a set the paper scales differently (Figure 1).
     """
-    height = PAPER_PANEL_FIGSIZE[1]
+    height = figsize[1]
     margins = (
         left,
         right,
         ALIGNED_BOTTOM_IN / height,
         1.0 - top_in / height,
     )
-    return PAPER_PANEL_FIGSIZE, margins
+    return figsize, margins
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -366,6 +379,7 @@ def _annotate_baseline(
     label_offsets: Mapping[str, tuple[int, int]] | None = None,
     palette: Mapping[str, str] | None = None,
     muted: bool = False,
+    leader: bool = False,
 ) -> None:
     offset = (label_offsets or {}).get(
         point.policy,
@@ -374,15 +388,27 @@ def _annotate_baseline(
             BASELINE_LABEL_OFFSET,
         ),
     )
+    color = policy_color(point.policy, palette=palette)
     ax.annotate(
         POLICY_PLOT_LABELS.get(point.policy, point.label),
         (point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
         fontsize=ANNOTATION_FONT_SIZE - 1.0 if muted else ANNOTATION_FONT_SIZE,
-        color=policy_color(point.policy, palette=palette),
+        color=color,
         ha="center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left"),
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
+        arrowprops=(
+            {
+                "arrowstyle": "-",
+                "linewidth": 0.6,
+                "color": color,
+                "shrinkA": 1.0,
+                "shrinkB": 2.5,
+            }
+            if leader
+            else None
+        ),
         clip_on=False,
     )
 
@@ -523,11 +549,18 @@ def plot_metric_frontier(
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
+    # A label too wide to sit beside its marker is parked in free space and
+    # joined to the marker by a leader line, so it cannot be read as a label
+    # for whatever it happens to float over.
+    baseline_leader_policies: Sequence[str] = (),
     figsize: tuple[float, float] = COLUMN_FIGSIZE,
     margins: tuple[float, float, float, float] | None = None,
     policy_colors: Mapping[str, str] | None = None,
     emphasize_routewise: bool = False,
     x_max: float | None = None,
+    # The tick locator picks its density from the canvas, so a panel LaTeX
+    # scales by an unusual factor has to state the step it wants in print.
+    x_tick_step: float | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -592,6 +625,7 @@ def plot_metric_frontier(
             label_offsets=baseline_label_offsets,
             palette=policy_colors,
             muted=emphasize_routewise,
+            leader=point.policy in baseline_leader_policies,
         )
     for point in [*routewise_no_hedge, *routewise_hedged]:
         _annotate_routewise(
@@ -608,6 +642,8 @@ def plot_metric_frontier(
     _pad_axes(ax)
     if x_max is not None:
         ax.set_xlim(right=x_max)
+    if x_tick_step is not None:
+        ax.xaxis.set_major_locator(MultipleLocator(x_tick_step))
     if margins is not None:
         _pin_plot_box(fig, ax, margins)
     output_path.parent.mkdir(parents=True, exist_ok=True)
