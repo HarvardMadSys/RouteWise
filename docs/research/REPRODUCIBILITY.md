@@ -4,10 +4,9 @@ This is the operational entrypoint for rerunning RouteWise experiments.
 Architecture and algorithm contracts live in
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-For the evaluated paper, use the [figure evidence table](FIGURE_MAP.md)
-and [clarifications and errata](AE_NOTES.md) alongside these operational
-notes. In particular, the Figure 8 archive evaluates an earlier concurrency
-variant, and the current simulator retains premature output-length feedback.
+The [figure reproduction guide](FIGURE_MAP.md) lists the source data,
+commands, revisions, and expected outputs for each paper figure. Simulator
+assumptions are documented in the [simulation guide](../../experiments/simulation/README.md#model-assumptions).
 
 ## Environment
 
@@ -22,6 +21,14 @@ library.
 Simulator, live-evaluation, offline, plotting, and operational workflows are
 repository-only and use the development dependency group installed by
 `uv sync`.
+
+`.python-version` selects Python 3.14; `uv.lock` pins the dependencies.
+The Python patch release may differ between installations. The committed-data
+figure commands and smoke test have been checked on macOS 15.7.7 arm64
+with Python 3.14.0 and uv 0.11.3. CI uses Ubuntu 24.04, Python 3.14, and
+uv 0.9.7; the Dockerfile supplies an Ubuntu 24.04 environment as well.
+These are reproduction environments, not a recovered manifest of the
+original paper experiments.
 
 ## Data
 

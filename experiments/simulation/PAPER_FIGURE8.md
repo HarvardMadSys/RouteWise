@@ -15,13 +15,11 @@ explicitly so the released trace can reproduce the paper's experiment.
 | Paper §3.2.3 and Equation (3) | `0` | Described algorithm; not the variant behind the archived Figure 8 values |
 | Subsequent code change `86a26e2f66f723cf15a2c45048f21ce0c1daf1f0` | `0` | Changed concurrency pricing and hence some routing decisions |
 
-The discrepancy is present in both the July arXiv submission and the PDF
-evaluated in AE. Matching the archived numbers reproduces the earlier
+Matching the archived numbers reproduces the earlier
 experiment; it does not establish that the zero-cost rule gives those
 numbers. This wrapper retains the original variant and reference values.
-The artifact's [errata and limitations](../../docs/research/AE_NOTES.md)
-also document the output-length feedback and cache-accounting assumptions
-that apply to this experiment.
+The [simulation guide](README.md#output-length-feedback) documents the
+output-length feedback timing that also applies to this experiment.
 
 ## Source and command
 

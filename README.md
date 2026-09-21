@@ -16,11 +16,11 @@ This repository is the research artifact for the paper: the routing core,
 the trace-driven simulator, the experiment and figure pipelines, and the
 instructions to run them.
 
-For the evaluated paper's figure-to-code mapping and the limitations identified
-during evaluation, start with the [figure evidence table](docs/research/FIGURE_MAP.md)
-and [artifact clarifications and errata](docs/research/AE_NOTES.md). The original
-Figure 8 reproduction remains the default; it evaluates the earlier constant-`L`
-concurrency variant, which differs from the zero-cost rule in Equation (3).
+The [figure reproduction guide](docs/research/FIGURE_MAP.md) maps each figure
+to its data, command, code revision, and expected output. Figure 8 uses an
+archived constant-`L` concurrency variant; its
+[source notes](experiments/simulation/PAPER_FIGURE8.md) explain the difference
+from the zero-cost rule in Equation (3).
 
 ## 1. Overview
 
@@ -65,12 +65,10 @@ container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
 keep generated figures on the host.
 
 If macOS rejects a NumPy compiled library's code signature, use this container
-path. At the evaluated commit `ae3a998`, [CI run 34542875011](https://github.com/HarvardMadSys/RouteWise/actions/runs/34542875011)
-passed the Ubuntu smoke test, committed-data figure pipelines (including the
-Figure 8 replay), and a separate Docker smoke test. Those figure pipelines
-ran directly on Ubuntu; only the smoke test ran inside Docker. See the
-[recorded environments](docs/research/AE_NOTES.md#environments-and-validation)
-for the scope of these checks.
+path. The [CI workflow](.github/workflows/ae.yml) runs the smoke test and
+committed-data figure pipelines on Ubuntu 24.04, plus a separate smoke test
+inside Docker. See the [environment notes](docs/research/REPRODUCIBILITY.md#environment)
+for the Python and dependency configuration.
 
 ## 3. Getting started (~2 minutes)
 
@@ -135,7 +133,7 @@ Mean/P99 TTFT use successful requests with valid TTFT; the SLO-violation
 denominator includes all requests and counts failures as violations. From the
 unrounded records, α = 0 improves over OR-auto by 26.48% in total cost,
 58.15% in mean TTFT, and 98.01% in SLO-violation rate. See the
-[metric definitions and calculation](docs/research/AE_NOTES.md#recorded-metrics-and-headline-percentages).
+[metric definitions and calculation](data/real_eval_records/README.md#metrics-and-cost-accounting).
 
 Optionally, `experiments/real_evaluation/` contains the full live runner to
 redo such an experiment with your own provider keys (`cp .env.example .env`).
@@ -186,12 +184,10 @@ across `ablation_lp_hedging_alpha0` … `ablation_lp_hedging_alpha100`
 (LP routing alone), `total_cost_usd` rises and `mean_ttft_ms` falls as α
 increases; and every `ablation_lp_hedging_*` row has a lower
 `slo_violation_rate` than `greedy_cost` (the LP-only α = 0 point is
-cost-first and close to, but not identical to, Greedy-cost). The Linux
-evaluation reported $233.473 versus $236.759 and mean TTFT 1545.182 versus
-1543.868 ms for these two policies, respectively. The exact values depend
-on the simulator revision, so this section is checked for those relations
+cost-first and close to, but not identical to, Greedy-cost). The exact values
+depend on the simulator revision, so this section is checked for those relations
 rather than against archived numbers. The simulator's
-[premature output-length feedback](docs/research/AE_NOTES.md#simulator-output-length-feedback)
+[output-length feedback timing](experiments/simulation/README.md#output-length-feedback)
 remains a limitation of these results.
 
 **PROD agentic workload (Figure 8; ~1 minute).** The de-identified trace is
@@ -249,8 +245,8 @@ time-indexed ILP description. It uses deterministic P50-based durations,
 whereas online runs sample durations; some quota settings use a heuristic.
 The `offline` rows in `outputs/simulation/cost_layer/summary.json` therefore
 do not, by themselves, verify the reported 15.0%, 19.3%, and 6.0% gaps to an
-optimum. The matched comparison and original solver-status evidence remain
-unresolved; see the [offline analysis limits](docs/research/AE_NOTES.md#offline-comparisons).
+optimum. See the [offline baseline assumptions](experiments/simulation/README.md#offline-baselines)
+for how to interpret these comparisons.
 
 ```bash
 # Fixed output-length bias, Figure 9a pipeline (runs + plot; ~1 h):
@@ -264,10 +260,11 @@ uv run python scripts/run_effective_cost_ablation.py --jobs 8
 The Figure 9a pipeline scales an oracle's output length by a fixed bias in
 each run (−50%, −25%, 0%, +25%, +50%, +100%, +200%). It does not implement
 independent uniform random errors or establish robustness of an online
-bucket-mean estimator to that noise model. The evaluated paper's §4.4.2
-description is corrected in the [artifact errata](docs/research/AE_NOTES.md#figure-9a-experiment-scope).
-The successful 10,000-request Figure 9 sweeps reported during evaluation
-are functionality checks, not reproduction of the full paper results.
+bucket-mean estimator to that noise model. This differs from the uniform
+random-noise description in §4.4.2. See the
+[experiment settings](experiments/simulation/README.md#output-length-ablation).
+Shortened runs with `--max-requests` check functionality; they do not
+reproduce the full Figure 9 results.
 
 ### 4.4 Background measurement figures (Figures 2 and 3, ~1 minute)
 
@@ -286,7 +283,7 @@ with the paper.
 The released timestamps predominantly form close pairs about an hour apart,
 with gaps; they do not show a regular five-minute cadence. The rolling
 window is 100 samples, spanning a median 52.29 hours for Llama and 50.72
-hours for GPT-4o-mini. See the [Figure 2 sampling clarification](docs/research/AE_NOTES.md#figure-2-sampling).
+hours for GPT-4o-mini. See the [sampling and reference statistics](data/README.md#provider-latency-measurements-figure-2).
 
 Figure 3 draws the two TTFT background panels from the sanitized production
 request export committed in `data/motivation/ttft_duration/`:

@@ -62,13 +62,28 @@ parameters, recomputes the aggregates, and checks all ten policies against
 `1e-9`). Calling the underlying plot module with its defaults would prorate
 over 8 hours and change total costs.
 
+## Metrics and cost accounting
+
 Mean and percentile TTFT use successful requests with nonnegative, present
 TTFT. SLO-violation rate uses all 14,233 requests as the denominator; failures
 and successful requests with TTFT above 3,000 ms count as violations. These
 denominators intentionally differ. The unrounded α = 0 reductions relative
 to OR-auto are 26.48% (total cost), 58.15% (mean TTFT), and 98.01% (SLO
-violations); [AE notes](../../docs/research/AE_NOTES.md#recorded-metrics-and-headline-percentages)
-give the source values and a calculation from the regenerated summary.
+violations). These differ slightly from the paper's 26.6%, 58.4%, and 98.2%.
+Calculate the reductions from the regenerated summary with:
+
+```bash
+uv run python - <<'PY'
+import json
+from pathlib import Path
+rows = json.loads(Path("outputs/figures/real_world/real_world_summary.json").read_text())
+by_policy = {row["policy"]: row for row in rows}
+rw, baseline = by_policy["budget_range_alpha0_hedge"], by_policy["or_auto"]
+for key in ("total_cost_usd", "ttft_mean_ms", "slo_violation_rate"):
+    reduction = 100 * (baseline[key] - rw[key]) / baseline[key]
+    print(f"{key}: {reduction:.2f}% relative reduction")
+PY
+```
 
 Reported totals add fixed subscriptions to `billed_cost_usd`; the recorder
 sums both primary and backup legs. Profiling/probe expense is tracked
@@ -77,7 +92,11 @@ leg whose usage is not returned and whose billing continues, the transport
 can record zero for an unmeasured charge. That value is not evidence of a
 free request. The released export omits the per-leg cost-source annotations
 and probe ledger, so it cannot quantify or bound those missing charges.
-See [accounting limits](../../docs/research/AE_NOTES.md#cache-and-monetary-accounting).
+`physical_cost_usd` is a separately recorded measure, not an additional
+term to add again to the billed total. These totals reproduce the exported
+accounting records, not a complete invoice reconciliation.
+
+## Provider diagnostics and provenance
 
 Figure 7a uses `plots/end_to_end/paper_minimax_provider_latency.json`, an
 author-reconstructed snapshot of the paper's provider mean TTFT values
