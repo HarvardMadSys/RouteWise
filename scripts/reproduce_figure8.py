@@ -106,6 +106,17 @@ def main(argv: list[str] | None = None) -> int:
             archive.extractall(snapshot, filter="data")
         (snapshot / "data").mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "data/freeinference.jsonl", snapshot / "data/freeinference.jsonl")
+        # The archived sequential runner expects a cache in this fresh snapshot.
+        # Build it here so both worker paths use the same released trace.
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from experiments.simulation.dataset_cache import build_cache; build_cache('freeinference')",
+            ],
+            cwd=snapshot,
+            check=True,
+        )
         command = [
             sys.executable,
             "-m",

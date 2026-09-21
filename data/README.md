@@ -44,6 +44,12 @@ simulation inputs as the internal export. Cache discounts use the retained
 Account pseudonyms do not reconstruct missing cache hits. `SHA256SUMS`
 covers the trace and the Figure 8 reference summary.
 
+With prefix-cache accounting enabled, observed cache-read tokens are applied
+to candidate API providers that offer a cached-input rate. The simulator
+does not reconstruct provider-local cache residency under the counterfactual
+routing policy. No cold-cache or locality-aware sensitivity result is
+included in this clarification; see [the accounting limits](../docs/research/AE_NOTES.md#cache-and-monetary-accounting).
+
 Produced from the internal export with `scripts/export_ae_data.py prod-trace`.
 
 `figure8_reference_summary.csv` projects the policy, request-count, cost,

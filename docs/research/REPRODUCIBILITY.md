@@ -4,6 +4,11 @@ This is the operational entrypoint for rerunning RouteWise experiments.
 Architecture and algorithm contracts live in
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
+For the evaluated paper, use the [figure evidence table](FIGURE_MAP.md)
+and [clarifications and errata](AE_NOTES.md) alongside these operational
+notes. In particular, the Figure 8 archive evaluates an earlier concurrency
+variant, and the current simulator retains premature output-length feedback.
+
 ## Environment
 
 From the repository root:
@@ -20,12 +25,16 @@ repository-only and use the development dependency group installed by
 
 ## Data
 
-The simulator is trace-driven and does not ship workload traces. Prepare the
-local trace and dataset cache before running paper-facing simulator sections:
+The artifact includes the de-identified PROD trace (`data/freeinference.jsonl`),
+the recorded real-provider runs (`data/real_eval_records/`), the Figure 2/3
+measurement exports, and a synthetic smoke fixture. These support the
+committed-data commands in the main README without additional data downloads.
+Only the public BurstGPT/ShareGPT sources for the composed 30-day workload
+must be downloaded. Prepare that workload and its cache with:
 
 ```bash
-python scripts/prepare_workload.py --days 30
-python -m experiments.simulation.dataset_cache build --dataset burstgpt
+uv run python scripts/prepare_workload.py --days 30
+uv run python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
 Live real-evaluation sends provider requests and requires credentials:

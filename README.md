@@ -16,6 +16,12 @@ This repository is the research artifact for the paper: the routing core,
 the trace-driven simulator, the experiment and figure pipelines, and the
 instructions to run them.
 
+For the evaluated paper's figure-to-code mapping and the limitations identified
+during evaluation, start with the [figure evidence table](docs/research/FIGURE_MAP.md)
+and [artifact clarifications and errata](docs/research/AE_NOTES.md). The original
+Figure 8 reproduction remains the default; it evaluates the earlier constant-`L`
+concurrency variant, which differs from the zero-cost rule in Equation (3).
+
 ## 1. Overview
 
 | Path | Role |
@@ -57,6 +63,14 @@ docker run --rm -it routewise-ae bash   # shell for every other command below
 Every command in the following sections works the same inside the
 container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
 keep generated figures on the host.
+
+If macOS rejects a NumPy compiled library's code signature, use this container
+path. At the evaluated commit `ae3a998`, [CI run 34542875011](https://github.com/HarvardMadSys/RouteWise/actions/runs/34542875011)
+passed the Ubuntu smoke test, committed-data figure pipelines (including the
+Figure 8 replay), and a separate Docker smoke test. Those figure pipelines
+ran directly on Ubuntu; only the smoke test ran inside Docker. See the
+[recorded environments](docs/research/AE_NOTES.md#environments-and-validation)
+for the scope of these checks.
 
 ## 3. Getting started (~2 minutes)
 
@@ -117,6 +131,12 @@ unavailable, so this panel is not independently recomputed from the request
 records. Figure 7b uses the recorded inventory prices. See the
 [data notes](data/real_eval_records/README.md) for these provenance limits.
 
+Mean/P99 TTFT use successful requests with valid TTFT; the SLO-violation
+denominator includes all requests and counts failures as violations. From the
+unrounded records, α = 0 improves over OR-auto by 26.48% in total cost,
+58.15% in mean TTFT, and 98.01% in SLO-violation rate. See the
+[metric definitions and calculation](docs/research/AE_NOTES.md#recorded-metrics-and-headline-percentages).
+
 Optionally, `experiments/real_evaluation/` contains the full live runner to
 redo such an experiment with your own provider keys (`cp .env.example .env`).
 It **spends real money**, and its results are a new measurement — comparable
@@ -166,9 +186,13 @@ across `ablation_lp_hedging_alpha0` … `ablation_lp_hedging_alpha100`
 (LP routing alone), `total_cost_usd` rises and `mean_ttft_ms` falls as α
 increases; and every `ablation_lp_hedging_*` row has a lower
 `slo_violation_rate` than `greedy_cost` (the LP-only α = 0 point is
-cost-first and matches Greedy-cost, as expected). The exact values depend
+cost-first and close to, but not identical to, Greedy-cost). The Linux
+evaluation reported $233.473 versus $236.759 and mean TTFT 1545.182 versus
+1543.868 ms for these two policies, respectively. The exact values depend
 on the simulator revision, so this section is checked for those relations
-rather than against archived numbers.
+rather than against archived numbers. The simulator's
+[premature output-length feedback](docs/research/AE_NOTES.md#simulator-output-length-feedback)
+remains a limitation of these results.
 
 **PROD agentic workload (Figure 8; ~1 minute).** The de-identified trace is
 included as [data/freeinference.jsonl](data/freeinference.jsonl), with
@@ -186,16 +210,24 @@ This command uses the bundled, unmodified simulator source at commit
 with seed 42, the `end_to_end_rw8` scenario, a 3 s SLO, `bucket_mean`
 prediction, and cache accounting enabled. Later code changes, including
 the concurrency shadow-price change, alter the intermediate RouteWise
-points. Running today's `experiments.simulation.end_to_end` module directly
-is therefore a different experiment. The bundled source requires no extra
-download and works in the Docker image too; see
+points. **Figure 8 evaluates the earlier constant-`L` concurrency variant;
+it does not validate the zero-cost available-concurrency rule in §3.2.3 and
+Equation (3).** Running today's `experiments.simulation.end_to_end` module
+directly is therefore a different experiment. Cache accounting applies
+trace-observed cache-read tokens to candidate providers with discounted
+input rates; it does not reconstruct their cache residency under rerouting.
+The bundled source requires no extra download and works in the Docker image
+too; see
 [source provenance](experiments/simulation/PAPER_FIGURE8.md).
+
+`--jobs 1` is also supported: the wrapper now initializes the dataset cache
+inside the extracted source directory before starting either worker path.
 
 The command checks request counts and provider counts exactly, and total
 cost, mean/P50/P90/P99 TTFT, SLO-violation rate, and hedge rate with
 relative/absolute tolerance `1e-9`, against
 [figure8_reference_summary.csv](data/figure8_reference_summary.csv).
-For example, the SLO-violation rates are 35.00% for Greedy-cost,
+For example, the SLO-violation rates are 34.95% for Greedy-cost,
 4.18% for RouteWise at α = 0.25, and 0.86% for Greedy-latency.
 Any mismatch makes the command fail. The paper's §4.3.2 claims read
 directly off `outputs/figure8/simulation/summary.csv`: moving from α = 0 to
@@ -211,21 +243,31 @@ go to `outputs/figure8/figures/`.
 
 ### 4.3 Ablation study (Figure 9 and the offline analysis)
 
-**Offline analysis.** The paper's offline oracle — a clairvoyant lower
-bound on prepaid-capacity allocation — runs as the `offline` policy inside
-the cost-layer module, so the §4.2 cost-layer run already produces it: in
-`outputs/simulation/cost_layer/summary.json`, compare the `offline` rows
-against the other policies within the quota and concurrency scenarios to
-obtain the online-to-offline gaps discussed in the paper.
+**Offline analysis.** The cost-layer module includes an `offline` policy,
+but its released fixed-start, no-queueing semantics differ from the paper's
+time-indexed ILP description. It uses deterministic P50-based durations,
+whereas online runs sample durations; some quota settings use a heuristic.
+The `offline` rows in `outputs/simulation/cost_layer/summary.json` therefore
+do not, by themselves, verify the reported 15.0%, 19.3%, and 6.0% gaps to an
+optimum. The matched comparison and original solver-status evidence remain
+unresolved; see the [offline analysis limits](docs/research/AE_NOTES.md#offline-comparisons).
 
 ```bash
-# Output-length misprediction, Figure 9a (runs + plot, one command; ~1 h):
+# Fixed output-length bias, Figure 9a pipeline (runs + plot; ~1 h):
 uv run python scripts/run_output_length_prediction_ablation.py
 
 # Quota / concurrency effective cost, Figures 9b-9c (runs + plots,
 # one command; ~10 min with --jobs 8):
 uv run python scripts/run_effective_cost_ablation.py --jobs 8
 ```
+
+The Figure 9a pipeline scales an oracle's output length by a fixed bias in
+each run (−50%, −25%, 0%, +25%, +50%, +100%, +200%). It does not implement
+independent uniform random errors or establish robustness of an online
+bucket-mean estimator to that noise model. The evaluated paper's §4.4.2
+description is corrected in the [artifact errata](docs/research/AE_NOTES.md#figure-9a-experiment-scope).
+The successful 10,000-request Figure 9 sweeps reported during evaluation
+are functionality checks, not reproduction of the full paper results.
 
 ### 4.4 Background measurement figures (Figures 2 and 3, ~1 minute)
 
@@ -240,6 +282,11 @@ Produces `drift_wall_clock_llama.{pdf,png}` and
 `drift_wall_clock_gpt4o.{pdf,png}` in `outputs/figures/`, and prints each
 panel's statistics (row count, global P99, max rolling P99) for comparison
 with the paper.
+
+The released timestamps predominantly form close pairs about an hour apart,
+with gaps; they do not show a regular five-minute cadence. The rolling
+window is 100 samples, spanning a median 52.29 hours for Llama and 50.72
+hours for GPT-4o-mini. See the [Figure 2 sampling clarification](docs/research/AE_NOTES.md#figure-2-sampling).
 
 Figure 3 draws the two TTFT background panels from the sanitized production
 request export committed in `data/motivation/ttft_duration/`:

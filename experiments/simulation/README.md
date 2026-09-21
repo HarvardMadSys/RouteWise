@@ -4,6 +4,10 @@ Paper-facing simulator harness. Each section is implemented as a dedicated,
 directly runnable Python module:
 `uv run python -m experiments.simulation.<section>`.
 
+See the [AE figure mapping](../../docs/research/FIGURE_MAP.md) and
+[errata](../../docs/research/AE_NOTES.md) before interpreting these runs as
+evidence for the paper's claims.
+
 ## Common Setup
 
 Latency families come from `llm_routewise/sim/world/distributions.py` plus empirical
@@ -29,14 +33,19 @@ Common simulator baselines:
 - `greedy_cost`: cheapest feasible provider.
 - `greedy_latency`: lowest expected TTFT.
 - `random`: uniform over feasible providers.
-- `offline`: cost-only oracle, implemented under `experiments/offline_stage/`.
+- `offline`: cost-only offline baseline in `offline_oracle.py`; exactness
+  depends on the scenario, and its duration model differs from online runs.
 
 OpenRouter-native `sort=price` and `sort=latency` are live real-evaluation
 baselines only.
 
-The default simulator dataset is a one-month ShareGPT trace. Routing assumes
-the output token length is known at decision time; output-prediction error is
-handled by its own ablation.
+The default workload is the 30-day BurstGPT/ShareGPT composition prepared by
+`scripts/prepare_workload.py`. The common routing predictor defaults to
+`bucket_mean`; the Figure 9a wrapper explicitly selects `oracle` and applies
+fixed multiplicative biases. The simulator currently updates bucket-mean
+feedback in request-loop order without waiting for simulated completion.
+Known output lengths are also used to calculate realized request outcomes;
+they should not be confused with the prediction available to the router.
 
 ## 1. Cost Layer (`cost_layer.py`)
 
