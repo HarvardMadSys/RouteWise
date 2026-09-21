@@ -4,6 +4,10 @@ This is the operational entrypoint for rerunning RouteWise experiments.
 Architecture and algorithm contracts live in
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
+The [figure reproduction guide](FIGURE_MAP.md) lists the source data,
+commands, revisions, and expected outputs for each paper figure. Simulator
+assumptions are documented in the [simulation guide](../../experiments/simulation/README.md#model-assumptions).
+
 ## Environment
 
 From the repository root:
@@ -18,14 +22,26 @@ Simulator, live-evaluation, offline, plotting, and operational workflows are
 repository-only and use the development dependency group installed by
 `uv sync`.
 
+`.python-version` selects Python 3.14; `uv.lock` pins the dependencies.
+The Python patch release may differ between installations. The committed-data
+figure commands and smoke test have been checked on macOS 15.7.7 arm64
+with Python 3.14.0 and uv 0.11.3. CI uses Ubuntu 24.04, Python 3.14, and
+uv 0.9.7; the Dockerfile supplies an Ubuntu 24.04 environment as well.
+These are reproduction environments, not a recovered manifest of the
+original paper experiments.
+
 ## Data
 
-The simulator is trace-driven and does not ship workload traces. Prepare the
-local trace and dataset cache before running paper-facing simulator sections:
+The artifact includes the de-identified PROD trace (`data/freeinference.jsonl`),
+the recorded real-provider runs (`data/real_eval_records/`), the Figure 2/3
+measurement exports, and a synthetic smoke fixture. These support the
+committed-data commands in the main README without additional data downloads.
+Only the public BurstGPT/ShareGPT sources for the composed 30-day workload
+must be downloaded. Prepare that workload and its cache with:
 
 ```bash
-python scripts/prepare_workload.py --days 30
-python -m experiments.simulation.dataset_cache build --dataset burstgpt
+uv run python scripts/prepare_workload.py --days 30
+uv run python -m experiments.simulation.dataset_cache build --dataset burstgpt
 ```
 
 Live real-evaluation sends provider requests and requires credentials:

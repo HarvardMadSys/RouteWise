@@ -44,6 +44,12 @@ simulation inputs as the internal export. Cache discounts use the retained
 Account pseudonyms do not reconstruct missing cache hits. `SHA256SUMS`
 covers the trace and the Figure 8 reference summary.
 
+With prefix-cache accounting enabled, observed cache-read tokens are applied
+to candidate API providers that offer a cached-input rate. The simulator
+does not reconstruct provider-local cache residency under the counterfactual
+routing policy. No cold-cache or locality-aware sensitivity result is
+included with this dataset.
+
 Produced from the internal export with `scripts/export_ae_data.py prod-trace`.
 
 `figure8_reference_summary.csv` projects the policy, request-count, cost,
@@ -52,3 +58,21 @@ TTFT, SLO, hedge-rate, and provider-count columns from the archived
 (`ablation_lp_only_pN` to `ablation_lp_only_alphaN`); numeric values are
 unchanged. The reference is read only after a fresh simulation completes.
 See [the Figure 8 source notes](../experiments/simulation/PAPER_FIGURE8.md).
+
+## Provider latency measurements (Figure 2)
+
+The plot selects `input_len = 10`, drops missing timestamps and latencies,
+keeps positive latencies, and sorts by timestamp. The valid samples
+predominantly form close pairs separated by about an hour, with occasional
+gaps exceeding eleven hours. The released timestamps do not support the
+paper caption's regular five-minute sampling description.
+
+| Series | Valid samples | Elapsed span (hours) | Median 100-sample span (hours) | Global P99 (ms) | Maximum rolling P99 (ms) |
+|---|---:|---:|---:|---:|---:|
+| Llama-3.3-70B | 2,419 | 1,183.96 | 52.29 | 1,189.32 | 5,305.81 |
+| GPT-4o-mini | 2,442 | 1,182.46 | 50.72 | 2,805.10 | 4,731.81 |
+
+The rolling P50/P99 window is 100 observations. Its elapsed span is the
+timestamp of the last sample minus the first; it is not a fixed duration.
+The files do not identify whether collection, export, or subsampling
+produced the gaps.

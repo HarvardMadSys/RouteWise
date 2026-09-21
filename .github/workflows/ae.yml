@@ -54,6 +54,8 @@ jobs:
         run: uv run python scripts/reproduce_real_world.py
       - name: Replay PROD with the paper simulator and check Figure 8
         run: uv run python scripts/reproduce_figure8.py --jobs 2
+      - name: Check Figure 8 with one worker and a fresh snapshot cache
+        run: uv run python scripts/reproduce_figure8.py --jobs 1 --output-dir outputs/figure8-single-worker
 
   container:
     name: artifact smoke test inside the Docker image

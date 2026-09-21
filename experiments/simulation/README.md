@@ -4,6 +4,9 @@ Paper-facing simulator harness. Each section is implemented as a dedicated,
 directly runnable Python module:
 `uv run python -m experiments.simulation.<section>`.
 
+See the [figure reproduction guide](../../docs/research/FIGURE_MAP.md) for
+the data, commands, and source revisions used by each paper figure.
+
 ## Common Setup
 
 Latency families come from `llm_routewise/sim/world/distributions.py` plus empirical
@@ -29,14 +32,77 @@ Common simulator baselines:
 - `greedy_cost`: cheapest feasible provider.
 - `greedy_latency`: lowest expected TTFT.
 - `random`: uniform over feasible providers.
-- `offline`: cost-only oracle, implemented under `experiments/offline_stage/`.
+- `offline`: cost-only offline baseline in `offline_oracle.py`; exactness
+  depends on the scenario, and its duration model differs from online runs.
 
 OpenRouter-native `sort=price` and `sort=latency` are live real-evaluation
 baselines only.
 
-The default simulator dataset is a one-month ShareGPT trace. Routing assumes
-the output token length is known at decision time; output-prediction error is
-handled by its own ablation.
+The default workload is the 30-day BurstGPT/ShareGPT composition prepared by
+`scripts/prepare_workload.py`. The common routing predictor defaults to
+`bucket_mean`; the Figure 9a wrapper explicitly selects `oracle` and applies
+fixed multiplicative biases. The simulator currently updates bucket-mean
+feedback in request-loop order without waiting for simulated completion.
+Known output lengths are also used to calculate realized request outcomes;
+they should not be confused with the prediction available to the router.
+
+## Model assumptions
+
+### Output-length feedback
+
+The simulator computes a request outcome and immediately calls
+`policy.observe` before routing the next arrival. The output-length estimator
+is updated without waiting for simulated response completion. With overlapping
+arrivals, later decisions can therefore use lengths that would not yet be
+observable online. This applies to both the current simulator and the
+historical Figure 8 source; the full effect of completion-gated feedback
+has not been quantified.
+
+### Quota threshold
+
+The exponential quota threshold is an empirically evaluated heuristic.
+Theorem 3.3's competitive-ratio guarantee does not hold for this threshold;
+no replacement guarantee is claimed. Empirical P10/P90 estimates are not
+bounds on every request's value.
+
+### Offline baselines
+
+`offline_oracle.py` assigns requests at their fixed arrival times without
+queueing, reordering, or preemption. Online concurrency occupancy uses
+sampled service durations, while the offline baseline uses P50 TTFT and
+throughput. Some supported settings are solved exactly under those
+assumptions; multi-window quota uses a value-greedy heuristic, and joint
+exact solving is restricted by request count.
+
+These baselines do not supply a matched-duration comparison or the original
+solver-status/configuration mapping for the paper's 15.0%, 19.3%, and 6.0%
+gaps. Their output should not be interpreted as verification of those
+distances to an optimum.
+
+### Output-length ablation
+
+The Figure 9a wrapper uses
+`predicted_tokens = actual_tokens * (1 + error_pct / 100)`, with one fixed
+bias per run at −50%, −25%, 0%, +25%, +50%, +100%, or +200%. Its baseline
+is an oracle. The default sweep contains 42 configurations per seed:
+seven biases, three α values, and LP-only/LP+hedging policies.
+
+This measures systematic bias rather than the independent uniform random
+errors described in §4.4.2, and does not establish bucket-mean robustness
+to that noise model. The wrapper emits a manifest for new runs; a complete
+original Figure 9a run manifest is not included.
+
+### Cache, cost, and latency
+
+Trace-observed cache-read tokens are applied to candidate providers offering
+cached-input rates without reconstructing provider-local cache residency
+under rerouting. See the [trace data notes](../../data/README.md#prod-trace-freeinferencejsonl).
+The LP budget constrains expected primary effective cost; it does not cap
+the final bill including hedges. Hedging probabilities rely on independence
+assumptions for primary and backup latencies and represent targets, not
+guaranteed SLOs. The existence of a sparse optimal LP solution does not
+exclude dense optima under ties, and uniform α spacing need not produce
+uniformly spaced achieved cost/latency points.
 
 ## 1. Cost Layer (`cost_layer.py`)
 
