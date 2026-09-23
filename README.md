@@ -313,10 +313,15 @@ together with a `.summary.json` of the plotted bucket statistics.
 
 ```bibtex
 @inproceedings{routewise-eurosys27,
-  title     = {RouteWise: Latency--Cost Optimization for Multi-Provider LLM Routing},
+  title     = {{RouteWise}: Latency--Cost Optimization for Multi-Provider LLM Routing},
   author    = {Tian, Muxin and Ni, Haoran and Zhai, Yiyan and Park, Yangsun and Yang, Juncheng},
-  booktitle = {Proceedings of the Twenty-Second European Conference on Computer Systems (EuroSys '27)},
-  year      = {2027}
+  booktitle = {22nd European Conference on Computer Systems (EuroSys '27), April 19--23, 2027, Rabat, Morocco},
+  year      = {2027},
+  month     = apr,
+  publisher = {Association for Computing Machinery},
+  doi       = {10.1145/3842654.3848534},
+  isbn      = {979-8-4007-2971-3},
+  url       = {https://doi.org/10.1145/3842654.3848534}
 }
 ```
 
