@@ -52,6 +52,12 @@ decision = router.route(
 学习到的值会成为 `Decision._estimated_cached_tokens`，影响路由成本和计算计费回退。
 尽可能报告实际 `cached_tokens` 以确保计费准确。
 
+### 对下游应用的意义
+
+HybridInference 是一个具体的下游消费者。它维护更细粒度的会话、前缀、provider 和端点
+级前缀缓存模型，并可在路由优化前调整有效成本。这种模型说明成功 dispatch 与实际观测到的
+缓存复用必须保持为不同的证据状态；RouteWise 的通用证据不会取代应用专属的局部性模型。
+
 ## 预算
 
 设可选供应商的成本极值为 `C_min` 和 `C_max`，预算为：

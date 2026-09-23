@@ -16,7 +16,13 @@ here.
   into subsequent related routing decisions. Evidence is probabilistic and
   time-bounded. Caller-supplied `estimated_cached_tokens` always takes
   precedence over learned evidence. Cache-locality learning is disabled when
-  `affinity_key` is not supplied, preserving existing behavior.
+  `affinity_key` is not supplied, preserving existing behavior. `cached_tokens`
+  of `None` means no authoritative cache-use observation was available and
+  must not be treated as `0`; no evidence is manufactured from a missing
+  value. Successful dispatch alone does not create positive locality evidence.
+  This generic evidence model is intended to support richer application-level
+  locality systems (for example, a downstream prefix-cache coordinator)
+  without replacing them.
 
 ### Changed
 
