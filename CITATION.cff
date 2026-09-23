@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use RouteWise in your research, please cite the paper in preferred-citation."
+type: software
+title: RouteWise
+authors:
+  - family-names: Tian
+    given-names: Muxin
+  - family-names: Ni
+    given-names: Haoran
+  - family-names: Zhai
+    given-names: Yiyan
+  - family-names: Park
+    given-names: Yangsun
+  - family-names: Yang
+    given-names: Juncheng
+repository-code: "https://github.com/HarvardMadSys/RouteWise"
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: "RouteWise: Latency–Cost Optimization for Multi-Provider LLM Routing"
+  authors:
+    - family-names: Tian
+      given-names: Muxin
+    - family-names: Ni
+      given-names: Haoran
+    - family-names: Zhai
+      given-names: Yiyan
+    - family-names: Park
+      given-names: Yangsun
+    - family-names: Yang
+      given-names: Juncheng
+  collection-title: "22nd European Conference on Computer Systems (EuroSys '27), April 19-23, 2027, Rabat, Morocco"
+  conference:
+    name: "22nd European Conference on Computer Systems"
+    alias: "EuroSys '27"
+    date-start: "2027-04-19"
+    date-end: "2027-04-23"
+    city: Rabat
+    country: MA
+  year: 2027
+  month: 4
+  publisher:
+    name: Association for Computing Machinery
+  doi: "10.1145/3842654.3848534"
+  isbn: "979-8-4007-2971-3"
+  url: "https://doi.org/10.1145/3842654.3848534"
