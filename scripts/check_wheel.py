@@ -13,6 +13,7 @@ from pathlib import Path
 ALLOWED_LIBRARY_MEMBERS = {
     "llm_routewise/__init__.py",
     "llm_routewise/_capacity_controller.py",
+    "llm_routewise/_cache_locality.py",
     "llm_routewise/_output_length.py",
     "llm_routewise/const.py",
     "llm_routewise/core/__init__.py",
