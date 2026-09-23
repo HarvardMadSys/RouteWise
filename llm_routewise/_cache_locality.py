@@ -60,13 +60,16 @@ class _CacheLocalityEstimator:
     ) -> None:
         """Record a cache-locality observation.
 
-        Positive cached_tokens values produce evidence of reusable prefix
-        state. ``cached_tokens=0`` provides negative evidence that the prior
-        reusable-state belief did not result in reuse on this request.
+        ``cached_tokens`` is the authoritative observed cache-reuse count:
 
-        Repeated misses degrade confidence but do not immediately delete
-        evidence (transient cache eviction is possible). A subsequent hit
-        restores confidence.
+        - ``cached_tokens > 0`` is positive evidence of reusable prefix state.
+        - ``cached_tokens == 0`` is negative evidence when prior evidence
+          exists. Repeated misses degrade confidence but do not immediately
+          delete evidence; a subsequent hit restores confidence.
+
+        Callers must distinguish ``0`` from ``None``. ``None`` means no
+        authoritative observation was available and must not be passed here or
+        treated as zero; the facade skips it before calling ``record()``.
         """
         if input_tokens <= 0:
             return  # No meaningful evidence to record
