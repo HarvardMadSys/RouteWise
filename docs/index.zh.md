@@ -94,7 +94,12 @@ uv run python examples/basic.py
 @inproceedings{tian2027routewise,
   title     = {{RouteWise}: Latency--Cost Optimization for Multi-Provider LLM Routing},
   author    = {Muxin Tian and Haoran Ni and Yiyan Zhai and Yangsun Park and Juncheng Yang},
-  booktitle = {Proceedings of the 22nd European Conference on Computer Systems (EuroSys '27)},
-  year      = {2027}
+  booktitle = {22nd European Conference on Computer Systems (EuroSys '27), April 19--23, 2027, Rabat, Morocco},
+  year      = {2027},
+  month     = apr,
+  publisher = {Association for Computing Machinery},
+  doi       = {10.1145/3842654.3848534},
+  isbn      = {979-8-4007-2971-3},
+  url       = {https://doi.org/10.1145/3842654.3848534}
 }
 ```
