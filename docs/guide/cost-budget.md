@@ -80,6 +80,15 @@ finer session-, prefix-, endpoint-, or credential-scoped locality models and
 use RouteWise's observations without treating this coarse evidence as
 authoritative cache state.
 
+### Downstream relevance
+
+HybridInference is one concrete downstream consumer. It maintains a richer
+session-, prefix-, provider-, and endpoint-scoped prefix-cache model that can
+adjust effective cost before routing optimization. That model is why a
+successful dispatch and observed cache reuse must remain distinct evidence
+states; RouteWise's generic evidence does not replace application-specific
+locality models.
+
 ## The budget
 
 With eligible cost extremes `C_min` and `C_max`, the budget is:

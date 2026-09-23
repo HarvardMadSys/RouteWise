@@ -20,8 +20,9 @@ here.
   of `None` means no authoritative cache-use observation was available and
   must not be treated as `0`; no evidence is manufactured from a missing
   value. Successful dispatch alone does not create positive locality evidence.
-  This generic evidence model can support richer application-level locality
-  systems without replacing them.
+  This generic evidence model is intended to support richer application-level
+  locality systems (for example, a downstream prefix-cache coordinator)
+  without replacing them.
 
 ### Changed
 
