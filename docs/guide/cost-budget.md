@@ -60,9 +60,23 @@ Key properties:
 - **Optional**: Cache-locality learning is disabled when `affinity_key` is not
   supplied. Existing callers are unaffected.
 
-The learned value becomes `Decision._estimated_cached_tokens`, which affects
-both routing cost and calculated billing fallback. Report actual
-`cached_tokens` whenever possible to ensure accurate billing.
+The learned value is incorporated into the decision's effective cached-token
+estimate and affects routing cost. It does not confirm provider usage for
+accounting: when output tokens are known but both `cached_tokens` and `cost_usd`
+are unavailable, calculated spending uses the conservative uncached estimate.
+The internal `Decision._estimated_cached_tokens` member is not a supported
+public API. Report actual `cached_tokens` or `cost_usd` whenever possible to
+ensure accurate billing.
+
+### Generic evidence and application-level locality
+
+RouteWise owns generic observed-reuse evidence: positive, negative, and
+unknown observations; TTL and exponential decay; a learned cached-token
+estimate; routing/cost influence; and caller-estimate precedence. It only
+knows `provider.name` and an opaque `affinity_key`. Applications may maintain
+finer session-, prefix-, endpoint-, or credential-scoped locality models and
+use RouteWise's observations without treating this coarse evidence as
+authoritative cache state.
 
 ### Downstream relevance
 

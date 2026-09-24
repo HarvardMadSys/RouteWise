@@ -279,9 +279,13 @@ Key properties:
 - **Optional**: Cache-locality learning is disabled when `affinity_key` is not
   supplied. Existing callers are unaffected.
 
-The learned value becomes `Decision._estimated_cached_tokens`, which affects
-both routing cost and calculated billing fallback. Report actual
-`cached_tokens` whenever possible to ensure accurate billing.
+The learned value is incorporated into the decision's effective cached-token
+estimate and affects routing cost. It does not confirm provider usage for
+accounting: when output tokens are known but both `cached_tokens` and `cost_usd`
+are unavailable, calculated spending uses the conservative uncached estimate.
+The internal `Decision._estimated_cached_tokens` member is not a supported
+public API. Report actual `cached_tokens` or `cost_usd` whenever possible to
+ensure accurate billing.
 
 The `affinity_key` should represent a stable reusable-prefix or request
 identity (e.g., a conversation ID or hash of the system prompt). It should not
