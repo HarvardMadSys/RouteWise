@@ -184,6 +184,31 @@ class TestAdversarialEstimateVsActual:
         # No evidence should be created
         assert router._locality_estimator.evidence_count == 0
 
+    def test_learned_cache_hit_does_not_understate_unknown_calculated_spend(self) -> None:
+        """A learned hit must not become confirmed billing when usage is unknown."""
+        clock = DeterministicClock()
+        router = Router(
+            [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
+            cold_start="require_observations", seed=1, clock=clock,
+        )
+        _warm(router, "A", 100.0, 5)
+        router._locality_estimator.record(
+            "A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+        )
+
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
+        assert decision._estimated_cached_tokens["A"] == 90
+        decision.completed(output_tokens=10, cached_tokens=None)
+
+        # Routing may use the learned hit, but accounting falls back to the
+        # uncached price until the provider reports actual usage.
+        expected_uncached = (2.0 * 100 + 1.0 * 10) / 1_000_000.0
+        assert router.stats().providers["A"]["calculated_spend_usd"] == pytest.approx(
+            expected_uncached
+        )
+
     def test_duplicate_completion_idempotent(self) -> None:
         """Calling completed() twice with same values is idempotent."""
         clock = DeterministicClock()

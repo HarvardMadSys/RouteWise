@@ -810,7 +810,11 @@ class Router:
             new_state = "actual"
             new_amount = cost
         elif output is not None:
-            billed_cached = attempt._estimated_cached_tokens if cached is None else cached
+            # Learned locality is a routing estimate, not evidence that this
+            # provider actually served cached tokens. Without an authoritative
+            # count, calculated spending must remain conservative and bill the
+            # request as uncached.
+            billed_cached = 0 if cached is None else cached
             new_state = "calculated"
             new_amount = self._price(
                 attempt._price_snapshot,
