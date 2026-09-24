@@ -8,8 +8,8 @@ import json
 import pytest
 
 from experiments.simulation import end_to_end
-from llm_routewise.capacity import ProviderTier
-from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from routewise_cli.main import main as routewise_main
+from rwsim.world.capacity import ProviderTier
 
 
 def test_end_to_end_scenarios_match_section_contract():
@@ -17,31 +17,8 @@ def test_end_to_end_scenarios_match_section_contract():
         "end_to_end_rw3",
         "end_to_end_3sa_cost_tiers",
         "end_to_end_rw8",
-        "end_to_end_m3_rw6",
+        "end_to_end_or8_1h_effmean",
     )
-
-
-def test_end_to_end_m3_rw6_takes_every_tier_from_the_m3_profile():
-    """The M3 rerun measured all three tiers in one run, so the scenario must
-    not fall back to the MiniMax M2.5 subscription probes for quota and
-    concurrency."""
-    scenario = end_to_end.make_scenario("end_to_end_m3_rw6")
-
-    assert scenario.metadata["real_world_pool"] == "minimax_m3_rw6"
-    assert scenario.metadata["api_provider_count"] == 6
-    assert scenario.metadata["api_price_source"] == "metadata_openrouter_price"
-    assert scenario.metadata["subscription_plan"] == "minimax_subscription_plus"
-    assert scenario.metadata["concurrency_plan"] == "featherless_premium"
-    assert scenario.metadata["latency_profile"] == "minimax_m3_shared_profile_24h"
-    assert [provider.tier for provider in scenario.providers] == [
-        ProviderTier.S_Q,
-        ProviderTier.S_C,
-        *[ProviderTier.S_A] * 6,
-    ]
-    labels = [provider.ttft_dist.label for provider in scenario.providers]
-    assert labels[0] == "minimax_m3_shared_profile_24h/MiniMax_Plus_SQ"
-    assert labels[1] == "minimax_m3_shared_profile_24h/Featherless_SC"
-    assert all(label.startswith("minimax_m3_shared_profile_24h/") for label in labels)
 
 
 def test_end_to_end_rw3_uses_one_api_plus_quota_and_concurrency():
@@ -57,7 +34,7 @@ def test_end_to_end_rw3_uses_one_api_plus_quota_and_concurrency():
     assert scenario.metadata["model"] == "qwen3-235b"
     assert scenario.metadata["model_class"] == "ge_70b"
     assert scenario.metadata["effective_concurrency_limit"] == 1
-    assert scenario.metadata["slo_ms"] == pytest.approx(DEFAULT_PRIMARY_SLO_MS)
+    assert scenario.metadata["slo_ms"] == pytest.approx(5000.0)
     assert [provider.tier for provider in scenario.providers] == [
         ProviderTier.S_Q,
         ProviderTier.S_C,
@@ -94,10 +71,12 @@ def test_end_to_end_cost_tiered_scenario_uses_synthetic_prices_and_real_latency(
         "api_C_fast_WandB",
     ]
     assert [
-        provider.effective_input_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
+        provider.effective_input_cost_per_token * 1_000_000
+        for provider in scenario.providers[2:]
     ] == [1.0, 2.0, 4.0]
     assert [
-        provider.effective_output_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
+        provider.effective_output_cost_per_token * 1_000_000
+        for provider in scenario.providers[2:]
     ] == [5.0, 10.0, 20.0]
     assert [provider.ttft_dist.label for provider in scenario.providers[2:]] == [
         "qwen3_24h/SiliconFlow",
@@ -139,7 +118,8 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
         "minimax_m25_openrouter_24h/SiliconFlow",
     ]
     assert [
-        provider.effective_input_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
+        provider.effective_input_cost_per_token * 1_000_000
+        for provider in scenario.providers[2:]
     ] == pytest.approx(
         [
             0.24,
@@ -153,7 +133,8 @@ def test_end_to_end_rw8_uses_full_api_pool_plus_capacity_tiers():
         ]
     )
     assert [
-        provider.effective_output_cost_per_token * 1_000_000 for provider in scenario.providers[2:]
+        provider.effective_output_cost_per_token * 1_000_000
+        for provider in scenario.providers[2:]
     ] == pytest.approx(
         [
             0.90,
@@ -177,7 +158,10 @@ def test_end_to_end_prefix_cache_sets_api_cached_input_prices():
 
     assert scenario.metadata["prefix_cache_enabled"] is True
     assert scenario.metadata["cached_input_price_fraction"] is None
-    assert scenario.metadata["cached_input_price_source"] == "metadata_openrouter_input_cache_read"
+    assert (
+        scenario.metadata["cached_input_price_source"]
+        == "metadata_openrouter_input_cache_read"
+    )
     assert scenario.providers[0].cached_input_cost_per_token is None
     assert scenario.providers[1].cached_input_cost_per_token is None
     cached_prices = [
@@ -201,77 +185,76 @@ def test_end_to_end_policy_surface_covers_no_hedge_and_hedging_p_sweep():
         "greedy_cost",
         "greedy_latency",
         "random",
-        "ablation_lp_only_alpha0",
-        "ablation_lp_only_alpha75",
-        "ablation_lp_hedging_alpha0",
-        "ablation_lp_hedging_alpha75",
+        "or_sort_cost",
+        "or_sort_latency",
+        "ablation_lp_only_p0",
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p0",
+        "ablation_lp_hedging_p75",
     )
-    assert presets["ablation_lp_only_alpha75"]["params"]["hedging"] is False
-    assert presets["ablation_lp_only_alpha75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_only_alpha75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["hedging"] == "probability_target"
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["slo_ms"] == pytest.approx(
-        DEFAULT_PRIMARY_SLO_MS
-    )
+    assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
+    assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_p75"]["params"]["slo_ms"] == pytest.approx(5000.0)
 
 
-def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require_burstgpt_data):
+def test_end_to_end_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     output_dir = tmp_path / "end_to_end"
 
-    assert (
-        end_to_end.main(
-            [
-                "--scenario",
-                "end_to_end_rw3",
-                "--p",
-                "0.75",
-                "--policy",
-                "ablation_lp_only_alpha75",
-                "--policy",
-                "ablation_lp_hedging_alpha75",
-                "--seed",
-                "42",
-                "--max-requests",
-                "12",
-                "--prefix-cache-enabled",
-                "--cached-input-price-fraction",
-                "0.2",
-                "--output-dir",
-                str(output_dir),
-            ]
-        )
-        == 0
-    )
+    assert routewise_main(
+        [
+            "simulator",
+            "end-to-end",
+            "--scenario",
+            "end_to_end_rw3",
+            "--p",
+            "0.75",
+            "--policy",
+            "ablation_lp_only_p75",
+            "--policy",
+            "ablation_lp_hedging_p75",
+            "--seed",
+            "42",
+            "--max-requests",
+            "12",
+            "--prefix-cache-enabled",
+            "--cached-input-price-fraction",
+            "0.2",
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [
-        "ablation_lp_only_alpha75",
-        "ablation_lp_hedging_alpha75",
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p75",
     ]
 
     baseline, hedging_row = rows
     assert baseline["real_world_pool"] == "rw3"
     assert baseline["api_provider_count"] == 1
-    assert baseline["routewise_alpha"] == 0.75
+    assert baseline["routewise_p"] == 0.75
     assert baseline["hedging_enabled"] is False
     assert baseline["explorer_enabled"] is False
     assert baseline["latency_profile_mode"] == "configured"
     assert baseline["prefix_cache_enabled"] is True
     assert baseline["cached_input_price_fraction"] == 0.2
     assert "simulated_429_rate" not in baseline
-    assert hedging_row["routewise_alpha"] == 0.75
+    assert hedging_row["routewise_p"] == 0.75
     assert hedging_row["hedging_enabled"] is True
     assert hedging_row["explorer_enabled"] is False
-    assert hedging_row["slo_ms"] == DEFAULT_PRIMARY_SLO_MS
+    assert hedging_row["slo_ms"] == 5000.0
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
     assert len(csv_rows) == 2
-    assert csv_rows[1]["policy"] == "ablation_lp_hedging_alpha75"
+    assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
     assert csv_rows[1]["real_world_pool"] == "rw3"
-    assert csv_rows[1]["routewise_alpha"] == "0.75"
+    assert csv_rows[1]["routewise_p"] == "0.75"
     assert csv_rows[1]["hedging_enabled"] == "True"
     assert csv_rows[1]["prefix_cache_enabled"] == "True"
     assert csv_rows[1]["cached_input_price_fraction"] == "0.2"

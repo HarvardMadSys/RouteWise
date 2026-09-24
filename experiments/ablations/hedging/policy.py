@@ -14,8 +14,8 @@ from typing import Literal
 
 import numpy as np
 
-from llm_routewise.core.hedging import BackupCandidate, select_probability_backup
-from llm_routewise.sim.policies.routewise import RouteWisePolicy
+from rwsim.policies.hedging import BackupCandidate, select_probability_backup
+from rwsim.policies.routewise import RouteWisePolicy
 
 DispatchTiming = Literal["latest_safe", "earliest_safe"]
 BackupSelection = Literal["probability", "random_feasible"]
@@ -35,7 +35,7 @@ class HedgingAblationPolicy(RouteWisePolicy):
     backup_selection: BackupSelection = "probability"
     _backup_rng: np.random.Generator = field(init=False, repr=False)
 
-    def __post_init__(self, p: float | None = None) -> None:
+    def __post_init__(self) -> None:
         if self.dispatch_timing not in DISPATCH_TIMINGS:
             known = ", ".join(DISPATCH_TIMINGS)
             raise ValueError(
@@ -52,7 +52,7 @@ class HedgingAblationPolicy(RouteWisePolicy):
             )
         if self.explorer:
             raise ValueError("HedgingAblationPolicy keeps explorer disabled")
-        super().__post_init__(p)
+        super().__post_init__()
         self._backup_rng = np.random.default_rng(
             int(self.seed) + _BACKUP_RNG_SEED_OFFSET
         )

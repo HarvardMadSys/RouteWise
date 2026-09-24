@@ -26,9 +26,9 @@ import numpy as np
 import pulp
 from tqdm import tqdm
 
-from llm_routewise.offline.cache import get_ilp_cache_key, load_cached_ilp_result, save_ilp_cache
-from llm_routewise.offline.schemas import Request, RoutingDecision
-from llm_routewise.offline.strategy import RoutingStrategy
+from rwsim.offline.cache import get_ilp_cache_key, load_cached_ilp_result, save_ilp_cache
+from rwsim.offline.schemas import Request, RoutingDecision
+from rwsim.offline.strategy import RoutingStrategy
 
 logger = logging.getLogger(__name__)
 

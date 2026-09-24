@@ -19,7 +19,7 @@ from experiments.offline_stage.value_estimators.base import (
     OutputTokenPredictor,
     QuantilePrediction,
 )
-from llm_routewise.schemas import Request
+from rwsim.schemas import Request
 
 logger = logging.getLogger(__name__)
 

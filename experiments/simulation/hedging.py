@@ -5,7 +5,7 @@ RouteWise with probability-target hedging. Explorer/probing is intentionally
 disabled in this simulator section.
 
 This module is experiment glue only: the hedging trigger, backup selection, and
-profile learning behavior live in :mod:`llm_routewise.sim.policies.routewise`.
+profile learning behavior live in :mod:`rwsim.policies.routewise`.
 
 Outputs:
 - ``summary.json`` — full rows enriched with hedging metadata and LP-only deltas
@@ -41,22 +41,18 @@ from experiments.simulation.common import (
     write_json,
 )
 from experiments.simulation.latency_profiles import load_pool
-from llm_routewise.capacity import ProviderTier
-from llm_routewise.const import HEDGE_SUCCESS_TARGET
-from llm_routewise.sim.world.providers import TieredProvider
-from llm_routewise.sim.world.scenarios import ScenarioConfig
+from rwsim.world.capacity import ProviderTier
+from rwsim.world.providers import TieredProvider
+from rwsim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from llm_routewise.schemas import Request
+    from rwsim.schemas import Request
 
 SECTION_NAME = "hedging"
 
 PUBLIC_SCENARIO_TAG: str = "hedging"
-DEFAULT_ROUTEWISE_ALPHA: float = 0.75
-# Mirror of `llm_routewise.const.HEDGE_SUCCESS_TARGET` for use as the metadata field
-# `target_success_probability`. Derive (do not redefine) so the value plots
-# and summaries advertise can never drift from the value the algorithm uses.
-TARGET_SUCCESS_PROBABILITY: float = HEDGE_SUCCESS_TARGET
+DEFAULT_ROUTEWISE_P: float = 0.75
+TARGET_SUCCESS_PROBABILITY: float = 0.99
 
 HEAVY_TAIL_SCENARIO_NAME: str = "hedging_heavy_tail"
 REAL_WORLD_RW3_SCENARIO_NAME: str = "hedging_real_world_rw3"
@@ -167,8 +163,10 @@ def _make_real_world_pool_scenario(
     providers = [
         TieredProvider(
             name=provider_name,
-            cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
-            input_cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
+            cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
+            / 1_000_000.0,
+            input_cost_per_token=latency_layer.LATENCY_LAYER_INPUT_COST_PER_M_TOKENS
+            / 1_000_000.0,
             output_cost_per_token=latency_layer.LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS
             / 1_000_000.0,
             ttft_dist=ttft_dist,
@@ -206,37 +204,39 @@ def _make_real_world_pool_scenario(
     )
 
 
-def policies_for_section(alpha_value: float = DEFAULT_ROUTEWISE_ALPHA) -> tuple[str, ...]:
+def policies_for_section(p_value: float = DEFAULT_ROUTEWISE_P) -> tuple[str, ...]:
     """Return the §2.2 policy pair: LP-only baseline and hedging-only RouteWise."""
     return (
-        routewise_lp_policy_name(alpha_value),
-        routewise_hedging_policy_name(alpha_value),
+        routewise_lp_policy_name(p_value),
+        routewise_hedging_policy_name(p_value),
     )
 
 
 def make_policy_presets(
-    alpha_value: float = DEFAULT_ROUTEWISE_ALPHA,
+    p_value: float = DEFAULT_ROUTEWISE_P,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
+    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build the section-local policy presets for §2.2."""
     from experiments.simulation.common import _normalize_predictor_arg
 
-    alpha = float(alpha_value)
-    lp_name = routewise_lp_policy_name(alpha)
-    hedging_name = routewise_hedging_policy_name(alpha)
+    p = float(p_value)
+    lp_name = routewise_lp_policy_name(p)
+    hedging_name = routewise_hedging_policy_name(p)
     predictor_spec = _normalize_predictor_arg(output_predictor)
 
     def _params(*, hedging: str | bool) -> dict[str, Any]:
         params: dict[str, Any] = {
             "hedging": hedging,
             "explorer": False,
-            "alpha": alpha,
+            "p": p,
             "cost_envelope": WORKLOAD_COST_ENVELOPE,
             "latency_profile_mode": "configured",
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
+            params["output_predictor_quantile"] = output_predictor_quantile
         return params
 
     return {
@@ -338,7 +338,7 @@ def _enrich_rows_with_hedging_metadata(
     scenarios: dict[str, ScenarioConfig],
     presets: dict[str, dict[str, Any]],
     *,
-    alpha_value: float,
+    p_value: float,
 ) -> list[dict[str, Any]]:
     """Fold scenario/policy metadata and LP-only deltas into summary rows."""
     enriched: list[dict[str, Any]] = []
@@ -357,12 +357,16 @@ def _enrich_rows_with_hedging_metadata(
                 "latency_generation_version": meta.get("latency_generation_version"),
                 "latency_anchor_kind": meta.get("latency_anchor_kind"),
                 "latency_anchor_ms": meta.get("latency_anchor_ms"),
-                "latency_distribution_mean_ms": meta.get("latency_distribution_mean_ms"),
-                "latency_distribution_p50_ms": meta.get("latency_distribution_p50_ms"),
+                "latency_distribution_mean_ms": meta.get(
+                    "latency_distribution_mean_ms"
+                ),
+                "latency_distribution_p50_ms": meta.get(
+                    "latency_distribution_p50_ms"
+                ),
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
-                "routewise_alpha": float(params.get("alpha", alpha_value)),
+                "routewise_p": float(params.get("p", p_value)),
                 "hedging_enabled": bool(params.get("hedging")),
                 "explorer_enabled": bool(params.get("explorer")),
                 "hedging_policy_mode": _hedging_policy_mode(row["policy"], params),
@@ -381,8 +385,12 @@ def _enrich_rows_with_hedging_metadata(
             merged[key] = meta.get(key)
         enriched.append(merged)
 
-    baseline_policy = routewise_lp_policy_name(alpha_value)
-    baselines = {row["scenario"]: row for row in enriched if row["policy"] == baseline_policy}
+    baseline_policy = routewise_lp_policy_name(p_value)
+    baselines = {
+        row["scenario"]: row
+        for row in enriched
+        if row["policy"] == baseline_policy
+    }
     for row in enriched:
         baseline = baselines.get(row["scenario"])
         _add_baseline_deltas(row, baseline)
@@ -400,6 +408,8 @@ def _hedging_policy_mode(policy_name: str, params: dict[str, Any]) -> str:
 def _backup_selection(params: dict[str, Any]) -> str:
     if not params.get("hedging"):
         return "none"
+    if params.get("explorer"):
+        return "random_non_primary"
     return "probability_target_non_primary"
 
 
@@ -421,7 +431,9 @@ def _add_baseline_deltas(
         before=baseline["p99_ms"],
         after=row["p99_ms"],
     )
-    row["mean_ttft_delta_vs_lp_only_ms"] = row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
+    row["mean_ttft_delta_vs_lp_only_ms"] = (
+        row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
+    )
     row["p50_delta_vs_lp_only_ms"] = row["p50_ms"] - baseline["p50_ms"]
     row["hedge_rate_delta_vs_lp_only"] = row["hedge_rate"] - baseline["hedge_rate"]
     base_cost = _row_cost_for_multiplier(baseline)
@@ -466,7 +478,7 @@ _HEDGING_CSV_FIELDNAMES: tuple[str, ...] = (
     "backup_selection",
     "learns_from_backup",
     "latency_profile_mode",
-    "routewise_alpha",
+    "routewise_p",
     "slo_ms",
     "target_success_probability",
     "seeds",
@@ -520,6 +532,7 @@ def _write_hedging_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the §2.2 hedging simulator section."""
     parser = argparse.ArgumentParser(
+        prog="routewise simulator hedging",
         description=__doc__,
     )
     parser.add_argument(
@@ -540,12 +553,11 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
-        "--alpha",
         "--p",
         type=float,
-        default=DEFAULT_ROUTEWISE_ALPHA,
-        dest="alpha_value",
-        help=f"Single RouteWise alpha value for §2.2 policies. Defaults to {DEFAULT_ROUTEWISE_ALPHA}.",
+        default=DEFAULT_ROUTEWISE_P,
+        dest="p_value",
+        help=f"Single RouteWise p value for §2.2 policies. Defaults to {DEFAULT_ROUTEWISE_P}.",
     )
     parser.add_argument(
         "--workload",
@@ -580,20 +592,27 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
-            "constant_mean, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
+            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
         ),
+    )
+    parser.add_argument(
+        "--predictor-quantile",
+        default="q50",
+        choices=("q10", "q50", "q90"),
+        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
-    alpha_value = float(args.alpha_value)
+    p_value = float(args.p_value)
     selected_scenarios = tuple(args.scenario) if args.scenario else list_scenarios()
     scenarios = {name: make_scenario(name) for name in selected_scenarios}
     presets = make_policy_presets(
-        alpha_value,
+        p_value,
         output_predictor=args.predictor,
+        output_predictor_quantile=args.predictor_quantile,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(alpha_value)
+    policies = tuple(args.policy) if args.policy else policies_for_section(p_value)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
@@ -605,7 +624,9 @@ def main(argv: list[str] | None = None) -> int:
         policies=policies,
         presets=presets,
         seeds=tuple(args.seed) if args.seed else DEFAULT_SEEDS,
-        section_runners={policy: _make_serial_runner(policy, presets) for policy in policies},
+        section_runners={
+            policy: _make_serial_runner(policy, presets) for policy in policies
+        },
         workload_dataset=args.workload,
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,
@@ -617,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
         rows,
         scenarios,
         presets,
-        alpha_value=alpha_value,
+        p_value=p_value,
     )
     write_json(args.output_dir / "summary.json", enriched_rows)
     _write_hedging_summary_csv(args.output_dir / "summary.csv", enriched_rows)
@@ -634,7 +655,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
-    "DEFAULT_ROUTEWISE_ALPHA",
+    "DEFAULT_ROUTEWISE_P",
     "HEAVY_TAIL_SCENARIO_NAME",
     "PUBLIC_SCENARIO_TAG",
     "REAL_WORLD_SCENARIO_NAME",
@@ -648,7 +669,3 @@ __all__ = [
     "run_hedging_cell",
     "run_hedging_policy",
 ]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

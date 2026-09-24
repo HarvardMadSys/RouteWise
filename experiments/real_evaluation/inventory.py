@@ -3,17 +3,14 @@
 Defines the static specs (read from inventory JSON) and the dynamic state
 (rolling latency profile, quota, concurrency) that policies operate over.
 
-Migrated from
-``NSDI2027_RouteWise/experiment/scripts/phase6_joint_online_evaluation.py``
-lines 97-298. Real experiments share quota capacity primitives with
-``llm_routewise.sim.world`` while keeping empirical rolling profiles and live-run
-concurrency state local to this package.
+Real experiments share quota capacity primitives with ``rwsim.world`` while
+keeping empirical rolling profiles and live-run concurrency state local to this
+package.
 """
 
 from __future__ import annotations
 
 import json
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,11 +21,9 @@ from experiments.real_evaluation.transports import (
     resolve_transport_config,
 )
 from experiments.subscriptions import load_subscription_plans, subscription_fixed_cost_usd
-from llm_routewise.capacity import MultiWindowQuotaState, QuotaState
-from llm_routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC, RollingLatencyProfile
+from rwsim.world.capacity import MultiWindowQuotaState, QuotaState
 
-# Shared with the simulator policies; see llm_routewise.core.latency_profile.
-PROFILE_WINDOW_SEC: float = DEFAULT_PROFILE_WINDOW_SEC
+PROFILE_WINDOW_SEC: float = 15 * 60.0
 
 
 @dataclass(frozen=True)
@@ -316,19 +311,18 @@ class ConcurrencyState:
         self.active = [(rid, deadline) for rid, deadline in self.active if rid != request_id]
 
 
-class LatencyProfile(RollingLatencyProfile):
-    """Real-eval profile API over the shared core rolling estimator.
+@dataclass
+class LatencyProfile:
+    """Rolling window of ``(timestamp, ttft_ms)`` with optional error tracking.
 
-    ``add_sample`` feeds the core :class:`RollingLatencyProfile` machinery so
-    the RouteWise router's latency beliefs learn on the exact profile objects
-    held by :class:`ProviderState`. The historical query methods below keep
-    their pre-router semantics verbatim — in particular they include samples
-    with ``ts > now`` (the core queries are strictly causal). Live feedback
-    always lands in the past, so both readings agree in production; the
-    distinction only shows up for synthetic timestamps in tests and probes.
-
-    Not thread-safe; every caller goes through the owning policy's lock.
+    Supports the empirical-CDF based hedge math (``cdf_at``) and the LP body
+    selector (``mean_ms``). Errors are tracked separately so we can compute
+    rates and treat them as misses in CDF.
     """
+
+    window_sec: float
+    samples: list[tuple[float, float]] = field(default_factory=list)
+    error_samples: list[tuple[float, str]] = field(default_factory=list)
 
     def add_sample(
         self,
@@ -337,16 +331,14 @@ class LatencyProfile(RollingLatencyProfile):
         error_type: str | None = None,
     ) -> None:
         if error_type is None and ttft_ms > 0:
-            super().add_sample(ts, float(ttft_ms))
+            self.samples.append((ts, float(ttft_ms)))
         elif error_type is not None:
-            self.add_error(ts, error_type)
+            self.error_samples.append((ts, error_type))
 
     def _active_samples(self, now: float) -> list[float]:
         cutoff = now - self.window_sec
-        self.samples = deque((ts, v) for ts, v in self.samples if ts >= cutoff)
-        self.error_samples = deque(
-            (ts, error_type) for ts, error_type in self.error_samples if ts >= cutoff
-        )
+        self.samples = [(ts, v) for ts, v in self.samples if ts >= cutoff]
+        self.error_samples = [(ts, e) for ts, e in self.error_samples if ts >= cutoff]
         return [v for _, v in self.samples]
 
     def sample_count(self, now: float) -> int:

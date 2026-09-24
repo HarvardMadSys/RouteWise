@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from llm_routewise.capacity import QuotaState
+from rwsim.world.capacity import QuotaState
 
 
 def test_first_charge_snaps_to_fixed_boundary() -> None:

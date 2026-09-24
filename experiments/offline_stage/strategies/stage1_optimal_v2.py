@@ -1,6 +1,7 @@
 """Stage 1 Optimal Strategy with Fixed-Window Subscriptions.
 
-This implements the offline optimal routing strategy for Stage 1.
+This implements the offline optimal routing strategy for Stage 1 as described
+in docs/algorithm/offline_stage1_new.md.
 
 Key features:
 - Multiple subscription plans (OpenAI, Anthropic, Z.ai/GLM)
@@ -13,9 +14,9 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from llm_routewise.offline.schemas import Request, RoutingDecision
-from llm_routewise.offline.strategy import RoutingStrategy
-from llm_routewise.offline.window_quota import WindowQuotaManager
+from rwsim.offline.schemas import Request, RoutingDecision
+from rwsim.offline.strategy import RoutingStrategy
+from rwsim.offline.window_quota import WindowQuotaManager
 
 logger = logging.getLogger(__name__)
 

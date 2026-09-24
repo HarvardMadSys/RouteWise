@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from llm_routewise.metrics import PerRequestRecord, Run, Status
+from rwsim.metrics import PerRequestRecord, Run, Status
 
 if TYPE_CHECKING:
     from experiments.real_evaluation.executor import HedgedResult
@@ -76,19 +76,6 @@ CSV_FIELDS: tuple[str, ...] = (
     "reference_cost_usd",
     "tier_mix",
     "notes",
-    "model",
-    "hedge_algorithm",
-    "hedge_schedule",
-    "latency_objective_ms",
-    "c_eff",
-    "c_min_usd",
-    "predicted_output_tokens",
-    "candidates",
-    "quota_fraction_used",
-    "concurrency_in_flight",
-    "hedge_success_probability",
-    "primary_generation_id",
-    "backup_generation_id",
 )
 
 
@@ -145,24 +132,6 @@ class RequestLogRow:
     reference_cost_usd: float | None
     tier_mix: dict[str, float] | None
     notes: str | None
-    # Policy-level routing identity. Persisted so a CSV reload can recover what
-    # model and hedging rule the policy ran, instead of guessing from the row.
-    model: str | None = None
-    hedge_algorithm: str | None = None
-    hedge_schedule: str | None = None
-    # Per-decision router state and per-leg provenance for the revision
-    # measurements (docs/research/REVISION_MEASUREMENTS.md). All optional so
-    # baselines that do not solve the LP leave them empty.
-    latency_objective_ms: dict[str, float] | None = None
-    c_eff: dict[str, float] | None = None
-    c_min_usd: float | None = None
-    predicted_output_tokens: int | None = None
-    candidates: list[str] | None = None
-    quota_fraction_used: dict[str, float] | None = None
-    concurrency_in_flight: dict[str, int] | None = None
-    hedge_success_probability: float | None = None
-    primary_generation_id: str | None = None
-    backup_generation_id: str | None = None
 
     def to_csv_dict(self) -> dict[str, str]:
         def _maybe_json(value: Any) -> str:
@@ -244,25 +213,6 @@ class RequestLogRow:
             ),
             "tier_mix": _maybe_json(self.tier_mix),
             "notes": self.notes or "",
-            "model": self.model or "",
-            "hedge_algorithm": self.hedge_algorithm or "",
-            "hedge_schedule": self.hedge_schedule or "",
-            "latency_objective_ms": _maybe_json(self.latency_objective_ms),
-            "c_eff": _maybe_json(self.c_eff),
-            "c_min_usd": (f"{self.c_min_usd:.8f}" if self.c_min_usd is not None else ""),
-            "predicted_output_tokens": (
-                "" if self.predicted_output_tokens is None else str(self.predicted_output_tokens)
-            ),
-            "candidates": _maybe_json(self.candidates),
-            "quota_fraction_used": _maybe_json(self.quota_fraction_used),
-            "concurrency_in_flight": _maybe_json(self.concurrency_in_flight),
-            "hedge_success_probability": (
-                f"{self.hedge_success_probability:.6f}"
-                if self.hedge_success_probability is not None
-                else ""
-            ),
-            "primary_generation_id": self.primary_generation_id or "",
-            "backup_generation_id": self.backup_generation_id or "",
         }
 
 
@@ -321,18 +271,8 @@ class Recorder:
         hedge_checkpoint_ts: float | None = None,
         backup_dispatch_ts: float | None = None,
         ts: float | None = None,
-        hedge_algorithm: str | None = None,
-        hedge_schedule: str | None = None,
-        ctx_model: str | None = None,
     ) -> None:
-        """Convenience wrapper that builds a ``RequestLogRow`` from common parts.
-
-        ``hedge_algorithm`` and ``hedge_schedule`` describe what hedging rule
-        and time-evaluation strategy the *policy* was configured to run, not
-        whether this particular request hedged. The runner sets these once
-        per policy (e.g. ``"probability_target"`` / ``"slo_relative_checkpoints"``
-        for hedge policies, ``"disabled"`` / ``None`` for body-only policies).
-        """
+        """Convenience wrapper that builds a ``RequestLogRow`` from common parts."""
         chosen = chosen_result or primary_result
         row_ts = ts if ts is not None else time.time()
         primary_cost = primary_result.billed_cost_usd
@@ -437,36 +377,7 @@ class Recorder:
             reference_cost_usd=decision.reference_cost_usd,
             tier_mix=decision.tier_mix,
             notes=decision.notes,
-            model=ctx_model,
-            hedge_algorithm=hedge_algorithm,
-            hedge_schedule=hedge_schedule,
-            latency_objective_ms=getattr(decision, "latency_objective_ms", None),
-            c_eff=getattr(decision, "c_eff_map", None),
-            c_min_usd=getattr(decision, "c_min_usd", None),
-            predicted_output_tokens=getattr(decision, "predicted_output_tokens", None),
-            candidates=(
-                list(decision.candidates) if getattr(decision, "candidates", None) else None
-            ),
-            quota_fraction_used=getattr(decision, "quota_fraction_used", None),
-            concurrency_in_flight=getattr(decision, "concurrency_in_flight", None),
-            hedge_success_probability=getattr(decision, "hedge_success_probability", None),
-            primary_generation_id=primary_result.generation_id,
-            backup_generation_id=(backup_result.generation_id if backup_result else None),
         )
-        # routing_estimated_cost_usd: sum of primary + backup LP estimates.
-        # The recorder receives these as kwargs; sum them so default metrics can
-        # ask "what did the LP think this request would cost?" without poking at
-        # per-leg estimates.
-        if (
-            primary_routing_estimated_cost_usd is not None
-            or backup_routing_estimated_cost_usd is not None
-        ):
-            routing_estimated_cost_usd: float | None = float(
-                (primary_routing_estimated_cost_usd or 0.0)
-                + (backup_routing_estimated_cost_usd or 0.0)
-            )
-        else:
-            routing_estimated_cost_usd = None
         record = PerRequestRecord(
             request_id=req_id,
             elapsed_sec=max(row_ts - self._start_ts, 0.0),
@@ -482,51 +393,37 @@ class Recorder:
             final_tier=resolved_final_tier,
             backup_provider=decision.hedge,
             backup_tier=resolved_backup_tier,
-            model=ctx_model,
-            source="real_eval",
-            timestamp_sec=row_ts,
             ttft_ms=record_ttft_ms,
             e2e_ms=record_e2e_ms,
             primary_local_ttft_ms=primary_result.ttft_ms,
             backup_local_ttft_ms=backup_result.ttft_ms if backup_result else None,
             slo_ms=slo_ms,
             slo_violated=slo_violated,
-            # Canonical accounting cost (= billed for real-eval).
             total_cost_usd=billed_cost,
             primary_cost_usd=primary_cost,
             backup_cost_usd=backup_cost if backup_result else None,
-            # Routing-time LP cost estimates (promoted from metadata).
-            routing_estimated_cost_usd=routing_estimated_cost_usd,
-            primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
-            backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
-            # Upstream/physical cost (promoted from metadata).
-            physical_cost_usd=physical_cost,
-            primary_physical_cost_usd=primary_physical_cost,
-            backup_physical_cost_usd=backup_physical_cost if backup_result else None,
             hedge_triggered=hedge_triggered,
             hedge_delay_ms=hedge_delay_ms,
             hedge_winner=hedge_winner,
-            hedge_algorithm=hedge_algorithm,
-            hedge_schedule=hedge_schedule,
-            # LP state (promoted from metadata; lp_status normalized to canonical enum).
-            lp_weights=decision.lp_weights,
-            lp_budget_usd=decision.budget_usd,
-            lp_status=_normalize_lp_status(decision.lp_status),
             status=status,
             error_class=chosen.error_message or None,
             metadata={
-                # Transport / HTTP layer
                 "real_retry_count": chosen.retry_count,
                 "real_rate_limit_count": 1 if chosen.rate_limited else 0,
                 "real_http_status": chosen.http_status,
+                "real_wall_clock_ts": row_ts,
                 "real_transport": transport,
+                "real_lp_status": decision.lp_status,
+                "real_lp_weights": decision.lp_weights,
+                "real_budget_usd": decision.budget_usd,
+                "real_reference_cost_usd": decision.reference_cost_usd,
+                "real_tier_mix": decision.tier_mix,
                 "real_retry_sleep_ms": chosen.retry_sleep_ms,
                 "real_status": chosen.status,
                 "real_cost_source": cost_source,
-                # LP-side diagnostics not yet promoted to canonical
-                "real_reference_cost_usd": decision.reference_cost_usd,
-                "real_tier_mix": decision.tier_mix,
-                # Cache tracking
+                "real_physical_cost_usd": physical_cost,
+                "real_primary_physical_cost_usd": primary_physical_cost,
+                "real_backup_physical_cost_usd": (backup_physical_cost if backup_result else None),
                 "real_primary_cached_input_tokens": primary_cached_input_tokens,
                 "real_backup_cached_input_tokens": backup_cached_input_tokens,
                 "real_primary_observed_cached_input_tokens": (
@@ -535,7 +432,8 @@ class Recorder:
                 "real_backup_observed_cached_input_tokens": (
                     backup_result.cache_read_tokens_observed if backup_result else None
                 ),
-                # Dispatch timing diagnostics
+                "real_primary_routing_estimated_cost_usd": (primary_routing_estimated_cost_usd),
+                "real_backup_routing_estimated_cost_usd": (backup_routing_estimated_cost_usd),
                 "real_hedge_checkpoint_ts": hedge_checkpoint_ts,
                 "real_primary_start_ts": primary_start_ts,
                 "real_backup_dispatch_ts": backup_dispatch_ts,
@@ -572,15 +470,8 @@ class Recorder:
         primary_routing_estimated_cost_usd: float | None = None,
         backup_routing_estimated_cost_usd: float | None = None,
         ts: float | None = None,
-        hedge_algorithm: str | None = "probability_target",
-        hedge_schedule: str | None = "slo_relative_checkpoints",
-        ctx_model: str | None = None,
     ) -> None:
-        """Convenience wrapper that unpacks a ``HedgedResult``.
-
-        Defaults to ``"probability_target"`` / ``"slo_relative_checkpoints"``
-        since every call site for hedged paths today uses that combination.
-        """
+        """Convenience wrapper that unpacks a ``HedgedResult``."""
         self.write_request(
             policy=policy,
             req_id=req_id,
@@ -610,9 +501,6 @@ class Recorder:
             hedge_checkpoint_ts=hedged.hedge_checkpoint_ts,
             backup_dispatch_ts=hedged.backup_dispatch_ts,
             ts=ts,
-            hedge_algorithm=hedge_algorithm,
-            hedge_schedule=hedge_schedule,
-            ctx_model=ctx_model,
         )
 
     def to_run(self, policy: str | None = None, *, slo_ms: float | None = None) -> Run:
@@ -626,7 +514,7 @@ class Recorder:
             records = [_with_slo(record, slo_ms) for record in records]
         if policy is not None:
             records = [record for record in records if record.policy == policy]
-        return Run(records=records, policy=policy or "", source="real_eval")
+        return Run(records=records, policy=policy or "", source="real")
 
     def _record_from_row(
         self,
@@ -635,17 +523,6 @@ class Recorder:
         slo_ms: float | None = None,
     ) -> PerRequestRecord:
         status = _canonical_status_from_row(row)
-        # routing_estimated_cost_usd: sum primary + backup LP estimates from row.
-        if (
-            row.primary_routing_estimated_cost_usd is not None
-            or row.backup_routing_estimated_cost_usd is not None
-        ):
-            routing_estimated_cost_usd: float | None = float(
-                (row.primary_routing_estimated_cost_usd or 0.0)
-                + (row.backup_routing_estimated_cost_usd or 0.0)
-            )
-        else:
-            routing_estimated_cost_usd = None
         return PerRequestRecord(
             request_id=row.req_id,
             elapsed_sec=max(row.ts - self._start_ts, 0.0),
@@ -659,9 +536,6 @@ class Recorder:
             final_tier=row.tier or "",
             backup_provider=row.backup_provider,
             backup_tier=None,
-            model=row.model,
-            source="real_eval",
-            timestamp_sec=row.ts,
             ttft_ms=row.ttft_ms,
             e2e_ms=row.e2e_ms,
             primary_local_ttft_ms=row.ttft_ms,
@@ -669,46 +543,33 @@ class Recorder:
             slo_ms=slo_ms,
             slo_violated=(row.ttft_ms > slo_ms if slo_ms is not None else False)
             or status != Status.SUCCESS,
-            # Canonical accounting cost (= billed for real-eval).
             total_cost_usd=row.billed_cost_usd,
             primary_cost_usd=row.primary_cost_usd,
             backup_cost_usd=row.backup_cost_usd if row.backup_provider else None,
-            # Routing-time LP cost estimates.
-            routing_estimated_cost_usd=routing_estimated_cost_usd,
-            primary_routing_estimated_cost_usd=row.primary_routing_estimated_cost_usd,
-            backup_routing_estimated_cost_usd=row.backup_routing_estimated_cost_usd,
-            # Upstream / physical cost.
-            physical_cost_usd=row.physical_cost_usd,
-            primary_physical_cost_usd=row.primary_physical_cost_usd,
-            backup_physical_cost_usd=(
-                row.backup_physical_cost_usd if row.backup_provider else None
-            ),
             hedge_triggered=row.hedge_triggered,
             hedge_delay_ms=row.hedge_delay_ms,
             hedge_winner=row.hedge_winner,
-            # Policy-level hedge identity is now persisted on the row, so a CSV
-            # reload recovers it exactly instead of guessing from backup presence.
-            hedge_algorithm=row.hedge_algorithm,
-            hedge_schedule=row.hedge_schedule,
-            # LP state (lp_status normalized to canonical enum).
-            lp_weights=row.lp_weights,
-            lp_budget_usd=row.budget_usd,
-            lp_status=_normalize_lp_status(row.lp_status),
             status=status,
             error_class=row.error_message,
             metadata={
-                # Transport / HTTP layer
                 "real_retry_count": row.retry_count,
                 "real_rate_limit_count": 1 if row.rate_limited else 0,
                 "real_http_status": row.http_status,
+                "real_wall_clock_ts": row.ts,
                 "real_transport": row.transport,
+                "real_lp_status": row.lp_status,
+                "real_lp_weights": row.lp_weights,
+                "real_budget_usd": row.budget_usd,
+                "real_reference_cost_usd": row.reference_cost_usd,
+                "real_tier_mix": row.tier_mix,
                 "real_retry_sleep_ms": row.retry_sleep_ms,
                 "real_status": row.status,
                 "real_cost_source": row.cost_source,
-                # LP-side diagnostics not yet promoted to canonical
-                "real_reference_cost_usd": row.reference_cost_usd,
-                "real_tier_mix": row.tier_mix,
-                # Cache tracking
+                "real_physical_cost_usd": row.physical_cost_usd,
+                "real_primary_physical_cost_usd": row.primary_physical_cost_usd,
+                "real_backup_physical_cost_usd": (
+                    row.backup_physical_cost_usd if row.backup_provider else None
+                ),
                 "real_primary_cached_input_tokens": row.primary_cached_input_tokens,
                 "real_backup_cached_input_tokens": row.backup_cached_input_tokens,
                 "real_primary_observed_cached_input_tokens": (
@@ -717,7 +578,8 @@ class Recorder:
                 "real_backup_observed_cached_input_tokens": (
                     row.backup_observed_cached_input_tokens
                 ),
-                # Dispatch timing diagnostics
+                "real_primary_routing_estimated_cost_usd": (row.primary_routing_estimated_cost_usd),
+                "real_backup_routing_estimated_cost_usd": (row.backup_routing_estimated_cost_usd),
                 "real_hedge_checkpoint_ts": row.hedge_checkpoint_ts,
                 "real_primary_start_ts": row.primary_start_ts,
                 "real_backup_dispatch_ts": row.backup_dispatch_ts,
@@ -753,7 +615,7 @@ class Recorder:
 
         summary: dict[str, dict[str, Any]] = {}
         for policy, policy_records in per_policy_records.items():
-            run = Run(records=policy_records, policy=policy, source="real_eval")
+            run = Run(records=policy_records, policy=policy, source="real")
             ttfts = [record.ttft_ms for record in policy_records if record.status == Status.SUCCESS]
             e2es = [
                 float(record.e2e_ms)
@@ -786,7 +648,8 @@ class Recorder:
                 n_hedge_won_by_backup / n_hedge_triggered if n_hedge_triggered else 0.0
             )
             total_physical_cost_usd = sum(
-                float(record.physical_cost_usd or 0.0) for record in policy_records
+                float(record.metadata.get("real_physical_cost_usd") or 0.0)
+                for record in policy_records
             )
             actual_dispatch_overheads = [
                 float(value)
@@ -934,26 +797,6 @@ def _backup_dispatch_overhead_ms(
     if backup_dispatch_ts is None or backup_start_ts is None:
         return None
     return (backup_start_ts - backup_dispatch_ts) * 1000.0
-
-
-def _normalize_lp_status(raw: str | None) -> str | None:
-    """Normalize policy-emitted ``lp_status`` to the canonical record enum.
-
-    Canonical values are:
-    ``"feasible" | "single_candidate" | "all_over_budget" | "no_candidates"``.
-
-    Policy emits: ``"optimal"``, ``"fallback_in_budget_{label}"``,
-    ``"fallback_no_budget_{label}"``, or default ``"n/a"``. The original raw
-    value remains on the CSV row (``RequestLogRow.lp_status``) for forensic
-    use; only the canonical ``PerRequestRecord.lp_status`` is normalized.
-    """
-    if raw is None or raw == "n/a":
-        return None
-    if raw == "optimal" or raw.startswith("fallback_in_budget"):
-        return "feasible"
-    if raw.startswith("fallback_no_budget"):
-        return "all_over_budget"
-    return None
 
 
 def _canonical_status(result: SingleRequestResult) -> Status:

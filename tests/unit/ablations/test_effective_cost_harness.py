@@ -16,50 +16,32 @@ from experiments.ablations.effective_cost.presets import (
     parse_ablation_policy_name,
 )
 from experiments.simulation import common
-from llm_routewise.capacity import ProviderTier
+from rwsim.world.capacity import ProviderTier
 
 
-def test_default_phase_a_scenario_uses_direct_quota_limit_heavy_tail() -> None:
+def test_default_phase_a_scenario_is_locked_to_qstar_16_heavy_tail() -> None:
     scenarios = harness.make_scenarios()
 
-    assert tuple(scenarios) == ("quota_limit__plan=chutes__quota=80000",)
-    scenario = scenarios["quota_limit__plan=chutes__quota=80000"]
+    assert tuple(scenarios) == ("quota__plan=chutes__n=16",)
+    scenario = scenarios["quota__plan=chutes__n=16"]
     assert scenario.metadata["public_scenario"] == "quota"
     assert scenario.metadata["subscription_plan"] == "chutes"
-    assert scenario.metadata["subscription_count"] == 1
-    assert scenario.metadata["quota_limit"] == 80000
-    assert scenario.metadata["quota_multiplier"] == 16.0
+    assert scenario.metadata["subscription_count"] == 16
     assert scenario.metadata["latency_family"] == "heavy_tail"
-    assert scenario.providers[0].quota.size == 80000
     assert {provider.tier for provider in scenario.providers} == {
         ProviderTier.S_Q,
         ProviderTier.S_A,
     }
 
 
-def test_repeated_quota_limit_expands_one_scenario_per_limit() -> None:
-    quota_limits = (10_000, 20_000, 40_000, 60_000, 80_000)
-
-    scenarios = harness.make_scenarios(quota_limit=quota_limits)
-    presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, alpha_values=(0.0,))
-
-    assert tuple(scenarios) == tuple(
-        f"quota_limit__plan=chutes__quota={value}" for value in quota_limits
-    )
-    assert len(scenarios) * len(presets) * 1 == 25
-
-
-def test_repeated_qstar_is_compatibility_alias_for_quota_limits() -> None:
-    q_values = (2, 4, 8)
+def test_repeated_qstar_expands_one_scenario_per_q() -> None:
+    q_values = (2, 4, 8, 12, 16)
 
     scenarios = harness.make_scenarios(qstar=q_values)
+    presets = make_ablation_presets(curves=DEFAULT_QUOTA_CURVES, p_values=(0.0,))
 
-    assert tuple(scenarios) == (
-        "quota_limit__plan=chutes__quota=10000",
-        "quota_limit__plan=chutes__quota=20000",
-        "quota_limit__plan=chutes__quota=40000",
-    )
-    assert {scenario.metadata["subscription_count"] for scenario in scenarios.values()} == {1}
+    assert tuple(scenarios) == tuple(f"quota__plan=chutes__n={value}" for value in q_values)
+    assert len(scenarios) * len(presets) * 1 == 20
 
 
 def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
@@ -71,7 +53,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     )
     presets = make_concurrency_ablation_presets(
         concurrency_curves=DEFAULT_CONCURRENCY_CURVES,
-        alpha_values=(0.0,),
+        p_values=(0.0,),
     )
 
     assert tuple(scenarios) == tuple(
@@ -90,7 +72,7 @@ def test_repeated_concurrency_count_expands_one_scenario_per_n() -> None:
     }
 
 
-def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path) -> None:
+def test_cli_repeated_qstar_and_p_zero_builds_qsweep_grid(monkeypatch, tmp_path) -> None:
     captured = {}
 
     def fake_run_section(**kwargs):
@@ -103,8 +85,6 @@ def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp
         harness.main(
             [
                 "--curve",
-                "constant_0",
-                "--curve",
                 "exp_lu",
                 "--curve",
                 "linear_lu",
@@ -112,16 +92,16 @@ def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp
                 "constant_l",
                 "--curve",
                 "constant_u",
-                "--quota-limit",
-                "10000",
-                "--quota-limit",
-                "20000",
-                "--quota-limit",
-                "40000",
-                "--quota-limit",
-                "60000",
-                "--quota-limit",
-                "80000",
+                "--qstar",
+                "2",
+                "--qstar",
+                "4",
+                "--qstar",
+                "8",
+                "--qstar",
+                "12",
+                "--qstar",
+                "16",
                 "--p",
                 "0",
                 "--seed",
@@ -134,17 +114,17 @@ def test_cli_repeated_quota_limit_and_p_zero_builds_qsweep_grid(monkeypatch, tmp
     )
 
     assert tuple(captured["scenarios"]) == (
-        "quota_limit__plan=chutes__quota=10000",
-        "quota_limit__plan=chutes__quota=20000",
-        "quota_limit__plan=chutes__quota=40000",
-        "quota_limit__plan=chutes__quota=60000",
-        "quota_limit__plan=chutes__quota=80000",
+        "quota__plan=chutes__n=2",
+        "quota__plan=chutes__n=4",
+        "quota__plan=chutes__n=8",
+        "quota__plan=chutes__n=12",
+        "quota__plan=chutes__n=16",
     )
-    assert len(captured["policies"]) == 5
+    assert len(captured["policies"]) == 4
     assert captured["seeds"] == (42,)
     assert captured["retain_records"] is False
     assert all(parse_ablation_policy_name(policy)[2] == 0.0 for policy in captured["policies"])
-    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 25
+    assert len(captured["scenarios"]) * len(captured["policies"]) * len(captured["seeds"]) == 20
 
 
 def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
@@ -182,7 +162,7 @@ def test_cli_phase_b_concurrency_grid_and_p_zero(monkeypatch, tmp_path) -> None:
                 "--concurrency-count",
                 "16",
                 "--concurrency-curve",
-                "constant_0",
+                "util_linear_u",
                 "--concurrency-curve",
                 "exp_lu",
                 "--concurrency-curve",
@@ -243,8 +223,8 @@ def test_policies_for_phase_b_default_concurrency_curve_grid() -> None:
 
 
 def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None:
-    presets = make_ablation_presets(curves=("exp_lu",), alpha_values=(0.5,))
-    preset = presets["effective_cost__q=exp_lu__c=constant_l__alpha50"]
+    presets = make_ablation_presets(curves=("exp_lu",), p_values=(0.5,))
+    preset = presets["effective_cost__q=exp_lu__c=constant_l__p50"]
 
     assert preset["policy"] == "LPOnlyAblationPolicy"
     assert preset["params"]["cost_envelope"] == common.WORKLOAD_COST_ENVELOPE
@@ -253,12 +233,12 @@ def test_presets_are_ablation_local_and_use_workload_envelope_sentinel() -> None
 def test_phase_b_presets_sweep_concurrency_curve_only() -> None:
     presets = make_concurrency_ablation_presets(
         concurrency_curves=("util_linear_u", "exp_lu"),
-        alpha_values=(0.0,),
+        p_values=(0.0,),
     )
 
     assert tuple(presets) == (
-        "effective_cost__q=exp_lu__c=util_linear_u__alpha0",
-        "effective_cost__q=exp_lu__c=exp_lu__alpha0",
+        "effective_cost__q=exp_lu__c=util_linear_u__p0",
+        "effective_cost__q=exp_lu__c=exp_lu__p0",
     )
     for preset in presets.values():
         assert preset["policy"] == "LPOnlyAblationPolicy"
@@ -285,9 +265,8 @@ def test_deferred_phases_raise(phase: str) -> None:
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
-        ({"quota_limit": (10_000, 10_000)}, "quota_limit sweep values must be unique"),
-        ({"quota_limit": (0,)}, "quota_limit must be > 0"),
-        ({"quota_limit": (10_000,), "qstar": (2,)}, "provide either quota_limit or qstar"),
+        ({"qstar": (2, 2)}, "qstar sweep values must be unique"),
+        ({"qstar": (0,)}, "qstar must be > 0"),
         (
             {"phase": harness.PHASE_CONCURRENCY, "concurrency_count": (8, 8)},
             "concurrency_count sweep values must be unique",

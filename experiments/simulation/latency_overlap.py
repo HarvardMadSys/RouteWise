@@ -6,7 +6,8 @@ have a *target Q10-Q90 band coverage* on the (fast, medium) anchor pair:
     coverage(d_a -> d_b) = |B(d_a) ∩ B(d_b)| / |B(d_a)|
 
 where B(d) = [q10(d), q90(d)] is the central 80% latency band of distribution d.
-This is *asymmetric* and anchored on d_a's band length.
+This is *asymmetric* (anchored on d_a's band length), as decided in the §2.1
+design discussion (Slack 2026-05-07).
 
 Construction (per parametric family, all three providers share one shape ratio
 or one log-space sigma so the family stays self-similar). Synthetic tiers are
@@ -43,7 +44,7 @@ from experiments.simulation.latency_factory import (
 )
 
 if TYPE_CHECKING:
-    from llm_routewise.sim.world.distributions import LatencyDistribution
+    from rwsim.world.distributions import LatencyDistribution
 
 
 # ----------------------------------------------------------------------------
@@ -364,7 +365,7 @@ def measure_normal_clip_fraction(d: LatencyDistribution) -> float:
 
     Returns 0.0 for non-Normal distributions.
     """
-    from llm_routewise.sim.world.distributions import MIN_LATENCY_MS, Normal as _Normal
+    from rwsim.world.distributions import MIN_LATENCY_MS, Normal as _Normal
 
     if not isinstance(d, _Normal):
         return 0.0

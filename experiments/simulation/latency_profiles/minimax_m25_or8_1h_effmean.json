@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0",
+  "artifact": "minimax_m25_or8_1h_effmean.npz",
+  "source_run_dir": "outputs/real_eval/real_eval_1h_gpu1_or8_effmean_baselines_rw75_20260512_014542_or8_effmean_1h_retry",
+  "source_run_label": "real_eval_1h_gpu1_or8_effmean_baselines_rw75_20260512_014542_or8_effmean_1h_retry",
+  "model": "minimax_m25",
+  "model_family": "minimax-m2.5",
+  "description": "TTFT samples pooled across 7 policies in a 1h real-eval retry run against 8 OR providers + Chutes_SQ + Featherless_SC.",
+  "subsample_seed": 42,
+  "max_samples_per_provider": 50000,
+  "min_samples_per_provider": 20,
+  "run_stats": {
+    "policies": {
+      "budget_range_p75_hedge": 500,
+      "greedy_cost": 500,
+      "greedy_latency": 500,
+      "or_auto": 500,
+      "or_sort_cost": 500,
+      "or_sort_latency": 500,
+      "random": 500
+    },
+    "total_rows": 3500,
+    "success_rows": 3469,
+    "skipped_rows": 0,
+    "timestamp_min_unix": 1778564956.544737,
+    "timestamp_max_unix": 1778568501.405809,
+    "observed_duration_hours": 0.9846836310625077
+  },
+  "n_providers": 10,
+  "providers": {
+    "Chutes_SQ": {
+      "n_samples": 631,
+      "p50_ms": 1683.046,
+      "p90_ms": 2120.235,
+      "p99_ms": 3598.7518000000605,
+      "mean_ms": 1727.3711030110935,
+      "max_ms": 4268.703,
+      "tier": "quota",
+      "transport": "chutes"
+    },
+    "DeepInfra": {
+      "n_samples": 1076,
+      "p50_ms": 866.501,
+      "p90_ms": 3183.371,
+      "p99_ms": 7079.492,
+      "mean_ms": 1358.4700223048326,
+      "max_ms": 16323.828,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "Featherless_SC": {
+      "n_samples": 269,
+      "p50_ms": 371.313,
+      "p90_ms": 537.6276000000001,
+      "p99_ms": 1491.0815199999997,
+      "mean_ms": 408.14460966542754,
+      "max_ms": 2607.782,
+      "tier": "concurrency",
+      "transport": "featherless"
+    },
+    "Friendli": {
+      "n_samples": 878,
+      "p50_ms": 347.612,
+      "p90_ms": 553.6391,
+      "p99_ms": 1326.1857100000016,
+      "mean_ms": 400.6756002277905,
+      "max_ms": 5676.753,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "Minimax": {
+      "n_samples": 109,
+      "p50_ms": 798.792,
+      "p90_ms": 1432.9762,
+      "p99_ms": 4635.676920000005,
+      "mean_ms": 984.3850642201833,
+      "max_ms": 6476.106,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "Nebius": {
+      "n_samples": 106,
+      "p50_ms": 945.306,
+      "p90_ms": 1197.057,
+      "p99_ms": 2148.11135,
+      "mean_ms": 1008.4728773584907,
+      "max_ms": 2683.363,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "Novita": {
+      "n_samples": 100,
+      "p50_ms": 1214.501,
+      "p90_ms": 2089.3717000000015,
+      "p99_ms": 3433.172350000021,
+      "mean_ms": 1433.5211,
+      "max_ms": 7574.476,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "Phala": {
+      "n_samples": 122,
+      "p50_ms": 1737.093,
+      "p90_ms": 2047.8814,
+      "p99_ms": 2344.46634,
+      "mean_ms": 1763.3864180327867,
+      "max_ms": 2497.597,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "SiliconFlow": {
+      "n_samples": 47,
+      "p50_ms": 1380.105,
+      "p90_ms": 2163.6742,
+      "p99_ms": 4092.543379999998,
+      "mean_ms": 1481.7950638297873,
+      "max_ms": 5211.308,
+      "tier": "api",
+      "transport": "openrouter"
+    },
+    "WandB": {
+      "n_samples": 131,
+      "p50_ms": 429.365,
+      "p90_ms": 906.703,
+      "p99_ms": 32194.93839999999,
+      "mean_ms": 1463.4071145038167,
+      "max_ms": 33344.738,
+      "tier": "api",
+      "transport": "openrouter"
+    }
+  }
+}

@@ -48,21 +48,14 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from llm_routewise.schemas import Request
-from llm_routewise.sim.data import DataLoader, normalize_model_name
+from rwsim.data import DataLoader, normalize_model_name
+from rwsim.schemas import Request
 
-TRACE_WORKLOAD_DATASETS = (
-    "burstgpt",
-    "freeinference",
-    "freeinference_20260825",
-    "rednote",
-    "sharegpt",
-)
+TRACE_WORKLOAD_DATASETS = ("burstgpt", "freeinference", "rednote", "sharegpt")
 
 _TRACE_DATA_ROOT = _ROOT / "data"
 _DATASET_CACHE_ROOT = _ROOT / "outputs" / "cache" / "dataset"
 _DATA_LOADER_CONFIG = {"dataset": {}}
-_CACHE_SCHEMA_VERSION = 2
 
 _TRACE_DATASET_PATHS = {
     "freeinference": [
@@ -75,11 +68,6 @@ _TRACE_DATASET_PATHS = {
     ],
     "burstgpt": [
         _TRACE_DATA_ROOT / "burstgpt_30d.jsonl",
-    ],
-    # Later PROD export, same schema as `freeinference` and loaded the same
-    # way; kept as its own dataset so the released trace stays untouched.
-    "freeinference_20260825": [
-        _TRACE_DATA_ROOT / "freeinference_20260825.jsonl",
     ],
     "sharegpt": [
         _TRACE_DATA_ROOT / "sharegpt_prompts_7d.jsonl",
@@ -329,7 +317,6 @@ def _source_fingerprint(source_path: Path) -> dict[str, object]:
     resolved = source_path.resolve()
     stat = resolved.stat()
     return {
-        "cache_schema_version": _CACHE_SCHEMA_VERSION,
         "source_path": str(source_path),
         "source_resolved": str(resolved),
         "source_size": stat.st_size,
@@ -378,13 +365,6 @@ def verify_cache(dataset_name: str, *, quick: bool = False) -> bool:
         # Legacy cache without manifest — force rebuild.
         raise CacheStalenessError(
             f"Cache for {dataset_name!r} has no manifest.  Rebuild with: "
-            f"python -m experiments.simulation.dataset_cache build "
-            f"--dataset {dataset_name} --force"
-        )
-
-    if manifest.get("cache_schema_version") != _CACHE_SCHEMA_VERSION:
-        raise CacheStalenessError(
-            f"Cache schema changed for {dataset_name!r}. Rebuild with: "
             f"python -m experiments.simulation.dataset_cache build "
             f"--dataset {dataset_name} --force"
         )
@@ -472,7 +452,7 @@ def build_cache(dataset_name: str, *, force: bool = False) -> Path:
     print(f"          source sha256={fingerprint['source_sha256'][:16]}... ({elapsed_hash:.1f}s)")
 
     t1 = time.monotonic()
-    if dataset_name.startswith("freeinference") and _looks_like_jsonl(source_path):
+    if dataset_name == "freeinference" and _looks_like_jsonl(source_path):
         requests = _load_freeinference_jsonl_requests(source_path)
     elif source_path.suffix == ".jsonl":
         requests = _load_sharegpt_jsonl_requests(source_path)

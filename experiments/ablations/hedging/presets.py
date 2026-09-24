@@ -10,10 +10,9 @@ from experiments.ablations.hedging.policy import (
     BackupSelection,
     DispatchTiming,
 )
-from experiments.simulation.common import WORKLOAD_COST_ENVELOPE, alpha_label
+from experiments.simulation.common import WORKLOAD_COST_ENVELOPE, p_label
 
-DEFAULT_ALPHA_VALUES = (0.75,)
-DEFAULT_P_VALUES = DEFAULT_ALPHA_VALUES
+DEFAULT_P_VALUES = (0.75,)
 PRODUCTION_DISPATCH_TIMING: DispatchTiming = "latest_safe"
 PRODUCTION_BACKUP_SELECTION: BackupSelection = "probability"
 DEFAULT_MODES: tuple[tuple[DispatchTiming, BackupSelection], ...] = (
@@ -27,34 +26,23 @@ def ablation_policy_name(
     dispatch_timing: DispatchTiming,
     backup_selection: BackupSelection,
     *,
-    alpha: float | None = None,
-    p: float | None = None,
+    p: float,
 ) -> str:
     """Return a stable policy name for one hedging ablation mode."""
-    if p is not None:
-        alpha = p
-    if alpha is None:
-        raise ValueError("alpha is required")
     _validate_dispatch_timing(dispatch_timing)
     _validate_backup_selection(backup_selection)
     return (
         f"hedging__dispatch={dispatch_timing}"
-        f"__backup={backup_selection}__{alpha_label(alpha)}"
+        f"__backup={backup_selection}__{p_label(p)}"
     )
 
 
-def production_baseline_policy_name(
-    *,
-    alpha: float = DEFAULT_ALPHA_VALUES[0],
-    p: float | None = None,
-) -> str:
+def production_baseline_policy_name(*, p: float = DEFAULT_P_VALUES[0]) -> str:
     """Return the production-equivalent ablation baseline policy name."""
-    if p is not None:
-        alpha = p
     return ablation_policy_name(
         PRODUCTION_DISPATCH_TIMING,
         PRODUCTION_BACKUP_SELECTION,
-        alpha=alpha,
+        p=p,
     )
 
 
@@ -70,29 +58,26 @@ def parse_ablation_policy_name(
         raise ValueError(f"invalid hedging ablation policy: {policy!r}")
     dispatch_timing = _validate_dispatch_timing(parts[0].removeprefix("dispatch="))
     backup_selection = _validate_backup_selection(parts[1].removeprefix("backup="))
-    return dispatch_timing, backup_selection, _parse_alpha_label(parts[2])
+    return dispatch_timing, backup_selection, _parse_p_label(parts[2])
 
 
 def make_ablation_presets(
     *,
     modes: tuple[tuple[DispatchTiming, BackupSelection], ...] = DEFAULT_MODES,
-    alpha_values: tuple[float, ...] = DEFAULT_ALPHA_VALUES,
-    p_values: tuple[float, ...] | None = None,
+    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
     cost_envelope: tuple[float, float] | str = WORKLOAD_COST_ENVELOPE,
 ) -> dict[str, dict[str, Any]]:
     """Build ablation-local presets for hedging mode sweeps."""
     presets: dict[str, dict[str, Any]] = {}
-    if p_values is not None:
-        alpha_values = p_values
-    for alpha in alpha_values:
+    for p in p_values:
         for dispatch_timing, backup_selection in modes:
-            name = ablation_policy_name(dispatch_timing, backup_selection, alpha=alpha)
+            name = ablation_policy_name(dispatch_timing, backup_selection, p=p)
             presets[name] = {
                 "policy": "HedgingAblationPolicy",
                 "params": {
                     "dispatch_timing": dispatch_timing,
                     "backup_selection": backup_selection,
-                    "alpha": float(alpha),
+                    "p": float(p),
                     "cost_envelope": cost_envelope,
                     "latency_profile_mode": "configured",
                 },
@@ -100,17 +85,13 @@ def make_ablation_presets(
     return presets
 
 
-def _parse_alpha_label(label: str) -> float:
-    if label.startswith("alpha"):
-        prefix = "alpha"
-    elif label.startswith("p"):
-        prefix = "p"
-    else:
-        raise ValueError(f"invalid alpha label {label!r}")
+def _parse_p_label(label: str) -> float:
+    if not label.startswith("p"):
+        raise ValueError(f"invalid p label {label!r}")
     try:
-        return int(label.removeprefix(prefix)) / 100.0
+        return int(label.removeprefix("p")) / 100.0
     except ValueError as exc:
-        raise ValueError(f"invalid alpha label {label!r}") from exc
+        raise ValueError(f"invalid p label {label!r}") from exc
 
 
 def _validate_dispatch_timing(value: str) -> DispatchTiming:
@@ -129,7 +110,6 @@ def _validate_backup_selection(value: str) -> BackupSelection:
 
 __all__ = [
     "BACKUP_SELECTIONS",
-    "DEFAULT_ALPHA_VALUES",
     "DEFAULT_MODES",
     "DEFAULT_P_VALUES",
     "DISPATCH_TIMINGS",

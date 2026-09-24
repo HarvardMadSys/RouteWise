@@ -48,7 +48,7 @@ plans:
         quota_requests: 45000
         quota_window_sec: 604800
     subscription_counts: [1, 2, 3, 4]
-    eligible_sections: [cost_layer_quota, end_to_end]
+    eligible_sections: [cost_layer_quota]
     cost_claim_allowed: true
     source: "User-provided MiniMax pricing screenshot, 2026-05-06"
     notes: "$20/mo; 4500 model requests / 5h; weekly allowance is 10x the 5-hour quota."

@@ -36,14 +36,11 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from experiments.subscriptions import load_subscription_plans
-
 # Matches the leading INFO line written by runner.py at startup, e.g.
 # "17:14:13 [INFO] run plan: 14233 trace requests over 29233.0s trace time;"
-RUN_PLAN_RE = re.compile(r"run plan: (\d+) trace requests over ([\d.]+)s trace time")
+RUN_PLAN_RE = re.compile(
+    r"run plan: (\d+) trace requests over ([\d.]+)s trace time"
+)
 
 # We track time-to-first-token (the routing-quality signal) for the
 # percentiles and SLO check. e2e is mostly a function of output-token
@@ -79,11 +76,11 @@ class PolicyStats:
     rate_limited_429: int
     earliest_ts: float | None
     latest_ts: float | None
-    # ``{quota_provider_name: {quota_window_name: QuotaUsage}}``.
+    # ``{quota_provider_name: (used_in_current_window, total_limit)}``.
     # Computed by counting per-policy dispatches against the inventory's
-    # explicit quota fields or its subscription-plan windows. Empty when
-    # the inventory has no quota providers or hasn't been loaded yet.
-    quota_usage: dict[str, dict[str, "QuotaUsage"]] = field(default_factory=dict)
+    # ``quota_requests`` field. Empty when the inventory has no quota
+    # providers or hasn't been loaded yet.
+    quota_usage: dict[str, tuple[int, int]] = field(default_factory=dict)
     # ``{concurrency_provider_name: ConcurrencyUsage}`` computed from
     # completed request intervals in requests.csv. This is observed
     # utilization, not a live in-flight counter.
@@ -95,22 +92,8 @@ class QuotaSpec:
     """Subset of an inventory provider entry needed for quota accounting."""
 
     name: str
-    window_name: str
     quota_requests: int
     quota_window_sec: float
-
-
-@dataclass(frozen=True)
-class QuotaUsage:
-    """Observed usage for one quota provider window."""
-
-    used: int
-    limit: int
-    window_sec: float
-
-    @property
-    def left(self) -> int:
-        return max(self.limit - self.used, 0)
 
 
 @dataclass(frozen=True)
@@ -284,14 +267,6 @@ def collect_policy(
             return
         concurrency_intervals.setdefault(provider, []).append((start_ts, end_ts))
 
-    def add_quota_dispatch(provider: str | None, dispatch_ts: float | None) -> None:
-        if not provider or dispatch_ts is None:
-            return
-        quota_key = capacity_provider_key(provider)
-        if not quota_key:
-            return
-        dispatch_ts_by_provider.setdefault(quota_key, []).append(dispatch_ts)
-
     try:
         with csv_path.open() as f:
             reader = csv.DictReader(f)
@@ -335,6 +310,14 @@ def collect_policy(
                 tier_counter[tier] += 1
                 norm_provider = normalize_provider(raw_provider)
                 provider_counter[norm_provider] += 1
+                if ts is not None:
+                    # Quota accounting keys on the inventory provider name,
+                    # which matches the runner's ``charge_capacity`` key
+                    # (``decision.primary``). For direct-transport providers
+                    # ``actual_provider`` equals that name; OR-routed rows
+                    # like ``Chutes_SQ@Chutes`` strip back to ``Chutes_SQ``.
+                    quota_key = capacity_provider_key(raw_provider)
+                    dispatch_ts_by_provider.setdefault(quota_key, []).append(ts)
 
                 # Estimate concurrency occupancy from completed request
                 # intervals. Newer CSVs record provider-local start times;
@@ -346,27 +329,12 @@ def collect_policy(
                 primary_start_ts = safe_float(row.get("primary_start_ts", ""))
                 backup_start_ts = safe_float(row.get("backup_start_ts", ""))
                 backup_dispatch_ts = safe_float(row.get("backup_dispatch_ts", ""))
-                primary_start_ts = (
-                    primary_start_ts if primary_start_ts is not None else inferred_start_ts
-                )
+                primary_start_ts = primary_start_ts if primary_start_ts is not None else inferred_start_ts
                 backup_start_ts = (
-                    backup_start_ts if backup_start_ts is not None else backup_dispatch_ts
+                    backup_start_ts
+                    if backup_start_ts is not None
+                    else backup_dispatch_ts
                 )
-                primary_dispatch_ts = primary_start_ts or inferred_start_ts or ts
-                backup_charge_ts = backup_dispatch_ts or backup_start_ts or ts
-                if primary_key:
-                    add_quota_dispatch(primary_key, primary_dispatch_ts)
-                else:
-                    add_quota_dispatch(actual_key, ts)
-                if backup_key:
-                    add_quota_dispatch(backup_key, backup_charge_ts)
-                if actual_key and actual_key not in {primary_key, backup_key}:
-                    # 429 fallback attempts also reserve capacity. The CSV
-                    # preserves the original primary and final provider, but
-                    # not every intermediate fallback provider when multiple
-                    # 429s occur, so this is the best reconstructable lower
-                    # bound from the row schema.
-                    add_quota_dispatch(actual_key, ts)
                 if primary_start_ts is not None:
                     observed_start_ts = (
                         primary_start_ts
@@ -416,7 +384,7 @@ def collect_policy(
         else []
     )
 
-    quota_usage: dict[str, dict[str, QuotaUsage]] = {}
+    quota_usage: dict[str, tuple[int, int]] = {}
     if quota_specs:
         quota_usage = compute_quota_usage(
             quota_specs,
@@ -500,40 +468,8 @@ def fmt_provider_mix(mix: list[tuple[str, float]], max_entries: int = 3) -> str:
     return " ".join(parts)
 
 
-def quota_window_label(window_name: str, window_sec: float) -> str:
-    """Return a compact display label for a quota window."""
-    name = str(window_name or "").strip()
-    normalized = name.lower()
-    if normalized == "five_hour":
-        return "5h"
-    if normalized in {"weekly_allowance", "weekly"}:
-        return "week"
-    if normalized == "daily":
-        return "day"
-    if name and normalized != "window":
-        return name.replace("_allowance", "").replace("_", "-")
-
-    seconds = int(window_sec)
-    if seconds == 604800:
-        return "week"
-    if seconds == 86400:
-        return "day"
-    if seconds > 0 and seconds % 3600 == 0:
-        return f"{seconds // 3600}h"
-    if seconds > 0 and seconds % 60 == 0:
-        return f"{seconds // 60}m"
-    return f"{seconds}s"
-
-
-def quota_window_sort_key(window_name: str, usage: QuotaUsage) -> tuple[float, str]:
-    """Sort shorter quota windows before longer ones."""
-    return (usage.window_sec, window_name)
-
-
-def fmt_quota_usage(
-    quota_usage: dict[str, dict[str, QuotaUsage]] | None,
-) -> str:
-    """Render quota status as ``Provider(window:left/limit,...)``.
+def fmt_quota_usage(quota_usage: dict[str, tuple[int, int]] | None) -> str:
+    """Render quota status as ``Provider:left/limit`` per quota provider.
 
     ``left`` is shown (not ``used``) so the column makes the headroom
     immediately obvious — a value of ``0/X`` means the policy will not
@@ -543,15 +479,9 @@ def fmt_quota_usage(
         return "-"
     parts = []
     for name in sorted(quota_usage):
-        windows = quota_usage[name]
-        window_parts = []
-        for window_name, usage in sorted(
-            windows.items(),
-            key=lambda kv: quota_window_sort_key(kv[0], kv[1]),
-        ):
-            label = quota_window_label(window_name, usage.window_sec)
-            window_parts.append(f"{label}:{usage.left}/{usage.limit}")
-        parts.append(f"{name}({','.join(window_parts)})")
+        used, limit = quota_usage[name]
+        left = max(limit - used, 0)
+        parts.append(f"{name}:{left}/{limit}")
     return " ".join(parts)
 
 
@@ -649,27 +579,11 @@ def load_inventory_specs(
                 quota_specs.append(
                     QuotaSpec(
                         name=str(entry["name"]),
-                        window_name=str(entry.get("quota_window_name") or "window"),
                         quota_requests=int(qr),
                         quota_window_sec=float(qw),
                     )
                 )
             except (KeyError, TypeError, ValueError):
-                pass
-        elif entry.get("subscription_plan") is not None:
-            try:
-                subscription_count = int(entry.get("subscription_count", 1))
-                plan = load_subscription_plans()[str(entry["subscription_plan"])]
-                for window in plan.quota_windows:
-                    quota_specs.append(
-                        QuotaSpec(
-                            name=str(entry["name"]),
-                            window_name=str(window.name),
-                            quota_requests=int(window.quota_requests) * subscription_count,
-                            quota_window_sec=float(window.quota_window_sec),
-                        )
-                    )
-            except (KeyError, TypeError, ValueError, OSError):
                 pass
         limit = entry.get("concurrency_limit")
         if limit is not None:
@@ -696,7 +610,7 @@ def compute_quota_usage(
     dispatch_ts_by_provider: dict[str, list[float]],
     now: float,
     latest_activity_ts: float | None = None,
-) -> dict[str, dict[str, QuotaUsage]]:
+) -> dict[str, tuple[int, int]]:
     """Per-quota-provider ``(used_in_current_window, limit)`` view.
 
     Counts dispatches that fall inside a trailing window of length
@@ -707,7 +621,7 @@ def compute_quota_usage(
     use again). The displayed ``used`` is always within ``[0, limit]`` for
     a correctly-enforcing runner.
     """
-    out = empty_quota_usage(quota_specs)
+    out: dict[str, tuple[int, int]] = {}
     # Anchor the window to the latest observed activity when the run is no
     # longer dispatching. Using ``now`` directly would silently drop all
     # historical usage once a full ``quota_window_sec`` had elapsed since
@@ -719,28 +633,11 @@ def compute_quota_usage(
     for spec in quota_specs:
         timestamps = dispatch_ts_by_provider.get(spec.name, [])
         if not timestamps:
+            out[spec.name] = (0, spec.quota_requests)
             continue
         cutoff = reference_ts - spec.quota_window_sec
         used = sum(1 for ts in timestamps if ts > cutoff)
-        out.setdefault(spec.name, {})[spec.window_name] = QuotaUsage(
-            used=used,
-            limit=spec.quota_requests,
-            window_sec=spec.quota_window_sec,
-        )
-    return out
-
-
-def empty_quota_usage(
-    quota_specs: list[QuotaSpec],
-) -> dict[str, dict[str, QuotaUsage]]:
-    """Return a zero-usage quota map with every configured window present."""
-    out: dict[str, dict[str, QuotaUsage]] = {}
-    for spec in quota_specs:
-        out.setdefault(spec.name, {})[spec.window_name] = QuotaUsage(
-            used=0,
-            limit=spec.quota_requests,
-            window_sec=spec.quota_window_sec,
-        )
+        out[spec.name] = (used, spec.quota_requests)
     return out
 
 
@@ -939,7 +836,8 @@ def build_profile_events_table(
                 samples_by_provider.setdefault(provider, []).append(ttft_ms)
     except OSError as exc:
         return (
-            f"profile TTFT (shared warmup/probe/natural events):\ncould not read {path}: {exc}",
+            "profile TTFT (shared warmup/probe/natural events):\n"
+            f"could not read {path}: {exc}",
             [],
         )
 
@@ -1015,19 +913,29 @@ def build_profile_events_table(
                 "successes": record.successes,
                 "failures": record.failures,
                 "ttft_mean_ms": (
-                    None if math.isnan(record.latency_mean_ms) else record.latency_mean_ms
+                    None
+                    if math.isnan(record.latency_mean_ms)
+                    else record.latency_mean_ms
                 ),
                 "ttft_p50_ms": (
-                    None if math.isnan(record.latency_p50_ms) else record.latency_p50_ms
+                    None
+                    if math.isnan(record.latency_p50_ms)
+                    else record.latency_p50_ms
                 ),
                 "ttft_p90_ms": (
-                    None if math.isnan(record.latency_p90_ms) else record.latency_p90_ms
+                    None
+                    if math.isnan(record.latency_p90_ms)
+                    else record.latency_p90_ms
                 ),
                 "ttft_p95_ms": (
-                    None if math.isnan(record.latency_p95_ms) else record.latency_p95_ms
+                    None
+                    if math.isnan(record.latency_p95_ms)
+                    else record.latency_p95_ms
                 ),
                 "ttft_p99_ms": (
-                    None if math.isnan(record.latency_p99_ms) else record.latency_p99_ms
+                    None
+                    if math.isnan(record.latency_p99_ms)
+                    else record.latency_p99_ms
                 ),
                 "slo_violation_pct": record.slo_violation_pct,
                 "source_counts": record.source_counts,
@@ -1036,7 +944,10 @@ def build_profile_events_table(
             }
         )
 
-    table = "profile TTFT (shared warmup/probe/natural events):\n" + render_table(rows, headers)
+    table = (
+        "profile TTFT (shared warmup/probe/natural events):\n"
+        + render_table(rows, headers)
+    )
     return table, json_records
 
 
@@ -1044,7 +955,9 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
     now = time.time()
     run_env = load_run_env(base_dir)
     default_slo_ms = float(run_env.get("SLO_MS") or 3000.0)
-    duration_cap_sec = float(run_env["DURATION_SEC"]) if run_env.get("DURATION_SEC") else None
+    duration_cap_sec = (
+        float(run_env["DURATION_SEC"]) if run_env.get("DURATION_SEC") else None
+    )
 
     policy_dirs = discover_policies(base_dir)
     if not policy_dirs:
@@ -1106,7 +1019,9 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
                     rate_limited_429=0,
                     earliest_ts=None,
                     latest_ts=None,
-                    quota_usage=empty_quota_usage(quota_specs),
+                    quota_usage={
+                        spec.name: (0, spec.quota_requests) for spec in quota_specs
+                    },
                     concurrency_usage={
                         spec.name: ConcurrencyUsage(
                             busy_time_pct=0.0,
@@ -1128,7 +1043,9 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
             )
         if s.latest_ts is not None:
             latest_ts_global = (
-                s.latest_ts if latest_ts_global is None else max(latest_ts_global, s.latest_ts)
+                s.latest_ts
+                if latest_ts_global is None
+                else max(latest_ts_global, s.latest_ts)
             )
 
     elapsed_sec = (now - earliest_ts_global) if earliest_ts_global else 0.0
@@ -1142,7 +1059,9 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         else float("nan")
     )
     completion_time_pct = (
-        min(elapsed_sec / trace_time_sec * 100.0, 100.0) if trace_time_sec else float("nan")
+        min(elapsed_sec / trace_time_sec * 100.0, 100.0)
+        if trace_time_sec
+        else float("nan")
     )
 
     header_lines = [
@@ -1150,19 +1069,11 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         f"output_dir       : {base_dir}",
         f"policies         : {n_policies}",
         f"trace dataset    : "
-        + (
-            f"{trace_total} requests over {trace_time_sec / 3600:.1f} hours"
-            if trace_total and trace_time_sec
-            else "unknown"
-        ),
+        + (f"{trace_total} requests over {trace_time_sec / 3600:.1f} hours" if trace_total and trace_time_sec else "unknown"),
         f"wall-clock elapsed : {fmt_duration(elapsed_sec)}"
         + (f"  (cap {fmt_duration(duration_cap_sec)})" if duration_cap_sec else ""),
         f"trace replayed   : "
-        + (
-            f"{completion_time_pct:5.1f}% by trace time"
-            if not math.isnan(completion_time_pct)
-            else "n/a"
-        )
+        + (f"{completion_time_pct:5.1f}% by trace time" if not math.isnan(completion_time_pct) else "n/a")
         + (
             f", {completion_count_pct:5.1f}% by per-policy request count"
             if not math.isnan(completion_count_pct)
@@ -1229,8 +1140,9 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         "p99",
         "SLO viol",
     ]
-    provider_section = "\n\nper-provider TTFT (aggregated across all policies):\n" + render_table(
-        provider_rows, provider_headers
+    provider_section = (
+        "\n\nper-provider TTFT (aggregated across all policies):\n"
+        + render_table(provider_rows, provider_headers)
     )
     profile_section, profile_table_data = build_profile_events_table(
         base_dir,
@@ -1257,9 +1169,7 @@ def render_snapshot(base_dir: Path) -> tuple[str, dict[str, Any]]:
         "wall_elapsed_sec": elapsed_sec,
         "duration_cap_sec": duration_cap_sec,
         "completion_time_pct": completion_time_pct if not math.isnan(completion_time_pct) else None,
-        "completion_count_pct": completion_count_pct
-        if not math.isnan(completion_count_pct)
-        else None,
+        "completion_count_pct": completion_count_pct if not math.isnan(completion_count_pct) else None,
         "slo_ms": default_slo_ms,
         "total_cost_usd": sum(s.total_cost_usd for s in stats),
         "policies": [_stats_to_dict(s) for s in stats],
@@ -1337,13 +1247,8 @@ def build_provider_table(
 
 def _stats_to_dict(s: PolicyStats) -> dict:
     d = asdict(s)
-    for key in (
-        "latency_mean_ms",
-        "latency_p50_ms",
-        "latency_p90_ms",
-        "latency_p95_ms",
-        "latency_p99_ms",
-    ):
+    for key in ("latency_mean_ms", "latency_p50_ms", "latency_p90_ms",
+                "latency_p95_ms", "latency_p99_ms"):
         if d[key] is not None and math.isnan(d[key]):
             d[key] = None
     # ``asdict`` turns tuples into lists, but downstream JSON consumers
@@ -1352,15 +1257,11 @@ def _stats_to_dict(s: PolicyStats) -> dict:
     if s.quota_usage:
         d["quota_usage"] = {
             name: {
-                window_name: {
-                    "used": usage.used,
-                    "limit": usage.limit,
-                    "left": usage.left,
-                    "window_sec": usage.window_sec,
-                }
-                for window_name, usage in windows.items()
+                "used": used,
+                "limit": limit,
+                "left": max(limit - used, 0),
             }
-            for name, windows in s.quota_usage.items()
+            for name, (used, limit) in s.quota_usage.items()
         }
     return d
 
@@ -1388,12 +1289,8 @@ def save_snapshot(base_dir: Path, label: str | None = None) -> Path:
             if src.exists():
                 shutil.copy2(src, dest / fname)
 
-    for extra in (
-        "run_env.txt",
-        "policies.txt",
-        "initial_profile.json",
-        "policy_key_assignments.tsv",
-    ):
+    for extra in ("run_env.txt", "policies.txt", "initial_profile.json",
+                   "policy_key_assignments.tsv"):
         src = base_dir / extra
         if src.exists():
             shutil.copy2(src, snap_dir / extra)
@@ -1418,29 +1315,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--snapshot",
         action="store_true",
         help="Save a timestamped snapshot (JSON + text + CSV copies) into "
-        "<base_dir>/snapshots/ and print the path.",
+             "<base_dir>/snapshots/ and print the path.",
     )
     parser.add_argument(
         "--providers-only",
         action="store_true",
         help="Print only the per-provider TTFT distribution table, skipping "
-        "the per-policy summary.",
+             "the per-policy summary.",
     )
     parser.add_argument(
         "--policies-only",
         action="store_true",
         help="Print only the per-policy summary table, skipping the "
-        "per-provider TTFT distribution.",
+             "per-provider TTFT distribution.",
     )
     parser.add_argument(
         "--profiles",
         action="store_true",
-        help="Also print the shared profile event table (warmup/probe/natural latency samples).",
+        help="Also print the shared profile event table "
+             "(warmup/probe/natural latency samples).",
     )
     parser.add_argument(
         "--profiles-only",
         action="store_true",
-        help="Print only the shared profile event table, skipping request summaries.",
+        help="Print only the shared profile event table, skipping request "
+             "summaries.",
     )
     parser.add_argument(
         "--snapshot-label",
@@ -1460,10 +1359,8 @@ def main(argv: list[str] | None = None) -> int:
 
     exclusive = [args.providers_only, args.policies_only, args.profiles_only]
     if sum(bool(v) for v in exclusive) > 1:
-        print(
-            "error: --providers-only, --policies-only, and --profiles-only are mutually exclusive",
-            file=sys.stderr,
-        )
+        print("error: --providers-only, --policies-only, and --profiles-only are mutually exclusive",
+              file=sys.stderr)
         return 2
 
     def render_for_display() -> str:

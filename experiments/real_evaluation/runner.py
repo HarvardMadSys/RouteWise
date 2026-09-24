@@ -35,7 +35,6 @@ from typing import Any
 import requests
 
 from experiments.real_evaluation.executor import (
-    CheckpointBackupDispatch,
     HedgedResult,
     send_checkpoint_hedged_request,
     send_request,
@@ -54,6 +53,7 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
+    hedge_checkpoints_for_slo,
 )
 from experiments.real_evaluation.recorder import Recorder
 from experiments.real_evaluation.shadow_price import workload_cost_envelope
@@ -67,7 +67,6 @@ from experiments.real_evaluation.transports import (
     TransportConfig,
     build_transport,
 )
-from llm_routewise.core.hedging import hedge_checkpoints_for_slo
 
 DEFAULT_TIMEOUT_SEC: int = 60
 # Warmup default: 24 rounds at 5s start-to-start cadence ≈ 2 minutes total.
@@ -78,6 +77,7 @@ DEFAULT_WARMUP_PROBES_PER_PROVIDER: int = 24
 DEFAULT_WARMUP_PROBE_INTERVAL_SEC: float = 5.0
 DEFAULT_PROFILE_PROBE_SLEEP_SEC: float = 0.5
 DEFAULT_PROFILE_PROBE_PARALLELISM: int = 0
+DEFAULT_PERIODIC_PROBE_INTERVAL_SEC: float = 180.0
 DEFAULT_MIN_PROFILE_SUCCESS_SAMPLES: int = 5
 # Probes are exogenous observations: if a request fails we do not retry and
 # do not poison the latency profile. Real-request feedback (which is what the
@@ -97,14 +97,6 @@ SYNTHETIC_PROMPT_INSTRUCTION_TEMPLATE: str = (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _is_hedge_loser_canceled(result: SingleRequestResult) -> bool:
-    """Return True for transport results canceled by our hedge race."""
-    return (
-        result.status == "canceled"
-        and result.error_message == "canceled_by_hedge_winner"
-    )
 
 
 @dataclass
@@ -421,8 +413,8 @@ class _PreparedDispatch:
 
 
 @dataclass
-class _BackgroundThreadHandle:
-    """Background helper thread plus its stop event."""
+class _PeriodicProbeHandle:
+    """Background profile-maintenance probe loop."""
 
     thread: threading.Thread
     stop_event: threading.Event
@@ -454,12 +446,8 @@ class RealExperimentRunner:
         prefix_cache_routing: bool = False,
         shared_profile_events_path: Path | None = None,
         shared_profile_poll_sec: float = 1.0,
-        hedge_observe_loser_ttft: bool = False,
     ) -> None:
         self.inventory = inventory
-        # Delay canceling a hedge loser until its first token so the
-        # counterfactual TTFT lands in the request log.
-        self.hedge_observe_loser_ttft = hedge_observe_loser_ttft
         self.slo_ms = slo_ms if slo_ms is not None else inventory.primary_slo_ms
         self.slo_sec = self.slo_ms / 1000.0
         self.max_cost_usd = max_cost_usd
@@ -494,10 +482,10 @@ class RealExperimentRunner:
         self._cost_per_policy: dict[str, float] = dict.fromkeys(policy_names, 0.0)
         self._total_cost_usd: float = 0.0
         self._profile_probe_cost_usd: float = 0.0
-        self._profile_probe_counts: dict[str, int] = {"warmup": 0}
+        self._profile_probe_counts: dict[str, int] = {"warmup": 0, "periodic": 0}
         self._stop_event = threading.Event()
-        # Tracks providers whose API key env var is unset so profile probes
-        # can skip them after warning once. Populated lazily by
+        # Tracks providers whose API key env var is unset so the periodic
+        # prober can skip them after warning once. Populated lazily by
         # ``_provider_api_key_missing``.
         self._providers_missing_api_key: set[str] = set()
         # ``threading.local`` must live on the runner instance so each
@@ -676,7 +664,7 @@ class RealExperimentRunner:
         probes_per_provider: int = 1,
         sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
         round_interval_sec: float = 0.0,
-        phase: str = "probe",
+        phase: str = "periodic",
         stop_event: threading.Event | None = None,
         parallelism: int = DEFAULT_PROFILE_PROBE_PARALLELISM,
     ) -> None:
@@ -689,8 +677,8 @@ class RealExperimentRunner:
         in-flight probes.
 
         When ``round_interval_sec <= 0`` or ``probes_per_provider == 1`` the
-        loop falls back to the simple synchronous path used by single-shot
-        calls.
+        loop falls back to the simple synchronous path used by periodic /
+        single-shot calls.
 
         Providers whose API key env var is unset in this process get skipped
         on first encounter (with a one-time warning) so e.g. OR-only
@@ -1074,9 +1062,9 @@ class RealExperimentRunner:
 
         # All attempts exhausted. Warmup is the only phase that injects a
         # synthetic sample, so the LP can still tentatively rank a provider
-        # that failed during startup. Replay-time shared probes stay silent:
-        # probe failures must not poison the routing profile. Real-request
-        # 429s use the ``error_samples`` path with
+        # that failed during startup. Replay-time probes (periodic / shared
+        # sidecar) stay silent: probe failures must not poison the routing
+        # profile. Real-request 429s use the ``error_samples`` path with
         # ``RATE_LIMIT_ERROR_PENALTY_MS`` instead.
         if phase == "warmup":
             synthetic_ts = time.time()
@@ -1317,7 +1305,8 @@ class RealExperimentRunner:
         *,
         speedup: float = 1.0,
         duration_sec: float = float("inf"),
-        quota_window_anchor: str = "wall_clock",
+        periodic_probe_interval_sec: float = 0.0,
+        periodic_probe_sleep_sec: float = DEFAULT_PROFILE_PROBE_SLEEP_SEC,
     ) -> None:
         """Replay a trace against the configured policies.
 
@@ -1328,17 +1317,17 @@ class RealExperimentRunner:
             logger.warning("replay called with empty trace")
             return
         shared_profile_handle = self._start_shared_profile_tailer_thread()
+        probe_handle = self._start_periodic_profile_probe_thread(
+            interval_sec=periodic_probe_interval_sec,
+            sleep_sec=periodic_probe_sleep_sec,
+        )
         try:
-            self._replay_parallel_full_trace(
-                trace,
-                speedup=speedup,
-                duration_sec=duration_sec,
-                quota_window_anchor=quota_window_anchor,
-            )
+            self._replay_parallel_full_trace(trace, speedup=speedup, duration_sec=duration_sec)
         finally:
-            self._stop_background_thread(shared_profile_handle)
+            self._stop_periodic_profile_probe_thread(probe_handle)
+            self._stop_periodic_profile_probe_thread(shared_profile_handle)
 
-    def _start_shared_profile_tailer_thread(self) -> _BackgroundThreadHandle | None:
+    def _start_shared_profile_tailer_thread(self) -> _PeriodicProbeHandle | None:
         if self._shared_profile_log is None:
             return None
 
@@ -1366,11 +1355,43 @@ class RealExperimentRunner:
             daemon=True,
         )
         thread.start()
-        return _BackgroundThreadHandle(thread=thread, stop_event=stop_event)
+        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
+
+    def _start_periodic_profile_probe_thread(
+        self,
+        *,
+        interval_sec: float,
+        sleep_sec: float,
+    ) -> _PeriodicProbeHandle | None:
+        if interval_sec <= 0:
+            return None
+
+        stop_event = threading.Event()
+
+        def _loop() -> None:
+            logger.info("periodic profile probing enabled: interval=%.1fs", interval_sec)
+            while not stop_event.wait(interval_sec):
+                if self._stop_event.is_set():
+                    return
+                logger.info("periodic profile probe round starting")
+                self.probe_profiles(
+                    probes_per_provider=1,
+                    sleep_sec=sleep_sec,
+                    phase="periodic",
+                    stop_event=stop_event,
+                )
+
+        thread = threading.Thread(
+            target=_loop,
+            name="real-eval-profile-prober",
+            daemon=True,
+        )
+        thread.start()
+        return _PeriodicProbeHandle(thread=thread, stop_event=stop_event)
 
     @staticmethod
-    def _stop_background_thread(
-        handle: _BackgroundThreadHandle | None,
+    def _stop_periodic_profile_probe_thread(
+        handle: _PeriodicProbeHandle | None,
     ) -> None:
         if handle is None:
             return
@@ -1409,17 +1430,8 @@ class RealExperimentRunner:
         *,
         speedup: float,
         duration_sec: float,
-        quota_window_anchor: str,
     ) -> None:
         run_start = time.time()
-        if quota_window_anchor == "trace_start":
-            self._reset_policy_quota_windows(window_start=run_start)
-            logger.info("quota windows anchored to trace start: %.3f", run_start)
-        elif quota_window_anchor != "wall_clock":
-            raise ValueError(
-                "quota_window_anchor must be 'wall_clock' or 'trace_start', "
-                f"got {quota_window_anchor!r}"
-            )
         threads: list[threading.Thread] = []
         policies = list(self.policies.values())
         for i, req in enumerate(trace):
@@ -1440,12 +1452,6 @@ class RealExperimentRunner:
                 threads = [t for t in threads if t.is_alive()]
 
         self._join_threads(threads)
-
-    def _reset_policy_quota_windows(self, *, window_start: float) -> None:
-        for policy in self.policies.values():
-            for state in policy.states.values():
-                if state.quota is not None:
-                    state.quota.reset(window_start=window_start)
 
     # ------------------------------------------------------------------
     # Per-request dispatch.
@@ -1470,7 +1476,7 @@ class RealExperimentRunner:
         hedge_delay_sec = float("inf")
         hedge_checkpoints_sec: tuple[float, ...] = ()
         if policy.use_hedge:
-            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec * 1000.0)
+            hedge_checkpoints_sec = hedge_checkpoints_for_slo(self.slo_sec)
 
         now = time.time()
         try:
@@ -1652,10 +1658,11 @@ class RealExperimentRunner:
         decision = prepared.decision
 
         if prepared.hedge_checkpoints_sec:
-            def _select_checkpoint_backup(
-                elapsed_sec: float,
-                checkpoint_ts: float,
-            ) -> CheckpointBackupDispatch[str] | None:
+            backup_capacity_id: int | None = None
+            backup_capacity_lock = threading.Lock()
+
+            def _checkpoint_backup(elapsed_sec: float, checkpoint_ts: float) -> str | None:
+                nonlocal backup_capacity_id
                 future_checkpoints = tuple(
                     checkpoint
                     for checkpoint in prepared.hedge_checkpoints_sec
@@ -1688,34 +1695,23 @@ class RealExperimentRunner:
                 prepared.hedge_delay_sec = elapsed_sec
                 decision.hedge = backup
                 decision.hedge_delay_sec = elapsed_sec
-                decision.hedge_success_probability = checkpoint_decision.success_probability
                 (
                     prepared.backup_cached_input_tokens,
                     prepared.backup_routing_estimated_cost_usd,
                 ) = policy.routing_cache_diagnostics(backup, prepared.ctx)
-                return CheckpointBackupDispatch(
-                    backup=backup,
-                    elapsed_sec=elapsed_sec,
-                    success_probability=checkpoint_decision.success_probability,
-                    release=(
-                        lambda provider=backup, capacity_id=capacity_id: policy.release_capacity(
-                            provider,
-                            capacity_id,
-                            time.time(),
-                        )
-                    ),
-                )
+                with backup_capacity_lock:
+                    backup_capacity_id = capacity_id
+                return backup
 
             try:
                 hedged = send_checkpoint_hedged_request(
                     send_fn=self._send_via_transport,
                     primary_provider=decision.primary or "",
                     hedge_checkpoints_sec=prepared.hedge_checkpoints_sec,
-                    checkpoint_backup_selector=_select_checkpoint_backup,
+                    checkpoint_fn=_checkpoint_backup,
                     prompt=prepared.prompt,
                     max_tokens=req.max_tokens,
                     timeout=self.timeout_sec,
-                    observe_loser_first_token=self.hedge_observe_loser_ttft,
                 )
             finally:
                 policy.release_capacity(
@@ -1723,6 +1719,9 @@ class RealExperimentRunner:
                     prepared.primary_capacity_id,
                     time.time(),
                 )
+                with backup_capacity_lock:
+                    capacity_id = backup_capacity_id
+                policy.release_capacity(prepared.backup, capacity_id, time.time())
 
             if hedged.backup_provider is not None and prepared.backup is None:
                 prepared.backup = hedged.backup_provider
@@ -1882,8 +1881,6 @@ class RealExperimentRunner:
     def _feed_back_single(
         self, policy: BasePolicy, provider: str, result: SingleRequestResult
     ) -> None:
-        if _is_hedge_loser_canceled(result):
-            return
         error_type = None if result.status == "success" else result.status
         ttft_ms = result.ttft_ms if result.status == "success" else -1.0
         sample_ts = self._profile_sample_ts(result)
@@ -1980,8 +1977,6 @@ class RealExperimentRunner:
             provider="none",
             error_message=decision.notes or "no_route",
         )
-        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
-        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -1991,9 +1986,6 @@ class RealExperimentRunner:
             primary_result=sentinel,
             slo_ms=self.slo_sec * 1000.0,
             ts=ts,
-            hedge_algorithm=hedge_algorithm,
-            hedge_schedule=hedge_schedule,
-            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_single(
@@ -2016,8 +2008,6 @@ class RealExperimentRunner:
         # logged as ``tier=quota`` even though OR_DeepInfra is an API
         # provider), which throws off downstream tier-mix analysis.
         final_spec = self._spec_by_name.get(final_provider or "") or spec
-        hedge_algorithm = "probability_target" if policy.use_hedge else "disabled"
-        hedge_schedule = "slo_relative_checkpoints" if policy.use_hedge else None
         self.recorder.write_request(
             policy=policy.name,
             req_id=f"{req_index}_{uuid.uuid4().hex[:6]}",
@@ -2033,9 +2023,6 @@ class RealExperimentRunner:
             else None,
             primary_cached_input_tokens=primary_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
-            hedge_algorithm=hedge_algorithm,
-            hedge_schedule=hedge_schedule,
-            ctx_model=self.inventory.openrouter_model_id,
         )
 
     def _record_hedged(
@@ -2072,7 +2059,6 @@ class RealExperimentRunner:
             backup_cached_input_tokens=backup_cached_input_tokens,
             primary_routing_estimated_cost_usd=primary_routing_estimated_cost_usd,
             backup_routing_estimated_cost_usd=backup_routing_estimated_cost_usd,
-            ctx_model=self.inventory.openrouter_model_id,
         )
 
     # ------------------------------------------------------------------
@@ -2104,7 +2090,7 @@ class RealExperimentRunner:
         if fixed_cost <= 0.0:
             return {}
         return {
-            policy_name: 0.0 if policy_name.startswith(("or_", "single_")) else fixed_cost
+            policy_name: 0.0 if policy_name.startswith("or_") else fixed_cost
             for policy_name in self.policies
         }
 
@@ -2158,17 +2144,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--quota-window-anchor",
-        choices=("wall_clock", "trace_start"),
-        default="wall_clock",
-        help=(
-            "How local quota windows are anchored. wall_clock preserves fixed "
-            "provider-style reset boundaries; trace_start resets local quota "
-            "state when replay starts, so staggered policy processes see the "
-            "same quota timeline relative to the workload."
-        ),
-    )
-    parser.add_argument(
         "--duration-sec",
         type=float,
         default=float("inf"),
@@ -2196,6 +2171,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help=("Seconds between warmup probe rounds. Use 0 for a fast smoke run."),
     )
     parser.add_argument(
+        "--periodic-probe-interval-sec",
+        type=float,
+        default=DEFAULT_PERIODIC_PROBE_INTERVAL_SEC,
+        help=(
+            "Seconds between shared profile-maintenance probe rounds during "
+            "replay. Use 0 to disable."
+        ),
+    )
+    parser.add_argument(
         "--shared-profile-events",
         type=Path,
         default=None,
@@ -2215,7 +2199,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--profile-probe-sleep-sec",
         type=float,
         default=DEFAULT_PROFILE_PROBE_SLEEP_SEC,
-        help="Sleep between provider probes inside a warmup/shared probe round.",
+        help="Sleep between provider probes inside a warmup/periodic round.",
     )
     parser.add_argument(
         "--min-profile-success-samples",
@@ -2249,15 +2233,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_TIMEOUT_SEC,
         help="Per-request timeout.",
-    )
-    parser.add_argument(
-        "--hedge-observe-loser-ttft",
-        action="store_true",
-        help=(
-            "Cancel a hedge loser only after its first token, so the request log "
-            "carries the counterfactual TTFT of the leg that lost (costs the "
-            "loser's streaming up to that token)."
-        ),
     )
     parser.add_argument(
         "--profile-window-sec",
@@ -2359,12 +2334,13 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("policies: %s", ", ".join(args.policies))
     logger.info(
         "inventory: %d providers from %s; warmup_probes=%d; "
-        "warmup_probe_interval_sec=%.1f; "
+        "warmup_probe_interval_sec=%.1f; periodic_probe_interval_sec=%.1f; "
         "min_profile_success_samples=%d; max_cost_usd=$%.2f",
         len(inventory.providers),
         args.inventory,
         args.warmup_probes,
         args.warmup_probe_interval_sec,
+        args.periodic_probe_interval_sec,
         args.min_profile_success_samples,
         args.max_cost_usd,
     )
@@ -2389,7 +2365,6 @@ def main(argv: list[str] | None = None) -> int:
         prefix_cache_routing=args.prefix_cache_routing,
         shared_profile_events_path=args.shared_profile_events,
         shared_profile_poll_sec=args.shared_profile_poll_sec,
-        hedge_observe_loser_ttft=args.hedge_observe_loser_ttft,
     )
 
     cost_envelope = workload_cost_envelope(
@@ -2419,7 +2394,8 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         speedup=args.speedup,
         duration_sec=args.duration_sec,
-        quota_window_anchor=args.quota_window_anchor,
+        periodic_probe_interval_sec=args.periodic_probe_interval_sec,
+        periodic_probe_sleep_sec=args.profile_probe_sleep_sec,
     )
 
     billing_duration_sec = (

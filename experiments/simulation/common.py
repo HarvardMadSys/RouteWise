@@ -28,34 +28,33 @@ from experiments.subscriptions import (
     load_subscription_plans,
     subscription_fixed_cost_usd,
 )
-from llm_routewise.capacity import (
+from rwsim.engine.simulator import Simulator
+from rwsim.metrics import RunAggregate
+from rwsim.metrics.histogram import merge_histograms
+from rwsim.policies import build_policy
+from rwsim.schemas import Request
+from rwsim.world.capacity import (
     ConcurrencyState,
     MultiWindowQuotaState,
     ProviderTier,
     QuotaState,
     WeightedConcurrencyState,
 )
-from llm_routewise.metrics import RunAggregate
-from llm_routewise.metrics.histogram import merge_histograms
-from llm_routewise.schemas import Request
-from llm_routewise.sim.engine.simulator import Simulator
-from llm_routewise.sim.policies import build_policy
-from llm_routewise.sim.world.distributions import LogNormal
-from llm_routewise.sim.world.providers import TieredProvider
+from rwsim.world.distributions import LogNormal
+from rwsim.world.providers import TieredProvider
 
 if TYPE_CHECKING:
     from collections import Counter
     from collections.abc import Callable, Mapping
 
-    from llm_routewise.metrics import Run
-    from llm_routewise.sim.world.scenarios import ScenarioConfig
+    from rwsim.metrics import Run
+    from rwsim.world.scenarios import ScenarioConfig
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
 OUTPUT_DIR = ROOT_DIR / "outputs" / "simulation"
 
-ALPHA_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
-P_SWEEP = ALPHA_SWEEP
+P_SWEEP = (0.0, 0.25, 0.50, 0.75, 1.0)
 COST_RATIO_PER_MILLION = (1.0, 2.0, 4.0)
 OUTPUT_COST_MULTIPLIER = 5.0
 DEFAULT_CACHED_INPUT_PRICE_FRACTION = 0.2
@@ -70,7 +69,6 @@ PREDICTOR_KIND_HISTOGRAM = "histogram"
 PREDICTOR_KIND_EMA = "ema"
 PREDICTOR_KIND_BUCKET_MEAN = "bucket_mean"
 PREDICTOR_KIND_CONSTANT = "constant"
-PREDICTOR_KIND_SCALED = "scaled"
 DEFAULT_OUTPUT_PREDICTOR = PREDICTOR_KIND_BUCKET_MEAN
 SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
     PREDICTOR_KIND_NONE,
@@ -86,18 +84,14 @@ SUPPORTED_PREDICTOR_KINDS: tuple[str, ...] = (
     "constant_p75",
     "constant_p90",
     "constant_p99",
-    "scaled:<predictor>:<multiplier>",
 )
-_WORKLOAD_CACHE_VERSION = 2
+_WORKLOAD_CACHE_VERSION = 1
 
 _WORKLOAD_PATHS = {
     "burstgpt": DATA_DIR / "burstgpt_30d.jsonl",
     "burstgpt_rednote": DATA_DIR / "burstgpt_rednote_30d.jsonl",
-    # Committed synthetic fixture: lets the kick-the-tires check replay the
-    # full pipeline with no downloaded traces.
-    "smoke": DATA_DIR / "fixtures" / "burstgpt_smoke.jsonl",
 }
-_TRACE_CACHE_WORKLOADS = ("freeinference", "freeinference_20260825", "rednote")
+_TRACE_CACHE_WORKLOADS = ("freeinference", "rednote")
 WORKLOAD_CHOICES = (*_WORKLOAD_PATHS, *_TRACE_CACHE_WORKLOADS)
 
 
@@ -158,48 +152,33 @@ class SingleModelOutputPredictor:
         return replace(request, model=self.model)
 
 
-def alpha_label(value: float) -> str:
-    """Return a stable policy-name suffix for one alpha-sweep value."""
-    pct = round(float(value) * 100)
-    if abs(float(value) - pct / 100.0) > 1e-9:
-        raise ValueError(f"alpha values must be percent-like decimals, got {value!r}")
-    return f"alpha{pct}"
-
-
 def p_label(value: float) -> str:
-    """Deprecated alias for :func:`alpha_label`."""
-    return alpha_label(value)
-
-
-def _legacy_p_label(value: float) -> str:
+    """Return a stable policy-name suffix for one p-sweep value."""
     pct = round(float(value) * 100)
     if abs(float(value) - pct / 100.0) > 1e-9:
-        raise ValueError(f"alpha values must be percent-like decimals, got {value!r}")
+        raise ValueError(f"p values must be percent-like decimals, got {value!r}")
     return f"p{pct}"
 
 
-def routewise_lp_policy_name(alpha_value: float) -> str:
-    """Return the simulator policy name for LP-only RouteWise at one alpha value."""
-    return f"ablation_lp_only_{alpha_label(alpha_value)}"
+def routewise_lp_policy_name(p_value: float) -> str:
+    """Return the simulator policy name for LP-only RouteWise at one p value."""
+    return f"ablation_lp_only_{p_label(p_value)}"
 
 
-def routewise_hedging_policy_name(alpha_value: float) -> str:
-    """Return the simulator policy name for LP+hedging RouteWise at one alpha value."""
-    return f"ablation_lp_hedging_{alpha_label(alpha_value)}"
+def routewise_hedging_policy_name(p_value: float) -> str:
+    """Return the simulator policy name for LP+hedging RouteWise at one p value."""
+    return f"ablation_lp_hedging_{p_label(p_value)}"
 
 
 def make_routewise_presets(
     *,
-    alpha_values: tuple[float, ...] = P_SWEEP,
-    p_values: tuple[float, ...] | None = None,
+    p_values: tuple[float, ...] = P_SWEEP,
     include_hedging: bool = False,
     cost_envelope: tuple[float, float] | str | None = WORKLOAD_COST_ENVELOPE,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
+    output_predictor_quantile: str = "q50",
 ) -> dict[str, dict[str, Any]]:
     """Build section-local policy presets with explorer disabled.
-
-    Simulator baselines intentionally stop at greedy-cost, greedy-latency, and
-    random; OpenRouter native sort policies live only in real evaluation.
 
     RouteWise uses bucket-mean output prediction by default for S_A LP cost.
     Pass ``None`` or ``"none"`` to use trace ``response_tokens`` instead.
@@ -209,42 +188,36 @@ def make_routewise_presets(
         "greedy_cost": {"policy": "BaselinePolicy", "params": {"mode": "greedy_cost"}},
         "greedy_latency": {"policy": "BaselinePolicy", "params": {"mode": "greedy_latency"}},
         "random": {"policy": "BaselinePolicy", "params": {"mode": "random"}},
+        "or_sort_cost": {"policy": "BaselinePolicy", "params": {"mode": "or_sort_cost"}},
+        "or_sort_latency": {"policy": "BaselinePolicy", "params": {"mode": "or_sort_latency"}},
     }
-    if p_values is not None:
-        alpha_values = p_values
-    for value in alpha_values:
+    for value in p_values:
         params: dict[str, Any] = {
             "hedging": False,
             "explorer": False,
-            "alpha": float(value),
+            "p": float(value),
             "cost_envelope": cost_envelope,
         }
         if predictor_spec is not None:
             params["output_predictor_spec"] = dict(predictor_spec)
+            params["output_predictor_quantile"] = output_predictor_quantile
         presets[routewise_lp_policy_name(value)] = {
             "policy": "RouteWisePolicy",
             "params": params,
-        }
-        presets[f"ablation_lp_only_{_legacy_p_label(value)}"] = {
-            "policy": "RouteWisePolicy",
-            "params": dict(params),
         }
         if include_hedging:
             hedging_params: dict[str, Any] = {
                 "hedging": "probability_target",
                 "explorer": False,
-                "alpha": float(value),
+                "p": float(value),
                 "cost_envelope": cost_envelope,
             }
             if predictor_spec is not None:
                 hedging_params["output_predictor_spec"] = dict(predictor_spec)
+                hedging_params["output_predictor_quantile"] = output_predictor_quantile
             presets[routewise_hedging_policy_name(value)] = {
                 "policy": "RouteWisePolicy",
                 "params": hedging_params,
-            }
-            presets[f"ablation_lp_hedging_{_legacy_p_label(value)}"] = {
-                "policy": "RouteWisePolicy",
-                "params": dict(hedging_params),
             }
     return presets
 
@@ -276,21 +249,6 @@ def _normalize_predictor_arg(
         }
     if lower.startswith("fixed:"):
         return {"kind": PREDICTOR_KIND_CONSTANT, "calibration": lower}
-    if lower.startswith(f"{PREDICTOR_KIND_SCALED}:"):
-        try:
-            _prefix, payload = name.split(":", 1)
-            base_name, multiplier_text = payload.rsplit(":", 1)
-        except ValueError as exc:
-            raise ValueError(
-                f"scaled predictor must use 'scaled:<predictor>:<multiplier>', got {arg!r}"
-            ) from exc
-        multiplier = float(multiplier_text)
-        if multiplier < 0.0:
-            raise ValueError(f"scaled predictor multiplier must be non-negative, got {multiplier}")
-        base = _normalize_predictor_arg(base_name)
-        if base is None:
-            raise ValueError("scaled predictor base cannot be 'none'")
-        return {"kind": PREDICTOR_KIND_SCALED, "base": base, "multiplier": multiplier}
     raise ValueError(
         f"unknown predictor name {arg!r}; expected one of {SUPPORTED_PREDICTOR_KINDS} "
         "or 'fixed:<value>'."
@@ -381,7 +339,9 @@ def make_quota_provider(
             for quota_window in plan.quota_windows
         )
         quota = (
-            quota_windows[0] if len(quota_windows) == 1 else MultiWindowQuotaState(quota_windows)
+            quota_windows[0]
+            if len(quota_windows) == 1
+            else MultiWindowQuotaState(quota_windows)
         )
     else:
         quota = None
@@ -442,7 +402,8 @@ def make_concurrency_provider(
         resolution = plan.resolve_model_class_with_cost(model)
         if resolution is None:
             raise ValueError(
-                f"plan {plan.plan_id!r}: model {model!r} is not supported by this concurrency plan"
+                f"plan {plan.plan_id!r}: model {model!r} is not supported by "
+                "this concurrency plan"
             )
         concurrency = WeightedConcurrencyState(
             capacity_units=int(plan.concurrency_allotment) * int(concurrency_count),
@@ -546,7 +507,9 @@ def _build_workload_cache(
     manifest = _workload_cache_fingerprint(path)
     manifest["n_requests"] = len(requests)
     manifest["cache_size"] = cache_path.stat().st_size
-    tmp_manifest = manifest_path.with_suffix(f".json.tmp.{multiprocessing.current_process().pid}")
+    tmp_manifest = manifest_path.with_suffix(
+        f".json.tmp.{multiprocessing.current_process().pid}"
+    )
     with tmp_manifest.open("w") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
     tmp_manifest.replace(manifest_path)
@@ -565,16 +528,9 @@ def _workload_path(dataset: str) -> Path:
 @cache
 def _load_cached_trace_workload(dataset: str) -> tuple[Request, ...]:
     """Load a dataset-cache workload and normalize it for simulator replay."""
-    from experiments.simulation.dataset_cache import build_cache, load_cached
+    from experiments.simulation.dataset_cache import load_cached
 
-    try:
-        requests = tuple(load_cached(dataset))
-    except (AttributeError, EOFError, ImportError, ValueError, pickle.UnpicklingError):
-        # Caches pickled under an older package layout (for example
-        # ``routewise.schemas`` or ``rwsim.schemas``) fail to unpickle; rebuild
-        # from the source trace.
-        build_cache(dataset, force=True)
-        requests = tuple(load_cached(dataset))
+    requests = tuple(load_cached(dataset))
     if not requests:
         return ()
     first_timestamp = float(requests[0].timestamp)
@@ -664,9 +620,9 @@ def load_workload(
         return list(selected)
     path = _workload_path(dataset)
     cache_path, manifest_path = _workload_cache_paths(path)
-    if (duration_sec is not None or max_requests is not None) and not _workload_cache_is_valid(
-        path, cache_path, manifest_path
-    ):
+    if (
+        duration_sec is not None or max_requests is not None
+    ) and not _workload_cache_is_valid(path, cache_path, manifest_path):
         return _read_jsonl_workload(
             path,
             duration_sec=duration_sec,
@@ -730,10 +686,15 @@ def run_policy(
     retain_records: bool = True,
 ) -> Run:
     """Run a section-local policy preset on one request stream."""
-    materialized = materialize_policy_presets(
+    materialized = _materialize_workload_cost_envelope(
         presets,
         policy_name=policy_name,
         scenario=scenario,
+        requests=requests,
+    )
+    materialized = _materialize_workload_predictor(
+        materialized,
+        policy_name=policy_name,
         requests=requests,
     )
     policy = build_policy(
@@ -743,61 +704,6 @@ def run_policy(
     )
     simulator = Simulator(scenario=scenario, seed=seed, retain_records=retain_records)
     return simulator.run(requests, policy, policy_name=policy_name)
-
-
-def materialize_policy_presets(
-    presets: dict[str, dict[str, Any]],
-    *,
-    policy_name: str,
-    scenario: ScenarioConfig,
-    requests: list[Request],
-) -> dict[str, dict[str, Any]]:
-    """Resolve preset sentinels (SLO, cost envelope, predictor spec) for one policy.
-
-    Section-local harnesses that need the policy instance (rather than going
-    through :func:`run_policy`) should materialize presets with this helper
-    before calling :func:`llm_routewise.sim.policies.build_policy`.
-    """
-    materialized = _materialize_routewise_slo(
-        presets,
-        policy_name=policy_name,
-        scenario=scenario,
-    )
-    materialized = _materialize_workload_cost_envelope(
-        materialized,
-        policy_name=policy_name,
-        scenario=scenario,
-        requests=requests,
-    )
-    return _materialize_workload_predictor(
-        materialized,
-        policy_name=policy_name,
-        requests=requests,
-    )
-
-
-def _materialize_routewise_slo(
-    presets: dict[str, dict[str, Any]],
-    *,
-    policy_name: str,
-    scenario: ScenarioConfig,
-) -> dict[str, dict[str, Any]]:
-    """Default RouteWise policy SLO to the scenario's primary SLO."""
-    try:
-        preset = presets[policy_name]
-    except KeyError:
-        return presets
-    if preset.get("policy") != "RouteWisePolicy":
-        return presets
-
-    params = dict(preset.get("params", {}))
-    if "slo_ms" in params:
-        return presets
-
-    params["slo_ms"] = float(scenario.primary_slo_ms)
-    patched = dict(presets)
-    patched[policy_name] = {**preset, "params": params}
-    return patched
 
 
 def _materialize_workload_predictor(
@@ -854,16 +760,6 @@ def _build_workload_predictor(
         calibration = str(spec.get("calibration", "mean"))
         value = workload_constant_value(requests, kind=calibration)
         return ConstantOutputPredictor(value=value, label=f"constant_{calibration}")
-    if kind == PREDICTOR_KIND_SCALED:
-        from experiments.offline_stage.value_estimators import ScaledOutputPredictor
-
-        base_spec = spec.get("base")
-        if not isinstance(base_spec, dict):
-            raise ValueError(f"scaled predictor requires a base predictor spec, got {base_spec!r}")
-        return ScaledOutputPredictor(
-            _build_workload_predictor(base_spec, requests=requests),
-            multiplier=float(spec.get("multiplier", 1.0)),
-        )
     raise ValueError(f"unknown predictor spec kind {kind!r}")
 
 
@@ -916,7 +812,10 @@ def workload_cost_envelope(
     floor_ratio: float = 1e-3,
 ) -> tuple[float, float]:
     """Calibrate L/U from cheapest API-equivalent request costs."""
-    values = [_cheapest_api_cost_for_request(providers, request) for request in requests]
+    values = [
+        _cheapest_api_cost_for_request(providers, request)
+        for request in requests
+    ]
     values = [value for value in values if value is not None and value > 0.0]
     return _cost_envelope_from_values(
         values,
@@ -1023,36 +922,9 @@ def quota_fits_in_trace(
         counts: dict[int, int] = {}
         for request in requests:
             window_id = int(
-                (float(request.timestamp) - trace_start) // quota_window.quota_window_sec
+                (float(request.timestamp) - trace_start)
+                // quota_window.quota_window_sec
             )
-            counts[window_id] = counts.get(window_id, 0) + 1
-        if any(count > capacity for count in counts.values()):
-            return False
-    return True
-
-
-def quota_windows_fit_in_trace(
-    quota_windows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    requests: list[Request],
-) -> bool:
-    """Return whether explicit aggregate quota windows cover the trace."""
-    if not requests:
-        return True
-    trace_start = float(requests[0].timestamp)
-    for quota_window in quota_windows:
-        try:
-            capacity = int(quota_window["aggregate_quota_requests"])
-            quota_window_sec = float(quota_window["quota_window_sec"])
-        except KeyError as exc:
-            raise ValueError(
-                f"quota window metadata missing {exc.args[0]!r}: {quota_window!r}"
-            ) from exc
-        if capacity <= 0:
-            return False
-        counts: dict[int, int] = {}
-        for request in requests:
-            window_id = int((float(request.timestamp) - trace_start) // quota_window_sec)
             counts[window_id] = counts.get(window_id, 0) + 1
         if any(count > capacity for count in counts.values()):
             return False
@@ -1129,7 +1001,9 @@ def _concurrency_trace_metrics(
     if trace_duration_sec is None:
         trace_duration_sec = workload_trace_info(requests).span_sec
     denominator = capacity_units * max(float(trace_duration_sec), 0.0)
-    mean_utilization = total_capacity_unit_seconds_used / denominator if denominator > 0.0 else 0.0
+    mean_utilization = (
+        total_capacity_unit_seconds_used / denominator if denominator > 0.0 else 0.0
+    )
     return {
         "peak_used_concurrency_cost": peak_used,
         "mean_concurrency_utilization": min(mean_utilization, 1.0),
@@ -1150,7 +1024,10 @@ def _estimated_concurrency_service_time_sec(
     if p50_service_time_ms is not None:
         return max(float(p50_service_time_ms), 0.0) / 1000.0
     response_tokens = request.response_tokens or 1
-    return (COST_LAYER_LATENCY_ANCHOR_MS + (response_tokens / DEFAULT_TPS_P50) * 1000.0) / 1000.0
+    return (
+        COST_LAYER_LATENCY_ANCHOR_MS
+        + (response_tokens / DEFAULT_TPS_P50) * 1000.0
+    ) / 1000.0
 
 
 def _subscription_summary_fields(
@@ -1171,8 +1048,6 @@ def _subscription_summary_fields(
         "subscription_plan": plan_id,
         "subscription_plan_display_name": None,
         "subscription_count": metadata.get("subscription_count"),
-        "quota_limit": metadata.get("quota_limit"),
-        "quota_multiplier": metadata.get("quota_multiplier"),
         "concurrency_plan": concurrency_plan_id,
         "concurrency_plan_display_name": metadata.get("concurrency_plan_display_name"),
         "concurrency_count": metadata.get("concurrency_count"),
@@ -1199,24 +1074,36 @@ def _subscription_summary_fields(
         "api_latency_generation_version": metadata.get("api_latency_generation_version"),
         "api_latency_anchor_kind": metadata.get("api_latency_anchor_kind"),
         "api_latency_anchor_ms": metadata.get("api_latency_anchor_ms"),
-        "api_latency_distribution_mean_ms": metadata.get("api_latency_distribution_mean_ms"),
-        "api_latency_distribution_p50_ms": metadata.get("api_latency_distribution_p50_ms"),
+        "api_latency_distribution_mean_ms": metadata.get(
+            "api_latency_distribution_mean_ms"
+        ),
+        "api_latency_distribution_p50_ms": metadata.get(
+            "api_latency_distribution_p50_ms"
+        ),
         "api_latency_shape": metadata.get("api_latency_shape"),
         "peak_used_concurrency_cost": None,
         "mean_concurrency_utilization": None,
         "concurrency_saturated_in_trace": None,
         "run_count": run_count,
         "api_cost_usd": float(api_cost_usd),
-        "api_cost_usd_per_run": (float(api_cost_usd) / run_count if run_count else float("nan")),
+        "api_cost_usd_per_run": (
+            float(api_cost_usd) / run_count if run_count else float("nan")
+        ),
         "subscription_fixed_cost_usd": 0.0,
         "subscription_fixed_cost_usd_per_run": 0.0,
         "total_cost_usd": float(api_cost_usd),
-        "total_cost_usd_per_run": (float(api_cost_usd) / run_count if run_count else float("nan")),
+        "total_cost_usd_per_run": (
+            float(api_cost_usd) / run_count if run_count else float("nan")
+        ),
         "mean_api_cost_usd": (
-            float(api_cost_usd) / mean_denominator if mean_denominator else float("nan")
+            float(api_cost_usd) / mean_denominator
+            if mean_denominator
+            else float("nan")
         ),
         "mean_total_cost_usd": (
-            float(api_cost_usd) / mean_denominator if mean_denominator else float("nan")
+            float(api_cost_usd) / mean_denominator
+            if mean_denominator
+            else float("nan")
         ),
         "subscription_cost_known": True,
         "cost_claim_allowed": True,
@@ -1267,25 +1154,33 @@ def _subscription_summary_fields(
                 "subscription_fixed_cost_usd": fixed_cost,
                 "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
                 "total_cost_usd": total_cost,
-                "total_cost_usd_per_run": (total_cost / run_count if run_count else float("nan")),
+                "total_cost_usd_per_run": (
+                    total_cost / run_count if run_count else float("nan")
+                ),
                 "mean_total_cost_usd": (
-                    total_cost / mean_denominator if mean_denominator else float("nan")
+                    total_cost / mean_denominator
+                    if mean_denominator
+                    else float("nan")
                 ),
                 "subscription_cost_known": (
-                    quota_plan.subscription_cost_known and concurrency_plan.subscription_cost_known
+                    quota_plan.subscription_cost_known
+                    and concurrency_plan.subscription_cost_known
                 ),
                 "cost_claim_allowed": (
                     quota_plan.cost_claim_allowed and concurrency_plan.cost_claim_allowed
                 ),
                 "trace_paper_grade": quota_paper_grade and concurrency_paper_grade,
-                "quota_fits_in_trace": _quota_fits_in_trace_from_metadata(
-                    metadata,
+                "quota_fits_in_trace": quota_fits_in_trace(
                     quota_plan,
                     subscription_count=quota_count,
                     requests=requests,
                 ),
-                "peak_used_concurrency_cost": concurrency_metrics["peak_used_concurrency_cost"],
-                "mean_concurrency_utilization": concurrency_metrics["mean_concurrency_utilization"],
+                "peak_used_concurrency_cost": concurrency_metrics[
+                    "peak_used_concurrency_cost"
+                ],
+                "mean_concurrency_utilization": concurrency_metrics[
+                    "mean_concurrency_utilization"
+                ],
                 "concurrency_saturated_in_trace": concurrency_metrics[
                     "concurrency_saturated_in_trace"
                 ],
@@ -1310,9 +1205,13 @@ def _subscription_summary_fields(
         "subscription_fixed_cost_usd": fixed_cost,
         "subscription_fixed_cost_usd_per_run": fixed_cost_per_run,
         "total_cost_usd": total_cost,
-        "total_cost_usd_per_run": (total_cost / run_count if run_count else float("nan")),
+        "total_cost_usd_per_run": (
+            total_cost / run_count if run_count else float("nan")
+        ),
         "mean_total_cost_usd": (
-            total_cost / mean_denominator if mean_denominator else float("nan")
+            total_cost / mean_denominator
+            if mean_denominator
+            else float("nan")
         ),
         "subscription_cost_known": plan.subscription_cost_known,
         "cost_claim_allowed": plan.cost_claim_allowed,
@@ -1326,11 +1225,8 @@ def _subscription_summary_fields(
                 "subscription_plan": plan.plan_id,
                 "subscription_plan_display_name": plan.display_name,
                 "subscription_count": count,
-                "quota_limit": metadata.get("quota_limit"),
-                "quota_multiplier": metadata.get("quota_multiplier"),
                 "trace_paper_grade": trace_paper_grade,
-                "quota_fits_in_trace": _quota_fits_in_trace_from_metadata(
-                    metadata,
+                "quota_fits_in_trace": quota_fits_in_trace(
                     plan,
                     subscription_count=count,
                     requests=requests,
@@ -1355,33 +1251,18 @@ def _subscription_summary_fields(
                 "concurrency_plan_display_name": plan.display_name,
                 "concurrency_count": count,
                 "trace_paper_grade": trace_paper_grade,
-                "peak_used_concurrency_cost": concurrency_metrics["peak_used_concurrency_cost"],
-                "mean_concurrency_utilization": concurrency_metrics["mean_concurrency_utilization"],
+                "peak_used_concurrency_cost": concurrency_metrics[
+                    "peak_used_concurrency_cost"
+                ],
+                "mean_concurrency_utilization": concurrency_metrics[
+                    "mean_concurrency_utilization"
+                ],
                 "concurrency_saturated_in_trace": concurrency_metrics[
                     "concurrency_saturated_in_trace"
                 ],
             }
         )
     return fields
-
-
-def _quota_fits_in_trace_from_metadata(
-    metadata: dict[str, Any],
-    plan: SubscriptionPlan,
-    *,
-    subscription_count: int,
-    requests: list[Request],
-) -> bool:
-    quota_windows = metadata.get("quota_windows")
-    if isinstance(quota_windows, list) and all(
-        isinstance(item, dict) and "aggregate_quota_requests" in item for item in quota_windows
-    ):
-        return quota_windows_fit_in_trace(quota_windows, requests=requests)
-    return quota_fits_in_trace(
-        plan,
-        subscription_count=subscription_count,
-        requests=requests,
-    )
 
 
 def summarize_runs(
@@ -1417,7 +1298,9 @@ def summarize_runs(
         "p75_ms": percentile(75),
         "p90_ms": percentile(90),
         "p99_ms": percentile(99),
-        "slo_violation_rate": (aggregate.slo_violated_count / total if total else 0.0),
+        "slo_violation_rate": (
+            aggregate.slo_violated_count / total if total else 0.0
+        ),
         "hedge_rate": (
             aggregate.hedge_triggered_count / aggregate.hedge_total_count
             if aggregate.hedge_total_count
@@ -1438,26 +1321,7 @@ def summarize_runs(
             run_count=len(runs),
         )
     )
-    row.update(_extra_metric_means(runs))
     return row
-
-
-def _extra_metric_means(runs: list[Run]) -> dict[str, float]:
-    """Average optional harness-attached ``run.extra_metrics`` across seeds.
-
-    Section-local runners may attach a flat numeric ``extra_metrics`` dict to a
-    ``Run`` (e.g. profiling diagnostics). Keys surface in ``summary.json``;
-    the fixed-schema ``summary.csv`` ignores them unless a section writes its
-    own csv view.
-    """
-    values_by_key: dict[str, list[float]] = {}
-    for run in runs:
-        extra = getattr(run, "extra_metrics", None) or {}
-        for key, value in extra.items():
-            values_by_key.setdefault(str(key), []).append(float(value))
-    return {
-        key: float(np.mean(values)) for key, values in sorted(values_by_key.items())
-    }
 
 
 def run_section(
@@ -1467,8 +1331,7 @@ def run_section(
     policies: tuple[str, ...],
     presets: dict[str, dict[str, Any]],
     seeds: tuple[int, ...],
-    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]]
-    | None = None,
+    section_runners: Mapping[str, Callable[[ScenarioConfig, list[Request], int], Run]] | None = None,
     parallel_cell_runner: Callable[
         [SectionCell, dict[str, dict[str, Any]], str, float | None, int | None, bool],
         SectionCellResult,
@@ -1506,7 +1369,9 @@ def run_section(
         execution_mode = "serial"
     else:
         if parallel_cell_runner is None:
-            raise ValueError("parallel run_section requires a section-local parallel_cell_runner")
+            raise ValueError(
+                "parallel run_section requires a section-local parallel_cell_runner"
+            )
         ensure_workload_cache(workload_dataset)
         results = _run_section_parallel(
             cells=cells,
@@ -1794,8 +1659,6 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "subscription_plan",
         "subscription_plan_display_name",
         "subscription_count",
-        "quota_limit",
-        "quota_multiplier",
         "concurrency_plan",
         "concurrency_plan_display_name",
         "concurrency_count",
@@ -1882,7 +1745,9 @@ def _fraction_map(counts: Counter[str], total: int) -> dict[str, float]:
 def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
     for run in runs:
         if run.aggregate is None:
-            raise ValueError("run_section requires every run to carry a streaming aggregate")
+            raise ValueError(
+                "run_section requires every run to carry a streaming aggregate"
+            )
     aggregate = RunAggregate(
         ttft_histogram=merge_histograms([run.ttft_histogram() for run in runs])
     )
@@ -1893,7 +1758,9 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
             if aggregate.e2e_histogram is None:
                 aggregate.e2e_histogram = source.e2e_histogram.copy()
             else:
-                aggregate.e2e_histogram = aggregate.e2e_histogram.merge(source.e2e_histogram)
+                aggregate.e2e_histogram = aggregate.e2e_histogram.merge(
+                    source.e2e_histogram
+                )
         aggregate.total_cost_usd += source.total_cost_usd
         aggregate.cost_count += source.cost_count
         aggregate.status_counts.update(source.status_counts)
@@ -1909,7 +1776,6 @@ def _merge_run_aggregates(runs: list[Run]) -> RunAggregate:
 
 
 __all__ = [
-    "ALPHA_SWEEP",
     "COST_LAYER_LATENCY_ANCHOR_MS",
     "COST_RATIO_PER_MILLION",
     "DEFAULT_CACHED_INPUT_PRICE_FRACTION",
@@ -1923,7 +1789,6 @@ __all__ = [
     "SectionCell",
     "SectionCellResult",
     "WorkloadTraceInfo",
-    "alpha_label",
     "concurrency_saturated_in_trace",
     "ensure_workload_cache",
     "load_workload",
@@ -1932,10 +1797,8 @@ __all__ = [
     "make_quota_provider",
     "make_routewise_presets",
     "make_ttft_distribution",
-    "materialize_policy_presets",
     "p_label",
     "quota_fits_in_trace",
-    "quota_windows_fit_in_trace",
     "routewise_hedging_policy_name",
     "routewise_lp_policy_name",
     "run_policy",

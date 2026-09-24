@@ -5,7 +5,7 @@ online routing strategies. Predictors must only use features observable at
 request arrival time; ground-truth values are used only in post-decision updates.
 
 Key interfaces:
-- OutputTokenPredictor: Predicts output token count or quantiles (Stage 1)
+- OutputTokenPredictor: Predicts output token quantiles (Stage 1)
 - DurationPredictor: Predicts processing duration UCB (Stage 2)
 """
 
@@ -13,24 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from llm_routewise.schemas import Request
-
-
-@dataclass
-class PointPrediction:
-    """Point prediction for output token count.
-
-    Use this for predictors that estimate a single value, such as a bucket
-    mean. It intentionally does not expose q10/q50/q90 because a point estimate
-    is not a calibrated output-length distribution.
-
-    Attributes:
-        tokens: Predicted output token count.
-        is_warmed_up: Whether the predictor has sufficient samples.
-    """
-
-    tokens: float
-    is_warmed_up: bool = True
+from rwsim.schemas import Request
 
 
 @dataclass
@@ -156,21 +139,19 @@ def _compute_input_bin(tokens: int, num_bins: int = 20) -> int:
 class OutputTokenPredictor(ABC):
     """Abstract base class for output token predictors.
 
-    Predictors estimate output tokens for a request using only features
-    available at arrival time. Distribution-aware predictors should return
-    ``QuantilePrediction``; point estimators should return ``PointPrediction``.
+    Predictors estimate the distribution of output tokens for a request
+    using only features available at arrival time.
     """
 
     @abstractmethod
-    def predict(self, request: Request) -> PointPrediction | QuantilePrediction:
-        """Predict output token count or quantiles.
+    def predict(self, request: Request) -> QuantilePrediction:
+        """Predict output token quantiles.
 
         Args:
             request: The incoming request (only arrival-time features are used)
 
         Returns:
-            ``PointPrediction`` for point estimators or ``QuantilePrediction``
-            for distribution-aware estimators.
+            QuantilePrediction with q10, q50, q90 estimates
         """
         pass
 
@@ -263,8 +244,8 @@ class CombinedPredictor:
         self.output_predictor = output_predictor
         self.duration_predictor = duration_predictor
 
-    def predict_output_tokens(self, request: Request) -> PointPrediction | QuantilePrediction:
-        """Predict output token count or quantiles."""
+    def predict_output_tokens(self, request: Request) -> QuantilePrediction:
+        """Predict output token quantiles."""
         return self.output_predictor.predict(request)
 
     def predict_duration(self, request: Request, output_q90: float) -> DurationPrediction | None:

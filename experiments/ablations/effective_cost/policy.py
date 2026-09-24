@@ -8,34 +8,25 @@ fields to the production RouteWisePolicy surface.
 from __future__ import annotations
 
 import math
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from llm_routewise.capacity import ProviderTier
-from llm_routewise.core.cost import (
-    ScarcityCurve,
-    effective_cost as core_effective_cost,
-)
-from llm_routewise.core.latency_profile import DEFAULT_PROFILE_WINDOW_SEC
-from llm_routewise.core.lp import (
-    LP_EPS,
-    BudgetLPCandidate,
-    cost_tiebroken_objective,
-    solve_budget_lp,
-)
-from llm_routewise.schemas import Request, RoutingDecision, RoutingOutcome
-from llm_routewise.sim.policies.base import NoOpTickMixin
-from llm_routewise.sim.policies.routewise import RollingLatencyProfile
+from rwsim.policies.base import NoOpTickMixin
+from rwsim.policies.effective_cost_kernel import ScarcityCurve, scarcity_price
+from rwsim.policies.routewise import RollingLatencyProfile
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
+from rwsim.world.capacity import ProviderTier
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from llm_routewise.sim.engine.state import SimulationState
-    from llm_routewise.sim.world.providers import Provider
+    from rwsim.engine.state import SimulationState
+    from rwsim.world.providers import Provider
 
-_LP_EPS = LP_EPS
+_LP_EPS = 1e-9
+_COST_TIEBREAK_MS = 1e-3
 
 
 @dataclass
@@ -44,21 +35,16 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
 
     quota_curve: ScarcityCurve
     concurrency_curve: ScarcityCurve
+    p: float
     cost_envelope: tuple[float, float]
-    alpha: float = 0.75
-    p: InitVar[float | None] = None
     seed: int = 0
-    profile_window_sec: float = DEFAULT_PROFILE_WINDOW_SEC
+    profile_window_sec: float = 15 * 60.0
     rng: np.random.Generator = field(init=False, repr=False)
     profiles: dict[str, RollingLatencyProfile] = field(default_factory=dict, init=False)
 
-    def __post_init__(self, p: float | None = None) -> None:
-        if p is not None:
-            self.alpha = float(p)
-        if not 0.0 <= self.alpha <= 1.0:
-            raise ValueError(
-                f"LPOnlyAblationPolicy alpha must be in [0, 1], got {self.alpha}"
-            )
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.p <= 1.0:
+            raise ValueError(f"LPOnlyAblationPolicy p must be in [0, 1], got {self.p}")
         L, U = (float(self.cost_envelope[0]), float(self.cost_envelope[1]))
         if not (math.isfinite(L) and math.isfinite(U) and 0.0 < L < U):
             raise ValueError(
@@ -96,34 +82,27 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         names = [provider.name for provider in providers]
         c_min = min(c_eff.values())
         c_max = max(c_eff.values())
-        budget = (1.0 - self.alpha) * c_min + self.alpha * c_max
+        budget = c_min + self.p * (c_max - c_min)
 
         latency_objective = [tbar[name] for name in names]
         effective_costs = [c_eff[name] for name in names]
-        if self.alpha <= _LP_EPS:
-            weights = _alpha_zero_weights(
+        if self.p <= _LP_EPS:
+            weights = _p_zero_weights(
                 names,
                 latency_objective=latency_objective,
                 effective_costs=effective_costs,
                 budget=budget,
             )
         else:
-            objective = cost_tiebroken_objective(
-                latency_objective,
-                effective_costs,
+            success, vector = _solve_lp(
+                objective=_cost_tiebroken_objective(
+                    latency_objective,
+                    effective_costs,
+                ),
+                upper_constraint=effective_costs,
+                upper_bound=budget,
             )
-            result = solve_budget_lp(
-                [
-                    BudgetLPCandidate(
-                        name=name,
-                        objective=objective[index],
-                        effective_cost=effective_costs[index],
-                    )
-                    for index, name in enumerate(names)
-                ],
-                budget=budget,
-            )
-            weights = result.weights if result.feasible else {}
+            weights = _normalize_weights(names, vector) if success and vector is not None else {}
         if not weights:
             best = min(
                 providers,
@@ -142,7 +121,7 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
                 "U": U,
                 "quota_curve": self.quota_curve,
                 "concurrency_curve": self.concurrency_curve,
-                "alpha": self.alpha,
+                "p": self.p,
             },
         )
 
@@ -157,33 +136,24 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
     ) -> float:
         """Return candidate piecewise effective cost for one provider."""
         if provider.tier == ProviderTier.S_A:
-            return core_effective_cost(
-                "api",
-                request_cost_usd=provider.marginal_cost_for_request(request, now),
-                L=L,
-                U=U,
-            )
+            return provider.marginal_cost_for_request(request, now)
         if provider.tier == ProviderTier.S_Q:
-            return core_effective_cost(
-                "quota",
-                quota_fraction_used=(
-                    None if provider.quota is None else provider.quota.fraction_used(now)
-                ),
+            if provider.quota is None:
+                return 0.0
+            return scarcity_price(
+                self.quota_curve,
+                provider.quota.fraction_used(now),
                 L=L,
                 U=U,
-                quota_curve=self.quota_curve,
             )
         if provider.tier == ProviderTier.S_C:
-            return core_effective_cost(
-                "concurrency",
-                concurrency_utilization=(
-                    None
-                    if provider.concurrency is None
-                    else provider.concurrency.utilization(now)
-                ),
+            if provider.concurrency is None:
+                return 0.0
+            return scarcity_price(
+                self.concurrency_curve,
+                provider.concurrency.utilization(now),
                 L=L,
                 U=U,
-                concurrency_curve=self.concurrency_curve,
             )
         raise ValueError(
             f"unsupported provider tier for effective-cost ablation: {provider.tier!r}"
@@ -219,15 +189,96 @@ class LPOnlyAblationPolicy(NoOpTickMixin):
         return provider.true_mean_ms(now)
 
 
-def _alpha_zero_weights(
+def _solve_lp(
+    objective: list[float],
+    *,
+    upper_constraint: list[float],
+    upper_bound: float,
+) -> tuple[bool, np.ndarray | None]:
+    """Solve the RouteWise simplex LP using the production enumerator."""
+    n = len(objective)
+    if n == 0 or n != len(upper_constraint):
+        return False, None
+
+    obj = np.asarray(objective, dtype=float)
+    costs = np.asarray(upper_constraint, dtype=float)
+    if not np.all(np.isfinite(obj)) or not np.all(np.isfinite(costs)):
+        return False, None
+
+    best_vector: np.ndarray | None = None
+    best_key: tuple[float, float, int, tuple[float, ...]] | None = None
+
+    def consider(vector: np.ndarray) -> None:
+        nonlocal best_key, best_vector
+        expected_cost = float(np.dot(costs, vector))
+        if expected_cost > upper_bound + _LP_EPS:
+            return
+        value = float(np.dot(obj, vector))
+        support = int(np.count_nonzero(vector > _LP_EPS))
+        rounded = tuple(round(float(part), 12) for part in vector)
+        key = (value, expected_cost, support, rounded)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_vector = vector
+
+    for index, cost in enumerate(costs):
+        if cost <= upper_bound + _LP_EPS:
+            vector = np.zeros(n, dtype=float)
+            vector[index] = 1.0
+            consider(vector)
+
+    for left in range(n):
+        left_cost = float(costs[left])
+        for right in range(left + 1, n):
+            right_cost = float(costs[right])
+            span = left_cost - right_cost
+            if abs(span) <= _LP_EPS:
+                continue
+            left_weight = (upper_bound - right_cost) / span
+            right_weight = 1.0 - left_weight
+            if left_weight < -_LP_EPS or right_weight < -_LP_EPS:
+                continue
+            left_weight = min(max(left_weight, 0.0), 1.0)
+            right_weight = min(max(right_weight, 0.0), 1.0)
+            vector = np.zeros(n, dtype=float)
+            vector[left] = left_weight
+            vector[right] = right_weight
+            consider(vector)
+
+    if best_vector is None:
+        return False, None
+    return True, best_vector
+
+
+def _cost_tiebroken_objective(
+    latency_objective_ms: list[float],
+    effective_costs: list[float],
+) -> list[float]:
+    """Prefer lower effective cost when LP latency objectives are equal."""
+    if len(latency_objective_ms) != len(effective_costs):
+        raise ValueError("latency objective and cost arrays must have the same length")
+    if not latency_objective_ms:
+        return []
+
+    latencies = np.asarray(latency_objective_ms, dtype=float)
+    costs = np.asarray(effective_costs, dtype=float)
+    cost_span = float(costs.max() - costs.min())
+    if cost_span <= _LP_EPS:
+        return [float(value) for value in latencies]
+
+    normalized_costs = (costs - costs.min()) / cost_span
+    return [float(value) for value in latencies + _COST_TIEBREAK_MS * normalized_costs]
+
+
+def _p_zero_weights(
     names: list[str],
     *,
     latency_objective: list[float],
     effective_costs: list[float],
     budget: float,
 ) -> dict[str, float]:
-    """Return the alpha=0 LP optimum without running the generic enumerator."""
-    objective = cost_tiebroken_objective(latency_objective, effective_costs)
+    """Return the p=0 LP optimum without running the generic enumerator."""
+    objective = _cost_tiebroken_objective(latency_objective, effective_costs)
     best_key: tuple[float, float, int, tuple[float, ...]] | None = None
     best_name: str | None = None
     n = len(names)
@@ -240,6 +291,16 @@ def _alpha_zero_weights(
             best_key = key
             best_name = name
     return {best_name: 1.0} if best_name is not None else {}
+
+
+def _normalize_weights(names: list[str], vector: np.ndarray) -> dict[str, float]:
+    weights = {
+        name: float(vector[idx]) for idx, name in enumerate(names) if float(vector[idx]) > _LP_EPS
+    }
+    total = sum(weights.values())
+    if total <= 0.0:
+        return {}
+    return {name: value / total for name, value in weights.items()}
 
 
 def _sample_weighted(weights: dict[str, float], rng: np.random.Generator) -> str:

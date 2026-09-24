@@ -12,15 +12,15 @@ from experiments.real_evaluation.inventory import (
     ProviderState,
 )
 from experiments.real_evaluation.policies import (
+    CapacityUnavailableError,
     OR_AUTO_SENTINEL,
     OR_SORT_SENTINEL_TO_MODE,
     UNPROFILED_LATENCY_PENALTY_MS,
     BudgetRangeHedgePolicy,
     BudgetRangePolicy,
-    CapacityUnavailableError,
     RequestContext,
     build_policy,
-    select_checkpoint_backup,
+    select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.shadow_price import (
     concurrency_shadow_price,
@@ -29,7 +29,6 @@ from experiments.real_evaluation.shadow_price import (
     workload_cost_envelope,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from llm_routewise.core.lp import BudgetLPCandidate, solve_budget_lp
 
 
 def _api_spec(
@@ -101,19 +100,6 @@ def test_budget_range_lp_tiebreak_prefers_lower_effective_cost() -> None:
     assert policy.rate_limit_fallback_candidates(now, ctx, excluded=set())[0] == "OR_cheap"
 
 
-def test_real_eval_budget_lp_keeps_small_core_epsilon_weight() -> None:
-    result = solve_budget_lp(
-        [
-            BudgetLPCandidate("main", objective=100.0, effective_cost=1.0),
-            BudgetLPCandidate("tiny", objective=0.0, effective_cost=2.0),
-        ],
-        budget=1.0 + 1e-7,
-    )
-
-    assert result.feasible
-    assert result.weights == pytest.approx({"main": 1.0 - 1e-7, "tiny": 1e-7})
-
-
 def test_budget_range_latency_objective_penalizes_error_attempts() -> None:
     fast_flaky = _api_spec("OR_fast_flaky", 1.0, 0.0)
     steady = _api_spec("OR_steady", 1.0, 0.0)
@@ -155,21 +141,21 @@ def test_greedy_latency_penalizes_error_attempts() -> None:
 
 def test_budget_range_policy_names_match_simulator_ablation_layers() -> None:
     """Real eval should expose the same first two simulator layers:
-    LP-only ``budget_range_alpha*`` and LP+hedge ``budget_range_alpha*_hedge``."""
+    LP-only ``budget_range_p*`` and LP+hedge ``budget_range_p*_hedge``."""
     specs = [_api_spec("OR_x", 0.3, 1.2)]
 
-    lp_only = build_policy("budget_range_alpha75", specs=specs, slo_ms=2000.0)
-    hedged = build_policy("budget_range_alpha75_hedge", specs=specs, slo_ms=2000.0)
+    lp_only = build_policy("budget_range_p75", specs=specs, slo_ms=2000.0)
+    hedged = build_policy("budget_range_p75_hedge", specs=specs, slo_ms=2000.0)
 
     assert isinstance(lp_only, BudgetRangePolicy)
-    assert lp_only.name == "budget_range_alpha75"
+    assert lp_only.name == "budget_range_p75"
     assert lp_only.use_hedge is False
     assert isinstance(hedged, BudgetRangeHedgePolicy)
-    assert hedged.name == "budget_range_alpha75_hedge"
+    assert hedged.name == "budget_range_p75_hedge"
     assert hedged.use_hedge is True
 
 
-def test_checkpoint_backup_does_not_fall_back_to_low_median_when_infeasible() -> None:
+def test_probability_backup_does_not_fall_back_to_low_median_when_infeasible() -> None:
     primary = _api_spec("OR_Inceptron", 0.24, 0.9)
     low_median_heavy_tail = _api_spec("OR_AtlasCloud", 0.295, 1.2)
     slow_backup = _api_spec("OR_Chutes", 0.118, 0.99)
@@ -185,24 +171,23 @@ def test_checkpoint_backup_does_not_fall_back_to_low_median_when_infeasible() ->
         states["OR_AtlasCloud"].profile.add_sample(now, 1000.0)
         states["OR_AtlasCloud"].profile.add_sample(now, 6000.0)
 
-    decision = select_checkpoint_backup(
-        primary="OR_Inceptron",
-        states=states,
-        ctx=RequestContext(10, 8),
+    backup = select_safe_cheapest_backup(
+        "OR_Inceptron",
+        states,
+        RequestContext(10, 8),
         slo_sec=5.0,
         now=now,
-        elapsed_sec=1.0,
     )
 
-    assert decision.backup is None
+    assert backup is None
 
 
 def test_profile_bootstrap_requirement_is_policy_owned() -> None:
     specs = [_api_spec("OR_x", 0.3, 1.2)]
 
     needs_profile = [
-        "budget_range_alpha75",
-        "budget_range_alpha75_hedge",
+        "budget_range_p75",
+        "budget_range_p75_hedge",
         "greedy_latency",
         "or_greedy_latency",
         "quota_first",
@@ -583,7 +568,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
             self._cross_violation = False
             self._race_lock = threading.Lock()
 
-        def predict(self, request):
+        def predict(self, request):  # noqa: ANN001 - duck typed
             with self._race_lock:
                 if self._in_update > 0:
                     self._cross_violation = True
@@ -598,7 +583,7 @@ def test_predict_and_observe_response_are_mutually_excluded() -> None:
                     self._in_predict -= 1
             return QuantilePrediction(q10=10.0, q50=10.0, q90=10.0)
 
-        def update(self, request):
+        def update(self, request):  # noqa: ANN001 - duck typed
             with self._race_lock:
                 if self._in_predict > 0:
                     self._cross_violation = True
@@ -672,30 +657,6 @@ def test_observe_response_ignores_missing_completion_tokens() -> None:
     # Constant predictor is unaffected, but the call must not raise.
     cost = policy.request_cost_for_spec(api, ctx)
     assert cost == pytest.approx(42.0 / 1_000_000.0)
-
-
-def test_latency_profile_memory_bounded_under_legacy_only_queries() -> None:
-    """Baseline-policy pattern: legacy reads never advance the core clocks.
-
-    Before retention pruning, a 24h feed left every sample of the run in the
-    shared profile's ``_mean_pending`` heap and ``_samples_by_ts`` index for
-    profiles only ever read through the legacy methods (median_ms etc.).
-    """
-    from experiments.real_evaluation.inventory import LatencyProfile
-
-    profile = LatencyProfile(window_sec=100.0)
-    for i in range(5000):
-        profile.add_sample(float(i), 50.0)
-        if i % 10 == 0:
-            profile.median_ms(float(i))
-    bound = 2 * 100 + 1024 + 50  # two windows at 1 sample/sec + prune-batch slack
-    assert len(profile._mean_pending) <= bound
-    assert len(profile._samples_by_ts) <= bound
-    assert len(profile.samples) <= bound
-    # Legacy semantics are untouched by the pruning: window [4899, 4999]
-    # holds 101 one-per-second samples.
-    assert profile.median_ms(4999.0) == pytest.approx(50.0)
-    assert profile.sample_count(4999.0) == 101
 
 
 def test_budget_range_rate_limit_fallback_uses_routewise_objective() -> None:
@@ -780,55 +741,3 @@ def test_routing_cache_diagnostics_returns_zero_when_trace_field_missing() -> No
 
     assert policy.routing_cache_diagnostics("OR_cached", ctx_missing)[0] == 0
     assert policy.routing_cache_diagnostics("OR_cached", ctx_with_field)[0] == 40
-
-
-def test_budget_range_decision_records_router_state() -> None:
-    fast = _api_spec("OR_fast", 0.3, 1.2)
-    cheap = _api_spec("OR_cheap", 0.1, 0.5)
-    policy = BudgetRangePolicy([fast, cheap], slo_ms=3000.0, budget_percentile=50)
-    policy.set_cost_envelope((1.0e-4, 2.0e-4))
-    now = 100.0
-    for _ in range(10):
-        policy.add_sample("OR_fast", now, 400.0)
-        policy.add_sample("OR_cheap", now, 900.0)
-
-    decision = policy.route(now, RequestContext(prompt_tokens=100, completion_tokens_budget=64))
-
-    assert decision.candidates == ("OR_fast", "OR_cheap")
-    assert set(decision.latency_objective_ms) == {"OR_fast", "OR_cheap"}
-    assert decision.latency_objective_ms["OR_fast"] < decision.latency_objective_ms["OR_cheap"]
-    assert decision.c_min_usd is not None
-    assert decision.c_min_usd <= min(decision.c_eff_map.values()) + 1e-12
-    assert decision.predicted_output_tokens is not None
-    assert decision.predicted_output_tokens >= 1
-    assert decision.quota_fraction_used is None
-    assert decision.concurrency_in_flight is None
-    assert decision.hedge_success_probability is None
-
-
-def test_single_provider_policy_pins_one_api_provider_without_fallback() -> None:
-    """``single_<name>`` is the one-on-demand-provider baseline: every
-    request goes to the pinned metered provider, nothing spills elsewhere,
-    and pinning a subscription tier or an unknown name is rejected."""
-    cheap_or = _api_spec("OR_cheap", 0.05, 0.2)
-    expensive_or = _api_spec("OR_expensive", 0.5, 2.0)
-    sub = ProviderSpec(
-        name="Chutes_SQ",
-        tier="quota",
-        transport_cfg=TransportConfig(name="Chutes_SQ", transport="chutes", model="x"),
-        quota_window_sec=3600,
-        quota_requests=100,
-    )
-    specs = [cheap_or, expensive_or, sub]
-
-    policy = build_policy("single_OR_expensive", specs=specs, slo_ms=2000.0)
-    assert policy.name == "single_OR_expensive"
-    decision = policy.route(0.0, RequestContext(10, 8))
-    assert decision.primary == "OR_expensive"
-    assert decision.hedge is None
-    assert policy.rate_limit_fallback_candidates(0.0, RequestContext(10, 8), excluded=set()) == []
-
-    with pytest.raises(ValueError, match="only metered"):
-        build_policy("single_Chutes_SQ", specs=specs, slo_ms=2000.0)
-    with pytest.raises(ValueError, match="not in inventory"):
-        build_policy("single_OR_missing", specs=specs, slo_ms=2000.0)

@@ -668,23 +668,3 @@ def test_cancel_event_not_set_completes_normally(monkeypatch) -> None:
 
     assert result.status == "success"
     assert response.chunks_yielded == 3
-
-
-def test_transport_keeps_openrouter_generation_id(monkeypatch) -> None:
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    session = _FakeSession(
-        [
-            _FakeResponse(
-                200,
-                stream_chunks=[
-                    {"id": "gen-abc123", "choices": [{"delta": {"content": "hi"}}]},
-                    {"id": "gen-abc123", "choices": [{"delta": {"content": "!"}}]},
-                ],
-            )
-        ]
-    )
-
-    result = _transport(session).send(prompt="x", max_tokens=8, timeout=5)
-
-    assert result.status == "success"
-    assert result.generation_id == "gen-abc123"

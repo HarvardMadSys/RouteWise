@@ -4,7 +4,7 @@ Provides transport-agnostic streaming chat-completion dispatch, hedged
 execution, adapter policies, and a trace-replay runner for evaluating routing
 strategies against live provider APIs.
 
-This package is the real-world counterpart to ``llm_routewise.sim`` (the simulator).
+This package is the real-world counterpart to ``rwsim`` (the simulator).
 The two share algorithm shapes but not implementations: real-eval uses
 empirical rolling profiles where the simulator uses analytical
 distributions.
@@ -45,6 +45,8 @@ from experiments.real_evaluation.policies import (
     RequestContext,
     RoutingDecision,
     build_policy,
+    compute_hedge_time_sec,
+    select_safe_cheapest_backup,
 )
 from experiments.real_evaluation.recorder import (
     CSV_FIELDS,
@@ -111,6 +113,7 @@ __all__ = [
     "build_policy",
     "build_provider_states",
     "build_transport",
+    "compute_hedge_time_sec",
     "compute_request_cost_usd",
     "concurrency_shadow_price",
     "effective_cost",
@@ -119,5 +122,6 @@ __all__ = [
     "quota_shadow_price",
     "request_marginal_cost",
     "resolve_transport_config",
+    "select_safe_cheapest_backup",
     "send_request",
 ]

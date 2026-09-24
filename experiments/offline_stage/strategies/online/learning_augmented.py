@@ -7,8 +7,9 @@ Key algorithms:
 - LearningAugmentedPrimalDualStrategy: Stage 1 LA-PD with v_t^{LCB} + fallback
 - LearningAugmentedUnifiedStrategy: Stage 2 unified router with duration UCB
 
-These strategies are kept with the offline-stage research harness and are not
-part of the public simulator policy surface.
+References:
+- docs/algorithm/online.tex (Part 5: Learning-Augmented Online Algorithm)
+- docs/algorithm/online_planning.md
 """
 
 import logging
@@ -23,22 +24,11 @@ from experiments.offline_stage.value_estimators import (
     OutputTokenPredictor,
     QuantilePrediction,
 )
-from llm_routewise.offline.cost import CostCalculator
-from llm_routewise.offline.quota import QuotaManager
-from llm_routewise.offline.schemas import Request, RoutingDecision
+from rwsim.offline.cost import CostCalculator
+from rwsim.offline.quota import QuotaManager
+from rwsim.offline.schemas import Request, RoutingDecision
 
 logger = logging.getLogger(__name__)
-
-
-def _require_quantile_prediction(prediction: object) -> QuantilePrediction:
-    """Return a quantile prediction or fail fast for point predictors."""
-
-    if not isinstance(prediction, QuantilePrediction):
-        raise TypeError(
-            "learning-augmented strategies require a quantile output predictor; "
-            "point predictors such as BucketMeanOutputPredictor do not expose q10/q50/q90"
-        )
-    return prediction
 
 
 def _calculate_predicted_api_cost(
@@ -325,7 +315,7 @@ class LearningAugmentedPrimalDualStrategy(OnlineStrategy):
         self._stats["total_decisions"] += 1
 
         # Step 1: Get prediction
-        prediction = _require_quantile_prediction(self.output_predictor.predict(request))
+        prediction = self.output_predictor.predict(request)
 
         # Step 2: Compute value estimate with safeguard/fallback
         value_estimate: float
@@ -594,7 +584,7 @@ class LearningAugmentedUnifiedStrategy(OnlineStrategy):
         self._stats["total_decisions"] += 1
 
         # Get predictions
-        output_pred = _require_quantile_prediction(self.output_predictor.predict(request))
+        output_pred = self.output_predictor.predict(request)
         duration_pred = self.duration_predictor.predict(request, output_pred.q90)
 
         # Calculate value LCB (using EMA fallback to avoid data leakage)

@@ -22,9 +22,9 @@ from matplotlib.ticker import (
     ScalarFormatter,
 )
 
-from llm_routewise.metrics.histogram import TtftHistogram
 from plots.helpers import save_figure
 from plots.style import apply_style
+from rwsim.metrics.histogram import TtftHistogram
 
 SCENARIOS = (
     "cost_layer_uniform",
@@ -58,53 +58,53 @@ POLICIES = (
     "greedy_cost",
     "random",
     "offline",
-    "ablation_lp_only_alpha0",
+    "ablation_lp_only_p0",
 )
 
 P_SWEEP_POLICIES = (
-    "ablation_lp_only_alpha0",
-    "ablation_lp_only_alpha25",
-    "ablation_lp_only_alpha50",
-    "ablation_lp_only_alpha75",
-    "ablation_lp_only_alpha100",
+    "ablation_lp_only_p0",
+    "ablation_lp_only_p25",
+    "ablation_lp_only_p50",
+    "ablation_lp_only_p75",
+    "ablation_lp_only_p100",
 )
 
 P_SWEEP_VALUES = {
-    "ablation_lp_only_alpha0": 0.0,
-    "ablation_lp_only_alpha25": 0.25,
-    "ablation_lp_only_alpha50": 0.50,
-    "ablation_lp_only_alpha75": 0.75,
-    "ablation_lp_only_alpha100": 1.0,
+    "ablation_lp_only_p0": 0.0,
+    "ablation_lp_only_p25": 0.25,
+    "ablation_lp_only_p50": 0.50,
+    "ablation_lp_only_p75": 0.75,
+    "ablation_lp_only_p100": 1.0,
 }
 
 CDF_POLICIES = (
     "greedy_cost",
     "random",
-    "ablation_lp_only_alpha0",
+    "ablation_lp_only_p0",
 )
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy",
     "random": "Random",
     "offline": "Offline",
-    "ablation_lp_only_alpha0": "RW alpha=0",
-    "ablation_lp_only_alpha25": "RW alpha=.25",
-    "ablation_lp_only_alpha50": "RW alpha=.50",
-    "ablation_lp_only_alpha75": "RW alpha=.75",
-    "ablation_lp_only_alpha100": "RW alpha=1",
+    "ablation_lp_only_p0": "RW p=0",
+    "ablation_lp_only_p25": "RW p=.25",
+    "ablation_lp_only_p50": "RW p=.50",
+    "ablation_lp_only_p75": "RW p=.75",
+    "ablation_lp_only_p100": "RW p=1",
 }
 
 POLICY_COLORS = {
     "greedy_cost": "#1f77b4",
     "random": "#7f8c8d",
     "offline": "#555555",
-    "ablation_lp_only_alpha0": "#9467bd",
+    "ablation_lp_only_p0": "#9467bd",
 }
 
 POLICY_LINESTYLES = {
     "greedy_cost": "-",
     "random": "--",
-    "ablation_lp_only_alpha0": ":",
+    "ablation_lp_only_p0": ":",
 }
 
 PROVIDER_ORDER = (
@@ -316,7 +316,7 @@ def plot_provider_mix(
 
 
 def plot_p_sweep_cost_vs_latency(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Plot the alpha-sweep sanity result: cost moves, latency does not."""
+    """Plot the p-sweep sanity result: cost moves, latency does not."""
     fig, axes = plt.subplots(1, 2, figsize=(6.7, 2.45), sharex=True)
     p_values = [P_SWEEP_VALUES[policy] for policy in P_SWEEP_POLICIES]
 
@@ -356,7 +356,7 @@ def plot_p_sweep_cost_vs_latency(rows: list[dict[str, str]], output_dir: Path) -
         ax.set_xticks(p_values)
         ax.set_xticklabels(["0", ".25", ".50", ".75", "1"])
     axes[0].legend(frameon=False, ncols=2, loc="upper left")
-    fig.suptitle("On-demand alpha-sweep: alpha changes spend, not latency", y=1.04, fontsize=10)
+    fig.suptitle("On-demand p-sweep: p changes spend, not latency", y=1.04, fontsize=10)
     save_figure(
         fig,
         output_dir,
@@ -367,7 +367,7 @@ def plot_p_sweep_cost_vs_latency(rows: list[dict[str, str]], output_dir: Path) -
 
 
 def plot_p_sweep_provider_mix(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Plot how the alpha sweep changes provider mix across latency families."""
+    """Plot how the p sweep changes provider mix across latency families."""
     fig, axes = plt.subplots(2, 2, figsize=(6.7, 4.1), sharex=True, sharey=True)
     x = np.arange(len(P_SWEEP_POLICIES))
     axes_flat = axes.ravel()
@@ -410,7 +410,7 @@ def plot_p_sweep_provider_mix(rows: list[dict[str, str]], output_dir: Path) -> N
         bbox_to_anchor=(0.5, 1.03),
     )
     fig.suptitle(
-        "On-demand alpha-sweep: alpha moves traffic to pricier providers",
+        "On-demand p-sweep: p moves traffic to pricier providers",
         y=1.10,
         fontsize=10,
     )

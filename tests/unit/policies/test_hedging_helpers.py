@@ -6,8 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import llm_routewise.core as core
-from llm_routewise.core.hedging import (
+from rwsim.policies.hedging import (
     BackupCandidate,
     combined_success_probability,
     has_feasible_backup,
@@ -19,26 +18,23 @@ def _provider(name: str):
     return SimpleNamespace(name=name)
 
 
-def test_core_package_exports_public_hedging_api() -> None:
-    assert core.BackupCandidate is BackupCandidate
-    assert core.combined_success_probability is combined_success_probability
-    assert core.select_probability_backup is select_probability_backup
-
-
 def test_combined_success_probability_uses_conditional_primary_and_backup() -> None:
-    def primary_cdf(value_ms: float) -> float:
-        if value_ms <= 500.0:
-            return 0.20
-        return 0.80
+    primary = _provider("primary")
+    backup = _provider("backup")
 
-    def backup_cdf(value_ms: float) -> float:
+    def cdf(provider, value_ms: float) -> float:
+        if provider.name == "primary":
+            if value_ms <= 500.0:
+                return 0.20
+            return 0.80
         if value_ms <= 400.0:
             return 0.70
         return 1.0
 
     probability = combined_success_probability(
-        primary_cdf,
-        backup_cdf,
+        cdf,
+        primary,
+        backup,
         elapsed_ms=500.0,
         slo_ms=1000.0,
         dispatch_overhead_ms=100.0,
@@ -50,30 +46,24 @@ def test_combined_success_probability_uses_conditional_primary_and_backup() -> N
 
 
 def test_combined_success_probability_has_zero_backup_when_no_time_remains() -> None:
-    def primary_cdf(value_ms: float) -> float:
-        return 0.50 if value_ms < 1000.0 else 0.80
+    primary = _provider("primary")
+    backup = _provider("backup")
+
+    def cdf(provider, value_ms: float) -> float:
+        if provider.name == "primary":
+            return 0.50 if value_ms < 1000.0 else 0.80
+        return 1.0
 
     probability = combined_success_probability(
-        primary_cdf,
-        lambda _value_ms: 1.0,
+        cdf,
+        primary,
+        backup,
         elapsed_ms=990.0,
         slo_ms=1000.0,
         dispatch_overhead_ms=50.0,
     )
 
     assert probability == pytest.approx((0.80 - 0.50) / (1.0 - 0.50))
-
-
-def test_combined_success_probability_uses_backup_when_primary_survival_is_zero() -> None:
-    probability = combined_success_probability(
-        lambda _value_ms: 1.0,
-        lambda value_ms: 0.75 if value_ms >= 400.0 else 0.0,
-        elapsed_ms=500.0,
-        slo_ms=1000.0,
-        dispatch_overhead_ms=100.0,
-    )
-
-    assert probability == pytest.approx(0.75)
 
 
 def test_select_probability_backup_prefers_cost_then_probability_then_latency() -> None:

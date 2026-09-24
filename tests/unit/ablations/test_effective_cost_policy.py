@@ -11,10 +11,9 @@ from experiments.simulation.common import (
     make_concurrency_provider,
     make_quota_provider,
 )
-from llm_routewise.core.lp import BudgetLPCandidate, cost_tiebroken_objective, solve_budget_lp
-from llm_routewise.schemas import Request, RoutingDecision, RoutingOutcome
-from llm_routewise.sim.engine.state import SimulationState
-from llm_routewise.sim.policies.routewise import RouteWisePolicy, quota_shadow_price
+from rwsim.engine.state import SimulationState
+from rwsim.policies.routewise import RouteWisePolicy, quota_shadow_price
+from rwsim.schemas import Request, RoutingDecision, RoutingOutcome
 
 
 def _request() -> Request:
@@ -196,22 +195,22 @@ def test_p_zero_fast_path_matches_lp_enumerator() -> None:
         provider.name: policy._latency_objective_ms(provider, state.now) for provider in providers
     }
     budget = min(c_eff.values())
-    objective = cost_tiebroken_objective(
-        [tbar[name] for name in names],
-        [c_eff[name] for name in names],
-    )
-    result = solve_budget_lp(
-        [
-            BudgetLPCandidate(name, objective=objective[index], effective_cost=c_eff[name])
-            for index, name in enumerate(names)
-        ],
-        budget=budget,
+    success, vector = effective_cost_policy._solve_lp(
+        objective=effective_cost_policy._cost_tiebroken_objective(
+            [tbar[name] for name in names],
+            [c_eff[name] for name in names],
+        ),
+        upper_constraint=[c_eff[name] for name in names],
+        upper_bound=budget,
     )
 
     decision = policy.route(request, state)
 
-    assert result.feasible
-    assert decision.metadata["weights"] == pytest.approx(result.weights)
+    assert success
+    assert vector is not None
+    assert decision.metadata["weights"] == pytest.approx(
+        effective_cost_policy._normalize_weights(names, vector)
+    )
 
 
 def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,9 +237,9 @@ def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatc
     )
 
     def fail_solve_lp(*args, **kwargs):
-        raise AssertionError("solve_budget_lp should not run for p=0")
+        raise AssertionError("_solve_lp should not run for p=0")
 
-    monkeypatch.setattr(effective_cost_policy, "solve_budget_lp", fail_solve_lp)
+    monkeypatch.setattr(effective_cost_policy, "_solve_lp", fail_solve_lp)
 
     decision = policy.route(request, state)
 
@@ -248,7 +247,7 @@ def test_p_zero_fast_path_skips_generic_lp_solver(monkeypatch: pytest.MonkeyPatc
     assert decision.metadata["weights"] == {"api_cheap": 1.0}
 
 
-def test_alpha_changes_weights_after_latency_profile_observations() -> None:
+def test_p_changes_weights_after_latency_profile_observations() -> None:
     providers = [
         make_api_provider(
             "api_cheap",
@@ -265,11 +264,11 @@ def test_alpha_changes_weights_after_latency_profile_observations() -> None:
     request = _request()
     cost_envelope = (0.0001, 0.001)
 
-    def policy_with_profile(alpha: float) -> LPOnlyAblationPolicy:
+    def policy_with_profile(p: float) -> LPOnlyAblationPolicy:
         policy = LPOnlyAblationPolicy(
             quota_curve="exp_lu",
             concurrency_curve="util_linear_u",
-            alpha=alpha,
+            p=p,
             cost_envelope=cost_envelope,
             seed=7,
         )
@@ -319,12 +318,12 @@ def test_ablation_uses_optimized_rolling_latency_profile_semantics() -> None:
     assert profile.mean(13.0) == pytest.approx(650.0)
 
 
-@pytest.mark.parametrize("alpha", [-0.1, 1.1])
-def test_rejects_invalid_alpha(alpha: float) -> None:
-    with pytest.raises(ValueError, match="alpha must be in \\[0, 1\\]"):
+@pytest.mark.parametrize("p", [-0.1, 1.1])
+def test_rejects_invalid_p(p: float) -> None:
+    with pytest.raises(ValueError, match="p must be in \\[0, 1\\]"):
         LPOnlyAblationPolicy(
             quota_curve="exp_lu",
             concurrency_curve="util_linear_u",
-            alpha=alpha,
+            p=p,
             cost_envelope=(1.0, 2.0),
         )

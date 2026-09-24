@@ -8,11 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from experiments.real_evaluation.transports import compute_request_cost_usd
-from llm_routewise.core.cost import (
-    concurrency_effective_cost,
-    effective_cost as core_effective_cost,
-    quota_effective_cost,
-)
+from rwsim.policies.effective_cost_kernel import scarcity_price
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,7 +27,7 @@ def quota_shadow_price(
     if state.quota is None:
         return 0.0
 
-    return quota_effective_cost(state.quota.fraction_used(now), L=L, U=U)
+    return scarcity_price("exp_lu", state.quota.fraction_used(now), L=L, U=U)
 
 
 def concurrency_shadow_price(
@@ -48,10 +44,10 @@ def concurrency_shadow_price(
     / admit-release. ``L``/``U``/``alpha`` are accepted for API compatibility
     with the simulator path but ignored.
     """
-    del now, alpha
+    del now, U, L, alpha
     if state.concurrency is None:
         return 0.0
-    return concurrency_effective_cost(None, L=L, U=U)
+    return 0.0
 
 
 def request_marginal_cost(
@@ -92,7 +88,7 @@ def effective_cost(
 ) -> float:
     """Paper-formula piecewise effective cost used by the joint router.
 
-    Matches :func:`llm_routewise.sim.policies.routewise.effective_cost` across **api**,
+    Matches :func:`rwsim.policies.routewise.effective_cost` across **api**,
     **quota**, and **concurrency** tiers.
 
     * ``S_A`` / ``tier="api"``: real API billing cost.
@@ -105,27 +101,11 @@ def effective_cost(
     routing effective cost.
     """
     if state.spec.tier == "api":
-        return core_effective_cost(
-            "api",
-            request_cost_usd=request_cost_usd,
-            L=L,
-            U=U,
-        )
+        return request_cost_usd
     if state.spec.tier == "quota":
-        return core_effective_cost(
-            "quota",
-            quota_fraction_used=None if state.quota is None else state.quota.fraction_used(now),
-            L=L,
-            U=U,
-        )
+        return quota_shadow_price(state, now, U=U, L=L)
     if state.spec.tier == "concurrency":
-        del concurrency_alpha
-        return core_effective_cost(
-            "concurrency",
-            concurrency_utilization=None,
-            L=L,
-            U=U,
-        )
+        return concurrency_shadow_price(state, now, U=U, L=L, alpha=concurrency_alpha)
     raise ValueError(f"Unsupported provider tier for real-eval effective cost: {state.spec.tier!r}")
 
 

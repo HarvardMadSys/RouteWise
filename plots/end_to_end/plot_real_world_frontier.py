@@ -30,25 +30,17 @@ from pathlib import Path
 from statistics import mean
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import to_rgb
-from matplotlib.patches import Patch
 
 from plots.end_to_end.frontier_plotting import (
     DEFAULT_BASELINE_ORDER,
-    FIGURE1_PANEL_FIGSIZE,
-    FRONT_PAGE_POLICY_COLORS,
     MIX_FIGSIZE,
-    PAPER_PANEL_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
-    BaselineDisplayAdjustment,
     BoxSeries,
     CdfSeries,
     FrontierPoint,
     MixRow,
     MixSegment,
-    aligned_panel_geometry,
-    aligned_top_in,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
     plot_stacked_mix,
@@ -58,11 +50,11 @@ from plots.end_to_end.frontier_plotting import (
 )
 from plots.style import apply_style
 
-ROUTEWISE_PREFIX = "budget_range_alpha"
+ROUTEWISE_PREFIX = "budget_range_p"
 ROUTEWISE_HEDGE_SUFFIX = "_hedge"
 ROUTEWISE_FRONTIER_PLOT_ALPHA = 0.25
 DEFAULT_FIGURE_POLICIES = (
-    "budget_range_alpha25_hedge",
+    "budget_range_p25_hedge",
     "greedy_cost",
     "greedy_latency",
     "or_auto",
@@ -78,44 +70,12 @@ POLICY_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
-    "single_OR_Together": "Single-provider",
 }
 DEFAULT_PROVIDER_MIX_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_CDF_POLICIES = DEFAULT_FIGURE_POLICIES
 DEFAULT_BOXPLOT_POLICIES = tuple(
     policy for policy in DEFAULT_FIGURE_POLICIES if policy != "random"
 )
-PROVIDER_DIAGNOSTIC_FIGSIZE = PAPER_PANEL_FIGSIZE
-# Figure 1 pairs the mean-TTFT frontier with the SLO bars. Neither carries a
-# legend, so the pair's top band is only the tick clearance.
-FIGURE1_TOP_IN = aligned_top_in(0)
-# The SLO bars' policy names are an absolute width, so the narrower Figure 1
-# canvas needs a larger fraction of it than the default 0.40.
-FIGURE1_LEFT = 0.435
-# $0.50 steps, the density the panel had before it moved to its own canvas.
-FIGURE1_X_TICK_STEP = 0.5
-PROVIDER_PRICING_ORDER = (
-    "OR_DeepInfra",
-    "OR_AtlasCloud",
-    "OR_Chutes",
-    "OR_AkashML",
-    "OR_WandB",
-    "OR_Novita",
-    "OR_Phala",
-    "OR_SiliconFlow",
-)
-PROVIDER_DIAGNOSTIC_COLORS = {
-    "MiniMax_Plus_SQ": "#6b4c3b",
-    "Featherless_SC": "#59a14f",
-    "OR_DeepInfra": "#4e79a7",
-    "OR_AtlasCloud": "#f28e2b",
-    "OR_AkashML": "#17becf",
-    "OR_WandB": "#9467bd",
-    "OR_Chutes": "#d62728",
-    "OR_Novita": "#e377c2",
-    "OR_Phala": "#bcbd22",
-    "OR_SiliconFlow": "#7f7f7f",
-}
 
 
 @dataclass(frozen=True)
@@ -167,7 +127,6 @@ class ProviderDiagnostics:
     n: int
     share: float
     mean_ttft_ms: float
-    p99_ttft_ms: float
     input_price_per_m: float | None
     cached_input_price_per_m: float | None
     output_price_per_m: float | None
@@ -219,26 +178,10 @@ def parse_args() -> argparse.Namespace:
         help="Optional output path for a provider mean-TTFT bar PDF.",
     )
     parser.add_argument(
-        "--provider-latency-values-json",
-        type=Path,
-        default=None,
-        help=(
-            "Optional JSON list of provider mean TTFT values in seconds. "
-            "When set, --provider-latency-out uses these values instead of "
-            "aggregating request logs."
-        ),
-    )
-    parser.add_argument(
         "--provider-latency-boxplot-out",
         type=Path,
         default=None,
         help="Optional output path for a provider TTFT distribution boxplot PDF.",
-    )
-    parser.add_argument(
-        "--provider-pricing-out",
-        type=Path,
-        default=None,
-        help="Optional output path for a provider input/output pricing bar PDF.",
     )
     parser.add_argument(
         "--cdf-out",
@@ -293,48 +236,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--slo-ms", type=float, default=3000.0)
     parser.add_argument(
-        "--drop-failed-mix",
-        action="store_true",
-        help=(
-            "Leave requests that failed before any provider served them (recorded under "
-            "the policy's own sentinel name) out of the provider-mix figure."
-        ),
-    )
-    parser.add_argument(
-        "--provider-latency-p99",
-        action="store_true",
-        help=(
-            "Draw the tail (P99) TTFT beside the mean in the provider latency panel. "
-            "Ignored when --provider-latency-values-json supplies the values."
-        ),
-    )
-    parser.add_argument(
-        "--provider-latency-xmax",
-        type=float,
-        default=None,
-        help="Upper x-limit (seconds) for the provider mean-TTFT panel; default fits 6 s.",
-    )
-    parser.add_argument(
-        "--emphasize-routewise",
-        action="store_true",
-        help="Draw the RouteWise curve heavier and the baselines lighter in the mean-TTFT frontier.",
-    )
-    parser.add_argument(
-        "--frontier-x-max",
-        type=float,
-        default=None,
-        help="Right x-limit (normalized cost) of the mean-TTFT frontier, to make room for labels.",
-    )
-    parser.add_argument(
-        "--label-offsets",
-        type=json.loads,
-        default=None,
-        help=(
-            "Optional JSON overriding label offsets (points) in the mean-TTFT frontier: "
-            '{"baselines": {"<policy>": [dx, dy]}, "routewise": {"<alpha>": [dx, dy]}}.'
-        ),
-    )
-    parser.add_argument(
         "--billing-duration-sec",
         type=float,
         default=28800.0,
@@ -378,16 +279,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--x-label",
-        default=None,
+        default="Normalized cost",
         help="X-axis label for generated frontier figures.",
-    )
-    parser.add_argument(
-        "--absolute-cost",
-        action="store_true",
-        help=(
-            "Report cost in dollars rather than as a multiple of the cheapest "
-            "policy: the frontier's x axis and the cost beside each SLO bar."
-        ),
     )
     parser.add_argument(
         "--routewise-plot-alphas",
@@ -442,7 +335,7 @@ def table_label(policy: str, alpha: float | None) -> str:
 
 
 def fixed_cost_for_policy(policy: str, args: argparse.Namespace) -> float:
-    if policy.startswith(("or_", "single_")):
+    if policy.startswith("or_"):
         return 0.0
     if args.fixed_cost_non_or is not None:
         return args.fixed_cost_non_or
@@ -548,11 +441,6 @@ def inventory_path_for_run(input_dir: Path) -> Path:
     raise FileNotFoundError(f"{input_dir}: could not find inventory in args.json")
 
 
-# The inventory key is spelled Minimax; the vendor, and the paper, spell it
-# MiniMax, so stripping the OR_ prefix is not enough for this one.
-PROVIDER_DISPLAY_NAMES = {"Minimax": "MiniMax"}
-
-
 def provider_label(provider: str) -> str:
     labels = {
         "MiniMax_Plus_SQ": r"$\mathcal{P}_Q$",
@@ -562,8 +450,7 @@ def provider_label(provider: str) -> str:
     if provider in labels:
         return labels[provider]
     if provider.startswith("OR_"):
-        name = provider.removeprefix("OR_")
-        return PROVIDER_DISPLAY_NAMES.get(name, name)
+        return provider.removeprefix("OR_")
     return provider.replace("_", " ")
 
 
@@ -580,8 +467,6 @@ def provider_mix_legend_label(provider: str) -> str:
         "OR_Novita": "Novita",
         "OR_Phala": "Phala",
         "OR_SiliconFlow": "SFlow",
-        "OR_GMICloud": "GMI",
-        "OR_StreamLake": "SLake",
     }
     return labels.get(provider, provider_label(provider))
 
@@ -651,8 +536,6 @@ def provider_mix_by_policy(
                 row.get("actual_provider") or row.get("primary_provider") or "",
                 hint_to_name=hint_to_name,
             )
-            if args.drop_failed_mix and provider.startswith("__"):
-                continue
             counts[provider] += 1
             total_counts[provider] += 1
         per_policy[policy_dir.name] = counts
@@ -699,16 +582,18 @@ def plot_provider_mix(
             for provider in providers_to_plot
         }
         mix_rows.append(MixRow(label=policy_plot_label(policy), shares=shares))
-    figsize, margins = aligned_panel_geometry(len(mix_rows))
     plot_stacked_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=4,
-        margins=margins,
+        legend_ncols=5,
+        legend_fontsize=8.2,
+        font_size=10.8,
+        label_fontsize=11.5,
+        tick_fontsize=9.8,
+        margins=(0.43, 0.98, 0.18, 0.80),
         show_legend=True,
         x_max=102.0,
-        figsize=figsize,
     )
 
 
@@ -743,7 +628,6 @@ def provider_diagnostics(
                 n=counts.get(provider, 0),
                 share=(counts.get(provider, 0) / total) if total else 0.0,
                 mean_ttft_ms=mean(ttft) if ttft else float("nan"),
-                p99_ttft_ms=percentile(ttft, 99.0) if ttft else float("nan"),
                 input_price_per_m=info.input_price_per_m if info else None,
                 cached_input_price_per_m=(info.cached_input_price_per_m if info else None),
                 output_price_per_m=info.output_price_per_m if info else None,
@@ -803,228 +687,47 @@ def write_provider_diagnostics_table(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def provider_diagnostic_color(provider: str, idx: int) -> str:
-    return PROVIDER_DIAGNOSTIC_COLORS.get(
-        provider,
-        PROVIDER_MIX_COLORS.get(
-            provider,
-            PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
-        ),
-    )
-
-
-def load_provider_latency_values(path: Path) -> list[tuple[str, float]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    values: list[tuple[str, float]] = []
-    for raw in payload:
-        provider = raw["provider"]
-        value = float(raw["mean_ttft_s"])
-        if not math.isfinite(value):
-            raise ValueError(f"{path}: non-finite mean_ttft_s for {provider}")
-        values.append((provider, value))
-    return values
-
-
-def latency_ticks(xmax: float) -> list[float]:
-    """Round tick positions covering ``[0, xmax]``, at most five of them."""
-    for step in (0.25, 0.5, 1.0, 2.0, 2.5, 5.0):
-        if xmax / step <= 5.0:
-            break
-    count = int(xmax / step)
-    return [step * index for index in range(count + 1)]
-
-
 def plot_provider_latency(
     diagnostics: list[ProviderDiagnostics],
     output_path: Path,
-    values_sec: list[tuple[str, float]] | None = None,
-    xmax: float | None = None,
-    show_p99: bool = False,
 ) -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 10.0,
-            "axes.labelsize": 10.0,
-            "xtick.labelsize": 10.0,
-            "ytick.labelsize": 10.0,
-            "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
+            "font.size": 7.5,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "figure.figsize": (3.35, 2.2),
             "savefig.pad_inches": 0.01,
         }
     )
-    p99_by_provider: dict[str, float] = {}
-    if values_sec is None:
-        usable = [item for item in diagnostics if item.n > 0 and not math.isnan(item.mean_ttft_ms)]
-        values_sec = sorted(
-            ((item.provider, item.mean_ttft_ms / 1000.0) for item in usable),
-            key=lambda item: item[1],
-        )
-        if show_p99:
-            p99_by_provider = {
-                item.provider: item.p99_ttft_ms / 1000.0
-                for item in usable
-                if not math.isnan(item.p99_ttft_ms)
-            }
-    labels = [provider_mix_legend_label(provider) for provider, _ in values_sec]
-    values = [value for _, value in values_sec]
+    items = [item for item in diagnostics if item.n > 0 and not math.isnan(item.mean_ttft_ms)]
+    items = sorted(items, key=lambda item: item.mean_ttft_ms)
+    labels = [provider_mix_legend_label(item.provider) for item in items]
+    values = [item.mean_ttft_ms / 1000.0 for item in items]
     colors = [
-        provider_diagnostic_color(provider, idx)
-        for idx, (provider, _) in enumerate(values_sec)
-    ]
-
-    fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
-    y = list(range(len(values_sec)))
-    plotted = list(values)
-    if p99_by_provider:
-        tails = [p99_by_provider.get(provider, 0.0) for provider, _ in values_sec]
-        plotted += tails
-        ax.barh(
-            [pos - 0.17 for pos in y],
-            values,
-            color=colors,
-            edgecolor="white",
-            linewidth=0.35,
-            height=0.32,
-            label="Mean",
+        PROVIDER_MIX_COLORS.get(
+            item.provider,
+            PROVIDER_COLOR_CYCLE[idx % len(PROVIDER_COLOR_CYCLE)],
         )
-        ax.barh(
-            [pos + 0.17 for pos in y],
-            tails,
-            color=[lightened_provider_color(color) for color in colors],
-            edgecolor="white",
-            linewidth=0.35,
-            height=0.32,
-            label="P99",
-        )
-        handles = [
-            Patch(facecolor="#4d4d4d", edgecolor="white", linewidth=0.35, label="Mean"),
-            Patch(
-                facecolor=lightened_provider_color("#4d4d4d"),
-                edgecolor="white",
-                linewidth=0.35,
-                label="P99",
-            ),
-        ]
-        ax.legend(
-            handles=handles,
-            loc="upper right",
-            fontsize=8.5,
-            frameon=True,
-            framealpha=0.85,
-            edgecolor="none",
-            handlelength=1.1,
-            handleheight=0.9,
-            borderpad=0.35,
-            labelspacing=0.25,
-        )
-    else:
-        ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.62)
-    ax.set_yticks(y, labels)
-    ax.invert_yaxis()
-    ax.set_xlabel("TTFT (s)" if p99_by_provider else "Mean TTFT (s)")
-    if xmax is None:
-        ax.set_xlim(0, max(6.0, max(plotted) * 1.08))
-        ax.set_xticks([0, 2, 4, 6])
-    else:
-        ax.set_xlim(0, xmax)
-        ticks = latency_ticks(xmax)
-        ax.set_xticks(ticks, [f"{tick:g}" for tick in ticks])
-    ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
-    ax.grid(axis="y", visible=False)
-    ax.set_axisbelow(True)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.16, top=0.97)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with plt.rc_context({"savefig.bbox": None}):
-        fig.savefig(output_path)
-    plt.close(fig)
-
-
-def lightened_provider_color(color: str, mix: float = 0.55) -> tuple[float, float, float]:
-    base = to_rgb(color)
-    return tuple(channel + (1.0 - channel) * mix for channel in base)
-
-
-def pricing_sort_key(provider: ProviderInfo) -> tuple[int, str]:
-    try:
-        return (PROVIDER_PRICING_ORDER.index(provider.name), provider.name)
-    except ValueError:
-        return (len(PROVIDER_PRICING_ORDER), provider.label)
-
-
-def plot_provider_pricing(
-    providers: dict[str, ProviderInfo],
-    output_path: Path,
-) -> None:
-    items = [
-        provider
-        for provider in providers.values()
-        if provider.tier == "api"
-        and (
-            (provider.input_price_per_m is not None and provider.input_price_per_m > 0.0)
-            or (
-                provider.output_price_per_m is not None
-                and provider.output_price_per_m > 0.0
-            )
-        )
-    ]
-    if not items:
-        raise ValueError("no provider pricing available")
-    items = sorted(items, key=pricing_sort_key)
-
-    apply_style("paper")
-    plt.rcParams.update(
-        {
-            "font.size": 10.0,
-            "axes.labelsize": 10.0,
-            "xtick.labelsize": 10.0,
-            "ytick.labelsize": 10.0,
-            "figure.figsize": PROVIDER_DIAGNOSTIC_FIGSIZE,
-            "savefig.pad_inches": 0.01,
-        }
-    )
-
-    labels = [provider_mix_legend_label(item.name) for item in items]
-    input_prices = [item.input_price_per_m or 0.0 for item in items]
-    output_prices = [item.output_price_per_m or 0.0 for item in items]
-    colors = [
-        provider_diagnostic_color(item.name, idx)
         for idx, item in enumerate(items)
     ]
 
-    fig, ax = plt.subplots(figsize=PROVIDER_DIAGNOSTIC_FIGSIZE, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=(3.35, 2.2), constrained_layout=False)
     y = list(range(len(items)))
-    ax.barh(
-        [pos - 0.17 for pos in y],
-        input_prices,
-        color=[lightened_provider_color(color) for color in colors],
-        edgecolor="white",
-        linewidth=0.35,
-        height=0.32,
-    )
-    ax.barh(
-        [pos + 0.17 for pos in y],
-        output_prices,
-        color=colors,
-        edgecolor="white",
-        linewidth=0.35,
-        height=0.32,
-    )
+    ax.barh(y, values, color=colors, edgecolor="white", linewidth=0.35, height=0.72)
     ax.set_yticks(y, labels)
     ax.invert_yaxis()
-    ax.set_xlabel("USD / 1M tokens")
-    ax.set_xlim(0, max(1.55, max(input_prices + output_prices) * 1.08))
-    ax.set_xticks([0, 0.5, 1.0, 1.5])
+    ax.set_xlabel("Mean TTFT (s)")
     ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(left=0.30, right=0.98, bottom=0.16, top=0.97)
+    fig.subplots_adjust(left=0.29, right=0.99, bottom=0.16, top=0.97)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with plt.rc_context({"savefig.bbox": None}):
-        fig.savefig(output_path)
+    fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -1082,10 +785,10 @@ def plot_provider_latency_boxplot(
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 10.0,
-            "axes.labelsize": 10.0,
-            "xtick.labelsize": 10.0,
-            "ytick.labelsize": 10.0,
+            "font.size": 10.8,
+            "axes.labelsize": 11.5,
+            "xtick.labelsize": 9.8,
+            "ytick.labelsize": 9.6,
             "figure.figsize": MIX_FIGSIZE,
             "savefig.pad_inches": 0.01,
         }
@@ -1249,14 +952,7 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError(f"{args.input_dir}: no valid TTFT samples for boxplot")
     slo_sec = args.slo_ms / 1000.0
-    figsize, margins = aligned_panel_geometry(len(series))
-    plot_common_ttft_boxplot(
-        series,
-        output_path,
-        slo_sec=slo_sec,
-        figsize=figsize,
-        margins=margins,
-    )
+    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
 
 
 def collect_summaries(args: argparse.Namespace) -> list[PolicySummary]:
@@ -1345,13 +1041,9 @@ def plot_metric_frontier(
     *,
     attr: str,
     ylabel: str,
-    xlabel: str | None,
+    xlabel: str,
     routewise_alphas: tuple[float, ...],
     title: str | None = None,
-    label_offsets: dict | None = None,
-    emphasize_routewise: bool = False,
-    x_max: float | None = None,
-    normalize_cost: bool = True,
 ) -> None:
     if title:
         raise ValueError("shared frontier plots do not support per-panel titles")
@@ -1360,43 +1052,9 @@ def plot_metric_frontier(
         "xlabel": xlabel,
         "routewise_alphas": routewise_alphas,
         "baseline_order": BASELINE_ORDER,
-        "policy_colors": FRONT_PAGE_POLICY_COLORS,
-        "normalize_cost": normalize_cost,
     }
-    figsize, margins = aligned_panel_geometry(
-        len(points),
-        left=FIGURE1_LEFT,
-        top_in=FIGURE1_TOP_IN,
-        figsize=FIGURE1_PANEL_FIGSIZE,
-    )
-    kwargs.update(figsize=figsize, margins=margins)
     if attr == "ttft_mean_ms":
         kwargs["baseline_order"] = tuple(policy for policy in BASELINE_ORDER if policy != "random")
-        kwargs["emphasize_routewise"] = emphasize_routewise
-        kwargs["x_max"] = x_max
-        kwargs["x_tick_step"] = FIGURE1_X_TICK_STEP
-        if label_offsets:
-            kwargs["baseline_label_offsets"] = {
-                policy: tuple(offset)
-                for policy, offset in label_offsets.get("baselines", {}).items()
-            }
-            kwargs["routewise_label_offsets"] = {
-                float(alpha): tuple(offset)
-                for alpha, offset in label_offsets.get("routewise", {}).items()
-            }
-            kwargs["baseline_leader_policies"] = tuple(label_offsets.get("leaders", ()))
-            kwargs["baseline_display_adjustments"] = {
-                policy: BaselineDisplayAdjustment(
-                    marker_offset_pt=tuple(adjustment.get("marker_offset_pt", (0, 0))),
-                    label_offset_pt=(
-                        tuple(adjustment["label_offset_pt"])
-                        if "label_offset_pt" in adjustment
-                        else None
-                    ),
-                    hide_leader=adjustment.get("hide_leader", False),
-                )
-                for policy, adjustment in label_offsets.get("display_adjustments", {}).items()
-            }
         plot_mean_ttft_frontier(points, path, **kwargs)
     elif attr == "slo_violation_rate":
         plot_slo_frontier(points, path, **kwargs)
@@ -1439,10 +1097,6 @@ def main() -> int:
         ylabel="Mean TTFT (s)",
         xlabel=args.x_label,
         routewise_alphas=tuple(args.routewise_plot_alphas),
-        label_offsets=args.label_offsets,
-        emphasize_routewise=args.emphasize_routewise,
-        x_max=args.frontier_x_max,
-        normalize_cost=not args.absolute_cost,
     )
     plot_metric_frontier(
         summaries,
@@ -1451,7 +1105,6 @@ def main() -> int:
         ylabel="SLO violations (%)",
         xlabel=args.x_label,
         routewise_alphas=tuple(args.routewise_plot_alphas),
-        normalize_cost=not args.absolute_cost,
     )
     write_table_rows(summaries, args.table_out)
     write_summary(summaries, args.summary_out)
@@ -1478,26 +1131,11 @@ def main() -> int:
         or args.provider_summary_out is not None
         or args.provider_latency_out is not None
         or args.provider_latency_boxplot_out is not None
-        or args.provider_pricing_out is not None
     ):
         diagnostics = provider_diagnostics(args, providers, hint_to_name)
     if args.provider_latency_out is not None and diagnostics is not None:
-        values_sec = (
-            load_provider_latency_values(args.provider_latency_values_json)
-            if args.provider_latency_values_json is not None
-            else None
-        )
-        plot_provider_latency(
-            diagnostics,
-            args.provider_latency_out,
-            values_sec,
-            xmax=args.provider_latency_xmax,
-            show_p99=args.provider_latency_p99,
-        )
+        plot_provider_latency(diagnostics, args.provider_latency_out)
         print(f"wrote {args.provider_latency_out}")
-    if args.provider_pricing_out is not None:
-        plot_provider_pricing(providers, args.provider_pricing_out)
-        print(f"wrote {args.provider_pricing_out}")
     if args.provider_latency_boxplot_out is not None:
         plot_provider_latency_boxplot(
             args,

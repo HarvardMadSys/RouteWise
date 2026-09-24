@@ -16,12 +16,12 @@ from experiments.ablations.hedging.presets import (
     production_baseline_policy_name,
 )
 from experiments.simulation import common, hedging as hedging_section
-from llm_routewise.sim.engine.simulator import Simulator
+from rwsim.engine.simulator import Simulator
 
 if TYPE_CHECKING:
-    from llm_routewise.metrics import Run
-    from llm_routewise.schemas import Request
-    from llm_routewise.sim.world.scenarios import ScenarioConfig
+    from rwsim.metrics import Run
+    from rwsim.schemas import Request
+    from rwsim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "hedging-ablation"
 DEFAULT_OUTPUT_DIR = common.OUTPUT_DIR.parent / "ablations" / "hedging"
@@ -46,10 +46,10 @@ def make_scenario(name: str) -> ScenarioConfig:
 
 def policies_for_ablation(
     *,
-    alpha_values: tuple[float, ...] = DEFAULT_P_VALUES,
+    p_values: tuple[float, ...] = DEFAULT_P_VALUES,
 ) -> tuple[str, ...]:
     """Return default hedging ablation policies."""
-    return tuple(make_ablation_presets(alpha_values=alpha_values))
+    return tuple(make_ablation_presets(p_values=p_values))
 
 
 def build_ablation_policy(
@@ -65,9 +65,7 @@ def build_ablation_policy(
         preset = presets[policy_name]
     except KeyError as exc:
         known = ", ".join(sorted(presets))
-        raise ValueError(
-            f"unknown hedging ablation policy {policy_name!r}; known: {known}"
-        ) from exc
+        raise ValueError(f"unknown hedging ablation policy {policy_name!r}; known: {known}") from exc
     if preset.get("policy") != "HedgingAblationPolicy":
         raise ValueError(f"unsupported hedging ablation preset {policy_name!r}: {preset!r}")
 
@@ -136,6 +134,7 @@ def run_hedging_ablation_cell(
 def main(argv: list[str] | None = None) -> int:
     """Run the hedging ablation harness."""
     parser = argparse.ArgumentParser(
+        prog="routewise ablation hedging",
         description=__doc__,
     )
     parser.add_argument(
@@ -150,12 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Policy to run. Repeat to run multiple. Defaults to the core ablation grid.",
     )
     parser.add_argument(
-        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="alpha_values",
-        help=f"RouteWise alpha value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
+        dest="p_values",
+        help=f"RouteWise p value. Repeat to sweep. Defaults to {DEFAULT_P_VALUES}.",
     )
     parser.add_argument(
         "--seed",
@@ -193,12 +191,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_P_VALUES
+    p_values = tuple(args.p_values) if args.p_values else DEFAULT_P_VALUES
     scenarios = {
         name: make_scenario(name)
         for name in (tuple(args.scenario) if args.scenario else list_scenarios())
     }
-    presets = make_ablation_presets(alpha_values=alpha_values)
+    presets = make_ablation_presets(p_values=p_values)
     policies = tuple(args.policy) if args.policy else tuple(presets)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
@@ -279,7 +277,7 @@ def _enrich_rows(
         meta = dict(scenario.metadata or {})
         preset = presets[row["policy"]]
         params = dict(preset["params"])
-        dispatch_timing, backup_selection, alpha_value = parse_ablation_policy_name(row["policy"])
+        dispatch_timing, backup_selection, p_value = parse_ablation_policy_name(row["policy"])
         merged = dict(row)
         merged.update(
             {
@@ -290,7 +288,7 @@ def _enrich_rows(
                 "overlap_label": meta.get("overlap_label"),
                 "slo_ms": meta.get("slo_ms"),
                 "target_success_probability": meta.get("target_success_probability"),
-                "routewise_alpha": float(params.get("alpha", alpha_value)),
+                "routewise_p": float(params.get("p", p_value)),
                 "dispatch_timing": dispatch_timing,
                 "backup_selection": backup_selection,
                 "backup_selection_semantics": (
@@ -301,7 +299,7 @@ def _enrich_rows(
                 "explorer_enabled": False,
                 "learns_from_backup": False,
                 "latency_profile_mode": params.get("latency_profile_mode", "observed"),
-                "production_baseline_policy": production_baseline_policy_name(alpha=alpha_value),
+                "production_baseline_policy": production_baseline_policy_name(p=p_value),
                 "cost_multiplier_basis": _COST_MULTIPLIER_BASIS,
             }
         )
@@ -310,12 +308,13 @@ def _enrich_rows(
     baselines = {
         (row["scenario"], parse_ablation_policy_name(row["policy"])[2]): row
         for row in enriched
-        if row["policy"]
-        == production_baseline_policy_name(alpha=parse_ablation_policy_name(row["policy"])[2])
+        if row["policy"] == production_baseline_policy_name(
+            p=parse_ablation_policy_name(row["policy"])[2]
+        )
     }
     for row in enriched:
-        alpha_value = parse_ablation_policy_name(row["policy"])[2]
-        baseline = baselines.get((row["scenario"], alpha_value))
+        p_value = parse_ablation_policy_name(row["policy"])[2]
+        baseline = baselines.get((row["scenario"], p_value))
         _add_production_deltas(row, baseline)
     return enriched
 
@@ -332,7 +331,9 @@ def _add_production_deltas(
         row["cost_multiplier_vs_production"] = None
         return
     row["p99_delta_vs_production_ms"] = row["p99_ms"] - baseline["p99_ms"]
-    row["mean_ttft_delta_vs_production_ms"] = row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
+    row["mean_ttft_delta_vs_production_ms"] = (
+        row["mean_ttft_ms"] - baseline["mean_ttft_ms"]
+    )
     row["p50_delta_vs_production_ms"] = row["p50_ms"] - baseline["p50_ms"]
     row["hedge_rate_delta_vs_production"] = row["hedge_rate"] - baseline["hedge_rate"]
     base_cost = _row_cost_for_multiplier(baseline)
@@ -364,7 +365,7 @@ _CSV_FIELDNAMES: tuple[str, ...] = (
     "backup_selection",
     "backup_selection_semantics",
     "production_baseline_policy",
-    "routewise_alpha",
+    "routewise_p",
     "slo_ms",
     "target_success_probability",
     "explorer_enabled",
@@ -425,7 +426,3 @@ __all__ = [
     "run_ablation_policy",
     "run_hedging_ablation_cell",
 ]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

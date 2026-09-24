@@ -22,35 +22,16 @@ cd "$ROOT"
 
 ENV_FILE="${ENV_FILE:-.env}"
 if [[ -f "$ENV_FILE" ]]; then
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%$'\r'}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    [[ -n "$line" && "${line:0:1}" != "#" ]] || continue
-
-    if [[ "$line" == export[[:space:]]* ]]; then
-      line="${line#export}"
-      line="${line#"${line%%[![:space:]]*}"}"
-    fi
-
-    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
-
-    key="${line%%=*}"
-    value="${line#*=}"
-    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
-      value="${value:1:${#value}-2}"
-    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
-      value="${value:1:${#value}-2}"
-    fi
-    if [[ -z "${!key:-}" ]]; then
-      export "$key=$value"
-    fi
-  done < "$ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
 fi
 
 TRACE="${TRACE:-data/real_eval/burstgpt_day2_h17_8h.jsonl}"
 INVENTORY="${INVENTORY:-experiments/real_evaluation/data/pilot_chutes_direct_or8_top_8h.json}"
 # Optional comma-separated overrides:
-#   POLICY_INVENTORY_MAP="greedy_cost=path_a.json,random=path_a.json,budget_range_alpha75_hedge=path_b.json"
+#   POLICY_INVENTORY_MAP="greedy_cost=path_a.json,random=path_a.json,budget_range_p75_hedge=path_b.json"
 # Policies not listed here use INVENTORY.
 POLICY_INVENTORY_MAP="${POLICY_INVENTORY_MAP:-}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
@@ -58,12 +39,8 @@ OUTPUT_BASE="${OUTPUT_BASE:-outputs/real_eval/real_eval_8h_direct_or8_top_${RUN_
 MAX_COST_USD="${MAX_COST_USD:-20}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 SPEEDUP="${SPEEDUP:-1.0}"
-QUOTA_WINDOW_ANCHOR="${QUOTA_WINDOW_ANCHOR:-wall_clock}"
 # Optional inventory-SLO override. When set, passes --slo-ms to every runner
 # process. Useful for SLO ablations without editing the inventory file.
-# A single policy can override it with a "__slo<ms>" suffix in POLICY_LIST,
-# so one pass can sweep the SLO for the same policy:
-#   POLICY_LIST="budget_range_alpha50_hedge__slo2000 budget_range_alpha50_hedge__slo5000"
 SLO_MS="${SLO_MS:-}"
 # Optional wall-clock cap on the replay phase. Defensive: if a policy hangs
 # the runner stops dispatching new trace requests after this many seconds.
@@ -72,39 +49,26 @@ DURATION_SEC="${DURATION_SEC:-}"
 WARMUP_PROBES="${WARMUP_PROBES:-24}"
 WARMUP_PROBE_INTERVAL_SEC="${WARMUP_PROBE_INTERVAL_SEC:-5}"
 PROFILE_PROBE_SLEEP_SEC="${PROFILE_PROBE_SLEEP_SEC:-0.5}"
+PERIODIC_PROBE_INTERVAL_SEC="${PERIODIC_PROBE_INTERVAL_SEC:-180}"
 MIN_PROFILE_SUCCESS_SAMPLES="${MIN_PROFILE_SUCCESS_SAMPLES:-5}"
 SHARED_WARMUP_PROFILE="${SHARED_WARMUP_PROFILE:-1}"
 INITIAL_PROFILE_PATH="${INITIAL_PROFILE_PATH:-$OUTPUT_BASE/initial_profile.json}"
-# Real-eval runs launch one process per policy, so natural/probe feedback is
-# shared across processes by default. The optional sidecar below adds active
-# probes; turning it off should not disable natural-feedback sharing.
+# Real-eval runs launch one process per policy, so profile maintenance must
+# be shared across processes by default. The sidecar below probes only when a
+# provider has no natural request feedback in the idle window.
 SHARED_PROFILE_PROBING="${SHARED_PROFILE_PROBING:-1}"
-SHARED_PROFILE_EVENTS="${SHARED_PROFILE_EVENTS:-1}"
 SHARED_PROFILE_EVENTS_PATH="${SHARED_PROFILE_EVENTS_PATH:-$OUTPUT_BASE/shared_profile_events.jsonl}"
 SHARED_PROFILE_POLL_SEC="${SHARED_PROFILE_POLL_SEC:-1}"
 SHARED_PROFILE_PROBE_INTERVAL_SEC="${SHARED_PROFILE_PROBE_INTERVAL_SEC:-5}"
 SHARED_PROFILE_IDLE_SEC="${SHARED_PROFILE_IDLE_SEC:-5}"
 SHARED_PROFILE_MAX_PROBES_PER_TICK="${SHARED_PROFILE_MAX_PROBES_PER_TICK:-0}"
 SYNTHESIZE_MISSING_PROMPTS="${SYNTHESIZE_MISSING_PROMPTS:-0}"
-# Cancel a hedge loser only once it has reported its own first token, so
-# requests.csv records what the request would have seen without the hedge.
-# The loser is still canceled and still skipped by the profile; the delay
-# costs whatever tokens it produced up to that point.
-HEDGE_OBSERVE_LOSER_TTFT="${HEDGE_OBSERVE_LOSER_TTFT:-0}"
 SYNTHETIC_OUTPUT_TOKENS="${SYNTHETIC_OUTPUT_TOKENS:-}"
 PREFIX_CACHE_ROUTING="${PREFIX_CACHE_ROUTING:-0}"
 KEY_SLOT_MAX="${KEY_SLOT_MAX:-20}"
 OPENROUTER_KEY_MODE="${OPENROUTER_KEY_MODE:-single}"
 if [[ "$OPENROUTER_KEY_MODE" != "single" && "$OPENROUTER_KEY_MODE" != "per_policy" ]]; then
   echo "OPENROUTER_KEY_MODE must be single or per_policy; got: $OPENROUTER_KEY_MODE" >&2
-  exit 2
-fi
-if [[ "$QUOTA_WINDOW_ANCHOR" != "wall_clock" && "$QUOTA_WINDOW_ANCHOR" != "trace_start" ]]; then
-  echo "QUOTA_WINDOW_ANCHOR must be wall_clock or trace_start; got: $QUOTA_WINDOW_ANCHOR" >&2
-  exit 2
-fi
-if [[ "$SHARED_PROFILE_PROBING" != "0" && "$SHARED_PROFILE_EVENTS" == "0" ]]; then
-  echo "SHARED_PROFILE_PROBING requires SHARED_PROFILE_EVENTS=1" >&2
   exit 2
 fi
 
@@ -124,35 +88,9 @@ if [[ "$QUOTA_PROVIDER" != "chutes" && "$QUOTA_PROVIDER" != "minimax" && "$QUOTA
   exit 2
 fi
 
-DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_alpha0_hedge budget_range_alpha25_hedge budget_range_alpha50_hedge budget_range_alpha75_hedge budget_range_alpha100_hedge or_auto or_sort_latency or_sort_cost"
+DEFAULT_POLICY_LIST="greedy_cost greedy_latency random budget_range_p0_hedge budget_range_p25_hedge budget_range_p50_hedge budget_range_p75_hedge budget_range_p100_hedge or_auto or_sort_latency or_sort_cost"
 # Override with POLICY_LIST="..." when running a smaller or alternate set.
 read -r -a POLICIES <<< "${POLICY_LIST:-$DEFAULT_POLICY_LIST}"
-
-# A POLICY_LIST entry may carry a per-process SLO as a "__slo<ms>" suffix.
-# The suffixed label is the process identity (output directory, policies.txt,
-# key assignments); the base name is what the runner's --policy expects, so
-# the same policy can appear several times at different SLOs in one pass.
-policy_base() {
-  printf '%s' "${1%%__slo*}"
-}
-
-policy_slo_override() {
-  local suffix="${1#*__slo}"
-  if [[ "$suffix" == "$1" ]]; then
-    return 0
-  fi
-  printf '%s' "$suffix"
-}
-
-if [[ ! -f "$TRACE" ]]; then
-  echo "TRACE file not found: $TRACE" >&2
-  echo "Set TRACE to an existing JSONL workload before starting real eval." >&2
-  exit 2
-fi
-if [[ ! -f "$INVENTORY" ]]; then
-  echo "INVENTORY file not found: $INVENTORY" >&2
-  exit 2
-fi
 
 if [[ -n "$POLICY_INVENTORY_MAP" ]]; then
   IFS=',' read -r -a _POLICY_INVENTORY_PAIRS <<< "$POLICY_INVENTORY_MAP"
@@ -183,21 +121,8 @@ inventory_for_policy() {
   printf '%s' "$INVENTORY"
 }
 
-for policy in "${POLICIES[@]}"; do
-  policy_inventory="$(inventory_for_policy "$policy")"
-  if [[ ! -f "$policy_inventory" ]]; then
-    echo "inventory file not found for policy $policy: $policy_inventory" >&2
-    exit 2
-  fi
-  policy_slo="$(policy_slo_override "$policy")"
-  if [[ -n "$policy_slo" && ! "$policy_slo" =~ ^[1-9][0-9]*$ ]]; then
-    echo "invalid __slo suffix for policy $policy: ${policy_slo:-<empty>}" >&2
-    exit 2
-  fi
-done
-
 is_native_or_baseline() {
-  case "$(policy_base "$1")" in
+  case "$1" in
     or_auto|or_sort_latency|or_sort_cost|or_sort_throughput)
       return 0
       ;;
@@ -208,8 +133,8 @@ is_native_or_baseline() {
 }
 
 requires_featherless_key() {
-  case "$(policy_base "$1")" in
-    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
+  case "$1" in
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
       return 1
       ;;
     *)
@@ -221,8 +146,8 @@ requires_featherless_key() {
 # Joint-pool policies that use the inventory quota tier (Chutes_SQ or
 # MiniMax_Plus_SQ, etc.) need a dedicated native API key. OR-only baselines do not.
 requires_chutes_key() {
-  case "$(policy_base "$1")" in
-    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency|single_*)
+  case "$1" in
+    or_auto|or_sort_latency|or_sort_cost|or_sort_throughput|or_greedy_cost|or_greedy_latency)
       return 1
       ;;
     *)
@@ -327,9 +252,8 @@ done
 # When the shared profile prober runs, reserve FEATHERLESS_KEYS[0] for it so
 # warmup + sidecar probes never compete with real-policy traffic for the
 # single concurrency slot on that account. Policies then draw from index 1
-# onward. With active probing disabled, the only up-front probes are one-shot
-# warmup probes, which complete before any policy starts, so sharing index 0 is
-# safe.
+# onward. With sidecar disabled, the prober only runs during one-shot warmup
+# (which completes before any policy starts), so sharing index 0 is safe.
 FEATHERLESS_POLICY_START_IDX=0
 if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   FEATHERLESS_POLICY_START_IDX=1
@@ -338,7 +262,7 @@ FEATHERLESS_REQUIRED=$((FEATHERLESS_POLICY_COUNT + FEATHERLESS_POLICY_START_IDX)
 
 if [[ "${#FEATHERLESS_KEYS[@]}" -lt "$FEATHERLESS_REQUIRED" ]]; then
   if [[ "$FEATHERLESS_POLICY_START_IDX" -gt 0 ]]; then
-    echo "expected at least $FEATHERLESS_REQUIRED Featherless keys ($FEATHERLESS_POLICY_COUNT joint policies + 1 dedicated to the active shared profile prober) from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}. Set SHARED_PROFILE_PROBING=0 to disable active shared probing and let policies use the first key; shared profile events remain enabled unless SHARED_PROFILE_EVENTS=0 is set explicitly." >&2
+    echo "expected at least $FEATHERLESS_REQUIRED Featherless keys ($FEATHERLESS_POLICY_COUNT joint policies + 1 dedicated to the shared profile prober) from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}. Set SHARED_PROFILE_PROBING=0 to share the first key between the prober and a policy." >&2
   else
     echo "expected at least $FEATHERLESS_POLICY_COUNT Featherless keys from FEATHERLESS_API_KEYS or FEATHERLESS_API_KEY_1..N, got ${#FEATHERLESS_KEYS[@]}" >&2
   fi
@@ -397,7 +321,7 @@ STAGGER_SEC="${STAGGER_SEC:-30}"
 STAGGER_ALL_POLICIES="${STAGGER_ALL_POLICIES:-0}"
 
 PREBUILD_SHARED_PROFILE_ARGS=()
-if [[ "$SHARED_PROFILE_EVENTS" != "0" ]]; then
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   mkdir -p "$(dirname "$SHARED_PROFILE_EVENTS_PATH")"
   : > "$SHARED_PROFILE_EVENTS_PATH"
   PREBUILD_SHARED_PROFILE_ARGS=(--shared-profile-events "$SHARED_PROFILE_EVENTS_PATH")
@@ -445,9 +369,10 @@ fi
 if [[ -n "$DURATION_SEC" ]]; then
   EXTRA_RUNNER_ARGS+=(--duration-sec "$DURATION_SEC")
 fi
-EXTRA_RUNNER_ARGS+=(--quota-window-anchor "$QUOTA_WINDOW_ANCHOR")
-if [[ "$HEDGE_OBSERVE_LOSER_TTFT" != "0" ]]; then
-  EXTRA_RUNNER_ARGS+=(--hedge-observe-loser-ttft)
+
+PROCESS_PERIODIC_PROBE_INTERVAL_SEC="$PERIODIC_PROBE_INTERVAL_SEC"
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
+  PROCESS_PERIODIC_PROBE_INTERVAL_SEC=0
 fi
 
 cat > "$OUTPUT_BASE/run_env.txt" <<EOF
@@ -458,7 +383,6 @@ QUOTA_PROVIDER=$QUOTA_PROVIDER
 MAX_COST_USD=$MAX_COST_USD
 TIMEOUT_SEC=$TIMEOUT_SEC
 SPEEDUP=$SPEEDUP
-QUOTA_WINDOW_ANCHOR=$QUOTA_WINDOW_ANCHOR
 SLO_MS=$SLO_MS
 DURATION_SEC=$DURATION_SEC
 STAGGER_SEC=$STAGGER_SEC
@@ -469,8 +393,9 @@ SHARED_WARMUP_PROFILE=$SHARED_WARMUP_PROFILE
 INITIAL_PROFILE_PATH=$INITIAL_PROFILE_PATH
 WARMUP_PROBE_INTERVAL_SEC=$WARMUP_PROBE_INTERVAL_SEC
 PROFILE_PROBE_SLEEP_SEC=$PROFILE_PROBE_SLEEP_SEC
+PERIODIC_PROBE_INTERVAL_SEC=$PERIODIC_PROBE_INTERVAL_SEC
+PROCESS_PERIODIC_PROBE_INTERVAL_SEC=$PROCESS_PERIODIC_PROBE_INTERVAL_SEC
 SHARED_PROFILE_PROBING=$SHARED_PROFILE_PROBING
-SHARED_PROFILE_EVENTS=$SHARED_PROFILE_EVENTS
 SHARED_PROFILE_EVENTS_PATH=$SHARED_PROFILE_EVENTS_PATH
 SHARED_PROFILE_POLL_SEC=$SHARED_PROFILE_POLL_SEC
 SHARED_PROFILE_PROBE_INTERVAL_SEC=$SHARED_PROFILE_PROBE_INTERVAL_SEC
@@ -478,7 +403,6 @@ SHARED_PROFILE_IDLE_SEC=$SHARED_PROFILE_IDLE_SEC
 SHARED_PROFILE_MAX_PROBES_PER_TICK=$SHARED_PROFILE_MAX_PROBES_PER_TICK
 MIN_PROFILE_SUCCESS_SAMPLES=$MIN_PROFILE_SUCCESS_SAMPLES
 SYNTHESIZE_MISSING_PROMPTS=$SYNTHESIZE_MISSING_PROMPTS
-HEDGE_OBSERVE_LOSER_TTFT=$HEDGE_OBSERVE_LOSER_TTFT
 SYNTHETIC_OUTPUT_TOKENS=$SYNTHETIC_OUTPUT_TOKENS
 PREFIX_CACHE_ROUTING=$PREFIX_CACHE_ROUTING
 KEY_SLOT_MAX=$KEY_SLOT_MAX
@@ -493,15 +417,13 @@ EOF
 
 SHARED_PROFILE_ARGS=()
 profile_probe_pid=""
-if [[ "$SHARED_PROFILE_EVENTS" != "0" ]]; then
+if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   mkdir -p "$(dirname "$SHARED_PROFILE_EVENTS_PATH")"
   touch "$SHARED_PROFILE_EVENTS_PATH"
   SHARED_PROFILE_ARGS=(
     --shared-profile-events "$SHARED_PROFILE_EVENTS_PATH"
     --shared-profile-poll-sec "$SHARED_PROFILE_POLL_SEC"
   )
-fi
-if [[ "$SHARED_PROFILE_PROBING" != "0" ]]; then
   prebuild_chutes_key=""
   prebuild_minimax_key=""
   if [[ "$QUOTA_PROVIDER" == "minimax" ]]; then
@@ -610,12 +532,6 @@ for i in "${!POLICIES[@]}"; do
     dedicated_or_idx=$((dedicated_or_idx + 1))
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$policy" "$openrouter_key_slot" "$featherless_key_slot" "$native_quota_key_slot" "$start_delay" "$policy_inventory" >> "$ASSIGNMENTS_PATH"
-  policy_slo_args=()
-  policy_slo="$(policy_slo_override "$policy")"
-  if [[ -n "$policy_slo" ]]; then
-    # Placed after EXTRA_RUNNER_ARGS: argparse keeps the last --slo-ms.
-    policy_slo_args=(--slo-ms "$policy_slo")
-  fi
   out="$OUTPUT_BASE/$policy"
   mkdir -p "$out"
   echo "launching $policy -> $out (start_delay=${start_delay}s)"
@@ -633,7 +549,7 @@ for i in "${!POLICIES[@]}"; do
     CHUTES_API_KEY="$chutes_for_run" MINIMAX_API_KEY="$minimax_for_run" FEATHERLESS_API_KEY="$featherless_key" OPENROUTER_API_KEY="$openrouter_key" uv run python -m experiments.real_evaluation \
       --inventory "$policy_inventory" \
       --trace "$TRACE" \
-      --policy "$(policy_base "$policy")" \
+      --policy "$policy" \
       --output "$out" \
       --speedup "$SPEEDUP" \
       --max-cost-usd "$MAX_COST_USD" \
@@ -643,9 +559,9 @@ for i in "${!POLICIES[@]}"; do
       "${SHARED_PROFILE_ARGS[@]}" \
       "${TRACE_ARGS[@]}" \
       "${EXTRA_RUNNER_ARGS[@]}" \
-      "${policy_slo_args[@]}" \
       --warmup-probe-interval-sec "$WARMUP_PROBE_INTERVAL_SEC" \
       --profile-probe-sleep-sec "$PROFILE_PROBE_SLEEP_SEC" \
+      --periodic-probe-interval-sec "$PROCESS_PERIODIC_PROBE_INTERVAL_SEC" \
       --min-profile-success-samples "$MIN_PROFILE_SUCCESS_SAMPLES" \
       > "$out/run.log" 2>&1
   ) &

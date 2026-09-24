@@ -8,6 +8,7 @@ import json
 import pytest
 
 from experiments.simulation import hedging
+from routewise_cli.main import main as routewise_main
 
 
 def test_hedging_scenarios_match_section_contract():
@@ -21,17 +22,17 @@ def test_hedging_scenarios_match_section_contract():
 
 def test_hedging_policy_set_uses_hedging_only_routewise():
     assert hedging.policies_for_section() == (
-        "ablation_lp_only_alpha75",
-        "ablation_lp_hedging_alpha75",
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p75",
     )
 
     presets = hedging.make_policy_presets()
-    assert presets["ablation_lp_only_alpha75"]["params"]["hedging"] is False
-    assert presets["ablation_lp_only_alpha75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_only_alpha75"]["params"]["latency_profile_mode"] == "configured"
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["hedging"] == "probability_target"
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["explorer"] is False
-    assert presets["ablation_lp_hedging_alpha75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_only_p75"]["params"]["hedging"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_only_p75"]["params"]["latency_profile_mode"] == "configured"
+    assert presets["ablation_lp_hedging_p75"]["params"]["hedging"] == "probability_target"
+    assert presets["ablation_lp_hedging_p75"]["params"]["explorer"] is False
+    assert presets["ablation_lp_hedging_p75"]["params"]["latency_profile_mode"] == "configured"
 
 
 def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
@@ -69,29 +70,28 @@ def test_hedging_scenarios_reuse_latency_layer_with_section_slos():
     assert rw8_slo4000.metadata["slo_ms"] == pytest.approx(4000.0)
 
 
-def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require_burstgpt_data):
+def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path):
     output_dir = tmp_path / "hedging"
 
-    assert (
-        hedging.main(
-            [
-                "--scenario",
-                "hedging_heavy_tail",
-                "--seed",
-                "42",
-                "--max-requests",
-                "12",
-                "--output-dir",
-                str(output_dir),
-            ]
-        )
-        == 0
-    )
+    assert routewise_main(
+        [
+            "simulator",
+            "hedging",
+            "--scenario",
+            "hedging_heavy_tail",
+            "--seed",
+            "42",
+            "--max-requests",
+            "12",
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == [
-        "ablation_lp_only_alpha75",
-        "ablation_lp_hedging_alpha75",
+        "ablation_lp_only_p75",
+        "ablation_lp_hedging_p75",
     ]
 
     baseline, hedging_row = rows
@@ -117,7 +117,7 @@ def test_hedging_cli_writes_plot_ready_metrics_to_json_and_csv(tmp_path, require
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
     assert len(csv_rows) == 2
-    assert csv_rows[1]["policy"] == "ablation_lp_hedging_alpha75"
+    assert csv_rows[1]["policy"] == "ablation_lp_hedging_p75"
     assert csv_rows[1]["backup_selection"] == "probability_target_non_primary"
     assert csv_rows[1]["latency_profile_mode"] == "configured"
     assert csv_rows[1]["slo_ms"] == "500.0"

@@ -15,30 +15,31 @@ from experiments.ablations.hedging.presets import (
     parse_ablation_policy_name,
     production_baseline_policy_name,
 )
-from llm_routewise.capacity import ProviderTier
-from llm_routewise.core.hedging import BackupCandidate
-from llm_routewise.schemas import Request, RoutingDecision
-from llm_routewise.sim.engine.simulator import Simulator
-from llm_routewise.sim.engine.state import SimulationState
-from llm_routewise.sim.policies.routewise import RouteWisePolicy
-from llm_routewise.sim.world.distributions import Uniform
-from llm_routewise.sim.world.providers import TieredProvider
-from llm_routewise.sim.world.scenarios import ScenarioConfig
+from routewise_cli.main import ABLATION_COMMANDS, main as routewise_main
+from rwsim.engine.simulator import Simulator
+from rwsim.engine.state import SimulationState
+from rwsim.policies.hedging import BackupCandidate
+from rwsim.policies.routewise import RouteWisePolicy
+from rwsim.schemas import Request, RoutingDecision
+from rwsim.world.capacity import ProviderTier
+from rwsim.world.distributions import Uniform
+from rwsim.world.providers import TieredProvider
+from rwsim.world.scenarios import ScenarioConfig
 
 
 def test_presets_define_core_hedging_ablation_grid() -> None:
     presets = make_ablation_presets()
 
     assert tuple(presets) == (
-        "hedging__dispatch=latest_safe__backup=probability__alpha75",
-        "hedging__dispatch=earliest_safe__backup=probability__alpha75",
-        "hedging__dispatch=latest_safe__backup=random_feasible__alpha75",
+        "hedging__dispatch=latest_safe__backup=probability__p75",
+        "hedging__dispatch=earliest_safe__backup=probability__p75",
+        "hedging__dispatch=latest_safe__backup=random_feasible__p75",
     )
     assert production_baseline_policy_name() == (
-        "hedging__dispatch=latest_safe__backup=probability__alpha75"
+        "hedging__dispatch=latest_safe__backup=probability__p75"
     )
     assert parse_ablation_policy_name(
-        "hedging__dispatch=earliest_safe__backup=random_feasible__alpha25"
+        "hedging__dispatch=earliest_safe__backup=random_feasible__p25"
     ) == ("earliest_safe", "random_feasible", 0.25)
     assert presets[production_baseline_policy_name()]["params"]["backup_selection"] == (
         "probability"
@@ -233,30 +234,27 @@ def test_random_feasible_backup_selection_does_not_advance_route_rng() -> None:
     assert probability.route(request, state) == random_feasible.route(request, state)
 
 
-def test_harness_cli_writes_policy_metadata_and_production_deltas(
-    tmp_path, require_burstgpt_data
-) -> None:
+def test_harness_cli_writes_policy_metadata_and_production_deltas(tmp_path) -> None:
     output_dir = tmp_path / "hedging-ablation"
 
-    assert (
-        harness.main(
-            [
-                "--scenario",
-                "hedging_heavy_tail",
-                "--seed",
-                "42",
-                "--max-requests",
-                "12",
-                "--output-dir",
-                str(output_dir),
-            ]
-        )
-        == 0
-    )
+    assert routewise_main(
+        [
+            "ablation",
+            "hedging",
+            "--scenario",
+            "hedging_heavy_tail",
+            "--seed",
+            "42",
+            "--max-requests",
+            "12",
+            "--output-dir",
+            str(output_dir),
+        ]
+    ) == 0
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert [row["policy"] for row in rows] == list(
-        make_ablation_presets(alpha_values=DEFAULT_P_VALUES)
+        make_ablation_presets(p_values=DEFAULT_P_VALUES)
     )
     assert rows[0]["dispatch_timing"] == "latest_safe"
     assert rows[0]["backup_selection"] == "probability"
@@ -266,7 +264,9 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(
     assert rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert rows[0]["p99_delta_vs_production_ms"] == 0.0
     assert rows[2]["backup_selection"] == "random_feasible"
-    assert rows[2]["backup_selection_semantics"] == ("random_among_feasible_non_primary")
+    assert rows[2]["backup_selection_semantics"] == (
+        "random_among_feasible_non_primary"
+    )
 
     with (output_dir / "summary.csv").open() as handle:
         csv_rows = list(csv.DictReader(handle))
@@ -274,6 +274,10 @@ def test_harness_cli_writes_policy_metadata_and_production_deltas(
     assert csv_rows[0]["production_baseline_policy"] == production_baseline_policy_name()
     assert csv_rows[0]["cost_multiplier_basis"] == "mean_total_cost_usd"
     assert csv_rows[0]["latency_profile_mode"] == "configured"
+
+
+def test_routewise_cli_registers_hedging_ablation() -> None:
+    assert ABLATION_COMMANDS["hedging"] == "experiments.ablations.hedging.harness"
 
 
 def test_harness_lists_section_hedging_scenarios() -> None:

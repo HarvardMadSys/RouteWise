@@ -24,43 +24,29 @@ DEFAULT_INPUT_DIR = Path(
 )
 
 POLICY_ORDER = (
-    "ablation_lp_only_alpha0",
-    "ablation_lp_only_alpha25",
-    "ablation_lp_only_alpha50",
-    "ablation_lp_hedging_alpha0",
-    "ablation_lp_hedging_alpha25",
-    "ablation_lp_hedging_alpha50",
+    "ablation_lp_only_p0",
+    "ablation_lp_only_p25",
+    "ablation_lp_only_p50",
+    "ablation_lp_hedging_p0",
+    "ablation_lp_hedging_p25",
+    "ablation_lp_hedging_p50",
 )
 POLICY_LABELS = {
-    "ablation_lp_only_alpha0": "LP α=0",
-    "ablation_lp_only_alpha25": "LP α=0.25",
-    "ablation_lp_only_alpha50": "LP α=0.5",
-    "ablation_lp_hedging_alpha0": "Hedge α=0",
-    "ablation_lp_hedging_alpha25": "Hedge α=0.25",
-    "ablation_lp_hedging_alpha50": "Hedge α=0.5",
+    "ablation_lp_only_p0": "LP p=0",
+    "ablation_lp_only_p25": "LP p=.25",
+    "ablation_lp_only_p50": "LP p=.5",
+    "ablation_lp_hedging_p0": "Hedge p=0",
+    "ablation_lp_hedging_p25": "Hedge p=.25",
+    "ablation_lp_hedging_p50": "Hedge p=.5",
 }
-# Legend column order: pair LP (solid) and Hedge (dashed) of the same alpha in
-# one column. With matplotlib's column-major fill and ncols=3, consecutive
-# entries fill each column top-to-bottom.
-LEGEND_ORDER = (
-    "ablation_lp_only_alpha0",
-    "ablation_lp_hedging_alpha0",
-    "ablation_lp_only_alpha25",
-    "ablation_lp_hedging_alpha25",
-    "ablation_lp_only_alpha50",
-    "ablation_lp_hedging_alpha50",
-)
 POLICY_COLORS = {
-    "ablation_lp_only_alpha0": "#1f77b4",
-    "ablation_lp_only_alpha25": "#2ca02c",
-    "ablation_lp_only_alpha50": "#ff7f0e",
-    "ablation_lp_hedging_alpha0": "#1f77b4",
-    "ablation_lp_hedging_alpha25": "#2ca02c",
-    "ablation_lp_hedging_alpha50": "#ff7f0e",
+    "ablation_lp_only_p0": "#1f77b4",
+    "ablation_lp_only_p25": "#2ca02c",
+    "ablation_lp_only_p50": "#ff7f0e",
+    "ablation_lp_hedging_p0": "#1f77b4",
+    "ablation_lp_hedging_p25": "#2ca02c",
+    "ablation_lp_hedging_p50": "#ff7f0e",
 }
-# Dense dash pattern for hedging: several on/off cycles fit inside the short
-# legend handle, so dashed stays distinguishable from solid there.
-HEDGE_DASHES = (0, (2.2, 1.2))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -76,25 +62,21 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Output directory. Defaults to --input-dir.",
     )
-    parser.add_argument(
-        "--scenario",
-        help="Optional scenario name to select when err_*/summary.csv contains multiple scenarios.",
-    )
     args = parser.parse_args(argv)
 
     input_dir = args.input_dir
     output_dir = args.output_dir or input_dir
-    rows = _load_rows(input_dir, scenario=args.scenario)
+    rows = _load_rows(input_dir)
     delta_rows = _delta_rows(rows)
     worst_rows = _worst_case_rows(delta_rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    _write_csv(output_dir / "output_length_prediction_summary.csv", rows)
     _write_csv(output_dir / "output_length_prediction_delta_summary.csv", delta_rows)
     _write_csv(output_dir / "output_length_prediction_worst_case_summary.csv", worst_rows)
 
     figure_dir = output_dir / "figures"
     _plot_cost_delta_lines(delta_rows, figure_dir)
+    _plot_cost_delta_heatmap(delta_rows, figure_dir)
     _plot_worst_case_deviation(worst_rows, figure_dir)
     _plot_mix_shift(delta_rows, figure_dir)
 
@@ -109,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _load_rows(input_dir: Path, *, scenario: str | None = None) -> list[dict[str, Any]]:
+def _load_rows(input_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for run_dir in sorted(input_dir.glob("err_*")):
         if not run_dir.is_dir():
@@ -122,15 +104,11 @@ def _load_rows(input_dir: Path, *, scenario: str | None = None) -> list[dict[str
             for raw in csv.DictReader(handle):
                 if raw["policy"] not in POLICY_ORDER:
                     continue
-                if scenario is not None and raw.get("scenario") != scenario:
-                    continue
                 tier_mix = _parse_mapping(raw["tier_mix"])
                 rows.append(
                     {
                         "prediction_error_pct": error_pct,
-                        "scenario": raw.get("scenario"),
                         "policy": raw["policy"],
-                        "output_predictor": raw.get("output_predictor"),
                         "total_cost_usd": float(raw["total_cost_usd"]),
                         "api_cost_usd": float(raw["api_cost_usd"]),
                         "subscription_fixed_cost_usd": float(raw["subscription_fixed_cost_usd"]),
@@ -147,19 +125,7 @@ def _load_rows(input_dir: Path, *, scenario: str | None = None) -> list[dict[str
                 )
     if not rows:
         raise ValueError(f"no err_*/summary.csv rows found under {input_dir}")
-    scenarios = sorted({str(row.get("scenario")) for row in rows})
-    if scenario is None and len(scenarios) > 1:
-        raise ValueError(
-            "multiple scenarios found; pass --scenario to select one: " + ", ".join(scenarios)
-        )
-    return sorted(
-        rows,
-        key=lambda row: (
-            str(row.get("scenario") or ""),
-            row["prediction_error_pct"],
-            POLICY_ORDER.index(row["policy"]),
-        ),
-    )
+    return sorted(rows, key=lambda row: (row["prediction_error_pct"], POLICY_ORDER.index(row["policy"])))
 
 
 def _delta_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -192,27 +158,17 @@ def _delta_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _worst_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
-    for error_pct in sorted(
-        {row["prediction_error_pct"] for row in rows if row["prediction_error_pct"] != 0}
-    ):
+    for error_pct in sorted({row["prediction_error_pct"] for row in rows if row["prediction_error_pct"] > 0}):
         selected = [row for row in rows if row["prediction_error_pct"] == error_pct]
         output.append(
             {
                 "prediction_error_pct": error_pct,
-                "max_abs_total_cost_delta_pct": max(
-                    abs(row["total_cost_delta_pct"]) for row in selected
-                ),
-                "max_abs_api_cost_delta_pct": max(
-                    abs(row["api_cost_delta_pct"]) for row in selected
-                ),
-                "max_abs_mean_ttft_delta_pct": max(
-                    abs(row["mean_ttft_delta_pct"]) for row in selected
-                ),
+                "max_abs_total_cost_delta_pct": max(abs(row["total_cost_delta_pct"]) for row in selected),
+                "max_abs_api_cost_delta_pct": max(abs(row["api_cost_delta_pct"]) for row in selected),
+                "max_abs_mean_ttft_delta_pct": max(abs(row["mean_ttft_delta_pct"]) for row in selected),
                 "max_abs_p99_delta_pct": max(abs(row["p99_delta_pct"]) for row in selected),
                 "max_provider_mix_tv_pct": max(row["provider_mix_tv_pct"] for row in selected),
-                "max_abs_hedge_rate_delta_pp": max(
-                    abs(row["hedge_rate_delta_pp"]) for row in selected
-                ),
+                "max_abs_hedge_rate_delta_pp": max(abs(row["hedge_rate_delta_pp"]) for row in selected),
             }
         )
     return output
@@ -220,12 +176,11 @@ def _worst_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None:
     _apply_output_length_style()
-    fig, ax = plt.subplots(figsize=(2.3, 1.95))
-    handles: dict[str, Any] = {}
+    fig, ax = plt.subplots(figsize=(5.2, 2.8))
     for policy in POLICY_ORDER:
         policy_rows = _policy_rows(rows, policy)
-        linestyle = HEDGE_DASHES if "hedging" in policy else "-"
-        (handles[policy],) = ax.plot(
+        linestyle = "--" if "hedging" in policy else "-"
+        ax.plot(
             [row["prediction_error_pct"] for row in policy_rows],
             [row["total_cost_delta_pct"] for row in policy_rows],
             marker="o",
@@ -234,31 +189,12 @@ def _plot_cost_delta_lines(rows: list[dict[str, Any]], output_dir: Path) -> None
             label=POLICY_LABELS[policy],
         )
     ax.axhline(0.0, color="#444444", linewidth=0.8, alpha=0.65)
-    ax.set_xlabel("Length prediction bias (%)")
+    ax.set_xlabel("Output-token prediction error (+/- %)")
     ax.set_ylabel("Total cost delta (%)")
-    ax.set_ylim(-6.0, 6.0)
-    ax.legend(
-        [handles[policy] for policy in LEGEND_ORDER],
-        [POLICY_LABELS[policy] for policy in LEGEND_ORDER],
-        frameon=False,
-        ncols=3,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.995),
-        bbox_transform=fig.transFigure,
-        borderpad=0.1,
-        columnspacing=0.15,
-        handlelength=1.45,
-        handletextpad=0.15,
-    )
+    ax.set_title("Cost sensitivity to output-length error", pad=5)
+    ax.legend(frameon=False, ncols=3, loc="upper left", columnspacing=0.9, handlelength=1.7)
     ax.grid(True, alpha=0.24)
-    fig.subplots_adjust(left=0.27, right=0.97, top=0.79, bottom=0.22)
-    save_figure(
-        fig,
-        output_dir,
-        "output_length_prediction_cost_delta_lines",
-        ["pdf", "png"],
-        full_canvas=True,
-    )
+    save_figure(fig, output_dir, "output_length_prediction_cost_delta_lines", ["pdf", "png"])
     plt.close(fig)
 
 
@@ -273,8 +209,8 @@ def _plot_cost_delta_heatmap(rows: list[dict[str, Any]], output_dir: Path) -> No
     ax.set_yticklabels([POLICY_LABELS[policy] for policy in POLICY_ORDER])
     ax.set_xticks(range(len(errors)))
     ax.set_xticklabels([str(error) for error in errors])
-    ax.set_xlabel("Output-token prediction bias (%)")
-    ax.set_title("Total cost delta vs zero-bias predictor (%)", pad=5)
+    ax.set_xlabel("Output-token prediction error (+/- %)")
+    ax.set_title("Total cost delta vs oracle (%)", pad=5)
     for row_idx, _policy in enumerate(POLICY_ORDER):
         for col_idx, _error in enumerate(errors):
             value = matrix[row_idx, col_idx]
@@ -304,9 +240,9 @@ def _plot_worst_case_deviation(rows: list[dict[str, Any]], output_dir: Path) -> 
     )
     for key, label, color in series:
         ax.plot(errors, [row[key] for row in rows], marker="o", label=label, color=color)
-    ax.set_xlabel("Output-token prediction bias (%)")
+    ax.set_xlabel("Output-token prediction error (+/- %)")
     ax.set_ylabel("Worst-case deviation (%)")
-    ax.set_title("Max zero-bias deviation across policies", pad=5)
+    ax.set_title("Max oracle-relative deviation across policies", pad=5)
     ax.legend(frameon=False, ncols=3, loc="upper left", columnspacing=1.0)
     ax.grid(True, alpha=0.24)
     save_figure(fig, output_dir, "output_length_prediction_worst_case_deviation", ["pdf", "png"])
@@ -315,19 +251,13 @@ def _plot_worst_case_deviation(rows: list[dict[str, Any]], output_dir: Path) -> 
 
 def _plot_mix_shift(rows: list[dict[str, Any]], output_dir: Path) -> None:
     _apply_output_length_style()
-    errors = tuple(sorted({int(row["prediction_error_pct"]) for row in rows}))
+    errors = (0, 50, 100, 200)
     labels = ("API", "Quota", "Concurrency")
     keys = ("api_mix", "quota_mix", "concurrency_mix")
     colors = ("#4c78a8", "#72b7b2", "#f58518")
     fig, axes = plt.subplots(1, 3, figsize=(6.6, 2.65), sharey=True)
-    for ax, policy in zip(
-        axes,
-        ("ablation_lp_only_alpha0", "ablation_lp_hedging_alpha0", "ablation_lp_hedging_alpha50"),
-        strict=True,
-    ):
-        selected = [
-            row for row in _policy_rows(rows, policy) if row["prediction_error_pct"] in errors
-        ]
+    for ax, policy in zip(axes, ("ablation_lp_only_p0", "ablation_lp_hedging_p0", "ablation_lp_hedging_p50"), strict=True):
+        selected = [row for row in _policy_rows(rows, policy) if row["prediction_error_pct"] in errors]
         bottoms = np.zeros(len(selected))
         x = np.arange(len(selected))
         for key, label, color in zip(keys, labels, colors, strict=True):
@@ -337,7 +267,7 @@ def _plot_mix_shift(rows: list[dict[str, Any]], output_dir: Path) -> None:
         ax.set_title(POLICY_LABELS[policy], pad=4)
         ax.set_xticks(x)
         ax.set_xticklabels([str(row["prediction_error_pct"]) for row in selected])
-        ax.set_xlabel("bias (%)")
+        ax.set_xlabel("+/- %")
         ax.grid(True, axis="y", alpha=0.18)
     axes[0].set_ylabel("Request mix (%)")
     axes[-1].legend(frameon=False, loc="center left", bbox_to_anchor=(1.02, 0.5))
@@ -396,14 +326,14 @@ def _apply_output_length_style() -> None:
     apply_style("paper")
     plt.rcParams.update(
         {
-            "font.size": 6.5,
-            "axes.labelsize": 6.5,
-            "axes.titlesize": 6.5,
-            "xtick.labelsize": 6.5,
-            "ytick.labelsize": 6.5,
-            "legend.fontsize": 6.5,
-            "lines.linewidth": 1.1,
-            "lines.markersize": 3.0,
+            "font.size": 8,
+            "axes.labelsize": 8,
+            "axes.titlesize": 9,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 7,
+            "lines.linewidth": 1.45,
+            "lines.markersize": 3.8,
             "axes.linewidth": 0.8,
             "grid.linewidth": 0.5,
             "savefig.pad_inches": 0.02,

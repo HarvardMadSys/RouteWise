@@ -12,8 +12,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator
-from matplotlib.transforms import ScaledTranslation
 
 from plots.palettes import ONLINE_POLICY_COLORS, ROUTER_STRATEGY_COLORS, TIER_COLORS
 from plots.style import apply_style
@@ -22,79 +20,16 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-    from matplotlib.collections import PathCollection
-    from matplotlib.text import Annotation
 
-
-COLUMN_FIGSIZE = (3.35, 2.45)
+COLUMN_FIGSIZE = (3.35, 2.25)
 SLO_BAR_FIGSIZE = COLUMN_FIGSIZE
-MIX_FIGSIZE = (3.35, 2.70)
-# EuroSys body text is 10pt and the 3.35in panels are included at
-# ~\columnwidth, so figure text must be authored at 10pt to match.
-BASE_FONT_SIZE = 10.0
-LABEL_FONT_SIZE = 10.0
-TICK_FONT_SIZE = 10.0
-ANNOTATION_FONT_SIZE = 9.0
-ROUTEWISE_ANNOTATION_FONT_SIZE = 9.0
-LEGEND_FONT_SIZE = 10.0
-
-# Every paper panel is authored at this one size so LaTeX can use one
-# identical \includegraphics line for all of them (no per-panel trims or
-# height equalization, which is where clipping bugs creep in).
-PAPER_PANEL_FIGSIZE = (3.35, 3.18)
-
-# Figure 1's two panels are the exception: the paper gives each of them
-# 0.50\linewidth, so LaTeX scales the 3.35in canvas by 0.50 and the 10pt text
-# prints at 5pt, half the size of every other figure's. Authoring them on a
-# smaller canvas leaves the printed panel exactly the same size but cuts the
-# scaling to 0.60, so the text prints at 6pt. The plot box pays for it, which
-# is what stops this going further: at 0.70 the SLO panel's policy names take
-# so much of the canvas that its bars lose half their length.
-FIGURE1_PANEL_FIGSIZE = (2.79, 2.65)
-
-# Panels that LaTeX places side by side (Fig 1a/1b, Fig 6a/6b, Fig 8a-8d)
-# must put their plot boxes, and on horizontal-category panels the same policy
-# row, at the same physical height. All panels of a set share this absolute
-# geometry: the plot box fills the space between a fixed bottom band (ticks +
-# xlabel) and a fixed top band, which holds the legend of the set's mix panel
-# and is blank on the others.
-ALIGNED_BOTTOM_IN = 0.46
-ALIGNED_TOP_IN = 0.62
-ALIGNED_BAR_THICKNESS = 0.62
-# The top band is sized to the legend the set carries: the clearance the top
-# tick label and the boxplot's SLO marker need, plus one legend row each.
-ALIGNED_TOP_CLEARANCE_IN = 0.20
-ALIGNED_LEGEND_ROW_IN = 0.21
-
-
-def aligned_top_in(legend_rows: int) -> float:
-    """Top band of an aligned set whose mix legend has ``legend_rows`` rows."""
-    return ALIGNED_TOP_CLEARANCE_IN + legend_rows * ALIGNED_LEGEND_ROW_IN
-
-
-def aligned_panel_geometry(
-    n_rows: int,
-    *,
-    left: float = 0.40,
-    right: float = 0.97,
-    top_in: float = ALIGNED_TOP_IN,
-    figsize: tuple[float, float] = PAPER_PANEL_FIGSIZE,
-) -> tuple[tuple[float, float], tuple[float, float, float, float]]:
-    """Return (figsize, margins) shared by every panel of an aligned set.
-
-    ``top_in`` sizes the top band and must be identical across a set;
-    ``aligned_top_in`` derives it from the rows of the set's mix legend.
-    ``figsize`` must be identical across a set too, and is only overridden
-    for a set the paper scales differently (Figure 1).
-    """
-    height = figsize[1]
-    margins = (
-        left,
-        right,
-        ALIGNED_BOTTOM_IN / height,
-        1.0 - top_in / height,
-    )
-    return figsize, margins
+MIX_FIGSIZE = (3.35, 2.55)
+BASE_FONT_SIZE = 8.9
+LABEL_FONT_SIZE = 9.4
+TICK_FONT_SIZE = 8.3
+ANNOTATION_FONT_SIZE = 7.3
+ROUTEWISE_ANNOTATION_FONT_SIZE = 8.6
+LEGEND_FONT_SIZE = 7.0
 ROUTEWISE_COLOR = "#2f6f73"
 ROUTEWISE_HEDGE_COLOR = "#f28e2b"
 
@@ -104,7 +39,6 @@ DEFAULT_BASELINE_ORDER = (
     "or_auto",
     "or_sort_latency",
     "or_sort_cost",
-    "single_OR_Together",
     "random",
 )
 POLICY_PLOT_LABELS = {
@@ -114,26 +48,14 @@ POLICY_PLOT_LABELS = {
     "or_auto": "OR-auto",
     "or_sort_cost": "OR-price",
     "or_sort_latency": "OR-latency",
-    "single_OR_Together": "Single-provider",
 }
 POLICY_COLORS = {
     "greedy_cost": ROUTER_STRATEGY_COLORS.get("greedy_cost", "#1f77b4"),
     "greedy_latency": ROUTER_STRATEGY_COLORS.get("greedy_latency", "#2ca02c"),
     "random": ROUTER_STRATEGY_COLORS.get("random", "#7f8c8d"),
-    # Orange, so OR-auto does not share Greedy-cost's blue (paper Figure 6a).
-    "or_auto": "#ff7f0e",
+    "or_auto": ONLINE_POLICY_COLORS.get("openrouter_auto", "#1f77b4"),
     "or_sort_cost": ONLINE_POLICY_COLORS.get("sort_price", "#17becf"),
     "or_sort_latency": ONLINE_POLICY_COLORS.get("sort_latency", "#e377c2"),
-    "single_OR_Together": "#8c564b",
-}
-# The paper's front-page Figure 1 (frontier + SLO bars) uses its own palette.
-FRONT_PAGE_POLICY_COLORS = {
-    "greedy_cost": "#4472c4",
-    "greedy_latency": "#3d8b3d",
-    "or_auto": "#cc7a8f",
-    "or_sort_cost": "#ad8a1f",
-    "or_sort_latency": "#7e3f9d",
-    "single_OR_Together": "#8c564b",
 }
 POLICY_MARKERS = {
     "greedy_cost": "s",
@@ -141,7 +63,6 @@ POLICY_MARKERS = {
     "or_auto": "D",
     "or_sort_cost": "D",
     "or_sort_latency": "D",
-    "single_OR_Together": "^",
     "random": "x",
 }
 BASELINE_LABEL_OFFSET = (4, 3)
@@ -155,11 +76,11 @@ BASELINE_LABEL_OFFSETS_BY_METRIC = {
         "random": (6, 4),
     },
     "mean_ttft_ms": {
-        "greedy_cost": (7, -3),
-        "greedy_latency": (0, 8),
+        "greedy_cost": (6, -9),
+        "greedy_latency": (0, -12),
         "or_auto": (6, -12),
-        "or_sort_cost": (6, -11),
-        "or_sort_latency": (-3, -14),
+        "or_sort_cost": (6, -10),
+        "or_sort_latency": (-6, 7),
         "random": (6, 4),
     },
 }
@@ -172,11 +93,11 @@ ROUTEWISE_LABEL_OFFSETS_BY_METRIC = {
         1.0: (5, 21),
     },
     "mean_ttft_ms": {
-        0.0: (-4, 9),
-        0.25: (-6, -10),
-        0.5: (0, 9),
-        0.75: (0, -14),
-        1.0: (0, -14),
+        0.0: (8, 10),
+        0.25: (4, -24),
+        0.5: (10, 14),
+        0.75: (-8, -16),
+        1.0: (10, 0),
     },
 }
 CDF_LINESTYLES = {
@@ -186,7 +107,6 @@ CDF_LINESTYLES = {
     "or_auto": (0, (1.5, 1.5)),
     "or_sort_cost": (0, (5, 2)),
     "or_sort_latency": (0, (3, 1.2, 1, 1.2)),
-    "single_OR_Together": (0, (6, 1.2, 1, 1.2, 1, 1.2)),
     "random": (0, (1, 1.2)),
 }
 PROVIDER_COLOR_CYCLE = (
@@ -202,7 +122,11 @@ PROVIDER_COLOR_CYCLE = (
     "#d62728",
 )
 PROVIDER_MIX_COLORS = {
-    "OR_DeepInfra": "#2b7bba",
+    "OR_Inceptron": "#76b7b2",
+    "OR_Friendli": "#9467bd",
+    "OR_DeepInfra": "#4e79a7",
+    "OR_SambaNova": "#e377c2",
+    "OR_Venice": "#17becf",
     "MiniMax_Plus_SQ": "#6b4c3b",
     "GLM_OR_SQ": "#6b4c3b",
     "Featherless_SC": "#59a14f",
@@ -213,10 +137,7 @@ PROVIDER_MIX_COLORS = {
     "OR_Novita": "#e377c2",
     "OR_Phala": "#bcbd22",
     "OR_SiliconFlow": "#7f7f7f",
-    "OR_Minimax": "#1f77b4",
-    "OR_GMICloud": "#8e63b0",
-    "OR_Together": "#17becf",
-    "OR_StreamLake": "#7f7f7f",
+    "OR_Parasail": "#17becf",
 }
 TIER_MIX_SEGMENTS = (
     ("quota", r"$\mathcal{P}_Q$", TIER_COLORS.get("quota", "#2ca02c")),
@@ -240,15 +161,6 @@ class FrontierPoint:
     slo_violation_rate: float
     p99_ms: float | None = None
     hedge_rate: float = 0.0
-
-
-@dataclass(frozen=True)
-class BaselineDisplayAdjustment:
-    """Display-only shifts in typographic points; measured coordinates stay intact."""
-
-    marker_offset_pt: tuple[float, float] = (0.0, 0.0)
-    label_offset_pt: tuple[float, float] | None = None
-    hide_leader: bool = False
 
 
 @dataclass(frozen=True)
@@ -314,15 +226,10 @@ def policy_plot_label(
     return POLICY_PLOT_LABELS.get(policy, policy.replace("_", " "))
 
 
-def policy_color(
-    policy: str,
-    *,
-    alpha: float | None = None,
-    palette: Mapping[str, str] | None = None,
-) -> str:
+def policy_color(policy: str, *, alpha: float | None = None) -> str:
     if alpha is not None:
         return ROUTEWISE_COLOR
-    return (palette or POLICY_COLORS).get(policy, "#555555")
+    return POLICY_COLORS.get(policy, "#555555")
 
 
 def policy_marker(policy: str) -> str:
@@ -390,10 +297,7 @@ def _annotate_baseline(
     attr: str,
     *,
     label_offsets: Mapping[str, tuple[int, int]] | None = None,
-    palette: Mapping[str, str] | None = None,
-    muted: bool = False,
-    leader: bool = False,
-) -> Annotation:
+) -> None:
     offset = (label_offsets or {}).get(
         point.policy,
         BASELINE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
@@ -401,27 +305,15 @@ def _annotate_baseline(
             BASELINE_LABEL_OFFSET,
         ),
     )
-    color = policy_color(point.policy, palette=palette)
-    return ax.annotate(
+    ax.annotate(
         POLICY_PLOT_LABELS.get(point.policy, point.label),
         (point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
-        fontsize=ANNOTATION_FONT_SIZE - 1.0 if muted else ANNOTATION_FONT_SIZE,
-        color=color,
+        fontsize=ANNOTATION_FONT_SIZE,
+        color=policy_color(point.policy),
         ha="center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left"),
         bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.78},
-        arrowprops=(
-            {
-                "arrowstyle": "-",
-                "linewidth": 0.6,
-                "color": color,
-                "shrinkA": 1.0,
-                "shrinkB": 2.5,
-            }
-            if leader
-            else None
-        ),
         clip_on=False,
     )
 
@@ -433,7 +325,17 @@ def _annotate_routewise(
     *,
     routewise_count: int,
     label_offsets: Mapping[float, tuple[int, int]] | None = None,
+    label_texts: Mapping[float, str | None] | None = None,
+    label_alignments: Mapping[float, str] | None = None,
 ) -> None:
+    label_text = (label_texts or {}).get(
+        point.alpha,
+        rf"$\alpha={point.alpha:g}$"
+        if routewise_count > 1
+        else f"RouteWise-{point.alpha:g}",
+    )
+    if label_text is None:
+        return
     offset = (label_offsets or {}).get(
         point.alpha,
         ROUTEWISE_LABEL_OFFSETS_BY_METRIC.get(attr, {}).get(
@@ -442,7 +344,7 @@ def _annotate_routewise(
         ),
     )
     if attr == "mean_ttft_ms":
-        ha = "center" if offset[0] == 0 else ("right" if offset[0] < 0 else "left")
+        ha = "right" if offset[0] < 0 else "left"
     else:
         x_min, x_max = ax.get_xlim()
         if point.total_cost_usd > (x_min + x_max) / 2.0:
@@ -451,10 +353,9 @@ def _annotate_routewise(
         else:
             offset = (abs(offset[0]), offset[1])
             ha = "left"
+    ha = (label_alignments or {}).get(point.alpha, ha)
     ax.annotate(
-        rf"$\alpha={point.alpha:g}$"
-        if routewise_count > 1
-        else f"RouteWise-{point.alpha:g}",
+        label_text,
         xy=(point.total_cost_usd, metric_value(point, attr)),
         xytext=offset,
         textcoords="offset points",
@@ -484,7 +385,6 @@ def _plot_routewise_group(
     marker: str,
     label: str,
     annotate_count: int,
-    emphasize: bool = False,
 ) -> None:
     if not points:
         return
@@ -494,8 +394,8 @@ def _plot_routewise_group(
             [point.total_cost_usd for point in ordered],
             [metric_value(point, attr) for point in ordered],
             color=ROUTEWISE_COLOR,
-            linewidth=1.7 if emphasize else 1.0,
-            alpha=0.95 if emphasize else 0.85,
+            linewidth=1.0,
+            alpha=0.85,
             zorder=2,
         )
     for point in ordered:
@@ -544,10 +444,10 @@ def _cost_label(value: float) -> str:
     return rf"\${value:.2f}"
 
 
-def _slo_bar_color(point: FrontierPoint, palette: Mapping[str, str] | None = None) -> str:
+def _slo_bar_color(point: FrontierPoint) -> str:
     if point.alpha is not None:
         return ROUTEWISE_COLOR
-    return policy_color(point.policy, palette=palette)
+    return policy_color(point.policy)
 
 
 def plot_metric_frontier(
@@ -556,25 +456,14 @@ def plot_metric_frontier(
     *,
     attr: str,
     ylabel: str,
-    xlabel: str | None = None,
-    normalize_cost: bool = True,
+    xlabel: str = "Normalized cost",
     routewise_alphas: Sequence[float] | None = None,
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     routewise_label_offsets: Mapping[float, tuple[int, int]] | None = None,
+    routewise_label_texts: Mapping[float, str | None] | None = None,
+    routewise_label_alignments: Mapping[float, str] | None = None,
     baseline_label_offsets: Mapping[str, tuple[int, int]] | None = None,
-    # A label too wide to sit beside its marker is parked in free space and
-    # joined to the marker by a leader line, so it cannot be read as a label
-    # for whatever it happens to float over.
-    baseline_leader_policies: Sequence[str] = (),
-    baseline_display_adjustments: Mapping[str, BaselineDisplayAdjustment] | None = None,
-    figsize: tuple[float, float] = COLUMN_FIGSIZE,
-    margins: tuple[float, float, float, float] | None = None,
-    policy_colors: Mapping[str, str] | None = None,
-    emphasize_routewise: bool = False,
-    x_max: float | None = None,
-    # The tick locator picks its density from the canvas, so a panel LaTeX
-    # scales by an unusual factor has to state the step it wants in print.
-    x_tick_step: float | None = None,
+    baseline_marker_sizes: Mapping[str, float] | None = None,
 ) -> None:
     apply_column_figure_style()
     routewise_no_hedge = routewise_points(
@@ -588,10 +477,8 @@ def plot_metric_frontier(
         alphas=routewise_alphas,
     )
     baselines = baseline_points(points, order=baseline_order)
-    if xlabel is None:
-        xlabel = "Normalized cost" if normalize_cost else "Total cost (USD)"
     plotted_points = [*routewise_no_hedge, *routewise_hedged, *baselines]
-    normalized = _normalized_points(plotted_points) if normalize_cost else list(plotted_points)
+    normalized = _normalized_points(plotted_points)
     split_no_hedge = len(routewise_no_hedge)
     split_hedged = split_no_hedge + len(routewise_hedged)
     routewise_no_hedge = normalized[:split_no_hedge]
@@ -599,7 +486,7 @@ def plot_metric_frontier(
     baselines = normalized[split_hedged:]
     routewise_count = len(routewise_no_hedge) + len(routewise_hedged)
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=True)
     _plot_routewise_group(
         ax,
         routewise_no_hedge,
@@ -608,41 +495,33 @@ def plot_metric_frontier(
         marker="o",
         label="RouteWise",
         annotate_count=routewise_count,
-        emphasize=emphasize_routewise,
     )
     _plot_routewise_group(
         ax,
         routewise_hedged,
         attr=attr,
         color=ROUTEWISE_HEDGE_COLOR,
-        # Squares only distinguish hedged points when unhedged ones are drawn too.
-        marker="s" if routewise_no_hedge else "o",
+        marker="s",
         label="RouteWise + hedge",
         annotate_count=routewise_count,
-        emphasize=emphasize_routewise,
     )
-    baseline_artists: dict[str, tuple[PathCollection, Annotation]] = {}
     for point in baselines:
-        marker = ax.scatter(
+        ax.scatter(
             point.total_cost_usd,
             metric_value(point, attr),
             marker=policy_marker(point.policy),
-            s=14 if emphasize_routewise else 24,
-            color=policy_color(point.policy, palette=policy_colors),
+            s=(baseline_marker_sizes or {}).get(point.policy, 24),
+            color=policy_color(point.policy),
             edgecolor="white",
             linewidth=0.5,
             zorder=3,
         )
-        label = _annotate_baseline(
+        _annotate_baseline(
             ax,
             point,
             attr,
             label_offsets=baseline_label_offsets,
-            palette=policy_colors,
-            muted=emphasize_routewise,
-            leader=point.policy in baseline_leader_policies,
         )
-        baseline_artists[point.policy] = (marker, label)
     for point in [*routewise_no_hedge, *routewise_hedged]:
         _annotate_routewise(
             ax,
@@ -650,57 +529,18 @@ def plot_metric_frontier(
             attr,
             routewise_count=routewise_count,
             label_offsets=routewise_label_offsets,
+            label_texts=routewise_label_texts,
+            label_alignments=routewise_label_alignments,
         )
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, linewidth=0.35, alpha=0.35)
     _pad_axes(ax)
-    if x_max is not None:
-        ax.set_xlim(right=x_max)
-    if x_tick_step is not None:
-        ax.xaxis.set_major_locator(MultipleLocator(x_tick_step))
-    if margins is not None:
-        _pin_plot_box(fig, ax, margins)
-    if baseline_display_adjustments:
-        # Freeze the original layout before separating crowded markers so the
-        # axes and unrelated labels stay in place. Never alter source values.
-        if margins is None:
-            fig.canvas.draw()
-            fig.set_layout_engine("none")
-        for policy, adjustment in baseline_display_adjustments.items():
-            marker, label = baseline_artists[policy]
-            dx, dy = adjustment.marker_offset_pt
-            shifted = ax.transData + ScaledTranslation(
-                dx / 72.0, dy / 72.0, fig.dpi_scale_trans
-            )
-            marker.set_offset_transform(shifted)
-            label.xycoords = shifted
-            if adjustment.label_offset_pt is not None:
-                label.set_position(adjustment.label_offset_pt)
-            if adjustment.hide_leader and label.arrow_patch is not None:
-                label.arrow_patch.set_visible(False)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
     plt.close(fig)
-
-
-def _pin_plot_box(
-    fig: plt.Figure, ax: plt.Axes, margins: tuple[float, float, float, float]
-) -> None:
-    """Pin the plot box to an aligned set's bands, keeping the horizontal fit.
-
-    Constrained layout has just sized the axes so the tick labels and the
-    point labels fit the figure. Its vertical placement is then replaced by
-    the set's bottom and top bands, so the plot box lines up with the bar
-    panels beside it; the horizontal placement it found is kept, as the
-    frontier's y tick labels are much narrower than the bar panels' names.
-    """
-    fig.canvas.draw()
-    position = ax.get_position()
-    fig.set_layout_engine("none")
-    ax.set_position((position.x0, margins[2], position.width, margins[3] - margins[2]))
 
 
 def plot_slo_bar(
@@ -711,10 +551,6 @@ def plot_slo_bar(
     baseline_order: Sequence[str] = DEFAULT_BASELINE_ORDER,
     xlabel: str | None = None,
     ylabel: str | None = None,
-    figsize: tuple[float, float] = SLO_BAR_FIGSIZE,
-    margins: tuple[float, float, float, float] = (0.33, 0.99, 0.16, 0.98),
-    policy_colors: Mapping[str, str] | None = None,
-    normalize_cost: bool = True,
 ) -> None:
     apply_column_figure_style()
     rows = _ordered_slo_bar_points(
@@ -733,60 +569,37 @@ def plot_slo_bar(
     max_slo = max(slo_values)
     text_pad = max(max_slo * 0.025, 0.12)
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=SLO_BAR_FIGSIZE, constrained_layout=False)
     ax.barh(
         y,
         slo_values,
-        height=ALIGNED_BAR_THICKNESS,
-        color=[_slo_bar_color(point, policy_colors) for point in rows],
+        height=0.66,
+        color=[_slo_bar_color(point) for point in rows],
         edgecolor="white",
         linewidth=0.45,
     )
-    texts = []
     for row_idx, (slo_value, cost) in enumerate(zip(slo_values, costs, strict=True)):
-        texts.append(
-            ax.text(
-                slo_value + text_pad,
-                row_idx,
-                f"{slo_value:.1f}%  "
-                + (
-                    _normalized_cost_label(cost, cost_baseline)
-                    if normalize_cost
-                    else _cost_label(cost)
-                ),
-                va="center",
-                ha="left",
-                fontsize=ANNOTATION_FONT_SIZE,
-                color="#333333",
-            )
+        ax.text(
+            slo_value + text_pad,
+            row_idx,
+            f"{slo_value:.1f}%  {_normalized_cost_label(cost, cost_baseline)}",
+            va="center",
+            ha="left",
+            fontsize=ANNOTATION_FONT_SIZE,
+            color="#333333",
         )
 
     ax.set_xlabel("SLO violations (%)")
     ax.set_yticks(y, labels)
-    ax.set_ylim(len(rows) - 0.5, -0.5)
+    ax.invert_yaxis()
     ax.grid(axis="x", linewidth=0.35, alpha=0.35)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.subplots_adjust(
-        left=margins[0],
-        right=margins[1],
-        bottom=margins[2],
-        top=margins[3],
-    )
-    # Size the x-axis so every annotation ends inside the axes: with the text
-    # anchored at (value + pad) in data units and its width fixed in inches,
-    # the needed limit solves x_lim >= value + pad + width_frac * x_lim.
-    fig.canvas.draw()
-    axes_width_in = (margins[1] - margins[0]) * figsize[0]
-    x_lim = max_slo + max(max_slo * 0.42, 2.0)
-    for text, slo_value in zip(texts, slo_values, strict=True):
-        width_in = text.get_window_extent().width / fig.dpi
-        width_frac = width_in / axes_width_in
-        if width_frac < 0.9:
-            x_lim = max(x_lim, (slo_value + text_pad) / (1.0 - width_frac - 0.015))
-    ax.set_xlim(0.0, x_lim)
+    label_room = max(max_slo * 0.38, 2.0)
+    ax.set_xlim(0.0, max_slo + label_room)
+    fig.subplots_adjust(left=0.33, right=0.99, bottom=0.16, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)
@@ -821,14 +634,13 @@ def plot_stacked_mix(
     output_path: Path,
     *,
     legend_ncols: int,
-    legend_fontsize: float = LEGEND_FONT_SIZE,
+    legend_fontsize: float = 5.8,
     font_size: float = BASE_FONT_SIZE,
     label_fontsize: float = LABEL_FONT_SIZE,
     tick_fontsize: float = TICK_FONT_SIZE,
     margins: tuple[float, float, float, float] = (0.34, 0.99, 0.16, 0.79),
     show_legend: bool = True,
     x_max: float = 100.0,
-    figsize: tuple[float, float] = MIX_FIGSIZE,
 ) -> None:
     apply_column_figure_style(legend_fontsize=legend_fontsize)
     plt.rcParams.update(
@@ -839,7 +651,7 @@ def plot_stacked_mix(
             "ytick.labelsize": tick_fontsize,
         }
     )
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=MIX_FIGSIZE, constrained_layout=False)
     y = list(range(len(rows)))
     left = [0.0] * len(rows)
     handles = []
@@ -852,7 +664,7 @@ def plot_stacked_mix(
             y,
             values,
             left=left,
-            height=ALIGNED_BAR_THICKNESS,
+            height=0.72,
             color=segment.color,
             edgecolor="white",
             linewidth=0.35,
@@ -864,7 +676,7 @@ def plot_stacked_mix(
     ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Requests (%)")
     ax.set_yticks(y, [row.label for row in rows])
-    ax.set_ylim(len(rows) - 0.5, -0.5)
+    ax.invert_yaxis()
     ax.grid(axis="x", color="#9a9a9a", alpha=0.24, linewidth=0.5)
     ax.grid(axis="y", visible=False)
     ax.set_axisbelow(True)
@@ -884,10 +696,10 @@ def plot_stacked_mix(
             ncols=legend_ncols,
             loc="upper center",
             bbox_to_anchor=(0.50, 0.985),
-            handlelength=0.7,
-            handletextpad=0.18,
-            columnspacing=0.4,
-            labelspacing=0.3,
+            handlelength=0.9,
+            handletextpad=0.28,
+            columnspacing=0.55,
+            labelspacing=0.35,
             borderaxespad=0.0,
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -979,13 +791,11 @@ def plot_ttft_boxplot(
     *,
     slo_sec: float = 3.0,
     x_max_sec: float | None = None,
-    figsize: tuple[float, float] = COLUMN_FIGSIZE,
-    margins: tuple[float, float, float, float] = (0.39, 0.99, 0.18, 0.98),
 ) -> None:
     if not series:
         raise ValueError("no boxplot series to plot")
     apply_column_figure_style(legend_fontsize=LEGEND_FONT_SIZE)
-    plt.rcParams.update({"figure.figsize": figsize})
+    plt.rcParams.update({"figure.figsize": COLUMN_FIGSIZE})
 
     sorted_samples_sec: list[list[float]] = []
     p95_sec: list[float] = []
@@ -999,15 +809,14 @@ def plot_ttft_boxplot(
         tail = max(valid_p95) if valid_p95 else slo_sec * 1.6
         x_max_sec = max(slo_sec * 1.6, tail * 1.08)
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
+    fig, ax = plt.subplots(figsize=COLUMN_FIGSIZE, constrained_layout=False)
     box = ax.boxplot(
         sorted_samples_sec,
         vert=False,
-        positions=list(range(len(series))),
         patch_artist=True,
         showfliers=False,
         whis=(5, 95),
-        widths=ALIGNED_BAR_THICKNESS,
+        widths=0.6,
         medianprops={"color": "#222222", "linewidth": 1.0},
         whiskerprops={"color": "#555555", "linewidth": 0.8},
         capprops={"color": "#555555", "linewidth": 0.8},
@@ -1018,23 +827,19 @@ def plot_ttft_boxplot(
         patch.set_alpha(0.78)
 
     ax.axvline(slo_sec, color="#444444", linestyle=":", linewidth=0.8)
-    # The label sits in the blank band above the axes so it can never
-    # collide with a whisker, regardless of the data range.
     ax.text(
-        slo_sec,
-        1.02,
+        slo_sec + 0.08,
+        len(series) + 0.45,
         f"{slo_sec:g}s SLO",
         color="#444444",
         fontsize=ANNOTATION_FONT_SIZE,
-        ha="center",
+        ha="left",
         va="bottom",
-        transform=ax.get_xaxis_transform(),
-        clip_on=False,
     )
 
     labels = [item.label for item in series]
-    ax.set_yticks(range(len(labels)), labels)
-    ax.set_ylim(len(labels) - 0.5, -0.5)
+    ax.set_yticks(range(1, len(labels) + 1), labels)
+    ax.invert_yaxis()
     ax.set_xlim(0.0, x_max_sec)
     ax.set_xlabel("TTFT (s)")
     ax.grid(axis="x", color="#9a9a9a", alpha=0.28, linewidth=0.5)
@@ -1043,12 +848,7 @@ def plot_ttft_boxplot(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    fig.subplots_adjust(
-        left=margins[0],
-        right=margins[1],
-        bottom=margins[2],
-        top=margins[3],
-    )
+    fig.subplots_adjust(left=0.30, right=0.99, bottom=0.18, top=0.98)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"savefig.bbox": None}):
         fig.savefig(output_path)

@@ -35,7 +35,6 @@ import matplotlib.pyplot as plt
 from experiments.simulation.latency_profiles import load_empirical_distribution
 from experiments.simulation.provider_profiles import load_provider_pool
 from plots.end_to_end.frontier_plotting import (
-    ALIGNED_TOP_IN,
     MIX_FIGSIZE,
     PROVIDER_COLOR_CYCLE,
     PROVIDER_MIX_COLORS,
@@ -45,8 +44,6 @@ from plots.end_to_end.frontier_plotting import (
     FrontierPoint,
     MixRow,
     MixSegment,
-    aligned_panel_geometry,
-    aligned_top_in,
     plot_hedging_p99 as plot_common_hedging_p99,
     plot_mean_ttft_frontier,
     plot_slo_frontier,
@@ -59,8 +56,10 @@ from plots.style import apply_style
 
 POLICY_LABELS = {
     "greedy_cost": "Greedy-cost",
+    "or_sort_cost": "OR-price",
     "random": "Random",
     "greedy_latency": "Greedy-latency",
+    "or_sort_latency": "OR-latency",
 }
 BASELINE_ORDER = (
     "greedy_cost",
@@ -74,11 +73,11 @@ TABLE_POLICIES = (
 )
 ROUTEWISE_TABLE_ALPHAS = (0.0, 0.25, 0.5, 0.75, 1.0)
 ROUTEWISE_FIGURE_POLICIES = (
-    "ablation_lp_only_alpha0",
-    "ablation_lp_only_alpha25",
-    "ablation_lp_only_alpha50",
-    "ablation_lp_only_alpha75",
-    "ablation_lp_only_alpha100",
+    "ablation_lp_only_p0",
+    "ablation_lp_only_p25",
+    "ablation_lp_only_p50",
+    "ablation_lp_only_p75",
+    "ablation_lp_only_p100",
 )
 CDF_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
@@ -86,12 +85,10 @@ CDF_POLICIES = (
     "greedy_latency",
     "random",
 )
-# Random is included so 8c's rows line up one-to-one with 8b/8d.
 BOXPLOT_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
     "greedy_cost",
     "greedy_latency",
-    "random",
 )
 PROVIDER_MIX_POLICIES = (
     *ROUTEWISE_FIGURE_POLICIES,
@@ -100,24 +97,29 @@ PROVIDER_MIX_POLICIES = (
     "random",
 )
 # alpha=0.75, alpha=1 and greedy_latency land on the exact same (cost, TTFT)
-# point, so their three labels are fanned out (up-left / right / down) instead
-# of stacked. alpha=0/0.25/0.5 are kept off the steep and gentle frontier
-# segments.
+# point. Keep the overlapping RouteWise labels merged and make the latency
+# baseline marker visible under the RouteWise point.
 FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS = {
-    0.0: (8, -20),
-    0.25: (-10, 16),
-    0.5: (-10, 14),
-    0.75: (5, 20),
+    0.0: (8, 10),
+    0.25: (5, 18),
+    0.5: (10, 15),
+    0.75: (7, 16),
     1.0: (12, -1),
 }
-FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
-    "greedy_cost": (8, 9),
-    "greedy_latency": (0, -15),
+FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_TEXTS = {
+    0.75: r"$\alpha=0.75,1$",
+    1.0: None,
 }
-# Fig 8a-8d are one aligned set. Its top band holds the 8d legend, whose row
-# count depends on how many providers the selected policies used, so main()
-# sizes the band once and hands it to every panel.
-PROVIDER_MIX_LEGEND_NCOLS = 4
+FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_ALIGNMENTS = {
+    0.5: "center",
+}
+FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS = {
+    "greedy_cost": (8, 16),
+    "greedy_latency": (-12, -9),
+}
+FREEINFERENCE_MEAN_TTFT_BASELINE_MARKER_SIZES = {
+    "greedy_latency": 64,
+}
 
 
 @dataclass(frozen=True)
@@ -179,33 +181,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--p99-bar-out", type=Path, default=None)
     parser.add_argument("--cdf-out", type=Path, default=None)
     parser.add_argument(
-        "--label-offsets",
-        type=json.loads,
-        default=None,
-        help=(
-            "Optional JSON overriding label offsets (points) in the mean-TTFT frontier: "
-            '{"baselines": {"<policy>": [dx, dy]}, "routewise": {"<alpha>": [dx, dy]}}.'
-        ),
-    )
-    parser.add_argument(
-        "--cdf-policies",
-        nargs="+",
-        default=None,
-        help=(
-            "Optional exact policy names to include in the TTFT CDF. "
-            "Defaults to representative policies."
-        ),
-    )
-    parser.add_argument(
-        "--tier-policies",
-        nargs="+",
-        default=None,
-        help=(
-            "Optional exact RouteWise policy names to include in the tier-mix figure. "
-            "Defaults to the no-hedging alpha sweep."
-        ),
-    )
-    parser.add_argument(
         "--boxplot-out",
         type=Path,
         default=None,
@@ -244,9 +219,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_alpha(policy: str) -> float | None:
-    if "_alpha" not in policy:
+    if "_p" not in policy:
         return None
-    suffix = policy.rsplit("_alpha", 1)[1]
+    suffix = policy.rsplit("_p", 1)[1]
     try:
         return int(suffix) / 100.0
     except ValueError:
@@ -443,33 +418,26 @@ def plot_frontier(
     output_path: Path,
     baseline_policies: list[str] | None = None,
     routewise_policies: list[str] | None = None,
-    label_offsets: dict | None = None,
-    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     mean_baselines = [
         policy for policy in (baseline_policies or list(BASELINE_ORDER)) if policy != "random"
     ]
-    points = selected_frontier_points(rows, mean_baselines, routewise_policies)
-    figsize, margins = aligned_panel_geometry(len(points), top_in=top_in)
-    kwargs = {"figsize": figsize, "margins": margins}
+    kwargs = {}
     if "freeinference" in output_path.name:
-        kwargs.update(
-            routewise_label_offsets=FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
-            baseline_label_offsets=FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
-        )
-    if label_offsets:
-        # Partial overrides; unlisted points keep the shared defaults.
-        kwargs.update(
-            routewise_label_offsets={
-                float(alpha): tuple(offset)
-                for alpha, offset in label_offsets.get("routewise", {}).items()
-            },
-            baseline_label_offsets={
-                policy: tuple(offset)
-                for policy, offset in label_offsets.get("baselines", {}).items()
-            },
-        )
-    plot_mean_ttft_frontier(points, output_path, **kwargs)
+        kwargs = {
+            "routewise_label_offsets": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_OFFSETS,
+            "routewise_label_texts": FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_TEXTS,
+            "routewise_label_alignments": (
+                FREEINFERENCE_MEAN_TTFT_ROUTEWISE_LABEL_ALIGNMENTS
+            ),
+            "baseline_label_offsets": FREEINFERENCE_MEAN_TTFT_BASELINE_LABEL_OFFSETS,
+            "baseline_marker_sizes": FREEINFERENCE_MEAN_TTFT_BASELINE_MARKER_SIZES,
+        }
+    plot_mean_ttft_frontier(
+        selected_frontier_points(rows, mean_baselines, routewise_policies),
+        output_path,
+        **kwargs,
+    )
 
 
 def plot_slo(
@@ -477,51 +445,26 @@ def plot_slo(
     output_path: Path,
     baseline_policies: list[str] | None = None,
     routewise_policies: list[str] | None = None,
-    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
-    points = selected_frontier_points(rows, baseline_policies, routewise_policies)
-    figsize, margins = aligned_panel_geometry(len(points), top_in=top_in)
-    plot_slo_frontier(points, output_path, figsize=figsize, margins=margins)
+    plot_slo_frontier(
+        selected_frontier_points(rows, baseline_policies, routewise_policies),
+        output_path,
+    )
 
 
-def plot_tier_mix(
-    rows: list[Row],
-    output_path: Path,
-    policies: list[str] | None = None,
-) -> None:
-    if policies is None:
-        selected = routewise_rows(rows, hedging=False)
-    else:
-        wanted = set(policies)
-        selected = sorted(
-            (row for row in rows if row.alpha is not None and row.policy in wanted),
-            key=lambda row: (row.hedging, row.alpha or 0.0),
-        )
+def plot_tier_mix(rows: list[Row], output_path: Path) -> None:
+    selected = routewise_rows(rows, hedging=False)
     mix_rows = [
         MixRow(
-            label=(
-                rf"RW+h $\alpha={row.alpha:g}$" if row.hedging else rf"RW $\alpha={row.alpha:g}$"
-            ),
+            label="RouteWise-0.25"
+            if row.alpha == 0.25
+            else rf"RW $\alpha={row.alpha:g}$",
             shares=row.tier_mix,
         )
         for row in selected
     ]
     segments = [MixSegment(key, label, color) for key, label, color in TIER_MIX_SEGMENTS]
-    # x_max leaves the 100% tick label inside the canvas.
-    plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3, x_max=102.0)
-
-
-# Short forms shared with the real-eval provider-mix legend so both figures
-# read the same and the 10pt legend fits the 3.35in column.
-PROVIDER_SHORT_LABELS = {
-    "AtlasCloud": "Atlas",
-    "SiliconFlow": "SFlow",
-    "AkashML": "Akash",
-    "WandB": "W&B",
-    # The inventory key is spelled Minimax; the vendor, and the paper, spell
-    # it MiniMax.
-    "Minimax": "MiniMax",
-}
+    plot_stacked_mix(mix_rows, segments, output_path, legend_ncols=3)
 
 
 def provider_label(provider: str) -> str:
@@ -530,8 +473,7 @@ def provider_label(provider: str) -> str:
     if provider.endswith("_concurrency"):
         return r"$\mathcal{P}_C$"
     if provider.startswith("api_"):
-        name = provider.removeprefix("api_")
-        return PROVIDER_SHORT_LABELS.get(name, name.replace("_", " "))
+        return provider.removeprefix("api_").replace("_", " ")
     return provider.replace("_", " ")
 
 
@@ -579,30 +521,18 @@ def provider_mix_policy_rows(
     return selected
 
 
-def provider_mix_totals(rows: list[Row], requested_policies: list[str] | None) -> Counter[str]:
-    """Share summed over the selected policies, for the providers any of them used."""
-    totals: Counter[str] = Counter()
-    for row in provider_mix_policy_rows(rows, requested_policies):
-        for provider, share in row.provider_mix.items():
-            if share > 0.0:
-                totals[provider] += share
-    return totals
-
-
-def provider_mix_legend_rows(rows: list[Row], requested_policies: list[str] | None) -> int:
-    """Rows the provider-mix legend takes, which size the top band of the whole set."""
-    providers = provider_mix_totals(rows, requested_policies)
-    return math.ceil(len(providers) / PROVIDER_MIX_LEGEND_NCOLS)
-
-
 def plot_provider_mix(
     rows: list[Row],
     output_path: Path,
     requested_policies: list[str] | None = None,
-    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     selected = provider_mix_policy_rows(rows, requested_policies)
-    totals = provider_mix_totals(rows, requested_policies)
+    totals: Counter[str] = Counter()
+    for row in selected:
+        for provider, share in row.provider_mix.items():
+            if share > 0.0:
+                totals[provider] += share
+
     providers = sorted(totals, key=lambda provider: provider_sort_key(provider, totals))
     segments = [
         MixSegment(
@@ -619,16 +549,18 @@ def plot_provider_mix(
         )
         for row in selected
     ]
-    figsize, margins = aligned_panel_geometry(len(mix_rows), top_in=top_in)
     plot_stacked_mix(
         mix_rows,
         segments,
         output_path,
-        legend_ncols=PROVIDER_MIX_LEGEND_NCOLS,
-        margins=margins,
+        legend_ncols=5,
+        legend_fontsize=8.2,
+        font_size=10.8,
+        label_fontsize=11.5,
+        tick_fontsize=9.8,
+        margins=(0.43, 0.98, 0.18, 0.80),
         show_legend=True,
         x_max=102.0,
-        figsize=figsize,
     )
 
 
@@ -738,19 +670,17 @@ def plot_ttft_cdf(
     rows: list[Row],
     histograms: dict[str, dict[str, object]],
     output_path: Path,
-    policies: list[str] | None = None,
 ) -> None:
-    cdf_policies = tuple(policies) if policies else CDF_POLICIES
     by_policy = {row.policy: row for row in rows}
     p99_values = [
         by_policy[policy].p99_ms
-        for policy in cdf_policies
+        for policy in CDF_POLICIES
         if policy in by_policy and policy != "random"
     ]
     x_max_sec = max(12.0, (max(p99_values) / 1000.0 * 1.05) if p99_values else 12.0)
     x_ms = [x_max_sec * 1000.0 * idx / 299.0 for idx in range(300)]
     series: list[CdfSeries] = []
-    for policy in cdf_policies:
+    for policy in CDF_POLICIES:
         histogram = histograms.get(policy)
         if histogram is None or policy not in by_policy:
             continue
@@ -795,7 +725,6 @@ def plot_ttft_boxplot(
     histograms: dict[str, dict[str, object]],
     output_path: Path,
     requested_policies: list[str] | None = None,
-    top_in: float = ALIGNED_TOP_IN,
 ) -> None:
     by_policy = {row.policy: row for row in rows}
     policies = requested_policies or list(BOXPLOT_POLICIES)
@@ -823,31 +752,25 @@ def plot_ttft_boxplot(
     if not series:
         raise ValueError("no histogram-backed series available for boxplot")
     slo_sec = rows[0].slo_ms / 1000.0 if rows else 3.0
-    figsize, margins = aligned_panel_geometry(len(series), top_in=top_in)
-    plot_common_ttft_boxplot(
-        series,
-        output_path,
-        slo_sec=slo_sec,
-        figsize=figsize,
-        margins=margins,
-    )
+    plot_common_ttft_boxplot(series, output_path, slo_sec=slo_sec)
 
 
 def write_table(rows: list[Row], output_path: Path) -> None:
     by_policy = {row.policy: row for row in rows}
     lines: list[str] = []
-    groups = (
-        TABLE_POLICIES,
-        tuple(f"ablation_lp_only_alpha{int(alpha * 100)}" for alpha in ROUTEWISE_TABLE_ALPHAS),
-        tuple(f"ablation_lp_hedging_alpha{int(alpha * 100)}" for alpha in ROUTEWISE_TABLE_ALPHAS),
-    )
-    for group in groups:
-        selected = [by_policy[policy] for policy in group if policy in by_policy]
-        if not selected:
-            continue
-        if lines:
-            lines.append(r"\midrule")
-        lines.extend(_format_table_row(row) for row in selected)
+    for policy in TABLE_POLICIES:
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
+    lines.append(r"\midrule")
+    for alpha in ROUTEWISE_TABLE_ALPHAS:
+        policy = f"ablation_lp_only_p{int(alpha * 100)}"
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
+    lines.append(r"\midrule")
+    for alpha in ROUTEWISE_TABLE_ALPHAS:
+        policy = f"ablation_lp_hedging_p{int(alpha * 100)}"
+        row = by_policy[policy]
+        lines.append(_format_table_row(row))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -900,27 +823,20 @@ def main() -> int:
     args = parse_args()
     histograms = load_histograms(args.histograms_json)
     rows = load_rows(args.summary_csv, histograms)
-    legend_rows = 0
-    if args.provider_mix_out is not None:
-        legend_rows = provider_mix_legend_rows(rows, args.provider_mix_policies)
-    top_in = aligned_top_in(legend_rows)
     plot_frontier(
         rows,
         args.frontier_out,
         args.frontier_baselines,
         args.routewise_frontier_policies,
-        args.label_offsets,
-        top_in=top_in,
     )
     plot_slo(
         rows,
         args.slo_out,
         args.frontier_baselines,
         args.routewise_frontier_policies,
-        top_in=top_in,
     )
     if args.tier_out is not None:
-        plot_tier_mix(rows, args.tier_out, args.tier_policies)
+        plot_tier_mix(rows, args.tier_out)
     if args.provider_latency_out is not None:
         plot_provider_latency(
             rows,
@@ -932,20 +848,17 @@ def main() -> int:
             rows,
             args.provider_mix_out,
             args.provider_mix_policies,
-            top_in=top_in,
         )
     if args.p99_bar_out is not None:
         plot_hedging_p99(rows, args.p99_bar_out)
     if args.cdf_out is not None:
         if not histograms:
             raise SystemExit("--cdf-out requires --histograms-json")
-        plot_ttft_cdf(rows, histograms, args.cdf_out, args.cdf_policies)
+        plot_ttft_cdf(rows, histograms, args.cdf_out)
     if args.boxplot_out is not None:
         if not histograms:
             raise SystemExit("--boxplot-out requires --histograms-json")
-        plot_ttft_boxplot(
-            rows, histograms, args.boxplot_out, args.boxplot_policies, top_in=top_in
-        )
+        plot_ttft_boxplot(rows, histograms, args.boxplot_out, args.boxplot_policies)
     write_table(rows, args.table_out)
     write_summary(rows, args.summary_out)
     return 0
