@@ -1,0 +1,42 @@
+[
+  {
+    "provider": "Featherless_SC",
+    "mean_ttft_s": 0.4251250317754295
+  },
+  {
+    "provider": "OR_WandB",
+    "mean_ttft_s": 0.6226388858626575
+  },
+  {
+    "provider": "MiniMax_Plus_SQ",
+    "mean_ttft_s": 1.1772728692304901
+  },
+  {
+    "provider": "OR_AkashML",
+    "mean_ttft_s": 1.1829818789265354
+  },
+  {
+    "provider": "OR_DeepInfra",
+    "mean_ttft_s": 1.2652842357555292
+  },
+  {
+    "provider": "OR_Novita",
+    "mean_ttft_s": 1.6766052946944114
+  },
+  {
+    "provider": "OR_SiliconFlow",
+    "mean_ttft_s": 2.2231830264734724
+  },
+  {
+    "provider": "OR_Chutes",
+    "mean_ttft_s": 2.835301594218688
+  },
+  {
+    "provider": "OR_Phala",
+    "mean_ttft_s": 2.8598552493009413
+  },
+  {
+    "provider": "OR_AtlasCloud",
+    "mean_ttft_s": 5.55555554345063
+  }
+]

@@ -1,83 +1,346 @@
-# RouteWise Simulator
+<h1 align="center">RouteWise — EuroSys '27 Artifact</h1>
 
-This repository contains the trace-driven simulator and experiment harness used
-to evaluate RouteWise routing policies.
+<p align="center">
+  <strong>Latency–Cost Optimization for Multi-Provider LLM Routing</strong>
+  <br>
+  <sub>Paper #96 · EuroSys 2027 · Muxin Tian, Haoran Ni, Yiyan Zhai, Yangsun Park, Juncheng Yang</sub>
+</p>
 
-## Current Architecture
+<p align="center">
+  Developed by the
+  <a href="https://juncheng.seas.harvard.edu/" title="Harvard Measurements and Design of Computer Systems Lab">Harvard MadSys Lab</a>
+  at <a href="https://seas.harvard.edu/">Harvard SEAS</a>.
+</p>
 
-The simulator code is organized around one engine and a flat policy interface:
+This repository is the research artifact for the paper: the routing core,
+the trace-driven simulator, the experiment and figure pipelines, and the
+instructions to run them. The `eurosys2027` branch is the public artifact
+branch. It also includes a separate MiniMax-M3 evaluation from the paper
+revision, described in Section 4.6.
 
-- `rwsim/engine/`: request loop, capacity accounting, in-flight hedge ticks
-- `rwsim/world/`: providers, quota/concurrency state, latency distributions
-- `rwsim/data/`: trace workload loaders
-- `rwsim/policies/`: flat policy presets and implementations
-- `rwsim/metrics/`: `Run` / `PerRequestRecord` result schema and aggregations
-- `experiments/`: paper configs, suites, and offline-stage workflows
+## 1. Overview
 
-The old `rwsim/strategies/` layer and stage directories under
-`rwsim/policies/` have been removed. Policy presets are:
+| Path | Role |
+|---|---|
+| `llm_routewise/` | Routing core, LP mixture solver, simulator engine, metrics |
+| `experiments/simulation/` | Trace-driven simulator experiment modules |
+| `experiments/offline_stage/` | Offline/stage configuration and loaders |
+| `experiments/real_evaluation/` | Live-provider runner (optional; needs keys, costs money) |
+| `plots/` | Figure-generation scripts |
+| `data/` | Recorded real-world requests, de-identified PROD trace, motivation measurements, smoke fixture |
+| `scripts/` | Workload preparation, smoke test, run helpers |
+| `docs/research/REPRODUCIBILITY.md` | Extended operational notes |
 
-- `greedy_cost`
-- `greedy_latency`
-- `random`
-- `or_sort_cost`
-- `or_sort_latency`
-- `ablation_lp_only`
-- `ablation_lp_hedging`
-- `routewise`
+## 2. Setup
 
-## Quick Start
-
-From the repository root:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install pytest
-```
-
-Prepare trace workload data when needed:
-
-```bash
-python3 scripts/prepare_workload.py --days 30
-python -m experiments.simulation.dataset_cache build --dataset burstgpt
-```
-
-Run the implemented simulator paper sections. See
-`experiments/simulation/README.md` for the target sub-experiment tree:
+Requirements: Linux x86-64 or macOS, `git`, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). uv installs
+the pinned Python interpreter (`.python-version`) and the exact locked
+dependency set; there are no system-level dependencies, no GPU, and no
+commercial solver.
 
 ```bash
-routewise simulator list
-routewise simulator cost-layer
+git clone -b eurosys2027 https://github.com/HarvardMadSys/RouteWise.git
+cd RouteWise
+uv sync --frozen
 ```
 
-## Python Entrypoints
+### Docker alternative (uniform Ubuntu environment)
 
-```python
-from rwsim import POLICIES, run_policy
-from rwsim.metrics import PerRequestRecord, Run
-from rwsim.policies import build_policy
-from rwsim.world import Provider, ScenarioConfig
-```
-
-## Verification
-
-Fast structural and unit checks:
+To evaluate inside a uniform Ubuntu 24.04 container instead of installing
+uv on the host:
 
 ```bash
-pytest -q -m "not slow"
+docker build -t routewise-ae .
+docker run --rm routewise-ae            # runs the artifact smoke test
+docker run --rm -it routewise-ae bash   # shell for every other command below
 ```
 
-Golden comparison remains available for full regression runs:
+Every command in the following sections works the same inside the
+container; add a volume mount (`-v "$PWD/outputs:/artifact/outputs"`) to
+keep generated figures on the host.
+
+## 3. Getting started (~2 minutes)
 
 ```bash
-python tests/golden_capture.py --mode compare
+bash scripts/artifact_smoke_test.sh
 ```
 
-## Reproducibility Notes
+This replays the committed 120-request synthetic fixture through the
+cost-layer simulator section and runs the fast unit tests. It needs **no API
+keys and no network access** and ends with `artifact smoke test: PASS`.
 
-The main artifact entrypoints are this README, the simulator CLI, and
-`experiments/simulation/README.md`. Generated artifacts should be written under
-`outputs/`.
+## 4. Reproducing the paper's results
+
+The paper's evaluation has two arms, and this section mirrors them: the
+real-world experiments against live providers (Figures 1, 6, 7) and the
+trace-driven simulator experiments (Figure 8 and the 30-day results),
+followed by the ablation study (Figure 9), the stale-telemetry robustness
+experiment, and the background measurement figures (Figures 2 and 3).
+Outputs land under `outputs/`; compare the produced figures and printed
+statistics against the paper.
+
+### Resource requirements
+
+Around 10 GB of free disk (1 GB of downloads, a 5.6 GB composed workload,
+caches and outputs) and roughly 2-4 GB of RAM per simulator worker — with
+16 GB of RAM prefer `--jobs 4`; the measured times below used `--jobs 24`
+on a 64-core, 500 GB server. No GPU.
+
+### 4.1 Real-world experiments (Figures 1, 6, 7; ~1 minute)
+
+The paper's real-world results come from a 24-hour BurstGPT replay against
+live commercial providers. Reproduction analyzes the recorded measurements;
+calling providers today would produce a new measurement under different
+load, prices, quotas, and rate limits. The request-level records of all ten
+policy runs are included in [data/real_eval_records/](data/real_eval_records/).
+Run the analysis, plot the six panels, and check the numeric results with:
+
+```bash
+uv run python scripts/reproduce_real_world.py
+```
+
+Outputs go to `outputs/figures/real_world/`: `figure01_ttft.pdf` (the
+cost vs. mean-TTFT frontier of all ten policies) and `figure01_slo.pdf` (the
+SLO-violation bars), `figure06a_ttft_distribution.pdf`,
+`figure06b_provider_mix.pdf`, `figure07a_provider_latency.pdf`, and
+`figure07b_provider_pricing.pdf`, plus a recomputed `real_world_summary.json`
+and a LaTeX table. The command fixes the billing window at 86,400 seconds
+and the subscription charge at $1.5476333333333334 per non-OpenRouter run.
+
+The check requires exactly 14,233 requests per policy and compares total
+cost, mean and P99 TTFT, and SLO-violation rate against
+`data/real_eval_records/reference_summary.json`, with relative/absolute
+tolerance `1e-9` for floating-point aggregation. It exits unsuccessfully on
+a mismatch. For example, RouteWise at α = 0 costs $2.183 with mean TTFT
+0.924 s and 0.45% SLO violations; OR-price costs $2.060 with 2.360 s and
+20.66%. Figure 7a redraws an **author-reconstructed provider-mean snapshot**
+in `paper_minimax_provider_latency.json`; its original profiling logs are
+unavailable, so this panel is not independently recomputed from the request
+records. Figure 7b uses the recorded inventory prices. See the
+[data notes](data/real_eval_records/README.md) for these provenance limits.
+
+Optionally, `experiments/real_evaluation/` contains the full live runner to
+redo such an experiment with your own provider keys (`cp .env.example .env`).
+It **spends real money**, and its results are a new measurement — comparable
+in trend, not in exact numbers.
+
+### 4.2 Simulator experiments (Figure 8 and the 30-day results)
+
+The simulator is trace-driven. Fix the seed, workload, scenario, and
+predictor when comparing runs; code revisions can also change the routing
+decisions. The PROD command below pins the historical simulator revision
+and checks the results against the archived reference.
+
+**30-day BurstGPT workload.** Prepare the workload once (downloads the
+public BurstGPT v2.0 and ShareGPT V3 sources with SHA256-pinned URLs,
+roughly a 1 GB download):
+
+```bash
+uv run python scripts/prepare_workload.py --days 30
+```
+
+Then replay it through the simulator. The experiment code is organized as
+one runnable module per routing mechanism; together they produce the
+30-day simulation results (each module lists its scenarios and policies
+with `--help`, writes `summary.{json,csv}` plus TTFT histograms under
+`outputs/simulation/<module>/`, and takes `--jobs N`):
+
+| Command | Mechanism under test | Wall time (64-core server, `--jobs 24`) |
+|---|---|---|
+| `uv run python -m experiments.simulation.end_to_end --jobs 24` | joint cost+latency routing | ~24 min (39 cells) |
+| `uv run python -m experiments.simulation.cost_layer --jobs 24` | cost tiers: on-demand, quota, concurrency | ~17 min (120 cells) |
+| `uv run python -m experiments.simulation.hedging --jobs 24` | request hedging | ~16 min (8 cells) |
+| `uv run python -m experiments.simulation.latency_layer --jobs 24` | latency-band overlap | ~2 min (21 cells) |
+
+On a laptop, budget roughly 20-40x those times or reduce `--jobs`; every
+module also accepts `--max-requests` for a truncated pass.
+
+The paper (§4.3.1) states the 30-day result qualitatively and attaches no
+numbers to it: RouteWise exposes a cost–latency frontier, scales to a much
+larger request volume than the 24-hour replay, and reduces SLO violations
+compared with cost-oriented baselines. Check those three claims in
+`outputs/simulation/end_to_end/summary.csv` on the rows with
+`scenario = end_to_end_rw8`, the eight-provider pool of the real-world
+experiment: every row has `n_requests = 1813565` (the 30-day
+BurstGPT+ShareGPT composition, against 14,233 in the real-world replay);
+across `ablation_lp_hedging_alpha0` … `ablation_lp_hedging_alpha100`
+(RouteWise with hedging) and likewise across the `ablation_lp_only_*` rows
+(LP routing alone), `total_cost_usd` rises and `mean_ttft_ms` falls as α
+increases; and every `ablation_lp_hedging_*` row has a lower
+`slo_violation_rate` than `greedy_cost` (the LP-only α = 0 point is
+cost-first and matches Greedy-cost, as expected). The exact values depend
+on the simulator revision, so this section is checked for those relations
+rather than against archived numbers.
+
+**PROD agentic workload (Figure 8; ~1 minute).** The de-identified trace is
+included as [data/freeinference.jsonl](data/freeinference.jsonl), with
+timestamps, token and cache counters, measurement metadata, and per-account
+pseudonyms. It contains 24,035 raw records; 21,678 valid requests enter the
+simulation after filtering failed and zero-token rows. Run all eight paper
+policies and rebuild the four panels with:
+
+```bash
+uv run python scripts/reproduce_figure8.py --jobs 4
+```
+
+This command uses the bundled, unmodified simulator source at commit
+[`99c5f3f`](https://github.com/HarvardMadSys/RouteWise/commit/99c5f3fd6504377fb57bd4edecef89e3865b7765),
+with seed 42, the `end_to_end_rw8` scenario, a 3 s SLO, `bucket_mean`
+prediction, and cache accounting enabled. Later code changes, including
+the concurrency shadow-price change, alter the intermediate RouteWise
+points. Running today's `experiments.simulation.end_to_end` module directly
+is therefore a different experiment. The bundled source requires no extra
+download and works in the Docker image too; see
+[source provenance](experiments/simulation/PAPER_FIGURE8.md).
+
+The command checks request counts and provider counts exactly, and total
+cost, mean/P50/P90/P99 TTFT, SLO-violation rate, and hedge rate with
+relative/absolute tolerance `1e-9`, against
+[figure8_reference_summary.csv](data/figure8_reference_summary.csv).
+For example, the SLO-violation rates are 35.00% for Greedy-cost,
+4.18% for RouteWise at α = 0.25, and 0.86% for Greedy-latency.
+Any mismatch makes the command fail. The paper's §4.3.2 claims read
+directly off `outputs/figure8/simulation/summary.csv`: moving from α = 0 to
+α = 0.25 cuts mean TTFT from roughly 3.6 s to 1.0 s (`mean_ttft_ms` 3576 to
+1022) and SLO violations from 32.5% to 4.2%; beyond α = 0.5 the frontier
+flattens (α = 0.75 and α = 1 coincide with Greedy-latency at 0.86%); and
+the `provider_mix` column shows Inceptron's share rising to 73.6% at
+α = 0.25 and 91.9% at α = 0.5. Independently generated summaries
+and histograms go to `outputs/figure8/simulation/`; panels
+`figure08a_freeinference_mean_ttft.pdf`, `figure08b_slo_violations.pdf`,
+`figure08c_ttft_distribution.pdf`, and `figure08d_provider_mix.pdf`
+go to `outputs/figure8/figures/`.
+
+### 4.3 Ablation study (Figure 9 and the offline analysis)
+
+**Offline analysis.** The paper's offline oracle — a clairvoyant lower
+bound on prepaid-capacity allocation — runs as the `offline` policy inside
+the cost-layer module, so the §4.2 cost-layer run already produces it: in
+`outputs/simulation/cost_layer/summary.json`, compare the `offline` rows
+against the other policies within the quota and concurrency scenarios to
+obtain the online-to-offline gaps discussed in the paper.
+
+```bash
+# Output-length misprediction, Figure 9a (runs + plot, one command; ~1 h):
+uv run python scripts/run_output_length_prediction_ablation.py
+
+# Quota / concurrency effective cost, Figures 9b-9c (runs + plots,
+# one command; ~10 min with --jobs 8):
+uv run python scripts/run_effective_cost_ablation.py --jobs 8
+```
+
+### 4.4 Robustness to stale telemetry (simulation, ~10 min with `--jobs 18`)
+
+This experiment asks whether hedging can mitigate a sudden provider-side
+latency increase before the latency profiler has been updated, by sending a
+backup request to a provider that is not experiencing the same load spike.
+Such conditions are hard to control against live providers, so it runs in
+the simulator: the §2.2 same-cost RW3 scenario with a recurring spike on the
+baseline-fastest provider (TTFT x2 / x3 / x5 for 10 minutes every hour), and
+LP-only versus LP+hedging RouteWise under frozen (`stale`), rolling-window
+(`observed`), and oracle (`fresh`) latency beliefs.
+
+```bash
+uv run python scripts/run_stale_telemetry_experiment.py --jobs 18
+```
+
+Outputs land in `outputs/ablations/stale_telemetry/`: `summary.csv` with
+per-phase metrics (`baseline_*`, `spike_*`, `post_spike_*`) and spike-phase
+deltas against the no-mitigation `routewise_lp_stale` row,
+`spike_timeseries.csv` with onset-aligned 1-minute bins, and `figures/`.
+The 18 cells replay the full 30-day trace (each worker holds the trace,
+about 2.5 GB); add `--duration-sec 259200` for a three-day pass that takes
+about a minute. The environment model,
+telemetry regimes, and caveats are documented in
+`experiments/ablations/stale_telemetry/README.md`.
+
+### 4.5 Background measurement figures (Figures 2 and 3, ~1 minute)
+
+Both Figure 2 source CSVs are committed in `data/drift_source/`.
+
+```bash
+uv run python plots/motivation/drift_wall_clock.py \
+    --source-dir data/drift_source --output-dir outputs/figures
+```
+
+Produces `drift_wall_clock_llama.{pdf,png}` and
+`drift_wall_clock_gpt4o.{pdf,png}` in `outputs/figures/`, and prints each
+panel's statistics (row count, global P99, max rolling P99) for comparison
+with the paper.
+
+Figure 3 draws the two TTFT background panels from the sanitized production
+request export committed in `data/motivation/ttft_duration/`:
+
+```bash
+uv run python -m plots.motivation.plot_ttft_background_panels \
+    --output-dir outputs/figures
+```
+
+Produces `figure03_ttft_background_panels.{pdf,png}` in `outputs/figures/`
+together with a `.summary.json` of the plotted bucket statistics.
+
+### 4.6 MiniMax-M3 revision experiments
+
+The MiniMax-M3 replay is separate from the earlier real-world run in
+Section 4.1. Its committed records cover the same 14,233-request BurstGPT
+segment across eleven policies, including a single-provider baseline.
+The four additional SLO runs and per-leg hedging records support the
+revision analyses. These commands use the committed records and need no
+provider keys:
+
+```bash
+uv run python -m scripts.reproduce_real_world_m3
+uv run python -m scripts.reproduce_hedging_tables
+uv run python -m scripts.reproduce_real_world_mechanisms
+```
+
+The scripts write figures and summaries under `outputs/figures/`. See
+[`data/real_eval_records_m3/README.md`](data/real_eval_records_m3/README.md)
+and [`data/real_eval_slo_sweep_m3/README.md`](data/real_eval_slo_sweep_m3/README.md)
+for the run setup, data fields, and measurement limits.
+
+For the 30-day MiniMax-M3 simulation, first prepare the workload as in
+Section 4.2, then run the scenario and plot its panels:
+
+```bash
+uv run python -m experiments.simulation.end_to_end \
+    --scenario end_to_end_m3_rw6 --jobs 4 \
+    --output-dir outputs/simulation/end_to_end_m3
+uv run python scripts/plot_simulation_m3.py --workload burstgpt30d
+```
+
+The plot script also supports the two PROD workloads; its module docstring
+lists their replay commands and output paths.
+
+## 5. Troubleshooting
+
+- **`Disk quota exceeded` from `pulp/mps_lp.py`** — the LP solver writes
+  scratch files to the system temp directory; point `TMPDIR` at a volume
+  with space (`export TMPDIR=/path/with/space`).
+- **Workers killed / machine unresponsive** — each simulator worker holds
+  the full 1.8M-request trace; lower `--jobs` (see resource requirements).
+- **First section run is slow to start** — the workload is being pickled
+  into a cache on first load; later runs start in seconds.
+- **A figure script fails with `No module named 'experiments'`** — run it
+  from the repository root, and run `plots.end_to_end.plot_simulation_frontier`
+  via `python -m` (as documented), not by file path.
+
+## 6. Citation
+
+```bibtex
+@inproceedings{routewise-eurosys27,
+  title     = {RouteWise: Latency--Cost Optimization for Multi-Provider LLM Routing},
+  author    = {Tian, Muxin and Ni, Haoran and Zhai, Yiyan and Park, Yangsun and Yang, Juncheng},
+  booktitle = {Proceedings of the Twenty-Second European Conference on Computer Systems (EuroSys '27)},
+  year      = {2027}
+}
+```
+
+## 7. License and data provenance
+
+The code is MIT-licensed (`LICENSE`). The BurstGPT and ShareGPT source
+traces are downloaded from their original public hosts at pinned URLs with
+SHA-256 verification and are not redistributed here. The smoke fixture is
+synthetic, generated deterministically by
+`data/fixtures/generate_smoke_fixture.py`, and contains no text payloads.

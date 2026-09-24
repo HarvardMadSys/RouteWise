@@ -12,7 +12,18 @@ results/
 artifacts/
 # Local trace data symlinks at repo root only; do not match nested
 # `data/` directories (e.g. experiments/real_evaluation/data/).
-/data/
+# Committed exceptions: the smoke fixture and the exported evaluation
+# records stay tracked.
+/data/*
+!/data/fixtures/
+!/data/real_eval_records/
+!/data/real_eval_records_m3/
+!/data/real_eval_slo_sweep_m3/
+!/data/freeinference.jsonl
+!/data/README.md
+!/data/SHA256SUMS
+!/data/figure8_reference_summary.csv
+!/experiments/simulation/paper_figure8_source.tar.gz
 outputs/*
 !outputs/.gitkeep
 *.egg-info/

@@ -1,145 +1,118 @@
-# Simulation Experiment
+# Simulation Experiments
 
-Paper-facing simulator harness. This README documents the experiment structure
-implemented by the artifact CLI.
+Paper-facing simulator harness. Each section is implemented as a dedicated,
+directly runnable Python module:
+`uv run python -m experiments.simulation.<section>`.
 
-## Common setup
+## Common Setup
 
-**Latency families** — `rwsim/world/distributions.py` registry plus the empirical
+Latency families come from `llm_routewise/sim/world/distributions.py` plus empirical
 latency profiles in [`latency_profiles/`](latency_profiles/):
 
-- `uniform`           — bounded, no tail
-- `normal`            — symmetric, light tail
-- `heavy_tail`        — `LogNormal`, heavy tail
-- `real_world` (RW3)  — three real OpenRouter providers, less-overlapping latency
-- `real_world` (RW8)  — eight real OpenRouter providers, realistic overlap
+- `uniform`: bounded, no tail.
+- `normal`: symmetric, light tail.
+- `heavy_tail`: lognormal-style heavy tail.
+- `real_world` (RW3): three empirical OpenRouter provider profiles.
+- `real_world` (RW8): eight empirical OpenRouter provider profiles.
 
-Real-world pools are locked. See [`latency_profiles/pools.yaml`](latency_profiles/pools.yaml):
+Real-world pools are locked in
+[`latency_profiles/pools.yaml`](latency_profiles/pools.yaml):
 
 - `RW3 = [WandB, DeepInfra, Novita]`
 - `RW8 = [WandB, DeepInfra, Google, Alibaba, Novita, Cerebras, SiliconFlow, AtlasCloud]`
 - `minimax_m25_rw8 = [Inceptron, Friendli, DeepInfra, SambaNova, Venice, AtlasCloud, Chutes, SiliconFlow]`
-- `rw8_pooled` — RW8 samples concatenated; used wherever latency must be held
-  constant across providers (cost layer real-world case).
+- `rw8_pooled`: RW8 samples concatenated for cases where latency must be held
+  constant across providers.
 
-**Baselines** — every layer compares against:
+Common simulator baselines:
 
-- `greedy_cost`      — cheapest feasible; zero-cost ties break `S_C` → `S_Q` → `S_A`
-- `greedy_latency`   — always lowest expected TTFT
-- `random`           — uniform over feasible providers
-- `offline`          — cost-only oracle (greedy / ILP, see `experiments/offline_stage/`)
+- `greedy_cost`: cheapest feasible provider.
+- `greedy_latency`: lowest expected TTFT.
+- `random`: uniform over feasible providers.
+- `offline`: cost-only oracle, implemented under `experiments/offline_stage/`.
 
-**Dataset** — ShareGPT one-month trace.
+OpenRouter-native `sort=price` and `sort=latency` are live real-evaluation
+baselines only.
 
-**Metrics** — every run reports:
+The default simulator dataset is a one-month ShareGPT trace. Routing assumes
+the output token length is known at decision time; output-prediction error is
+handled by its own ablation.
 
-- per-system TTFT distribution (CDF)
-- cost (bar + table)
-- per-provider request fraction (stacked bar)
-- mean / P50 / P99 (headline)
-- P10 / P25 / P75 / P90 (tail breakdown)
+## 1. Cost Layer (`cost_layer.py`)
 
-The materialised metric record lives in `rwsim/metrics/run.py` (`Run`).
+Same latency, different cost. Cost-layer experiments incrementally add scarce
+capacity tiers so each capacity model can be isolated.
 
-Routing assumes the output token length is known at decision time
-(value-estimator effect is its own ablation, see
-`experiments/estimator_ablation/`).
+### 1.1 On-demand only
 
----
+Three API providers with costs `$1`, `$2`, and `$4` per million input tokens.
+All providers share the same latency construction for a given run:
 
-## 1. Cost layer (`cost_layer.py`)
-
-Same latency / different cost. Cost layer rolls in scarce-capacity tiers
-incrementally so the contribution of each capacity model is isolatable.
-
-### 1.1 On-demand only — three providers, three cost points
-
-Sample setup: cost = `$1 / $2 / $4 per M tokens`, all synthetic mean TTFT =
-300 ms.
-
-- 1.1.1 `uniform` family
-- 1.1.2 `normal` family
-- 1.1.3 `heavy_tail` family
-- 1.1.4 `real_world` family (uses `rw8_pooled` so all three providers share
-  one empirical distribution)
+- `uniform`
+- `normal`
+- `heavy_tail`
+- `real_world` using `rw8_pooled`
 
 ### 1.2 Add quota provider
 
-One subscription distribution (typically `lognormal`-shaped). Sweep the
-number of subscriptions to find the cost-optimal count.
+Adds one quota tier and sweeps the number of subscriptions.
 
 ### 1.3 Add concurrency provider
 
-One subscription distribution. Same subscription-count sweep.
+Adds one concurrency tier and sweeps the number of subscriptions.
 
----
+## 2. Latency Layer (`latency_layer.py`)
 
-## 2. Latency layer (`latency_layer.py`)
+Same cost, different latency profiles. Cost is held constant so the router
+only chooses on latency. The main ablation knob is profile overlap:
 
-Same cost / different latency profiles. Cost is held constant so the router
-only chooses on latency. The ablation knob is **distribution overlap**:
+- `no_overlap`: provider distributions are clearly separated.
+- `half_overlap`: provider distributions share part of their support.
 
-- `no_overlap`   — provider distributions are clearly separated
-- `half_overlap` — provider distributions share roughly half their support
+Scenarios cover `uniform`, `normal`, `heavy_tail`, and `real_world` profiles.
 
-### 2.1 No hedging (three providers)
+## 3. Hedging (`hedging.py`)
 
-- 2.1.1 `uniform`     — no_overlap, half_overlap
-- 2.1.2 `normal`      — no_overlap, half_overlap
-- 2.1.3 `heavy_tail`  — no_overlap, half_overlap
-- 2.1.4 `real_world`  — RW3
+Probability-target hedging on top of the latency-layer setup. The router
+checks a canonical SLO checkpoint grid and dispatches the latest backup that
+can still meet the target combined success probability.
 
-### 2.2 Hedging (`hedging.py`)
+Headline metrics include hedge trigger fraction, P99 TTFT, mean TTFT, P50
+TTFT, and cost multiplier.
 
-Same setup as 2.1 plus `Hedging-Explorer`. Run on three-provider and
-eight-provider configurations:
+## 4. End-to-End (`end_to_end.py`)
 
-- 2.2.1 `heavy_tail`   — three providers and eight providers
-- 2.2.2 `real_world`   — RW3 and RW8
+Real-world cost and real-world latency, including multi-tier deployments:
 
-Headline metrics: hedge trigger fraction (bar), P99 (bar), mean and P50.
+- Three-provider config: one API tier, one quota tier, one concurrency tier.
+- Controlled cost-tier config: three API providers with fixed paper-facing
+  costs plus one quota tier and one concurrency tier.
+- RW8+capacity config: eight MiniMax M2.5 API providers plus one quota tier
+  and one concurrency tier.
 
----
+End-to-end scenarios evaluate hedging and the `p` budget knob used for
+cost-vs-latency Pareto sweeps.
 
-## 3. End-to-end (`end_to_end.py`)
-
-Real-world cost and real-world latency, multi-tier deployments. Subscription
-counts come from §1.2 / §1.3 results.
-
-### 3.1 Hedging (Hedging-Explorer on)
-
-- Three-provider config: 1 on-demand + 1 quota + 1 concurrency
-- Controlled cost-tier config: 3 on-demand providers with §1 synthetic API
-  prices (`$1/$5`, `$2/$10`, `$4/$20` per million input/output tokens) and
-  dispersed real-world latency profiles, plus 1 quota + 1 concurrency
-- RW8+capacity config: 8 MiniMax M2.5 OpenRouter on-demand providers
-  (`minimax_m25_rw8`) + 1 quota + 1 concurrency
-  (10 providers total)
-
-### 3.2 Varying `p` (LP budget knob)
-
-Same two configs as §3.1; sweep `p ∈ [0, 1]` for the cost-vs-latency Pareto.
-HTTP `429` rates belong to live real-evaluation runs, not simulator runs.
-
----
-
-## Code layout
-
-The implementation follows a one-file-per-section structure:
+## Code Layout
 
 ```text
 experiments/simulation/
-  cost_layer.py        # §1
-  latency_layer.py     # §2.1
-  hedging.py           # §2.2
-  end_to_end.py        # §3
+  cost_layer.py        # cost-layer section
+  latency_layer.py     # latency-layer section
+  hedging.py           # hedging section
+  end_to_end.py        # end-to-end section
   common.py            # provider builders, workload loading, summary helpers
-  latency_profiles/    # real-world latency artifacts (RW3 / RW8 / rw8_pooled)
+  latency_profiles/    # empirical latency artifacts
 ```
 
-Implemented section runners are invoked through the CLI:
+## Running Sections
+
+Each section prints its scenarios, policies, and options with `--help`.
+Run a section:
 
 ```bash
-routewise simulator list
-routewise simulator cost-layer
+uv run python -m experiments.simulation.cost_layer
+uv run python -m experiments.simulation.latency_layer
+uv run python -m experiments.simulation.hedging
+uv run python -m experiments.simulation.end_to_end
 ```

@@ -1,0 +1,349 @@
+{
+  "quota_provider": "MiniMax_Plus_SQ",
+  "quota_window_sec": 18000.0,
+  "quota_window_requests": 4500,
+  "concurrency": [
+    {
+      "policy": "budget_range_alpha0_hedge",
+      "alpha": 0.0,
+      "n": 14233,
+      "free_slot_decisions": 5300,
+      "offered_when_free_rate": 1.0,
+      "lowest_latency_when_free_rate": 0.5233962264150943,
+      "picked_when_lowest_latency_rate": 1.0,
+      "picked_when_not_lowest_latency_rate": 1.0,
+      "picked_when_busy": 0,
+      "share_of_requests": 0.3723740602824422
+    },
+    {
+      "policy": "budget_range_alpha25_hedge",
+      "alpha": 0.25,
+      "n": 14233,
+      "free_slot_decisions": 5490,
+      "offered_when_free_rate": 1.0,
+      "lowest_latency_when_free_rate": 0.5105646630236794,
+      "picked_when_lowest_latency_rate": 0.9996432393863718,
+      "picked_when_not_lowest_latency_rate": 0.5690360997394864,
+      "picked_when_busy": 0,
+      "share_of_requests": 0.30429284058174666
+    },
+    {
+      "policy": "budget_range_alpha50_hedge",
+      "alpha": 0.5,
+      "n": 14233,
+      "free_slot_decisions": 5840,
+      "offered_when_free_rate": 1.0,
+      "lowest_latency_when_free_rate": 0.48561643835616436,
+      "picked_when_lowest_latency_rate": 0.998589562764457,
+      "picked_when_not_lowest_latency_rate": 0.34354194407456723,
+      "picked_when_busy": 0,
+      "share_of_requests": 0.2714817677228975
+    },
+    {
+      "policy": "budget_range_alpha75_hedge",
+      "alpha": 0.75,
+      "n": 14233,
+      "free_slot_decisions": 8355,
+      "offered_when_free_rate": 1.0,
+      "lowest_latency_when_free_rate": 0.3400359066427289,
+      "picked_when_lowest_latency_rate": 0.9996480112636396,
+      "picked_when_not_lowest_latency_rate": 0.07326804497642365,
+      "picked_when_busy": 0,
+      "share_of_requests": 0.22792102859551747
+    },
+    {
+      "policy": "budget_range_alpha100_hedge",
+      "alpha": 1.0,
+      "n": 14233,
+      "free_slot_decisions": 9023,
+      "offered_when_free_rate": 1.0,
+      "lowest_latency_when_free_rate": 0.313753740441095,
+      "picked_when_lowest_latency_rate": 0.9989403037795832,
+      "picked_when_not_lowest_latency_rate": 0.0,
+      "picked_when_busy": 0,
+      "share_of_requests": 0.1986931778261786
+    }
+  ],
+  "quota": [
+    {
+      "policy": "budget_range_alpha0_hedge",
+      "alpha": 0.0,
+      "n": 14233,
+      "quota_requests": 1458,
+      "quota_per_window": [
+        2,
+        6,
+        1199,
+        92,
+        159
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 1199,
+      "peak_fraction_used": 0.26644444444444443,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "budget_range_alpha25_hedge",
+      "alpha": 0.25,
+      "n": 14233,
+      "quota_requests": 2350,
+      "quota_per_window": [
+        32,
+        54,
+        1626,
+        224,
+        414
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 1626,
+      "peak_fraction_used": 0.36133333333333334,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "budget_range_alpha50_hedge",
+      "alpha": 0.5,
+      "n": 14233,
+      "quota_requests": 2380,
+      "quota_per_window": [
+        30,
+        67,
+        1685,
+        264,
+        334
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 1685,
+      "peak_fraction_used": 0.37444444444444447,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "budget_range_alpha75_hedge",
+      "alpha": 0.75,
+      "n": 14233,
+      "quota_requests": 2633,
+      "quota_per_window": [
+        23,
+        50,
+        2028,
+        276,
+        256
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 2028,
+      "peak_fraction_used": 0.45066666666666666,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "budget_range_alpha100_hedge",
+      "alpha": 1.0,
+      "n": 14233,
+      "quota_requests": 3113,
+      "quota_per_window": [
+        13,
+        16,
+        2718,
+        244,
+        122
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 2718,
+      "peak_fraction_used": 0.604,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "greedy_latency",
+      "alpha": null,
+      "n": 14233,
+      "quota_requests": 2729,
+      "quota_per_window": [
+        9,
+        11,
+        2366,
+        245,
+        98
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 2366,
+      "peak_fraction_used": 0.5257777777777778,
+      "exhausted_at_hours": null,
+      "requests_after_exhaustion": 0
+    },
+    {
+      "policy": "greedy_cost",
+      "alpha": null,
+      "n": 14233,
+      "quota_requests": 4880,
+      "quota_per_window": [
+        0,
+        6,
+        4500,
+        185,
+        189
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 4500,
+      "peak_fraction_used": 1.0,
+      "exhausted_at_hours": 13.62722252978219,
+      "requests_after_exhaustion": 4626
+    },
+    {
+      "policy": "quota_first_offline",
+      "alpha": null,
+      "n": 14233,
+      "quota_requests": 8841,
+      "quota_per_window": [
+        66,
+        115,
+        4500,
+        1913,
+        2247
+      ],
+      "peak_window": 2,
+      "peak_window_quota_requests": 4500,
+      "peak_fraction_used": 1.0,
+      "exhausted_at_hours": 13.505835455060005,
+      "requests_after_exhaustion": 5392
+    }
+  ],
+  "quota_length_mix": [
+    {
+      "policy": "budget_range_alpha0_hedge",
+      "label": "RouteWise $\\alpha=0$",
+      "alpha": 0.0,
+      "n": 1377,
+      "share_1-10": 0.7189542483660131,
+      "share_11-50": 0.11619462599854757,
+      "share_51-200": 0.06608569353667393,
+      "share_>200": 0.09876543209876543
+    },
+    {
+      "policy": "budget_range_alpha25_hedge",
+      "label": "RouteWise $\\alpha=0.25$",
+      "alpha": 0.25,
+      "n": 1620,
+      "share_1-10": 0.7771604938271605,
+      "share_11-50": 0.13209876543209875,
+      "share_51-200": 0.04938271604938271,
+      "share_>200": 0.04135802469135803
+    },
+    {
+      "policy": "budget_range_alpha50_hedge",
+      "label": "RouteWise $\\alpha=0.5$",
+      "alpha": 0.5,
+      "n": 1631,
+      "share_1-10": 0.7964438994481913,
+      "share_11-50": 0.13182096873083998,
+      "share_51-200": 0.036174126302881665,
+      "share_>200": 0.035561005518087066
+    },
+    {
+      "policy": "budget_range_alpha75_hedge",
+      "label": "RouteWise $\\alpha=0.75$",
+      "alpha": 0.75,
+      "n": 1966,
+      "share_1-10": 0.8209562563580874,
+      "share_11-50": 0.13123092573753814,
+      "share_51-200": 0.02899287894201424,
+      "share_>200": 0.018819938962360123
+    },
+    {
+      "policy": "budget_range_alpha100_hedge",
+      "label": "RouteWise $\\alpha=1$",
+      "alpha": 1.0,
+      "n": 2693,
+      "share_1-10": 0.8555514296323803,
+      "share_11-50": 0.12031191979205347,
+      "share_51-200": 0.01708132194578537,
+      "share_>200": 0.007055328629780914
+    },
+    {
+      "policy": "contested",
+      "label": "Contested ($\\alpha=0$)",
+      "alpha": null,
+      "n": 8933,
+      "share_1-10": 0.566998768610769,
+      "share_11-50": 0.40221650061569464,
+      "share_51-200": 0.01343333706481585,
+      "share_>200": 0.017351393708720474
+    },
+    {
+      "policy": "trace",
+      "label": "All requests",
+      "alpha": null,
+      "n": 14233,
+      "share_1-10": 0.39436520761610344,
+      "share_11-50": 0.35684676456123093,
+      "share_51-200": 0.10405395910911262,
+      "share_>200": 0.14473406871355302
+    }
+  ],
+  "lp_policy": "budget_range_alpha50_hedge",
+  "lp_bins": 41,
+  "lp_rebalancing": [
+    {
+      "provider": "OR_Minimax",
+      "n": 41,
+      "share_of_traffic": 38.99900934448114,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 10.796734333863505,
+      "weight_min": 0.0,
+      "weight_max": 75.21970509383378,
+      "latency_min_ms": 702.0,
+      "latency_max_ms": 1094.5,
+      "latency_weight_spearman": -0.5314348136773025
+    },
+    {
+      "provider": "Featherless_SC",
+      "n": 41,
+      "share_of_traffic": 27.246413264947655,
+      "offered_share": 41.03140588772571,
+      "mean_weight_over_bins": 52.05188270255382,
+      "weight_min": 8.096479328165374,
+      "weight_max": 100.0,
+      "latency_min_ms": 388.5,
+      "latency_max_ms": 4103.0,
+      "latency_weight_spearman": -0.5426032492199561
+    },
+    {
+      "provider": "MiniMax_Plus_SQ",
+      "n": 41,
+      "share_of_traffic": 16.375216749806786,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 20.1110106984125,
+      "weight_min": 0.0,
+      "weight_max": 77.57368866328258,
+      "latency_min_ms": 694.0,
+      "latency_max_ms": 953.0,
+      "latency_weight_spearman": -0.1890395950178342
+    },
+    {
+      "provider": "OR_GMICloud",
+      "n": 41,
+      "share_of_traffic": 10.683345043209442,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 4.035445334737977,
+      "weight_min": 0.0,
+      "weight_max": 22.584432092798455,
+      "latency_min_ms": 771.0,
+      "latency_max_ms": 1964.0,
+      "latency_weight_spearman": -0.3800204444419143
+    },
+    {
+      "provider": "OR_Together",
+      "n": 41,
+      "share_of_traffic": 6.559024801517599,
+      "offered_share": 100.0,
+      "mean_weight_over_bins": 12.445608454757853,
+      "weight_min": 0.0,
+      "weight_max": 43.64190476190476,
+      "latency_min_ms": 586.0,
+      "latency_max_ms": 1060.0,
+      "latency_weight_spearman": -0.4988501184466011
+    }
+  ]
+}

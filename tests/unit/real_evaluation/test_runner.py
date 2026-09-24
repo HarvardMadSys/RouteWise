@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from experiments.real_evaluation.executor import HedgedResult
 from experiments.real_evaluation.inventory import (
     InventoryConfig,
     ProviderSpec,
@@ -644,7 +645,7 @@ def test_session_is_distinct_across_threads() -> None:
 
 
 def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
 
     def fake_send_via_transport(
         provider: str,
@@ -681,7 +682,7 @@ def test_warmup_broadcasts_profile_samples_and_guard(monkeypatch) -> None:
 
 
 def test_warmup_probes_all_providers_each_round(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     seen: list[str] = []
 
     def fake_send_via_transport(
@@ -713,7 +714,7 @@ def test_warmup_probes_all_providers_each_round(monkeypatch) -> None:
 
 
 def test_warmup_probes_providers_in_parallel(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     providers = [spec.name for spec in runner.inventory.providers]
     barrier = threading.Barrier(len(providers))
     lock = threading.Lock()
@@ -763,7 +764,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     synthetic high-latency sample so the LP can still tentatively rank the
     provider on startup. Replay-time probes are handled separately (see
     ``test_replay_probe_failure_does_not_record_any_sample``)."""
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     bad_provider = runner.inventory.providers[0].name
     calls: dict[str, int] = {}
 
@@ -809,7 +810,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     )
     assert sum(calls.values()) == len(providers)
 
-    state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    state = runner.policies["budget_range_alpha75_hedge"].states[bad_provider]
     now = time.time()
     assert state.profile.sample_count(now) == 1, (
         "warmup failure must still inject one synthetic positive-TTFT sample"
@@ -819,7 +820,7 @@ def test_warmup_probe_no_retry_and_records_synthetic_sample(monkeypatch) -> None
     assert mean == PROBE_FAILURE_FALLBACK_TTFT_MS
 
     for healthy_spec in runner.inventory.providers[1:]:
-        healthy_state = runner.policies["budget_range_p75_hedge"].states[healthy_spec.name]
+        healthy_state = runner.policies["budget_range_alpha75_hedge"].states[healthy_spec.name]
         assert healthy_state.profile.sample_count(now) == 1, (
             "one provider's failure must not abort the warmup round"
         )
@@ -839,7 +840,7 @@ def test_warmup_cadenced_skips_concurrency_limited_provider_in_flight(
       skip-in-flight, so our probe never occupies the only account slot
       while real production traffic also needs it.
     """
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     providers = list(runner.inventory.providers)
     capped_in_flight = next(
         p for p in providers if p.concurrency_limit is not None
@@ -927,13 +928,13 @@ def test_warmup_cadenced_skips_concurrency_limited_provider_in_flight(
     rec.close()
 
 
-def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
-    """Replay-time probe failures (periodic / shared sidecar) must not write
+def test_profile_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
+    """Replay-time probe failures from shared maintenance must not write
     to the latency profile at all — neither a positive synthetic sample nor
     an error sample. Real-request 429s remain the only way a provider gets
     penalized (via the ``error_samples`` path with
     ``RATE_LIMIT_ERROR_PENALTY_MS``)."""
-    runner, rec = _build_runner(policy_names=["budget_range_p75_hedge"])
+    runner, rec = _build_runner(policy_names=["budget_range_alpha75_hedge"])
     bad_provider = runner.inventory.providers[0].name
 
     def fake_send_via_transport(
@@ -968,10 +969,10 @@ def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
-    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="periodic")
+    runner.probe_profiles(probes_per_provider=1, sleep_sec=0.0, phase="shared")
 
     now = time.time()
-    bad_state = runner.policies["budget_range_p75_hedge"].states[bad_provider]
+    bad_state = runner.policies["budget_range_alpha75_hedge"].states[bad_provider]
     assert bad_state.profile.sample_count(now) == 0, (
         "non-warmup probe failure must not record a synthetic sample"
     )
@@ -982,7 +983,7 @@ def test_replay_probe_failure_does_not_record_any_sample(monkeypatch) -> None:
 
 
 def test_initial_profile_loads_into_all_policy_profiles(tmp_path) -> None:
-    runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_p100"])
+    runner, rec = _build_runner(policy_names=["greedy_latency", "budget_range_alpha100"])
     now = time.time()
     profile_path = tmp_path / "initial_profile.json"
     profile_path.write_text(
@@ -1141,7 +1142,7 @@ def test_initial_profile_seed_offset_prevents_shared_log_duplicate(tmp_path) -> 
         assert state.profile.sample_count(time.time()) == 2
         assert state.profile.mean_ms(time.time()) == pytest.approx((111.0 + 222.0) / 2)
     finally:
-        runner._stop_periodic_profile_probe_thread(handle)
+        runner._stop_background_thread(handle)
         rec.close()
 
 
@@ -1182,6 +1183,145 @@ def test_shared_profile_feedback_updates_all_local_policies(tmp_path) -> None:
     rec.close()
 
 
+def test_hedge_loser_canceled_is_not_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    primary = runner.inventory.providers[0].name
+    backup = runner.inventory.providers[1].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    hedged = HedgedResult(
+        primary_result=SingleRequestResult(
+            ttft_ms=123.0,
+            e2e_ms=200.0,
+            status="success",
+            provider=primary,
+            start_ts=now,
+            first_token_ts=now + 0.123,
+        ),
+        backup_result=SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=150.0,
+            status="canceled",
+            provider=backup,
+            error_message="canceled_by_hedge_winner",
+            start_ts=now + 0.05,
+        ),
+        winner="primary",
+        hedge_triggered=True,
+        backup_provider=backup,
+    )
+
+    runner._feed_back_hedged(policy, hedged)
+
+    for local_policy in runner.policies.values():
+        primary_state = local_policy.states[primary]
+        backup_state = local_policy.states[backup]
+        assert primary_state.profile.sample_count(time.time()) == 1
+        assert primary_state.profile.mean_ms(time.time()) == pytest.approx(123.0)
+        assert backup_state.profile.total_count(time.time()) == 0
+
+    lines = path.read_text().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["provider"] == primary
+    assert event["error_type"] is None
+    rec.close()
+
+
+def test_primary_hedge_loser_canceled_is_not_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    primary = runner.inventory.providers[0].name
+    backup = runner.inventory.providers[1].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    hedged = HedgedResult(
+        primary_result=SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=150.0,
+            status="canceled",
+            provider=primary,
+            error_message="canceled_by_hedge_winner",
+            start_ts=now,
+        ),
+        backup_result=SingleRequestResult(
+            ttft_ms=95.0,
+            e2e_ms=180.0,
+            status="success",
+            provider=backup,
+            start_ts=now + 0.05,
+            first_token_ts=now + 0.145,
+        ),
+        winner="backup",
+        hedge_triggered=True,
+        backup_provider=backup,
+    )
+
+    runner._feed_back_hedged(policy, hedged)
+
+    for local_policy in runner.policies.values():
+        primary_state = local_policy.states[primary]
+        backup_state = local_policy.states[backup]
+        assert primary_state.profile.total_count(time.time()) == 0
+        assert backup_state.profile.sample_count(time.time()) == 1
+        assert backup_state.profile.mean_ms(time.time()) == pytest.approx(95.0)
+
+    lines = path.read_text().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["provider"] == backup
+    assert event["error_type"] is None
+    rec.close()
+
+
+def test_real_request_errors_still_enter_shared_profile_feedback(tmp_path) -> None:
+    path = tmp_path / "shared_profile_events.jsonl"
+    runner, rec = _build_runner(
+        policy_names=["greedy_latency", "random"],
+        shared_profile_events_path=path,
+    )
+    provider = runner.inventory.providers[0].name
+    policy = runner.policies["greedy_latency"]
+    now = time.time()
+
+    runner._feed_back_single(
+        policy,
+        provider,
+        SingleRequestResult(
+            ttft_ms=-1.0,
+            e2e_ms=20.0,
+            status="HTTP 429",
+            provider=provider,
+            http_status=429,
+            rate_limited=True,
+            start_ts=now,
+        ),
+    )
+
+    for local_policy in runner.policies.values():
+        state = local_policy.states[provider]
+        assert state.profile.sample_count(time.time()) == 0
+        assert state.profile.total_count(time.time()) == 1
+        assert state.profile.error_rate(time.time()) == pytest.approx(1.0)
+
+    latest = SharedProfileEventLog(path).recent_last_event_by_provider(
+        now=now + 1.0,
+        window_sec=15.0,
+    )
+    assert latest[provider].error_type == "HTTP 429"
+    assert latest[provider].ttft_ms == pytest.approx(-1.0)
+    rec.close()
+
+
 def test_shared_profile_tailer_imports_external_events(tmp_path) -> None:
     path = tmp_path / "shared_profile_events.jsonl"
     runner, rec = _build_runner(
@@ -1206,7 +1346,7 @@ def test_shared_profile_tailer_imports_external_events(tmp_path) -> None:
             time.sleep(0.02)
         assert state.profile.mean_ms(time.time()) == pytest.approx(654.0)
     finally:
-        runner._stop_periodic_profile_probe_thread(handle)
+        runner._stop_background_thread(handle)
         rec.close()
 
 
@@ -1215,64 +1355,6 @@ def test_profile_bootstrap_guard_skips_profile_free_policies() -> None:
 
     runner.validate_profile_bootstrap(min_success_samples=5)
 
-    rec.close()
-
-
-def test_periodic_profile_probe_runs_during_replay(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["or_auto"])
-    probe_calls: list[str] = []
-
-    def fake_send_via_transport(
-        provider: str,
-        prompt: str,
-        max_tokens: int,
-        timeout: int,
-        ttft_event: threading.Event | None,
-        ttft_info: dict[str, Any] | None,
-        cancel_event: threading.Event | None = None,
-    ) -> SingleRequestResult:
-        assert prompt == WARMUP_PROBE_PROMPT
-        probe_calls.append(provider)
-        return SingleRequestResult(
-            ttft_ms=100.0,
-            e2e_ms=150.0,
-            status="success",
-            provider=provider,
-            billed_cost_usd=0.001,
-            start_ts=time.time(),
-            first_token_ts=time.time(),
-        )
-
-    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
-    monkeypatch.setattr(
-        runner,
-        "_dispatch_one",
-        lambda policy, req, idx: None,
-    )
-
-    runner.replay(
-        [
-            TraceRequest(
-                arrival_time_sec=0.0,
-                prompt="x",
-                prompt_tokens=10,
-                max_tokens=8,
-            ),
-            TraceRequest(
-                arrival_time_sec=0.2,
-                prompt="x",
-                prompt_tokens=10,
-                max_tokens=8,
-            ),
-        ],
-        speedup=1.0,
-        duration_sec=1.0,
-        periodic_probe_interval_sec=0.05,
-        periodic_probe_sleep_sec=0.0,
-    )
-
-    assert probe_calls
-    assert runner._profile_probe_counts["periodic"] == len(probe_calls)
     rec.close()
 
 
@@ -1481,8 +1563,8 @@ def test_or_sentinel_excludes_or_routed_chutes_subscription_from_baseline() -> N
 
 def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     """When a checkpoint hedge fires, backup capacity is charged before send."""
-    runner, _ = _build_runner(policy_names=["budget_range_p100_hedge"])
-    policy = runner.policies["budget_range_p100_hedge"]
+    runner, _ = _build_runner(policy_names=["budget_range_alpha100_hedge"])
+    policy = runner.policies["budget_range_alpha100_hedge"]
 
     # Seed every provider with profile data so the LP picks something.
     now = time.time()
@@ -1492,12 +1574,20 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
 
     charge_calls: list[tuple[str, float]] = []
     original_charge = policy.charge_capacity
+    release_calls: list[tuple[str | None, int | None]] = []
+    original_release = policy.release_capacity
 
     def tracking_charge(provider: str, ts: float, expected_service_sec: float) -> int | None:
         charge_calls.append((provider, ts))
         return original_charge(provider, ts, expected_service_sec)
 
+    def tracking_release(provider: str | None, capacity_id: int | None, now: float) -> None:
+        del now
+        release_calls.append((provider, capacity_id))
+        original_release(provider, capacity_id, time.time())
+
     monkeypatch.setattr(policy, "charge_capacity", tracking_charge)
+    monkeypatch.setattr(policy, "release_capacity", tracking_release)
 
     # Stub the transport: primary fails immediately, backup succeeds.
     def fake_send_via_transport(
@@ -1593,7 +1683,7 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     )
 
     # Both primary and backup must have been charged. Order: primary first
-    # (route-time), then backup (dispatch-time, via callback).
+    # (route-time), then backup (dispatch-time, via checkpoint selector).
     charged_providers = [c[0] for c in charge_calls]
     assert primary_marker in charged_providers
     assert backup_name in charged_providers
@@ -1604,11 +1694,14 @@ def test_dispatch_one_charges_backup_at_dispatch_time(monkeypatch) -> None:
     primary_ts = charge_calls[primary_idx][1]
     backup_ts = charge_calls[backup_idx][1]
     assert backup_ts >= primary_ts
+    released_providers = [provider for provider, _ in release_calls]
+    assert primary_marker in released_providers
+    assert backup_name in released_providers
 
 
 def test_hedged_request_falls_back_after_both_legs_429(monkeypatch) -> None:
-    runner, rec = _build_runner(policy_names=["budget_range_p100_hedge"])
-    policy = runner.policies["budget_range_p100_hedge"]
+    runner, rec = _build_runner(policy_names=["budget_range_alpha100_hedge"])
+    policy = runner.policies["budget_range_alpha100_hedge"]
     providers = list(policy.states)
     primary, backup, fallback = providers[:3]
     calls: list[str] = []
@@ -1777,6 +1870,48 @@ def test_non_hedged_greedy_cost_falls_back_to_next_provider_on_429(monkeypatch) 
     rec.close()
 
 
+def test_dispatch_populates_model_from_inventory(monkeypatch) -> None:
+    """The runner must fill ``model`` from the run-level inventory, not a spec
+    attribute that does not exist (drift audit gap 1)."""
+    runner, rec = _build_runner(policy_names=["greedy_cost"])
+    policy = runner.policies["greedy_cost"]
+    expected_model = runner.inventory.openrouter_model_id
+    assert expected_model  # inventory carries a non-empty model id
+
+    def fake_send_via_transport(
+        provider: str,
+        prompt: str,
+        max_tokens: int,
+        timeout: int,
+        ttft_event: threading.Event | None,
+        ttft_info: dict[str, Any] | None,
+        cancel_event: threading.Event | None = None,
+    ) -> SingleRequestResult:
+        del prompt, max_tokens, timeout, ttft_event, ttft_info, cancel_event
+        return SingleRequestResult(
+            ttft_ms=100.0,
+            e2e_ms=150.0,
+            status="success",
+            provider=provider,
+            prompt_tokens=10,
+            completion_tokens=8,
+            billed_cost_usd=0.01,
+            start_ts=time.time(),
+            first_token_ts=time.time(),
+        )
+
+    monkeypatch.setattr(runner, "_send_via_transport", fake_send_via_transport)
+    runner._dispatch_one(
+        policy=policy,
+        req=TraceRequest(arrival_time_sec=0.0, prompt="x", prompt_tokens=10, max_tokens=8),
+        req_index=0,
+    )
+
+    assert rec._rows[0].model == expected_model
+    assert rec.to_run().records[0].model == expected_model
+    rec.close()
+
+
 def test_prepare_dispatch_holds_concurrency_capacity_until_release() -> None:
     runner, rec = _build_runner(policy_names=["greedy_cost"])
     policy = runner.policies["greedy_cost"]
@@ -1831,10 +1966,10 @@ def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
     monkeypatch,
 ) -> None:
     runner, rec = _build_runner(
-        policy_names=["budget_range_p100"],
+        policy_names=["budget_range_alpha100"],
         prefix_cache_routing=True,
     )
-    policy = runner.policies["budget_range_p100"]
+    policy = runner.policies["budget_range_alpha100"]
     provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
 
     monkeypatch.setattr(
@@ -1891,10 +2026,10 @@ def test_dispatch_uses_trace_cached_input_tokens_for_routing_diagnostics(
 
 def test_dispatch_treats_missing_trace_cache_field_as_cold_miss(monkeypatch) -> None:
     runner, rec = _build_runner(
-        policy_names=["budget_range_p100"],
+        policy_names=["budget_range_alpha100"],
         prefix_cache_routing=True,
     )
-    policy = runner.policies["budget_range_p100"]
+    policy = runner.policies["budget_range_alpha100"]
     provider = next(spec.name for spec in runner.inventory.providers if spec.tier == "api")
 
     monkeypatch.setattr(

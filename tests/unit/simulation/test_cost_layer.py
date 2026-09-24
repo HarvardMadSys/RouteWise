@@ -10,11 +10,11 @@ import pytest
 from experiments.simulation import common, cost_layer
 from experiments.simulation.offline_oracle import OfflineOracleKind, assign_offline
 from experiments.subscriptions import load_subscription_plans
-from routewise_cli.main import main as routewise_main
-from rwsim.metrics import Run
-from rwsim.schemas import Request
-from rwsim.world.capacity import ProviderTier, WeightedConcurrencyState
-from rwsim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier, WeightedConcurrencyState
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.metrics import Run
+from llm_routewise.schemas import Request
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 
 def test_cost_layer_scenarios_match_section_contract():
@@ -41,6 +41,7 @@ def test_cost_layer_scenarios_match_section_contract():
     assert "concurrency" in cost_layer.list_scenarios()
     assert "joint" in cost_layer.list_scenarios()
     assert "cost_layer_quota_q1" not in cost_layer.list_scenarios()
+    assert {scenario.primary_slo_ms for scenario in scenarios.values()} == {DEFAULT_PRIMARY_SLO_MS}
 
 
 def test_cost_layer_make_scenario_rebuilds_real_world_by_name():
@@ -222,8 +223,7 @@ def test_joint_scenario_combines_quota_and_concurrency_plans():
     )
 
     assert (
-        scenario.name
-        == "joint__quota_plan=chutes__q=14"
+        scenario.name == "joint__quota_plan=chutes__q=14"
         "__concurrency_plan=featherless_premium__c=12__model=sharegpt"
     )
     assert scenario.metadata["public_scenario"] == "joint"
@@ -246,18 +246,17 @@ def test_joint_scenario_combines_quota_and_concurrency_plans():
     assert scenario.providers[0].true_p50_ms() == pytest.approx(1210.2729224134237)
     assert scenario.providers[1].true_p50_ms() == pytest.approx(8157.45)
     assert all(
-        provider.true_mean_ms() == pytest.approx(300.0)
+        provider.true_mean_ms() == pytest.approx(300.0 * math.exp(0.125))
         for provider in scenario.providers[2:]
     )
     assert all(
-        provider.true_p50_ms() == pytest.approx(300.0 * math.exp(-0.125))
-        for provider in scenario.providers[2:]
+        provider.true_p50_ms() == pytest.approx(300.0) for provider in scenario.providers[2:]
     )
     assert scenario.metadata["latency_profile"] == "minimax_m25_subscriptions"
     assert scenario.metadata["quota_latency_profile_provider"] == "chutes"
     assert scenario.metadata["concurrency_latency_profile_provider"] == "featherless"
     assert scenario.metadata["api_latency_family"] == "heavy_tail"
-    assert scenario.metadata["api_latency_anchor_kind"] == "mean"
+    assert scenario.metadata["api_latency_anchor_kind"] == "p50"
     assert scenario.metadata["api_latency_anchor_ms"] == 300.0
 
 
@@ -269,33 +268,83 @@ def test_joint_scenarios_allow_explicit_counts_beyond_plan_defaults():
     )
 
     assert (
-        "joint__quota_plan=chutes__q=14"
-        "__concurrency_plan=featherless_premium__c=12__model=sharegpt"
+        "joint__quota_plan=chutes__q=14__concurrency_plan=featherless_premium__c=12__model=sharegpt"
     ) in scenarios
 
 
 def test_cost_layer_policy_surface_disables_explorer_and_greedy_latency():
     policies = cost_layer.policies_for_section((0.0, 0.75, 1.0))
-    presets = common.make_routewise_presets(p_values=(0.0, 0.75, 1.0), include_hedging=False)
+    presets = common.make_routewise_presets(alpha_values=(0.0, 0.75, 1.0), include_hedging=False)
 
     assert policies == (
         "greedy_cost",
         "random",
         "offline",
-        "ablation_lp_only_p0",
-        "ablation_lp_only_p75",
-        "ablation_lp_only_p100",
+        "ablation_lp_only_alpha0",
+        "ablation_lp_only_alpha75",
+        "ablation_lp_only_alpha100",
     )
     assert "greedy_latency" not in policies
     assert "routewise" not in presets
-    assert presets["ablation_lp_only_p75"]["params"] == {
+    assert presets["ablation_lp_only_alpha75"]["params"] == {
         "hedging": False,
         "explorer": False,
-        "p": 0.75,
+        "alpha": 0.75,
         "cost_envelope": common.WORKLOAD_COST_ENVELOPE,
         "output_predictor_spec": {"kind": common.DEFAULT_OUTPUT_PREDICTOR},
-        "output_predictor_quantile": "q50",
     }
+
+
+def test_routewise_policy_slo_defaults_to_scenario_slo():
+    scenario = ScenarioConfig(
+        name="slo-test",
+        description="test",
+        providers=[],
+        primary_slo_ms=1234.0,
+    )
+    presets = {
+        "rw": {
+            "policy": "RouteWisePolicy",
+            "params": {"hedging": "probability_target", "cost_envelope": (1e-6, 1e-3)},
+        }
+    }
+
+    materialized = common._materialize_routewise_slo(
+        presets,
+        policy_name="rw",
+        scenario=scenario,
+    )
+
+    assert presets["rw"]["params"].get("slo_ms") is None
+    assert materialized["rw"]["params"]["slo_ms"] == 1234.0
+
+
+def test_routewise_policy_slo_preserves_explicit_override():
+    scenario = ScenarioConfig(
+        name="slo-test",
+        description="test",
+        providers=[],
+        primary_slo_ms=1234.0,
+    )
+    presets = {
+        "rw": {
+            "policy": "RouteWisePolicy",
+            "params": {
+                "hedging": "probability_target",
+                "cost_envelope": (1e-6, 1e-3),
+                "slo_ms": 5678.0,
+            },
+        }
+    }
+
+    materialized = common._materialize_routewise_slo(
+        presets,
+        policy_name="rw",
+        scenario=scenario,
+    )
+
+    assert materialized is presets
+    assert materialized["rw"]["params"]["slo_ms"] == 5678.0
 
 
 def test_workload_cost_envelope_uses_cheapest_api_request_cost():
@@ -326,7 +375,9 @@ def test_workload_cost_envelope_uses_cheapest_api_request_cost():
     assert pytest.approx(0.006) == U
 
 
-def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
+def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider(
+    require_burstgpt_data,
+):
     scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
     requests = common.load_workload(max_requests=3)
 
@@ -343,7 +394,7 @@ def test_offline_cost_baseline_uses_cheapest_api_when_no_capacity_provider():
     ) / len(requests)
 
 
-def test_offline_cost_baseline_seed_is_interface_noop():
+def test_offline_cost_baseline_seed_is_interface_noop(require_burstgpt_data):
     scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
     requests = common.load_workload(max_requests=3)
 
@@ -358,7 +409,7 @@ def test_offline_cost_baseline_seed_is_interface_noop():
     ]
 
 
-def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
+def test_offline_cost_baseline_uses_quota_for_highest_cost_requests(require_burstgpt_data):
     scenario = cost_layer.make_scenario(
         "quota",
         subscription_plan="chutes",
@@ -376,7 +427,7 @@ def test_offline_cost_baseline_uses_quota_for_highest_cost_requests():
     assert run.mean_cost_usd() == 0.0
 
 
-def test_offline_cost_baseline_labels_multi_window_quota_as_greedy():
+def test_offline_cost_baseline_labels_multi_window_quota_as_greedy(require_burstgpt_data):
     scenario = cost_layer.make_scenario(
         "quota",
         subscription_plan="minimax_subscription_plus",
@@ -391,7 +442,7 @@ def test_offline_cost_baseline_labels_multi_window_quota_as_greedy():
     }
 
 
-def test_offline_assign_rejects_unimplemented_kinds():
+def test_offline_assign_rejects_unimplemented_kinds(require_burstgpt_data):
     scenario = cost_layer.make_scenarios()["cost_layer_uniform"]
     requests = common.load_workload(max_requests=3)
 
@@ -401,7 +452,7 @@ def test_offline_assign_rejects_unimplemented_kinds():
         assign_offline(scenario, requests, kind="stage_qc_best_decomposition")
 
 
-def test_offline_cost_baseline_can_use_concurrency_capacity():
+def test_offline_cost_baseline_can_use_concurrency_capacity(require_burstgpt_data):
     scenario = cost_layer.make_scenario(
         "concurrency",
         concurrency_plan="featherless_premium",
@@ -515,12 +566,12 @@ def test_offline_joint_exact_assigns_quota_and_concurrency_globally():
         for request_id, assignment in assignments.items()
         if assignment.provider_tier == ProviderTier.S_C
     } == {1, 2}
-    assert {
-        assignment.oracle_kind for assignment in assignments.values()
-    } == {OfflineOracleKind.STAGE_QC_EXACT}
+    assert {assignment.oracle_kind for assignment in assignments.values()} == {
+        OfflineOracleKind.STAGE_QC_EXACT
+    }
 
 
-def test_offline_joint_exact_records_milp_solver_metadata(monkeypatch):
+def test_offline_joint_exact_records_milp_solver_metadata(monkeypatch, require_burstgpt_data):
     monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SOLVER", "cbc")
     monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SEED", "123")
     monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_TIME_LIMIT_SEC", "300")
@@ -542,13 +593,11 @@ def test_offline_joint_exact_records_milp_solver_metadata(monkeypatch):
     }
     assert {record.metadata["offline_milp_solver"] for record in run.records} == {"cbc"}
     assert {record.metadata["offline_milp_seed"] for record in run.records} == {123}
-    assert {record.metadata["offline_milp_time_limit_sec"] for record in run.records} == {
-        300.0
-    }
+    assert {record.metadata["offline_milp_time_limit_sec"] for record in run.records} == {300.0}
     assert {record.metadata["offline_joint_max_requests"] for record in run.records} == {50}
 
 
-def test_offline_joint_exact_rejects_unknown_milp_solver(monkeypatch):
+def test_offline_joint_exact_rejects_unknown_milp_solver(monkeypatch, require_burstgpt_data):
     monkeypatch.setenv("ROUTEWISE_OFFLINE_MILP_SOLVER", "highs")
     scenario = cost_layer.make_scenario(
         "joint",
@@ -567,18 +616,16 @@ def test_offline_joint_exact_rejects_unknown_milp_solver(monkeypatch):
         )
 
 
-def test_routewise_simulator_list_only_registers_runnable_sections(capsys):
-    assert routewise_main(["simulator", "list"]) == 0
-    payload = json.loads(capsys.readouterr().out)
+def test_cost_layer_section_lists_runnable_scenarios_and_policies():
+    scenarios = cost_layer.list_scenarios()
+    policies = cost_layer.policies_for_section()
 
-    assert payload["sections"][0]["name"] == "cost-layer"
-    assert payload["sections"][0]["description"] == "paper §3.2 — same latency / different cost"
-    assert "cost_layer_uniform" in payload["sections"][0]["scenarios"]
-    assert "cost_layer_real_world" in payload["sections"][0]["scenarios"]
-    assert "quota" in payload["sections"][0]["scenarios"]
-    assert "cost_layer_quota_q1" not in payload["sections"][0]["scenarios"]
-    assert "offline" in payload["sections"][0]["policies"]
-    assert "ablation_lp_only_p75" in payload["sections"][0]["policies"]
+    assert "cost_layer_uniform" in scenarios
+    assert "cost_layer_real_world" in scenarios
+    assert "quota" in scenarios
+    assert "cost_layer_quota_q1" not in scenarios
+    assert "offline" in policies
+    assert "ablation_lp_only_alpha75" in policies
 
 
 def test_subscription_plan_loader_validates_and_exposes_chutes():
@@ -861,9 +908,7 @@ def test_quota_fits_flag_is_window_based():
 
 def test_concurrency_trace_metrics_use_weighted_capacity_unit_seconds():
     plan = load_subscription_plans()["featherless_premium"]
-    requests = [
-        Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)
-    ]
+    requests = [Request(id=0, timestamp=0.0, request_tokens=1, response_tokens=1, total_tokens=2)]
 
     metrics = common._concurrency_trace_metrics(
         plan,
@@ -961,15 +1006,10 @@ def test_subscription_summary_adds_fixed_fee_only_at_section_layer():
         row["subscription_fixed_cost_usd_per_run"]
     )
     assert two_seed_row["total_cost_usd"] == pytest.approx(
-        two_seed_row["api_cost_usd"]
-        + two_seed_row["subscription_fixed_cost_usd"]
+        two_seed_row["api_cost_usd"] + two_seed_row["subscription_fixed_cost_usd"]
     )
-    assert two_seed_row["total_cost_usd_per_run"] == pytest.approx(
-        row["total_cost_usd_per_run"]
-    )
-    assert two_seed_row["mean_total_cost_usd"] == pytest.approx(
-        two_seed_row["total_cost_usd"] / 4
-    )
+    assert two_seed_row["total_cost_usd_per_run"] == pytest.approx(row["total_cost_usd_per_run"])
+    assert two_seed_row["mean_total_cost_usd"] == pytest.approx(two_seed_row["total_cost_usd"] / 4)
 
 
 def test_subscription_summary_adds_concurrency_fields_and_fixed_fee():
@@ -1070,7 +1110,7 @@ def test_cost_layer_parallel_run_section_matches_serial(tmp_path):
     scenario = cost_layer.make_scenario("cost_layer_uniform")
     policies = ("greedy_cost", "random")
     seeds = (42, 43)
-    presets = common.make_routewise_presets(p_values=())
+    presets = common.make_routewise_presets(alpha_values=())
 
     serial_rows = common.run_section(
         section_name=cost_layer.SECTION_NAME,
@@ -1108,29 +1148,30 @@ def test_cost_layer_parallel_run_section_matches_serial(tmp_path):
 def test_cost_layer_cli_accepts_jobs(tmp_path):
     output_dir = tmp_path / "cli"
 
-    assert routewise_main(
-        [
-            "simulator",
-            "cost-layer",
-            "--scenario",
-            "cost_layer_uniform",
-            "--workload",
-            "burstgpt",
-            "--max-requests",
-            "100",
-            "--policy",
-            "greedy_cost",
-            "--policy",
-            "random",
-            "--jobs",
-            "2",
-            "--prefix-cache-enabled",
-            "--cached-input-price-fraction",
-            "0.2",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        cost_layer.main(
+            [
+                "--scenario",
+                "cost_layer_uniform",
+                "--workload",
+                "burstgpt",
+                "--max-requests",
+                "100",
+                "--policy",
+                "greedy_cost",
+                "--policy",
+                "random",
+                "--jobs",
+                "2",
+                "--prefix-cache-enabled",
+                "--cached-input-price-fraction",
+                "0.2",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     metadata = json.loads((output_dir / "metadata.json").read_text())
     assert metadata["jobs"] == 2

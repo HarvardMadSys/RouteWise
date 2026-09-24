@@ -52,7 +52,7 @@ quota plan:        chutes
 subscription count q*: 16
 latency family:    heavy_tail
 curve shape:       exp_lu
-LP p value:        0.5
+LP alpha value:    0.5
 seed:              42
 ```
 
@@ -93,7 +93,7 @@ No GPU is required. The experiment is CPU-bound and can run on a laptop. Use
 Use this before a full artifact run:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m experiments.ablations.effective_cost_calibration.harness \
   --max-requests 20 \
   --seed 42 \
   --jobs 1 \
@@ -146,7 +146,7 @@ PY
 Run the paper-facing default:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m experiments.ablations.effective_cost_calibration.harness \
   --seed 42 \
   --jobs 8 \
   --output-dir outputs/ablations/effective_cost_calibration
@@ -260,7 +260,7 @@ run.
 Reference sweep:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m experiments.ablations.effective_cost_calibration.harness \
   --sweep reference \
   --seed 42 \
   --jobs 8 \
@@ -270,7 +270,7 @@ uv run routewise ablation effective-cost-calibration \
 Full cross-product:
 
 ```bash
-uv run routewise ablation effective-cost-calibration \
+uv run python -m experiments.ablations.effective_cost_calibration.harness \
   --sweep cross-product \
   --seed 42 \
   --jobs 8 \
@@ -335,4 +335,3 @@ code.
 If `provider_mix` contains `api_mid` or `api_expensive`, the run is not the
 clean calibration surface and should not be used for the main paper-facing
 claim.
-

@@ -55,21 +55,20 @@ def test_symmetric_families_have_same_mean_and_p50_anchor_value():
         assert dist.p50() == pytest.approx(300.0)
 
 
-def test_metadata_records_anchor_semantics_and_true_moments():
+def test_default_metadata_records_p50_anchor_semantics_and_true_moments():
     metadata = synthetic_latency_metadata(
         SyntheticLatencySpec(
             family="lognormal",
             anchor_ms=300.0,
-            anchor_kind="mean",
             lognormal_sigma=0.5,
         )
     )
 
     assert metadata["latency_generation_version"] == "synthetic_latency_v2"
     assert metadata["latency_family"] == "heavy_tail"
-    assert metadata["latency_anchor_kind"] == "mean"
+    assert metadata["latency_anchor_kind"] == "p50"
     assert metadata["latency_anchor_ms"] == 300.0
-    assert metadata["latency_distribution_mean_ms"] == pytest.approx(300.0)
-    assert metadata["latency_distribution_p50_ms"] == pytest.approx(
-        300.0 * math.exp(-0.5 * 0.5 * 0.5)
+    assert metadata["latency_distribution_mean_ms"] == pytest.approx(
+        300.0 * math.exp(0.5 * 0.5 * 0.5)
     )
+    assert metadata["latency_distribution_p50_ms"] == pytest.approx(300.0)

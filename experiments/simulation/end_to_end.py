@@ -12,7 +12,7 @@ hedging:
 - ``end_to_end_rw8``: the selected eight-provider MiniMax M2.5 OpenRouter
   on-demand pool plus the same quota and concurrency providers.
 
-The policy dimension carries the no-hedge / hedging comparison and the ``p``
+The policy dimension carries the no-hedge / hedging comparison and the ``alpha``
 sweep. Explorer is intentionally disabled in the simulator; drift/profile
 freshness belongs to the live-evaluation harness.
 """
@@ -53,12 +53,13 @@ from experiments.simulation.latency_profiles import (
 )
 from experiments.simulation.provider_profiles import load_provider_pool
 from experiments.subscriptions import SubscriptionPlan, load_subscription_plans
-from rwsim.world.capacity import ProviderTier
-from rwsim.world.providers import TieredProvider
-from rwsim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
+    from llm_routewise.schemas import Request
 
 SECTION_NAME = "end-to-end"
 PUBLIC_SCENARIO_TAG = "end_to_end"
@@ -66,11 +67,11 @@ PUBLIC_SCENARIO_TAG = "end_to_end"
 RW3_SCENARIO_NAME = "end_to_end_rw3"
 COST_TIERED_SCENARIO_NAME = "end_to_end_3sa_cost_tiers"
 RW8_SCENARIO_NAME = "end_to_end_rw8"
-OR8_1H_EFFMEAN_SCENARIO_NAME = "end_to_end_or8_1h_effmean"
+M3_RW6_SCENARIO_NAME = "end_to_end_m3_rw6"
 RW3_POOL_NAME = "rw3"
 RW8_POOL_NAME = "rw8"
 MINIMAX_M25_RW8_POOL_NAME = "minimax_m25_rw8"
-MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME = "minimax_m25_or8_1h_effmean"
+MINIMAX_M3_RW6_POOL_NAME = "minimax_m3_rw6"
 
 # Match the live real-eval setup: one Chutes quota subscription and one
 # Featherless Premium account, whose ge_70b weighted capacity admits one
@@ -80,10 +81,16 @@ DEFAULT_QUOTA_COUNT = 1
 DEFAULT_CONCURRENCY_PLAN = "featherless_premium"
 DEFAULT_CONCURRENCY_COUNT = 1
 DEFAULT_CONCURRENCY_MODEL = "qwen3-235b"
-DEFAULT_ROUTEWISE_P_VALUES = P_SWEEP
-DEFAULT_SLO_MS = 5000.0
+DEFAULT_ROUTEWISE_ALPHA_VALUES = P_SWEEP
+DEFAULT_SLO_MS = DEFAULT_PRIMARY_SLO_MS
 
 SUBSCRIPTION_LATENCY_PROFILE = DEFAULT_SUBSCRIPTION_PROFILE
+# The MiniMax M3 rerun measured its own quota and concurrency tiers, so that
+# scenario takes all three tiers from one profile instead of the M2.5 probes.
+MINIMAX_M3_SUBSCRIPTION_PROFILE = "minimax_m3_shared_profile_24h"
+MINIMAX_M3_QUOTA_PLAN = "minimax_subscription_plus"
+MINIMAX_M3_QUOTA_PROFILE_PROVIDER = "MiniMax_Plus_SQ"
+MINIMAX_M3_CONCURRENCY_PROFILE_PROVIDER = "Featherless_SC"
 _SCENARIO_KWARGS_PRESET_KEY = "__end_to_end_scenario_kwargs__"
 
 _QUOTA_PROFILE_PROVIDER_KEYS = {
@@ -111,7 +118,7 @@ def list_scenarios() -> tuple[str, ...]:
         RW3_SCENARIO_NAME,
         COST_TIERED_SCENARIO_NAME,
         RW8_SCENARIO_NAME,
-        OR8_1H_EFFMEAN_SCENARIO_NAME,
+        M3_RW6_SCENARIO_NAME,
     )
 
 
@@ -206,18 +213,23 @@ def make_scenario(
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
         )
-    if name == OR8_1H_EFFMEAN_SCENARIO_NAME:
+    if name == M3_RW6_SCENARIO_NAME:
         return _with_prefix_cache_config(
             _make_end_to_end_scenario(
                 scenario_name=name,
-                pool_name=MINIMAX_M25_OR8_1H_EFFMEAN_POOL_NAME,
+                pool_name=MINIMAX_M3_RW6_POOL_NAME,
                 api_provider_limit=None,
-                quota_plan_id=quota_plan,
+                quota_plan_id=(
+                    MINIMAX_M3_QUOTA_PLAN if quota_plan == DEFAULT_QUOTA_PLAN else quota_plan
+                ),
                 quota_count=quota_count,
                 concurrency_plan_id=concurrency_plan,
                 concurrency_count=concurrency_count,
                 model=model,
                 slo_ms=slo_ms,
+                subscription_profile=MINIMAX_M3_SUBSCRIPTION_PROFILE,
+                quota_profile_provider=MINIMAX_M3_QUOTA_PROFILE_PROVIDER,
+                concurrency_profile_provider=MINIMAX_M3_CONCURRENCY_PROFILE_PROVIDER,
             ),
             enabled=prefix_cache_enabled,
             cached_input_price_fraction=cached_input_price_fraction,
@@ -235,12 +247,9 @@ def _with_prefix_cache_config(
     """Apply provider-local prefix-cache accounting to one §3 scenario."""
     if cached_input_price_fraction < 0.0:
         raise ValueError(
-            "cached input price fraction must be non-negative, got "
-            f"{cached_input_price_fraction!r}"
+            f"cached input price fraction must be non-negative, got {cached_input_price_fraction!r}"
         )
-    use_fraction_fallback = (
-        scenario.metadata.get("api_price_source") != "metadata_openrouter_price"
-    )
+    use_fraction_fallback = scenario.metadata.get("api_price_source") != "metadata_openrouter_price"
     scenario.metadata["prefix_cache_enabled"] = bool(enabled)
     scenario.metadata["cached_input_price_fraction"] = (
         cached_input_price_fraction if use_fraction_fallback else None
@@ -265,34 +274,30 @@ def _with_prefix_cache_config(
 
 
 def policies_for_section(
-    p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_ROUTEWISE_ALPHA_VALUES,
 ) -> tuple[str, ...]:
-    """Return §3 baselines plus LP-only and LP+hedging p sweeps."""
+    """Return §3 simulator baselines plus LP-only and LP+hedging alpha sweeps."""
     return (
         "greedy_cost",
         "greedy_latency",
         "random",
-        "or_sort_cost",
-        "or_sort_latency",
-        *(routewise_lp_policy_name(value) for value in p_values),
-        *(routewise_hedging_policy_name(value) for value in p_values),
+        *(routewise_lp_policy_name(value) for value in alpha_values),
+        *(routewise_hedging_policy_name(value) for value in alpha_values),
     )
 
 
 def make_policy_presets(
-    p_values: tuple[float, ...] = DEFAULT_ROUTEWISE_P_VALUES,
+    alpha_values: tuple[float, ...] = DEFAULT_ROUTEWISE_ALPHA_VALUES,
     *,
     output_predictor: str | dict[str, Any] | None = DEFAULT_OUTPUT_PREDICTOR,
-    output_predictor_quantile: str = "q50",
     slo_ms: float = DEFAULT_SLO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Build section-local presets with configured empirical profiles."""
     presets = make_routewise_presets(
-        p_values=p_values,
+        alpha_values=alpha_values,
         include_hedging=True,
         cost_envelope=WORKLOAD_COST_ENVELOPE,
         output_predictor=output_predictor,
-        output_predictor_quantile=output_predictor_quantile,
     )
     for preset in presets.values():
         if preset.get("policy") != "RouteWisePolicy":
@@ -372,6 +377,9 @@ def _make_end_to_end_scenario(
     api_specs: tuple[tuple[str, str, float, float], ...] | None = None,
     api_price_source: str | None = None,
     slo_ms: float = DEFAULT_SLO_MS,
+    subscription_profile: str = SUBSCRIPTION_LATENCY_PROFILE,
+    quota_profile_provider: str | None = None,
+    concurrency_profile_provider: str | None = None,
 ) -> ScenarioConfig:
     plans = load_subscription_plans()
     quota_plan = _require_plan(plans, quota_plan_id, tier="quota")
@@ -465,16 +473,20 @@ def _make_end_to_end_scenario(
         model=model,
         latency_family="heavy_tail",
     )
-    quota_profile_key = _subscription_latency_profile_key(quota_plan.plan_id)
-    concurrency_profile_key = _subscription_latency_profile_key(concurrency_plan.plan_id)
+    quota_profile_key = quota_profile_provider or _subscription_latency_profile_key(
+        quota_plan.plan_id
+    )
+    concurrency_profile_key = concurrency_profile_provider or _subscription_latency_profile_key(
+        concurrency_plan.plan_id
+    )
     if quota_profile_key is not None:
         quota_provider.ttft_dist = load_empirical_distribution(
-            SUBSCRIPTION_LATENCY_PROFILE,
+            subscription_profile,
             quota_profile_key,
         )
     if concurrency_profile_key is not None:
         concurrency_provider.ttft_dist = load_empirical_distribution(
-            SUBSCRIPTION_LATENCY_PROFILE,
+            subscription_profile,
             concurrency_profile_key,
         )
 
@@ -484,9 +496,7 @@ def _make_end_to_end_scenario(
         f"{window.quota_requests * quota_count:g}/{window.quota_window_sec:g}s"
         for window in quota_plan.quota_windows
     )
-    capacity_units = int(concurrency_plan.concurrency_allotment or 0) * int(
-        concurrency_count
-    )
+    capacity_units = int(concurrency_plan.concurrency_allotment or 0) * int(concurrency_count)
     description = (
         f"§3 end-to-end {pool_name.upper()}: {len(api_providers)} empirical "
         f"OpenRouter API provider(s), {quota_plan.display_name} x{quota_count} "
@@ -523,7 +533,7 @@ def _make_end_to_end_scenario(
                 if concurrency_provider.concurrency is not None
                 else 0
             ),
-            "latency_profile": SUBSCRIPTION_LATENCY_PROFILE,
+            "latency_profile": subscription_profile,
             "quota_latency_profile_provider": quota_profile_key,
             "concurrency_latency_profile_provider": concurrency_profile_key,
             "api_latency_family": "real_world",
@@ -588,9 +598,7 @@ def _validate_plan_count(plan: SubscriptionPlan, count: int, *, field: str) -> N
 
 def _validate_end_to_end_eligibility(plan: SubscriptionPlan) -> None:
     if "end_to_end" not in plan.eligible_sections:
-        raise ValueError(
-            f"plan {plan.plan_id!r} is not eligible for end-to-end runs"
-        )
+        raise ValueError(f"plan {plan.plan_id!r} is not eligible for end-to-end runs")
 
 
 def _subscription_latency_profile_key(plan_id: str) -> str | None:
@@ -657,12 +665,11 @@ def _enrich_rows_with_end_to_end_metadata(
                 "cached_input_price_fraction": meta.get("cached_input_price_fraction"),
                 "cached_input_price_source": meta.get("cached_input_price_source"),
                 "slo_ms": meta.get("slo_ms"),
-                "routewise_p": params.get("p"),
+                "routewise_alpha": params.get("alpha"),
                 "hedging_enabled": bool(params.get("hedging", False)),
                 "explorer_enabled": bool(params.get("explorer", False)),
                 "latency_profile_mode": params.get("latency_profile_mode"),
                 "output_predictor": _predictor_name_from_params(params),
-                "output_predictor_quantile": params.get("output_predictor_quantile"),
             }
         )
         enriched.append(merged)
@@ -673,9 +680,18 @@ def _predictor_name_from_params(params: dict[str, Any]) -> str | None:
     spec = params.get("output_predictor_spec")
     if not isinstance(spec, dict):
         return None
+    return _predictor_name_from_spec(spec)
+
+
+def _predictor_name_from_spec(spec: dict[str, Any]) -> str | None:
     kind = str(spec.get("kind") or "")
     if kind == "constant":
         return f"constant_{spec.get('calibration', 'mean')}"
+    if kind == "scaled":
+        base = spec.get("base")
+        base_name = _predictor_name_from_spec(base) if isinstance(base, dict) else str(base)
+        multiplier = float(spec.get("multiplier", 1.0))
+        return f"scaled:{base_name}:{multiplier:g}"
     return kind or None
 
 
@@ -708,12 +724,11 @@ _END_TO_END_CSV_FIELDNAMES: tuple[str, ...] = (
     "concurrency_latency_profile_provider",
     "api_latency_family",
     "policy",
-    "routewise_p",
+    "routewise_alpha",
     "hedging_enabled",
     "explorer_enabled",
     "latency_profile_mode",
     "output_predictor",
-    "output_predictor_quantile",
     "seeds",
     "n_requests",
     "mean_ttft_ms",
@@ -758,7 +773,6 @@ def _write_end_to_end_summary_csv(path: Path, rows: list[dict[str, Any]]) -> Non
 def main(argv: list[str] | None = None) -> int:
     """Run the §3 end-to-end simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator end-to-end",
         description=__doc__,
     )
     parser.add_argument(
@@ -770,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--policy",
         action="append",
-        help="Policy to run. Repeat to run multiple. Defaults to baselines + p sweep.",
+        help="Policy to run. Repeat to run multiple. Defaults to baselines + alpha sweep.",
     )
     parser.add_argument(
         "--seed",
@@ -779,11 +793,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
         action="append",
-        dest="p_values",
-        help=f"RouteWise p value. Repeat to sweep. Defaults to {DEFAULT_ROUTEWISE_P_VALUES}.",
+        dest="alpha_values",
+        help=f"RouteWise alpha value. Repeat to sweep. Defaults to {DEFAULT_ROUTEWISE_ALPHA_VALUES}.",
     )
     parser.add_argument(
         "--quota-plan",
@@ -850,15 +865,9 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
     parser.add_argument(
         "--output-dir",
@@ -883,7 +892,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    p_values = tuple(args.p_values) if args.p_values else DEFAULT_ROUTEWISE_P_VALUES
+    alpha_values = tuple(args.alpha_values) if args.alpha_values else DEFAULT_ROUTEWISE_ALPHA_VALUES
     selected_scenarios = tuple(args.scenario) if args.scenario else list_scenarios()
     scenarios = {
         name: make_scenario(
@@ -900,12 +909,11 @@ def main(argv: list[str] | None = None) -> int:
         for name in selected_scenarios
     }
     presets = make_policy_presets(
-        p_values,
+        alpha_values,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
         slo_ms=args.slo_ms,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(p_values)
+    policies = tuple(args.policy) if args.policy else policies_for_section(alpha_values)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
@@ -930,9 +938,7 @@ def main(argv: list[str] | None = None) -> int:
         policies=policies,
         presets=presets,
         seeds=tuple(args.seed) if args.seed else DEFAULT_SEEDS,
-        section_runners={
-            policy: _make_serial_runner(policy, presets) for policy in policies
-        },
+        section_runners={policy: _make_serial_runner(policy, presets) for policy in policies},
         workload_dataset=args.workload,
         duration_sec=args.duration_sec,
         max_requests=args.max_requests,
@@ -981,7 +987,7 @@ __all__ = [
     "DEFAULT_CONCURRENCY_PLAN",
     "DEFAULT_QUOTA_COUNT",
     "DEFAULT_QUOTA_PLAN",
-    "DEFAULT_ROUTEWISE_P_VALUES",
+    "DEFAULT_ROUTEWISE_ALPHA_VALUES",
     "PUBLIC_SCENARIO_TAG",
     "RW3_SCENARIO_NAME",
     "RW8_SCENARIO_NAME",

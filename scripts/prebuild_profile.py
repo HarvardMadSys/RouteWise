@@ -6,8 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 import tempfile
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.real_evaluation.inventory import load_inventory
 from experiments.real_evaluation.recorder import Recorder

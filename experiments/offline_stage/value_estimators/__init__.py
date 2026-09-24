@@ -5,6 +5,7 @@ from .base import (
     DurationPrediction,
     DurationPredictor,
     OutputTokenPredictor,
+    PointPrediction,
     PredictionContext,
     QuantilePrediction,
 )
@@ -19,10 +20,11 @@ from .histogram import (
     StreamingHistogram,
 )
 from .oracle import OracleOutputPredictor
+from .scaled import ScaledOutputPredictor
 
 __all__ = [
-    "CombinedPredictor",
     "BucketMeanOutputPredictor",
+    "CombinedPredictor",
     "ConstantOutputPredictor",
     "DurationPrediction",
     "DurationPredictor",
@@ -35,8 +37,10 @@ __all__ = [
     "MeanState",
     "OracleOutputPredictor",
     "OutputTokenPredictor",
+    "PointPrediction",
     "PredictionContext",
     "QuantilePrediction",
+    "ScaledOutputPredictor",
     "StreamingHistogram",
     "workload_constant_value",
 ]

@@ -10,14 +10,14 @@ from experiments.real_evaluation.shadow_price import (
     quota_shadow_price as real_quota_shadow_price,
 )
 from experiments.real_evaluation.transports import TransportConfig
-from rwsim.policies.effective_cost_kernel import scarcity_price
-from rwsim.policies.routewise import (
+from llm_routewise.capacity import ConcurrencyState, ProviderTier, QuotaState
+from llm_routewise.core.cost import effective_cost as core_effective_cost, scarcity_price
+from llm_routewise.sim.policies.routewise import (
     concurrency_shadow_price as sim_concurrency_shadow_price,
     quota_shadow_price as sim_quota_shadow_price,
 )
-from rwsim.world.capacity import ConcurrencyState, ProviderTier, QuotaState
-from rwsim.world.distributions import Uniform
-from rwsim.world.providers import TieredProvider
+from llm_routewise.sim.world.distributions import Uniform
+from llm_routewise.sim.world.providers import TieredProvider
 
 L = 1e-4
 U = 1e-2
@@ -34,6 +34,7 @@ def test_quota_shadow_prices_match_kernel_across_layers(used: int, z: float) -> 
 
     kernel_value = scarcity_price("exp_lu", z, L=L, U=U)
 
+    assert core_effective_cost("quota", quota_fraction_used=z, L=L, U=U) == kernel_value
     assert sim_quota_shadow_price(sim_provider, now, L=L, U=U) == kernel_value
     assert real_quota_shadow_price(real_state, now, L=L, U=U) == kernel_value
 
@@ -49,6 +50,7 @@ def test_concurrency_shadow_prices_match_kernel_across_layers(active: int) -> No
 
     # Concurrency is availability-only in both simulator and real-eval; the
     # reusable slot has no marginal shadow price once admission succeeds.
+    assert core_effective_cost("concurrency", concurrency_utilization=active / 4, L=L, U=U) == 0.0
     assert sim_concurrency_shadow_price(sim_provider, now, L=L, U=U) == 0.0
     assert real_concurrency_shadow_price(real_state, now, L=L, U=U) == 0.0
 

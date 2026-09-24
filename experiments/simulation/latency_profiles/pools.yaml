@@ -16,11 +16,18 @@ profiles:
     metadata: minimax_m25_openrouter_24h.json
     price_source: openrouter_endpoint_snapshot
 
-  minimax_m25_or8_1h_effmean:
+  minimax_m25_shared_profile_8h:
     model: minimax/minimax-m2.5
-    source: real_eval_1h_gpu1_or8_effmean_baselines_rw75_20260512_014542_or8_effmean_1h_retry
-    artifact: minimax_m25_or8_1h_effmean.npz
-    metadata: minimax_m25_or8_1h_effmean.json
+    source: real_eval_minimax_m25_burstgpt_cap10s_shared_profile_8h
+    artifact: minimax_m25_shared_profile_8h.npz
+    metadata: minimax_m25_shared_profile_8h.json
+    price_source: static_from_inventory
+
+  minimax_m3_shared_profile_24h:
+    model: minimax/minimax-m3
+    source: real_eval_minimax_m3_burstgpt_day0_24h
+    artifact: minimax_m3_shared_profile_24h.npz
+    metadata: minimax_m3_shared_profile_24h.json
     price_source: static_from_inventory
 
 pools:
@@ -82,31 +89,33 @@ pools:
       - Chutes
       - SiliconFlow
 
-  minimax_m25_or8_1h_effmean:
-    description: "Real 1h or8 effmean retry run: 8 OpenRouter S_A providers, TTFT pooled across 7 policies."
-    profile: minimax_m25_or8_1h_effmean
+  minimax_m25_shared_profile_8h_api8:
+    description: "MiniMax M2.5 cap10s 8h real-eval shared-profile events: true API providers only; excludes __or_auto__/__or_sort_* aggregate baselines."
+    profile: minimax_m25_shared_profile_8h
     pricing:
-      source: static
-      # OR endpoint prices captured in the real-eval inventory
-      # experiments/real_evaluation/data/pilot_chutes_direct_or8_top_1h.json
-      default_input_per_m: 0.30
-      default_output_per_m: 1.20
-      overrides:
-        DeepInfra:
-          input_per_m: 0.15
-          output_per_m: 1.15
-        Phala:
-          input_per_m: 0.20
-          output_per_m: 1.38
+      source: metadata_openrouter_price
     providers:
-      - Friendli
+      - Chutes
       - DeepInfra
       - Novita
-      - Minimax
+      - AtlasCloud
       - Phala
       - SiliconFlow
-      - Nebius
+      - AkashML
       - WandB
+
+  minimax_m3_rw6:
+    description: "MiniMax M3 OpenRouter S_A pool: the six metered providers of the 2026-09-15 24h real-eval rerun."
+    profile: minimax_m3_shared_profile_24h
+    pricing:
+      source: metadata_openrouter_price
+    providers:
+      - Minimax
+      - Together
+      - GMICloud
+      - AtlasCloud
+      - Novita
+      - StreamLake
 
 pooled:
   rw8_pooled:

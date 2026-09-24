@@ -7,7 +7,6 @@ canonical set and stick with it.
 
 from __future__ import annotations
 
-
 # =============================================================================
 # Provider colors (cross-cutting, used in latency profiling and provider mix)
 # =============================================================================

@@ -1,49 +1,56 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "routewise-simulator"
-version = "0.1.0"
-description = "RouteWise synthetic simulator and experiment harness"
+name = "llm-routewise"
+version = "0.2.0"
+description = "Cost-aware, latency-optimized routing for multiple LLM API providers"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
-authors = [{ name = "RouteWise Authors" }]
-dependencies = [
-    "matplotlib>=3.8.0",
-    "numpy>=1.24.0",
-    "pandas>=2.0.0",
-    "pulp>=2.7.0",
-    "python-dotenv>=1.0.0",
-    "pyyaml>=6.0",
-    "requests>=2.31.0",
-    "scipy>=1.11.0",
-    "tabulate>=0.9.0",
-    "tqdm>=4.65.0",
+license = "MIT"
+authors = [
+  { name = "Muxin Tian" },
+  { name = "Haoran Ni" },
+  { name = "Yiyan Zhai" },
+  { name = "Yangsun Park" },
+  { name = "Juncheng Yang" },
+]
+dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
 ]
 
-[project.scripts]
-routewise = "routewise_cli.main:main"
+[project.urls]
+Homepage = "https://github.com/HarvardMadSys/RouteWise"
+Repository = "https://github.com/HarvardMadSys/RouteWise"
+Documentation = "https://github.com/HarvardMadSys/RouteWise/tree/main/docs"
+Changelog = "https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md"
+Issues = "https://github.com/HarvardMadSys/RouteWise/issues"
 
 [tool.setuptools]
-include-package-data = true
+include-package-data = false
 
 [tool.setuptools.packages.find]
 include = [
-  "routewise_cli",
-  "routewise_cli.*",
-  "experiments",
-  "experiments.*",
-  "rwsim",
-  "rwsim.*",
-  "plots",
-  "plots.*",
+  "llm_routewise",
+  "llm_routewise.core",
 ]
+
+[tool.setuptools.package-data]
+llm_routewise = ["py.typed"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = [
   "-ra",
@@ -110,8 +117,21 @@ match-dir = "(?!tests|test|.venv|data).*"
 
 [dependency-groups]
 dev = [
-  "ruff>=0.5.0",
-  "pydocstyle>=6.3.0",
-  "pre-commit>=3.6.0",
+  "matplotlib>=3.8.0",
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "pulp>=2.7.0",
   "pytest>=8.0.0",
+  "pydocstyle>=6.3.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0",
+  "requests>=2.31.0",
+  "ruff>=0.5.0",
+  "scipy>=1.11.0",
+  "tqdm>=4.65.0",
+  "pre-commit>=3.6.0",
+]
+agent-benchmark = [
+  "mini-swe-agent>=1.0",
+  "swebench>=3.0",
 ]

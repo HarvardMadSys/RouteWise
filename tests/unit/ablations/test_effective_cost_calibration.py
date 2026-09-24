@@ -15,9 +15,8 @@ from experiments.ablations.effective_cost_calibration.envelope import (
     workload_cost_envelope,
 )
 from experiments.simulation.common import make_api_provider, make_quota_provider
-from routewise_cli.main import ABLATION_COMMANDS
-from rwsim.schemas import Request
-from rwsim.world.scenarios import ScenarioConfig
+from llm_routewise.schemas import Request
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 
 def _requests() -> list[Request]:
@@ -133,7 +132,7 @@ def test_calibration_policy_name_encodes_reference_envelope_curve_and_p() -> Non
     spec = EnvelopeSpec(api_reference="mean_api", percentile_envelope="p25_p75")
 
     assert harness.calibration_policy_name(spec, quota_curve="exp_lu", p=0.5) == (
-        "effective_cost_calibration__ref=mean_api__env=p25_p75__q=exp_lu__p50"
+        "effective_cost_calibration__ref=mean_api__env=p25_p75__q=exp_lu__alpha50"
     )
 
 
@@ -163,7 +162,7 @@ def test_build_calibration_policy_materializes_envelope() -> None:
         ],
     )
     spec = EnvelopeSpec(api_reference="max_api", percentile_envelope="min_max")
-    presets = harness.make_calibration_presets(specs=(spec,), p_values=(0.5,))
+    presets = harness.make_calibration_presets(specs=(spec,), alpha_values=(0.5,))
     policy_name = next(iter(presets))
 
     policy = harness.build_calibration_policy(
@@ -187,7 +186,7 @@ def test_enrich_calibration_rows_adds_numeric_envelope_columns() -> None:
         ],
     )
     spec = EnvelopeSpec(api_reference="max_api", percentile_envelope="min_max")
-    presets = harness.make_calibration_presets(specs=(spec,), p_values=(0.5,))
+    presets = harness.make_calibration_presets(specs=(spec,), alpha_values=(0.5,))
     policy_name = next(iter(presets))
 
     enriched, records = harness.enrich_calibration_rows(
@@ -303,10 +302,3 @@ def test_cli_default_grid_uses_clean_q16_and_four_calibrations(monkeypatch, tmp_
     assert len(captured["policies"]) == 4
     assert captured["workload_dataset"] == "burstgpt"
     assert captured["retain_records"] is False
-
-
-def test_routewise_cli_registers_effective_cost_calibration() -> None:
-    assert (
-        ABLATION_COMMANDS["effective-cost-calibration"]
-        == "experiments.ablations.effective_cost_calibration.harness"
-    )

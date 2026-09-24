@@ -12,12 +12,10 @@ import math
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from experiments.real_evaluation.transports import SingleRequestResult
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from llm_routewise.core import CheckpointBackupDispatch, CheckpointBackupSelector
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +36,27 @@ def _ttft_succeeded(
     return ttft_info.get("ttft_ms", -1.0) > 0
 
 
+def _cancel_loser(
+    cancel_event: threading.Event,
+    loser_ttft: threading.Event,
+    loser_thread: threading.Thread,
+    deadline: float,
+    poll_sec: float,
+    *,
+    observe_first_token: bool,
+) -> None:
+    """Cancel the losing leg, optionally after it has reported its first token.
+
+    ``loser_ttft`` is set by the transport both when a visible token arrives
+    and when the stream ends without one, so waiting on it never outlives the
+    leg itself.
+    """
+    if observe_first_token:
+        while time.time() < deadline and not loser_ttft.is_set() and loser_thread.is_alive():
+            time.sleep(poll_sec)
+    cancel_event.set()
+
+
 def _race_monitor_loop(
     primary_ttft: threading.Event,
     primary_ttft_info: dict[str, Any],
@@ -49,6 +68,7 @@ def _race_monitor_loop(
     backup_cancel: threading.Event,
     deadline_sec: float,
     poll_sec: float,
+    observe_loser_first_token: bool = False,
 ) -> None:
     """Cancel the hedge loser once the winner produces a visible token.
 
@@ -57,16 +77,35 @@ def _race_monitor_loop(
     both reach first token in the same poll interval we cancel neither
     (effectively a tie — both will return shortly anyway). Exits early when
     both transport threads have died (both errored / both finished cleanly).
+
+    With ``observe_loser_first_token`` the loser is canceled only after it
+    reports its own first token (or gives up), so its TTFT is measured: that
+    is the counterfactual latency the request would have seen without the
+    hedge. It costs the loser's extra streaming up to that token.
     """
     deadline = time.time() + deadline_sec
     while time.time() < deadline:
         p_won = _ttft_succeeded(primary_ttft, primary_ttft_info)
         b_won = _ttft_succeeded(backup_ttft, backup_ttft_info)
         if p_won and not b_won:
-            backup_cancel.set()
+            _cancel_loser(
+                backup_cancel,
+                backup_ttft,
+                backup_thread,
+                deadline,
+                poll_sec,
+                observe_first_token=observe_loser_first_token,
+            )
             return
         if b_won and not p_won:
-            primary_cancel.set()
+            _cancel_loser(
+                primary_cancel,
+                primary_ttft,
+                primary_thread,
+                deadline,
+                poll_sec,
+                observe_first_token=observe_loser_first_token,
+            )
             return
         if p_won and b_won:
             # Photo finish — both produced a visible token within one poll
@@ -99,12 +138,6 @@ class SendFn(Protocol):
         ttft_info: dict[str, Any] | None,
         cancel_event: threading.Event | None = None,
     ) -> SingleRequestResult: ...
-
-
-class CheckpointHedgeFn(Protocol):
-    """Callable used to decide whether to dispatch a backup at a checkpoint."""
-
-    def __call__(self, elapsed_sec: float, checkpoint_ts: float) -> str | None: ...
 
 
 @dataclass
@@ -159,18 +192,20 @@ def send_checkpoint_hedged_request(
     send_fn: SendFn,
     primary_provider: str,
     hedge_checkpoints_sec: tuple[float, ...],
-    checkpoint_fn: CheckpointHedgeFn,
+    checkpoint_backup_selector: CheckpointBackupSelector[str],
     prompt: str,
     max_tokens: int,
     timeout: int = 60,
     cancel_loser_after_first_token: bool = True,
     race_monitor_poll_sec: float = 0.005,
+    observe_loser_first_token: bool = False,
 ) -> HedgedResult:
     """Dispatch a primary and evaluate hedge decisions at SLO checkpoints.
 
-    The caller supplies the RouteWise checkpoint schedule and a callback that
+    The caller supplies the RouteWise checkpoint schedule and a selector that
     re-evaluates the probability target using current state to pick a backup
-    on the fly.
+    on the fly. ``observe_loser_first_token`` delays canceling the losing leg
+    until it has produced its first token, so the loser's TTFT is recorded.
     """
     checkpoints = tuple(
         sorted(
@@ -214,16 +249,20 @@ def send_checkpoint_hedged_request(
             cancel_event=primary_cancel,
         )
 
-    def run_backup(provider: str) -> None:
-        backup_holder["r"] = send_fn(
-            provider=provider,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            ttft_event=backup_ttft,
-            ttft_info=backup_ttft_info,
-            cancel_event=backup_cancel,
-        )
+    def run_backup(dispatch: CheckpointBackupDispatch[str]) -> None:
+        try:
+            backup_holder["r"] = send_fn(
+                provider=dispatch.backup,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                ttft_event=backup_ttft,
+                ttft_info=backup_ttft_info,
+                cancel_event=backup_cancel,
+            )
+        finally:
+            if dispatch.release is not None:
+                dispatch.release()
 
     primary_thread = threading.Thread(target=run_primary, daemon=True)
     schedule_start_ts = time.time()
@@ -233,6 +272,7 @@ def send_checkpoint_hedged_request(
     hedge_delay_sec: float | None = None
     hedge_checkpoint_ts: float | None = None
     backup_dispatch_ts: float | None = None
+    backup_dispatch: CheckpointBackupDispatch[str] | None = None
     backup_provider: str | None = None
     backup_thread: threading.Thread | None = None
     monitor_thread: threading.Thread | None = None
@@ -252,21 +292,21 @@ def send_checkpoint_hedged_request(
 
         checkpoint_ts = time.time()
         try:
-            selected_backup = checkpoint_fn(checkpoint_sec, checkpoint_ts)
+            backup_dispatch = checkpoint_backup_selector(checkpoint_sec, checkpoint_ts)
         except Exception:
-            logger.warning("checkpoint hedge callback raised", exc_info=True)
-            selected_backup = None
-        if selected_backup is None:
+            logger.warning("checkpoint backup selector raised", exc_info=True)
+            backup_dispatch = None
+        if backup_dispatch is None:
             continue
 
         hedge_triggered = True
-        hedge_delay_sec = checkpoint_sec
+        hedge_delay_sec = backup_dispatch.elapsed_sec
         hedge_checkpoint_ts = checkpoint_ts
-        backup_provider = selected_backup
+        backup_provider = backup_dispatch.backup
         backup_dispatch_ts = time.time()
         backup_thread = threading.Thread(
             target=run_backup,
-            args=(selected_backup,),
+            args=(backup_dispatch,),
             daemon=True,
         )
         backup_thread.start()
@@ -285,6 +325,7 @@ def send_checkpoint_hedged_request(
                     backup_cancel,
                     timeout + 5,
                     race_monitor_poll_sec,
+                    observe_loser_first_token,
                 ),
                 name="hedge-race-monitor",
                 daemon=True,
@@ -334,7 +375,8 @@ def send_checkpoint_hedged_request(
 
 
 __all__ = [
-    "CheckpointHedgeFn",
+    "CheckpointBackupDispatch",
+    "CheckpointBackupSelector",
     "HedgedResult",
     "SendFn",
     "send_checkpoint_hedged_request",

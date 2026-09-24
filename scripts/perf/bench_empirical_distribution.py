@@ -1,13 +1,12 @@
 """Microbenchmark for EmpiricalDistribution hot-path methods.
 
-Run manually after touching ``rwsim/world/empirical.py``:
+Run manually after touching ``llm_routewise/sim/world/empirical.py``:
 
     python scripts/perf/bench_empirical_distribution.py
 
 This is not a pytest test — perf numbers vary across CI runners and we
 don't want a noisy assertion in the default suite. Compare the printed
-numbers against the expected hot-path budget before changing the empirical
-distribution implementation.
+numbers against the baseline and target values printed at the end.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import time
 
 import numpy as np
 
-from rwsim.world.empirical import EmpiricalDistribution
+from llm_routewise.sim.world.empirical import EmpiricalDistribution
 
 
 def _bench_call(label: str, fn, n: int) -> float:

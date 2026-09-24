@@ -68,13 +68,13 @@ from typing import TYPE_CHECKING
 
 import pulp
 
-from rwsim.metrics import PerRequestRecord, Run, RunAggregator, Status
-from rwsim.world.capacity import ProviderTier
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.metrics import PerRequestRecord, Run, RunAggregator, Status
 
 if TYPE_CHECKING:
-    from rwsim.schemas import Request
-    from rwsim.world.providers import TieredProvider
-    from rwsim.world.scenarios import ScenarioConfig
+    from llm_routewise.schemas import Request
+    from llm_routewise.sim.world.providers import TieredProvider
+    from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 OFFLINE_POLICY = "offline"
 _DEFAULT_JOINT_EXACT_MAX_REQUESTS = 5_000
@@ -125,7 +125,7 @@ def run_offline_oracle_policy(
     aggregator = RunAggregator(
         policy=OFFLINE_POLICY,
         scenario_name=scenario.name,
-        source="simulation",
+        source="sim",
         retain_records=retain_records,
     )
     for request in requests:

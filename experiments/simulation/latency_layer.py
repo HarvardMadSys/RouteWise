@@ -10,7 +10,7 @@ Scenario grid: 3 synthetic families x 2 overlap labels, plus one RW3
 real-world scenario = 7 scenarios.
 
 Policies: random, greedy_latency, plus one LP-only RouteWise setting at the
-section default p=0.75. No hedging in §2.1; that lives in §2.2
+section default alpha=0.75. No hedging in §2.1; that lives in §2.2
 (``hedging.py``).
 
 Outputs:
@@ -56,9 +56,10 @@ from experiments.simulation.latency_overlap import (
     summarise_realised_overlap,
     verify_calibration,
 )
-from rwsim.world.capacity import ProviderTier
-from rwsim.world.providers import TieredProvider
-from rwsim.world.scenarios import ScenarioConfig
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
+from llm_routewise.sim.world.providers import TieredProvider
+from llm_routewise.sim.world.scenarios import ScenarioConfig
 
 SECTION_NAME = "latency-layer"
 
@@ -69,7 +70,7 @@ LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS: float = 5.0
 # Public scenario tag used by metadata / csv groupings.
 PUBLIC_SCENARIO_TAG: str = "latency_layer"
 REAL_WORLD_SCENARIO_NAME: str = "latency_layer_real_world"
-DEFAULT_ROUTEWISE_P: float = 0.75
+DEFAULT_ROUTEWISE_ALPHA: float = 0.75
 
 
 def _scenario_name(family: str, overlap_label: str | None = None) -> str:
@@ -83,9 +84,7 @@ def _scenario_name(family: str, overlap_label: str | None = None) -> str:
 def list_scenarios() -> tuple[str, ...]:
     """Return all §2.1 scenario names (6 synthetic + 1 real-world)."""
     synthetic = tuple(
-        _scenario_name(family, label)
-        for family in SYNTHETIC_FAMILIES
-        for label in OVERLAP_TARGETS
+        _scenario_name(family, label) for family in SYNTHETIC_FAMILIES for label in OVERLAP_TARGETS
     )
     return (*synthetic, REAL_WORLD_SCENARIO_NAME)
 
@@ -151,8 +150,7 @@ def _make_latency_layer_scenario(
             name=provider_name,
             cost_per_token=LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
             input_cost_per_token=LATENCY_LAYER_INPUT_COST_PER_M_TOKENS / 1_000_000.0,
-            output_cost_per_token=LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS
-            / 1_000_000.0,
+            output_cost_per_token=LATENCY_LAYER_OUTPUT_COST_PER_M_TOKENS / 1_000_000.0,
             ttft_dist=ttft_dist,
             tps_dist=make_tps_distribution(),
             tier=ProviderTier.S_A,
@@ -189,17 +187,17 @@ def _make_latency_layer_scenario(
         description=description,
         providers=providers,
         arrival_process="trace",
-        primary_slo_ms=2000.0,
+        primary_slo_ms=DEFAULT_PRIMARY_SLO_MS,
         metadata=metadata,
     )
 
 
-def policies_for_section(p_value: float = DEFAULT_ROUTEWISE_P) -> tuple[str, ...]:
+def policies_for_section(alpha_value: float = DEFAULT_ROUTEWISE_ALPHA) -> tuple[str, ...]:
     """Return policies relevant to §2.1 (no hedging, no offline oracle)."""
     return (
         "random",
         "greedy_latency",
-        routewise_lp_policy_name(p_value),
+        routewise_lp_policy_name(alpha_value),
     )
 
 
@@ -342,7 +340,6 @@ def _write_latency_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the §2.1 latency-layer simulator section."""
     parser = argparse.ArgumentParser(
-        prog="routewise simulator latency-layer",
         description=__doc__,
     )
     parser.add_argument(
@@ -378,11 +375,12 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Seed to run. Repeat to run multiple. Defaults to {DEFAULT_SEEDS}.",
     )
     parser.add_argument(
+        "--alpha",
         "--p",
         type=float,
-        default=DEFAULT_ROUTEWISE_P,
-        dest="p_value",
-        help=f"Single RouteWise p value for LP-only policy. Defaults to {DEFAULT_ROUTEWISE_P}.",
+        default=DEFAULT_ROUTEWISE_ALPHA,
+        dest="alpha_value",
+        help=f"Single RouteWise alpha value for LP-only policy. Defaults to {DEFAULT_ROUTEWISE_ALPHA}.",
     )
     parser.add_argument(
         "--workload",
@@ -417,19 +415,13 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_OUTPUT_PREDICTOR,
         help=(
             "Optional output-length predictor for RouteWise S_A LP cost. Defaults "
-            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, histogram, ema, "
-            "bucket_mean, constant_mean, constant_p90, fixed:<value>."
+            f"to {DEFAULT_OUTPUT_PREDICTOR}. Examples: none, oracle, bucket_mean, "
+            "constant_mean, fixed:<value>."
         ),
-    )
-    parser.add_argument(
-        "--predictor-quantile",
-        default="q50",
-        choices=("q10", "q50", "q90"),
-        help="Which quantile to use from the predictor output. Defaults to q50.",
     )
 
     args = parser.parse_args(argv)
-    p_values = (float(args.p_value),)
+    alpha_values = (float(args.alpha_value),)
 
     selected_scenarios = _select_scenarios(
         explicit_scenarios=tuple(args.scenario) if args.scenario else None,
@@ -439,18 +431,15 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = {name: make_scenario(name) for name in selected_scenarios}
 
     presets = make_routewise_presets(
-        p_values=p_values,
+        alpha_values=alpha_values,
         include_hedging=False,
         output_predictor=args.predictor,
-        output_predictor_quantile=args.predictor_quantile,
     )
-    policies = tuple(args.policy) if args.policy else policies_for_section(args.p_value)
+    policies = tuple(args.policy) if args.policy else policies_for_section(args.alpha_value)
     unknown = [policy for policy in policies if policy not in presets]
     if unknown:
         known = ", ".join(sorted(presets))
-        raise SystemExit(
-            f"unknown latency-layer policy {unknown[0]!r}; known policies: {known}"
-        )
+        raise SystemExit(f"unknown latency-layer policy {unknown[0]!r}; known policies: {known}")
 
     rows = run_section(
         section_name=SECTION_NAME,
@@ -515,3 +504,7 @@ __all__ = [
     "policies_for_section",
     "run_latency_layer_cell",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

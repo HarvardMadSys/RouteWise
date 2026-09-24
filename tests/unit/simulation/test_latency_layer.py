@@ -8,8 +8,8 @@ import json
 import pytest
 
 from experiments.simulation import latency_layer
-from routewise_cli.main import main as routewise_main
-from rwsim.world.capacity import ProviderTier
+from llm_routewise.capacity import ProviderTier
+from llm_routewise.const import DEFAULT_PRIMARY_SLO_MS
 
 
 def test_latency_layer_scenarios_match_section_contract():
@@ -24,11 +24,11 @@ def test_latency_layer_scenarios_match_section_contract():
     )
 
 
-def test_latency_layer_policy_set_has_single_routewise_p_value():
+def test_latency_layer_policy_set_has_single_routewise_alpha_value():
     assert latency_layer.policies_for_section() == (
         "random",
         "greedy_latency",
-        "ablation_lp_only_p75",
+        "ablation_lp_only_alpha75",
     )
 
 
@@ -49,9 +49,16 @@ def test_latency_layer_synthetic_provider_invariants_and_band_targets():
             assert [provider.true_mean_ms() for provider in scenario.providers] == pytest.approx(
                 [100.0, 300.0, 1000.0]
             )
+            assert scenario.primary_slo_ms == pytest.approx(DEFAULT_PRIMARY_SLO_MS)
             assert scenario.metadata["mean_anchors_ms"] == [100.0, 300.0, 1000.0]
-            assert len({provider.effective_input_cost_per_token for provider in scenario.providers}) == 1
-            assert len({provider.effective_output_cost_per_token for provider in scenario.providers}) == 1
+            assert (
+                len({provider.effective_input_cost_per_token for provider in scenario.providers})
+                == 1
+            )
+            assert (
+                len({provider.effective_output_cost_per_token for provider in scenario.providers})
+                == 1
+            )
             assert "realised_tvo_fast_medium" not in scenario.metadata
 
         assert no_overlap.metadata["target_band_coverage_fast_medium"] == 0.0
@@ -70,25 +77,26 @@ def test_latency_layer_real_world_is_single_untargeted_scenario():
     assert "latency_layer_real_world_half_overlap" not in latency_layer.list_scenarios()
 
 
-def test_latency_layer_cli_writes_band_metadata_to_json_and_csv(tmp_path):
+def test_latency_layer_cli_writes_band_metadata_to_json_and_csv(tmp_path, require_burstgpt_data):
     output_dir = tmp_path / "latency-layer"
 
-    assert routewise_main(
-        [
-            "simulator",
-            "latency-layer",
-            "--scenario",
-            "latency_layer_uniform_half_overlap",
-            "--policy",
-            "greedy_latency",
-            "--seed",
-            "42",
-            "--max-requests",
-            "10",
-            "--output-dir",
-            str(output_dir),
-        ]
-    ) == 0
+    assert (
+        latency_layer.main(
+            [
+                "--scenario",
+                "latency_layer_uniform_half_overlap",
+                "--policy",
+                "greedy_latency",
+                "--seed",
+                "42",
+                "--max-requests",
+                "10",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
 
     rows = json.loads((output_dir / "summary.json").read_text())
     assert len(rows) == 1

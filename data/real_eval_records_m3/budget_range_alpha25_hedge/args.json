@@ -1,0 +1,4 @@
+{
+  "inventory": "experiments/real_evaluation/data/pilot_or_minimax_m3_subscription_or6_true24h.json",
+  "slo_ms": "3000.0"
+}
