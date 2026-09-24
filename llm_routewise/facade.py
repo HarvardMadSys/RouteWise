@@ -152,6 +152,7 @@ class Tuning:
     cooldown_after: int = 3
     hedge_min_samples: int = 5
     exploration_lease_sec: float = 60.0
+    cache_locality_ttl_sec: float = 300.0
 
     def __post_init__(self) -> None:
         target = _real(self.hedge_target, "hedge_target", positive=True)
@@ -185,6 +186,11 @@ class Tuning:
                 "exploration_lease_sec",
                 positive=True,
             ),
+        )
+        object.__setattr__(
+            self,
+            "cache_locality_ttl_sec",
+            _real(self.cache_locality_ttl_sec, "cache_locality_ttl_sec", positive=True),
         )
 
 
