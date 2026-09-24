@@ -10,6 +10,7 @@ This is an internal implementation detail. It is not part of the public API.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from threading import Lock
 
@@ -47,7 +48,9 @@ class _CacheLocalityEstimator:
         self._min_confidence = 0.01
         self._max_entries = 10_000
         self._miss_confidence_factor = 0.3
-        self._evidence: dict[tuple[str, str], _CacheLocalityEvidence] = {}
+        # Ordered by most-recent observation. Refreshing an existing key moves
+        # it to the end, so capacity eviction never scans the full store.
+        self._evidence: OrderedDict[tuple[str, str], _CacheLocalityEvidence] = OrderedDict()
         self._lock = Lock()
 
     def record(
@@ -60,13 +63,19 @@ class _CacheLocalityEstimator:
     ) -> None:
         """Record a cache-locality observation.
 
-        Positive cached_tokens values produce evidence of reusable prefix
-        state. ``cached_tokens=0`` provides negative evidence that the prior
-        reusable-state belief did not result in reuse on this request.
+        ``cached_tokens`` is the authoritative observed cache-reuse count
+        reported by the provider for this completed request:
 
-        Repeated misses degrade confidence but do not immediately delete
-        evidence (transient cache eviction is possible). A subsequent hit
-        restores confidence.
+        - ``cached_tokens > 0``: positive evidence that reusable prefix state
+          exists for this provider+affinity pair.
+        - ``cached_tokens == 0``: negative evidence -- reuse was not observed.
+          Repeated misses degrade confidence but do not immediately delete
+          evidence (transient cache eviction is possible). A subsequent hit
+          restores confidence.
+
+        Callers must distinguish ``0`` (provider explicitly reported no reuse)
+        from ``None`` (no authoritative cache-use observation was available).
+        ``None`` must not be passed here or treated as ``0``.
         """
         if input_tokens <= 0:
             return  # No meaningful evidence to record
@@ -86,6 +95,7 @@ class _CacheLocalityEstimator:
                     observed_at=now,
                     confidence=1.0,
                 )
+                self._evidence.move_to_end(key)
             else:
                 # Negative observation (miss): degrade confidence
                 # First apply time decay from previous observation to now,
@@ -99,6 +109,7 @@ class _CacheLocalityEstimator:
                         observed_at=now,
                         confidence=new_confidence,
                     )
+                    self._evidence.move_to_end(key)
                 # If no existing evidence, a miss creates no evidence
 
             self._enforce_capacity()
@@ -163,5 +174,4 @@ class _CacheLocalityEstimator:
     def _enforce_capacity(self) -> None:
         """Evict oldest entries if over capacity. Must be called under lock."""
         while len(self._evidence) > self._max_entries:
-            oldest_key = min(self._evidence, key=lambda k: self._evidence[k].observed_at)
-            del self._evidence[oldest_key]
+            self._evidence.popitem(last=False)

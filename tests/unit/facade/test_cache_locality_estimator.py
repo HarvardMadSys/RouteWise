@@ -83,6 +83,25 @@ class TestCacheLocalityEstimator:
             est.record("a", f"prefix_{i}", cached_tokens=50, input_tokens=100, now=clock.now)
         assert est.evidence_count <= 10
 
+    def test_capacity_churn_evicts_oldest_in_constant_time_order(self) -> None:
+        """High-cardinality churn keeps recent evidence and drops the oldest."""
+        clock = DeterministicClock()
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est._max_entries = 3
+
+        for prefix in ("oldest", "middle", "newest"):
+            est.record("a", prefix, cached_tokens=50, input_tokens=100, now=clock.now)
+
+        # An updated observation refreshes this key's eviction position.
+        est.record("a", "oldest", cached_tokens=60, input_tokens=100, now=clock.now)
+        est.record("a", "incoming", cached_tokens=50, input_tokens=100, now=clock.now)
+
+        assert est.evidence_count == 3
+        assert est.estimate("a", "oldest", 100, clock.now) == 60
+        assert est.estimate("a", "middle", 100, clock.now) == 0
+        assert est.estimate("a", "newest", 100, clock.now) == 50
+        assert est.estimate("a", "incoming", 100, clock.now) == 50
+
     def test_zero_cached_tokens_not_recorded(self) -> None:
         clock = DeterministicClock()
         est = _CacheLocalityEstimator(ttl_sec=300.0)
