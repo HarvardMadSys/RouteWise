@@ -383,7 +383,9 @@ def test_completed_billing_migrates_calculated_to_actual_atomically() -> None:
     decision.completed(output_tokens=50)
     calculated = router.stats().providers["cheap"]
     assert decision.state == "completed"
-    assert calculated["calculated_spend_usd"] == pytest.approx(0.00019)
+    # Learned locality influences routing, not billing. Without an
+    # authoritative cached-token count, calculated spend remains uncached.
+    assert calculated["calculated_spend_usd"] == pytest.approx(0.0002)
     assert calculated["actual_spend_usd"] == 0.0
     assert calculated["unsettled_attempts"] == 0
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Lifecycle tests for cache-locality observations and hedges."""
+
 from __future__ import annotations
 
 import pytest
@@ -19,7 +20,9 @@ class RejectingCapacityController:
     def snapshot(self, *, resource_key: str, now: float) -> _CapacitySnapshot:
         return _CapacitySnapshot(resource_key=resource_key, observed_at=now)
 
-    def try_reserve(self, *, resource_key: str, attempt_id: str, snapshot: _CapacitySnapshot) -> _NoopReservation | None:
+    def try_reserve(
+        self, *, resource_key: str, attempt_id: str, snapshot: _CapacitySnapshot
+    ) -> _NoopReservation | None:
         self.reserve_attempts.append(resource_key)
         if resource_key in self.rejected:
             return None
@@ -59,13 +62,17 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
 
         # Inject positive evidence for A
-        router._locality_estimator.record("A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now)
+        router._locality_estimator.record(
+            "A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+        )
         old_evidence = router._locality_estimator.estimate("A", "prefix_X", 100, clock.now)
         assert old_evidence == 90
 
@@ -78,10 +85,12 @@ class TestAdversarialEstimateVsActual:
 
         # Evidence should be DEGRADED (miss reduces confidence) but NOT destroyed
         new_evidence = router._locality_estimator.estimate("A", "prefix_X", 100, clock.now)
-        assert new_evidence < 90, \
+        assert new_evidence < 90, (
             f"Predicted warm + actual miss should degrade evidence. Expected < 90, got {new_evidence}"
-        assert new_evidence > 0, \
+        )
+        assert new_evidence > 0, (
             f"Predicted warm + actual miss should not destroy evidence. Expected > 0, got {new_evidence}"
+        )
 
     def test_predicted_cold_actual_hit_records_evidence(self) -> None:
         """Predicted 0 cold, actual 90 hit — MUST record positive evidence."""
@@ -91,7 +100,9 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
@@ -116,13 +127,17 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
 
         # Make A preferred via evidence
-        router._locality_estimator.record("A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now)
+        router._locality_estimator.record(
+            "A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+        )
         d1 = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
         assert d1.provider == "A"
 
@@ -131,8 +146,9 @@ class TestAdversarialEstimateVsActual:
 
         # Evidence should be 30 (actual), not 90 (prediction)
         evidence = router._locality_estimator.estimate("A", "prefix_X", 100, clock.now)
-        assert evidence == 30, \
+        assert evidence == 30, (
             f"Evidence should reflect actual 30, not prediction 90. Got {evidence}"
+        )
 
     def test_caller_estimate_affects_pricing_not_observations(self) -> None:
         """Call-time estimated_cached_tokens=100 affects pricing;
@@ -143,7 +159,9 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
@@ -162,8 +180,9 @@ class TestAdversarialEstimateVsActual:
 
         # Future evidence must be 20 (actual), not 100 (caller estimate)
         evidence = router._locality_estimator.estimate("A", "prefix_X", 100, clock.now)
-        assert evidence == 20, \
+        assert evidence == 20, (
             f"Future evidence must be actual 20, not caller estimate 100. Got {evidence}"
+        )
 
     def test_completed_none_cached_tokens_no_evidence(self) -> None:
         """completed(cached_tokens=None) produces no positive evidence."""
@@ -173,7 +192,9 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
@@ -189,7 +210,9 @@ class TestAdversarialEstimateVsActual:
         clock = DeterministicClock()
         router = Router(
             [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         router._locality_estimator.record(
@@ -217,12 +240,16 @@ class TestAdversarialEstimateVsActual:
                 Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
                 Provider("B", price_in=1.0, price_out=1.0),
             ],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
         _warm(router, "B", 100.0, 5)
 
-        router._locality_estimator.record("A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now)
+        router._locality_estimator.record(
+            "A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+        )
         d1 = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
         assert d1.provider == "A"
 
@@ -241,7 +268,9 @@ class TestAdversarialEstimateVsActual:
         clock = DeterministicClock()
         router = Router(
             [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
-            cold_start="require_observations", seed=1, clock=clock,
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
         )
         _warm(router, "A", 100.0, 5)
 
@@ -273,11 +302,16 @@ class TestHedgeLocality:
                 Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
                 Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
             ],
-            cold_start="require_observations", slo_ms=3000.0, seed=1, clock=clock,
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
         )
         _warm(router, "primary", 100.0, 5)
         _warm(router, "backup", 200.0, 5)
-        decision = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
         assert decision.provider == "primary"
         backup = decision.hedge_now(elapsed_ms=2700.0)
         assert backup is not None
@@ -294,11 +328,16 @@ class TestHedgeLocality:
                 Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
                 Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
             ],
-            cold_start="require_observations", slo_ms=3000.0, seed=1, clock=clock,
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
         )
         _warm(router, "primary", 100.0, 5)
         _warm(router, "backup", 200.0, 5)
-        decision = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
         backup = decision.hedge_now(elapsed_ms=2700.0)
         assert backup is not None
         backup.cancelled()
@@ -313,11 +352,16 @@ class TestHedgeLocality:
                 Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
                 Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
             ],
-            cold_start="require_observations", slo_ms=3000.0, seed=1, clock=clock,
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
         )
         _warm(router, "primary", 100.0, 5)
         _warm(router, "backup", 200.0, 5)
-        decision = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
         backup = decision.hedge_now(elapsed_ms=2700.0)
         assert backup is not None
         backup.failed(kind="request", code="timeout")
@@ -332,11 +376,16 @@ class TestHedgeLocality:
                 Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
                 Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
             ],
-            cold_start="require_observations", slo_ms=3000.0, seed=1, clock=clock,
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
         )
         _warm(router, "primary", 100.0, 5)
         _warm(router, "backup", 200.0, 5)
-        decision = router.route(input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10)
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
         backup = decision.hedge_now(elapsed_ms=2700.0)
         assert backup is not None
         backup.completed(output_tokens=10, cached_tokens=None)

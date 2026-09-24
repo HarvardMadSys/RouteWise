@@ -7,6 +7,7 @@ to incorporate learned cache-locality evidence into routing decisions.
 
 This is an internal implementation detail. It is not part of the public API.
 """
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -21,6 +22,7 @@ class _CacheLocalityEvidence:
     This is NOT authoritative cache state. It records what was observed
     for one specific completed attempt.
     """
+
     last_cached_tokens: int
     observed_at: float
     generation: int
