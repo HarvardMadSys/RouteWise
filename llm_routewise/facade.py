@@ -18,6 +18,7 @@ from threading import RLock
 from types import MappingProxyType
 from typing import Any
 
+from llm_routewise._cache_locality import _CacheLocalityEstimator
 from llm_routewise._capacity_controller import (
     _NoopCapacityController,
     _Reservation,
@@ -152,6 +153,7 @@ class Tuning:
     cooldown_after: int = 3
     hedge_min_samples: int = 5
     exploration_lease_sec: float = 60.0
+    cache_locality_ttl_sec: float = 300.0
 
     def __post_init__(self) -> None:
         target = _real(self.hedge_target, "hedge_target", positive=True)
@@ -185,6 +187,11 @@ class Tuning:
                 "exploration_lease_sec",
                 positive=True,
             ),
+        )
+        object.__setattr__(
+            self,
+            "cache_locality_ttl_sec",
+            _real(self.cache_locality_ttl_sec, "cache_locality_ttl_sec", positive=True),
         )
 
 
@@ -296,6 +303,9 @@ class Router:
         }
         self._exploration = {"decisions": 0, "target_selected": 0}
         self._decisions_without_adoption = 0
+        self._locality_estimator = _CacheLocalityEstimator(
+            ttl_sec=tuning_value.cache_locality_ttl_sec,
+        )
 
     def _now_locked(self) -> float:
         try:
@@ -313,9 +323,10 @@ class Router:
         *,
         input_tokens: int,
         estimated_output_tokens: float | None = None,
-        estimated_cached_tokens: int | Mapping[str, int] = 0,
+        estimated_cached_tokens: int | Mapping[str, int] | None = None,
         alpha: float | None = None,
         exclude: Iterable[str] = (),
+        affinity_key: str | None = None,
     ) -> Decision:
         input_count = _token_count(input_tokens, "input_tokens")
         output_estimate = (
@@ -335,7 +346,25 @@ class Router:
             raise ValidationError(
                 f"exclude contains unknown provider(s): {', '.join(sorted(unknown_excluded))}"
             )
+        if affinity_key is not None and not isinstance(affinity_key, str):
+            raise ValidationError("affinity_key must be a string or None")
+        if affinity_key is not None and (len(affinity_key) == 0 or affinity_key.strip() == ""):
+            raise ValidationError("affinity_key must be a non-empty, non-whitespace string")
+        if affinity_key is not None and len(affinity_key) > 1024:
+            raise ValidationError(
+                "affinity_key must be at most 1024 characters; "
+                "use a compact hash or identifier rather than raw prompt text"
+            )
         cached = self._validate_cached_tokens(estimated_cached_tokens, input_count)
+
+        # Track which providers the caller explicitly provided estimates for.
+        if estimated_cached_tokens is None:
+            caller_provided = set()  # omitted -> learned may fill all
+        elif isinstance(estimated_cached_tokens, Mapping):
+            caller_provided = set(estimated_cached_tokens.keys())
+        else:
+            caller_provided = set(self._providers.keys())  # scalar -> explicit for all
+        explicit_cached_tokens = {name: name in caller_provided for name in self._providers}
 
         with self._lock:
             now = self._now_locked()
@@ -345,11 +374,24 @@ class Router:
                 if output_estimate is None
                 else output_estimate
             )
+            # Derive effective cached-token estimates: caller-supplied wins,
+            # learned evidence fills gaps where caller is silent.
+            effective_cached = dict(cached)
+            if affinity_key is not None:
+                now_snapshot = now
+                for name in self._providers:
+                    if name not in caller_provided:
+                        learned = self._locality_estimator.estimate(
+                            name, affinity_key, input_count, now_snapshot
+                        )
+                        if learned > 0:
+                            effective_cached[name] = min(learned, input_count)
+                    # Caller explicitly provided estimate; bypass learned evidence
             costs = {
                 name: self._price(
                     self._providers[name],
                     input_count,
-                    cached[name],
+                    effective_cached[name],
                     predicted_output,
                 )
                 for name in self._providers
@@ -470,12 +512,14 @@ class Router:
                 ),
                 trace=trace,
                 input_tokens=input_count,
-                estimated_cached_tokens=cached,
+                estimated_cached_tokens=effective_cached,
+                explicit_cached_tokens=explicit_cached_tokens,
                 predicted_output_tokens=predicted_output,
                 original_exclude=excluded,
                 primary_attempt_id=attempt_id,
                 primary_reservation=reservation,
                 primary_lease_generation=lease_generation,
+                affinity_key=affinity_key,
             )
 
     def observe(
@@ -532,9 +576,12 @@ class Router:
 
     def _validate_cached_tokens(
         self,
-        value: int | Mapping[str, int],
+        value: int | Mapping[str, int] | None,
         input_tokens: int,
     ) -> dict[str, int]:
+        if value is None:
+            # Caller omitted the argument entirely; no estimates provided.
+            return dict.fromkeys(self._providers, 0)
         if isinstance(value, Mapping):
             unknown = set(value).difference(self._providers)
             if unknown:
@@ -765,7 +812,19 @@ class Router:
             new_state = "actual"
             new_amount = cost
         elif output is not None:
-            billed_cached = attempt._estimated_cached_tokens if cached is None else cached
+            # Learned locality is a routing estimate, not evidence that this
+            # provider actually served cached tokens. Without an authoritative
+            # count, calculated spending uses an explicit caller estimate when
+            # one was supplied; learned estimates remain conservative and bill
+            # the request as uncached.
+            if cached is None:
+                billed_cached = (
+                    attempt._estimated_cached_tokens
+                    if attempt._estimated_cached_tokens_explicit
+                    else 0
+                )
+            else:
+                billed_cached = cached
             new_state = "calculated"
             new_amount = self._price(
                 attempt._price_snapshot,
@@ -880,6 +939,35 @@ class Router:
         ):
             self._estimator.update(attempt._input_tokens, attempt._output_tokens)
             attempt._estimator_trained = True
+
+    def _maybe_record_locality_locked(self, attempt: Attempt, now: float | None = None) -> None:
+        """Record cache-locality evidence from completed attempts.
+
+        Positive cached_tokens values produce evidence of reusable prefix
+        state. ``cached_tokens=0`` provides negative evidence that the prior
+        reusable-state belief did not result in reuse on this request.
+
+        Cancelled/failed/declined attempts do not produce trustworthy evidence.
+        """
+        if attempt._state != "completed":
+            return
+        if attempt._cached_tokens is None:
+            return
+        if attempt._locality_trained:
+            return
+        decision = attempt._decision
+        if decision._affinity_key is None:
+            return
+        if now is None:
+            now = self._now_locked()
+        self._locality_estimator.record(
+            provider=attempt.provider,
+            affinity_key=decision._affinity_key,
+            cached_tokens=attempt._cached_tokens,
+            input_tokens=attempt._input_tokens,
+            now=now,
+        )
+        attempt._locality_trained = True
 
     def _refresh_decision_resolution_locked(self, decision: Decision) -> None:
         if decision._adopted is not None:
@@ -1052,6 +1140,9 @@ class Router:
             attempt_id=attempt_id,
             input_tokens=decision._input_tokens,
             estimated_cached_tokens=decision._estimated_cached_tokens[str(selected.provider)],
+            estimated_cached_tokens_explicit=decision._explicit_cached_tokens[
+                str(selected.provider)
+            ],
             is_backup=True,
             reservation=reservation,
         )
@@ -1077,11 +1168,13 @@ class Decision:
         trace: Mapping[str, object],
         input_tokens: int,
         estimated_cached_tokens: Mapping[str, int],
+        explicit_cached_tokens: Mapping[str, bool],
         predicted_output_tokens: float,
         original_exclude: frozenset[str],
         primary_attempt_id: str,
         primary_reservation: _Reservation,
         primary_lease_generation: int | None,
+        affinity_key: str | None = None,
     ) -> None:
         self._router = router
         self._provider = provider
@@ -1092,6 +1185,7 @@ class Decision:
         self._trace = _freeze(dict(trace))
         self._input_tokens = input_tokens
         self._estimated_cached_tokens = dict(estimated_cached_tokens)
+        self._explicit_cached_tokens = dict(explicit_cached_tokens)
         self._predicted_output_tokens = predicted_output_tokens
         self._original_exclude = original_exclude
         self._state = "pending"
@@ -1099,6 +1193,7 @@ class Decision:
         self._hedge_slot_used = False
         self._hedge_slot_closed = False
         self._unresolved_counted = False
+        self._affinity_key = affinity_key
         self._primary = Attempt(
             decision=self,
             router=router,
@@ -1106,6 +1201,7 @@ class Decision:
             attempt_id=primary_attempt_id,
             input_tokens=input_tokens,
             estimated_cached_tokens=estimated_cached_tokens[provider],
+            estimated_cached_tokens_explicit=explicit_cached_tokens[provider],
             is_backup=False,
             reservation=primary_reservation,
             lease_generation=primary_lease_generation,
@@ -1229,6 +1325,7 @@ class Attempt:
         attempt_id: str,
         input_tokens: int,
         estimated_cached_tokens: int,
+        estimated_cached_tokens_explicit: bool,
         is_backup: bool,
         reservation: _Reservation,
         lease_generation: int | None = None,
@@ -1239,6 +1336,7 @@ class Attempt:
         self._attempt_id = attempt_id
         self._input_tokens = input_tokens
         self._estimated_cached_tokens = estimated_cached_tokens
+        self._estimated_cached_tokens_explicit = estimated_cached_tokens_explicit
         self._is_backup = is_backup
         self._reservation = reservation
         self._lease_generation = lease_generation
@@ -1255,6 +1353,7 @@ class Attempt:
         self._estimator_trained = False
         self._hedge_win_counted = False
         self._hedge_declined_counted = False
+        self._locality_trained = False
 
     @property
     def state(self) -> str:
@@ -1374,6 +1473,7 @@ class Attempt:
             self._router._settle_attempt_locked(self, target=billing_target)
             self._router._maybe_count_unsettled_locked(self)
             self._router._maybe_train_estimator_locked(self)
+            self._router._maybe_record_locality_locked(self, now=now)
             self._decision._hedge_slot_closed = True
             self._router._refresh_decision_resolution_locked(self._decision)
 
@@ -1460,6 +1560,7 @@ class Attempt:
             self._router._settle_attempt_locked(self, target=billing_target)
             self._router._maybe_count_unsettled_locked(self)
             self._router._maybe_train_estimator_locked(self)
+            self._router._maybe_record_locality_locked(self, now=self._router._now_locked())
 
     def _validate_billing_fields_locked(
         self,

@@ -383,6 +383,8 @@ def test_completed_billing_migrates_calculated_to_actual_atomically() -> None:
     decision.completed(output_tokens=50)
     calculated = router.stats().providers["cheap"]
     assert decision.state == "completed"
+    # An explicit caller estimate remains the calculated-billing fallback when
+    # the provider does not report authoritative cached-token usage.
     assert calculated["calculated_spend_usd"] == pytest.approx(0.00019)
     assert calculated["actual_spend_usd"] == 0.0
     assert calculated["unsettled_attempts"] == 0

@@ -39,6 +39,56 @@ decision = router.route(
 Cache expectations move the cost side of the decision only; the latency side
 comes from the outcomes you report.
 
+## Learned cache-locality {#learned-cache-locality}
+
+When `affinity_key` is supplied, RouteWise can learn destination-local cache
+evidence from actual completion observations. On `decision.completed(...)` with
+positive `cached_tokens`, RouteWise records evidence associating the affinity
+identity with the selected provider. Subsequent requests with the same
+`affinity_key` incorporate this learned evidence into routing.
+
+Key properties:
+
+- **Evidence is probabilistic**: Observations decay over time and with
+  negative observations (misses). It is not authoritative cache state.
+- **Caller estimates take precedence**: Explicit `estimated_cached_tokens`
+  always wins over learned evidence for the providers it covers.
+- **Provider is the finest granularity**: RouteWise preserves locality at the
+  `provider.name` level. If a provider hides multiple replicas behind an
+  internal load balancer, RouteWise cannot preserve replica-local state unless
+  replicas are individually addressable.
+- **Optional**: Cache-locality learning is disabled when `affinity_key` is not
+  supplied. Existing callers retain their explicit cached-token estimates for
+  calculated billing; learned estimates are used for routing only.
+
+The learned value is incorporated into the decision's effective cached-token
+estimate and affects routing cost. It does not confirm provider usage for
+accounting: when output tokens are known but both `cached_tokens` and `cost_usd`
+are unavailable, calculated spending uses an explicit caller estimate when one
+was supplied and otherwise uses the conservative uncached estimate.
+The internal `Decision._estimated_cached_tokens` member is not a supported
+public API. Report actual `cached_tokens` or `cost_usd` whenever possible to
+ensure accurate billing.
+
+### Generic evidence and application-level locality
+
+RouteWise owns generic observed-reuse evidence: positive, negative, and
+unknown observations; TTL and exponential decay; a learned cached-token
+estimate; routing/cost influence; and caller-estimate precedence. It only
+knows `provider.name` and an opaque `affinity_key`. Applications may maintain
+finer session-, prefix-, endpoint-, or credential-scoped locality models and
+use RouteWise's observations without treating this coarse evidence as
+authoritative cache state.
+
+### Downstream relevance
+
+HybridInference is one concrete downstream consumer. It maintains a richer
+session-, prefix-, provider-, and endpoint-scoped prefix-cache model that can
+adjust effective cost before routing optimization. That model is why a
+successful dispatch and observed cache reuse must remain distinct evidence
+states; RouteWise's generic evidence does not replace application-specific
+locality models.
+
 ## The budget
 
 With eligible cost extremes `C_min` and `C_max`, the budget is:

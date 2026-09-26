@@ -124,6 +124,39 @@ usage. On completion, report the adopted attempt's actual `output_tokens` and
 `cached_tokens` (or an explicit `cost_usd`) for billing. Positive actual output tokens also update
 RouteWise's internal estimator.
 
+## Learned Cache-Locality
+
+RouteWise can learn destination-local cache-locality from actual completion
+observations. When a request completes and reports positive `cached_tokens`,
+RouteWise associates that observation with an `affinity_key` and uses it to
+influence future routing decisions for related requests.
+
+```python
+decision = router.route(
+    input_tokens=800,
+    affinity_key="conversation_123",  # Stable identity for related requests
+)
+response = call_your_provider(decision.provider)
+decision.completed(
+    output_tokens=response.output_tokens,
+    cached_tokens=response.cached_tokens,  # Actual cache usage
+)
+```
+
+Key properties:
+
+- **Evidence is probabilistic**: Observations decay over time and with
+  negative observations (misses). It is not authoritative cache state.
+- **Caller estimates take precedence**: Explicit `estimated_cached_tokens`
+  always wins over learned evidence.
+- **Provider is the finest granularity**: RouteWise preserves locality at the
+  `provider.name` level. If a provider hides multiple replicas behind an
+  internal load balancer, RouteWise cannot preserve replica-local state unless
+  replicas are individually addressable.
+- **Optional**: Cache-locality learning is disabled when `affinity_key` is not
+  supplied. Existing callers retain their explicit cached-token estimates for
+  calculated billing; learned estimates are used for routing only.
+
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
 the [English API reference](https://harvardmadsys.github.io/RouteWise/reference/api/)
