@@ -58,12 +58,14 @@ Key properties:
   internal load balancer, RouteWise cannot preserve replica-local state unless
   replicas are individually addressable.
 - **Optional**: Cache-locality learning is disabled when `affinity_key` is not
-  supplied. Existing callers are unaffected.
+  supplied. Existing callers retain their explicit cached-token estimates for
+  calculated billing; learned estimates are used for routing only.
 
 The learned value is incorporated into the decision's effective cached-token
 estimate and affects routing cost. It does not confirm provider usage for
 accounting: when output tokens are known but both `cached_tokens` and `cost_usd`
-are unavailable, calculated spending uses the conservative uncached estimate.
+are unavailable, calculated spending uses an explicit caller estimate when one
+was supplied and otherwise uses the conservative uncached estimate.
 The internal `Decision._estimated_cached_tokens` member is not a supported
 public API. Report actual `cached_tokens` or `cost_usd` whenever possible to
 ensure accurate billing.

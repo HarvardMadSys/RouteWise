@@ -152,7 +152,8 @@ Key properties:
   internal load balancer, RouteWise cannot preserve replica-local state unless
   replicas are individually addressable.
 - **Optional**: Cache-locality learning is disabled when `affinity_key` is not
-  supplied. Existing callers are unaffected.
+  supplied. Existing callers retain their explicit cached-token estimates for
+  calculated billing; learned estimates are used for routing only.
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read

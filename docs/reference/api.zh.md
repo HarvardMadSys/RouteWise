@@ -237,10 +237,12 @@ attempt 完成时，应报告真实的 `output_tokens`，或用显式 `cost_usd`
 - **调用方估计优先**：显式 `estimated_cached_tokens` 始终优先于学习到的证据。
 - **Provider 是最细粒度**：RouteWise 在 `provider.name` 级别保持局部性。如果 provider
   在内部负载均衡器后隐藏多个副本，RouteWise 无法保持副本局部状态，除非副本可单独寻址。
-- **可选**：不提供 `affinity_key` 时禁用缓存局部性学习。现有调用方不受影响。
+- **可选**：不提供 `affinity_key` 时禁用缓存局部性学习。现有调用方提供的显式缓存
+  估计仍会用于计算计费回退；学习到的估计只用于路由。
 
-学习到的值会成为 `Decision._estimated_cached_tokens`，影响路由成本和计算计费回退。
-尽可能报告实际 `cached_tokens` 以确保计费准确。
+学习到的值会成为 `Decision._estimated_cached_tokens` 并影响路由成本，但不会被视为
+权威用量。输出 token 已知而 `cached_tokens` 与 `cost_usd` 均不可用时，计算计费回退
+优先使用显式调用方估计，否则按未缓存请求计算。尽可能报告实际 `cached_tokens` 以确保计费准确。
 
 `affinity_key` 应表示稳定的可重用前缀或请求身份（例如对话 ID 或系统提示的哈希）。
 不应是原始 prompt 文本或包含敏感数据。空字符串或仅空白字符的 key 会被拒绝。

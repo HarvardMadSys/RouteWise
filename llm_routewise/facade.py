@@ -364,6 +364,7 @@ class Router:
             caller_provided = set(estimated_cached_tokens.keys())
         else:
             caller_provided = set(self._providers.keys())  # scalar -> explicit for all
+        explicit_cached_tokens = {name: name in caller_provided for name in self._providers}
 
         with self._lock:
             now = self._now_locked()
@@ -512,6 +513,7 @@ class Router:
                 trace=trace,
                 input_tokens=input_count,
                 estimated_cached_tokens=effective_cached,
+                explicit_cached_tokens=explicit_cached_tokens,
                 predicted_output_tokens=predicted_output,
                 original_exclude=excluded,
                 primary_attempt_id=attempt_id,
@@ -812,9 +814,17 @@ class Router:
         elif output is not None:
             # Learned locality is a routing estimate, not evidence that this
             # provider actually served cached tokens. Without an authoritative
-            # count, calculated spending must remain conservative and bill the
-            # request as uncached.
-            billed_cached = 0 if cached is None else cached
+            # count, calculated spending uses an explicit caller estimate when
+            # one was supplied; learned estimates remain conservative and bill
+            # the request as uncached.
+            if cached is None:
+                billed_cached = (
+                    attempt._estimated_cached_tokens
+                    if attempt._estimated_cached_tokens_explicit
+                    else 0
+                )
+            else:
+                billed_cached = cached
             new_state = "calculated"
             new_amount = self._price(
                 attempt._price_snapshot,
@@ -1130,6 +1140,9 @@ class Router:
             attempt_id=attempt_id,
             input_tokens=decision._input_tokens,
             estimated_cached_tokens=decision._estimated_cached_tokens[str(selected.provider)],
+            estimated_cached_tokens_explicit=decision._explicit_cached_tokens[
+                str(selected.provider)
+            ],
             is_backup=True,
             reservation=reservation,
         )
@@ -1155,6 +1168,7 @@ class Decision:
         trace: Mapping[str, object],
         input_tokens: int,
         estimated_cached_tokens: Mapping[str, int],
+        explicit_cached_tokens: Mapping[str, bool],
         predicted_output_tokens: float,
         original_exclude: frozenset[str],
         primary_attempt_id: str,
@@ -1171,6 +1185,7 @@ class Decision:
         self._trace = _freeze(dict(trace))
         self._input_tokens = input_tokens
         self._estimated_cached_tokens = dict(estimated_cached_tokens)
+        self._explicit_cached_tokens = dict(explicit_cached_tokens)
         self._predicted_output_tokens = predicted_output_tokens
         self._original_exclude = original_exclude
         self._state = "pending"
@@ -1186,6 +1201,7 @@ class Decision:
             attempt_id=primary_attempt_id,
             input_tokens=input_tokens,
             estimated_cached_tokens=estimated_cached_tokens[provider],
+            estimated_cached_tokens_explicit=explicit_cached_tokens[provider],
             is_backup=False,
             reservation=primary_reservation,
             lease_generation=primary_lease_generation,
@@ -1309,6 +1325,7 @@ class Attempt:
         attempt_id: str,
         input_tokens: int,
         estimated_cached_tokens: int,
+        estimated_cached_tokens_explicit: bool,
         is_backup: bool,
         reservation: _Reservation,
         lease_generation: int | None = None,
@@ -1319,6 +1336,7 @@ class Attempt:
         self._attempt_id = attempt_id
         self._input_tokens = input_tokens
         self._estimated_cached_tokens = estimated_cached_tokens
+        self._estimated_cached_tokens_explicit = estimated_cached_tokens_explicit
         self._is_backup = is_backup
         self._reservation = reservation
         self._lease_generation = lease_generation

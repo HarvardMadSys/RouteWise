@@ -184,6 +184,40 @@ class TestAdversarialEstimateVsActual:
             f"Future evidence must be actual 20, not caller estimate 100. Got {evidence}"
         )
 
+    @pytest.mark.parametrize(
+        ("estimate", "expected_estimate"),
+        [(20, 20), ({"A": 20}, 20), ({"A": 0}, 0), (None, 0)],
+        ids=["scalar", "mapping", "explicit_zero", "omitted"],
+    )
+    @pytest.mark.parametrize("actual_cached", [None, 7], ids=["unknown", "authoritative"])
+    def test_calculated_billing_distinguishes_explicit_and_actual_cache(
+        self,
+        estimate: int | dict[str, int] | None,
+        expected_estimate: int,
+        actual_cached: int | None,
+    ) -> None:
+        clock = DeterministicClock()
+        router = Router(
+            [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
+        )
+        _warm(router, "A", 100.0, 5)
+
+        decision = router.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            estimated_cached_tokens=estimate,
+        )
+        assert decision._estimated_cached_tokens["A"] == expected_estimate
+        assert decision.primary._estimated_cached_tokens_explicit is (estimate is not None)
+        decision.completed(output_tokens=10, cached_tokens=actual_cached)
+
+        cached = expected_estimate if actual_cached is None else actual_cached
+        expected = (2.0 * (100 - cached) + 0.2 * cached + 1.0 * 10) / 1_000_000.0
+        assert router.stats().providers["A"]["calculated_spend_usd"] == pytest.approx(expected)
+
     def test_completed_none_cached_tokens_no_evidence(self) -> None:
         """completed(cached_tokens=None) produces no positive evidence."""
         clock = DeterministicClock()
@@ -205,8 +239,11 @@ class TestAdversarialEstimateVsActual:
         # No evidence should be created
         assert router._locality_estimator.evidence_count == 0
 
-    def test_learned_cache_hit_does_not_understate_unknown_calculated_spend(self) -> None:
-        """A learned hit must not become confirmed billing when usage is unknown."""
+    @pytest.mark.parametrize("actual_cached", [None, 7])
+    def test_learned_cache_hit_does_not_understate_calculated_spend(
+        self, actual_cached: int | None
+    ) -> None:
+        """A learned hit must not become confirmed billing without actual usage."""
         clock = DeterministicClock()
         router = Router(
             [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
@@ -223,14 +260,13 @@ class TestAdversarialEstimateVsActual:
             input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
         )
         assert decision._estimated_cached_tokens["A"] == 90
-        decision.completed(output_tokens=10, cached_tokens=None)
+        decision.completed(output_tokens=10, cached_tokens=actual_cached)
 
-        # Routing may use the learned hit, but accounting falls back to the
-        # uncached price until the provider reports actual usage.
-        expected_uncached = (2.0 * 100 + 1.0 * 10) / 1_000_000.0
-        assert router.stats().providers["A"]["calculated_spend_usd"] == pytest.approx(
-            expected_uncached
-        )
+        # Routing may use the learned hit, but accounting uses it only when the
+        # provider reports actual usage.
+        expected_cached = 0 if actual_cached is None else actual_cached
+        expected = (2.0 * (100 - expected_cached) + 0.2 * expected_cached + 1.0 * 10) / 1_000_000.0
+        assert router.stats().providers["A"]["calculated_spend_usd"] == pytest.approx(expected)
 
     def test_duplicate_completion_idempotent(self) -> None:
         """Calling completed() twice with same values is idempotent."""
@@ -319,6 +355,35 @@ class TestHedgeLocality:
         decision.cancelled()
         # Evidence for backup provider should be recorded
         assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) > 0
+
+    def test_backup_preserves_explicit_billing_estimate(self) -> None:
+        """Hedge attempts retain the caller estimate for their own settlement."""
+        clock = DeterministicClock()
+        router = Router(
+            [
+                Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
+                Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
+            ],
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
+        )
+        _warm(router, "primary", 100.0, 5)
+        _warm(router, "backup", 200.0, 5)
+        decision = router.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            estimated_cached_tokens={"primary": 0, "backup": 80},
+        )
+        backup = decision.hedge_now(elapsed_ms=2700.0)
+        assert backup is not None
+        assert backup._estimated_cached_tokens_explicit is True
+        backup.completed(output_tokens=10, cached_tokens=None)
+        decision.cancelled()
+
+        expected = (1.0 * (100 - 80) + 0.1 * 80 + 1.0 * 10) / 1_000_000.0
+        assert router.stats().providers["backup"]["calculated_spend_usd"] == pytest.approx(expected)
 
     def test_cancelled_hedge_no_evidence(self) -> None:
         """Cancelled hedge doesn't produce locality evidence."""
