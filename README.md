@@ -30,8 +30,14 @@
 </p>
 
 <p align="center">
+  <a href="docs/paper/routewise.pdf">Paper PDF</a>
+  ·
   <a href="https://harvardmadsys.github.io/RouteWise/">Documentation</a>
   ·
+  <a href="https://github.com/HarvardMadSys/RouteWise/tree/eurosys27-ae">Artifact</a>
+  ·
+  <a href="#citation">Citation</a>
+  <br>
   <a href="https://harvardmadsys.github.io/RouteWise/reference/api/">English API</a>
   ·
   <a href="https://harvardmadsys.github.io/RouteWise/zh/reference/api/">中文 API</a>
@@ -65,6 +71,19 @@ environment remain self-contained.
 - **August 2026:** Our paper, *RouteWise: Latency–Cost Optimization for
   Multi-Provider LLM Routing*, has been accepted to
   [EuroSys 2027](https://2027.eurosys.org/)! 🎉
+
+## Paper
+
+**RouteWise: Latency–Cost Optimization for Multi-Provider LLM Routing**
+
+Muxin Tian, Haoran Ni, Yiyan Zhai, Yangsun Park, and Juncheng Yang.
+EuroSys 2027, April 19–23, 2027, Rabat, Morocco.
+
+[Read PDF](docs/paper/routewise.pdf) ·
+[Download PDF](docs/paper/routewise.pdf?raw=true) ·
+[DOI](https://doi.org/10.1145/3842654.3848534)
+
+Camera-ready author version, updated September 27, 2026 (16 pages).
 
 ## Installation
 
@@ -176,4 +195,7 @@ If you use RouteWise in your research, please cite [our paper](https://doi.org/1
 
 ## License
 
-MIT. See the [license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
+The code is licensed under MIT. See the
+[license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
+The paper is licensed under Creative Commons Attribution 4.0 International
+(CC BY 4.0), as stated in the PDF.
