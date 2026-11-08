@@ -70,13 +70,7 @@ environment remain self-contained.
 
 ## Paper
 
-**[RouteWise: Latency–Cost Optimization for Multi-Provider LLM Routing](docs/paper/routewise.pdf)**
-
-Muxin Tian · Haoran Ni · Yiyan Zhai · Yangsun Park · Juncheng Yang
-
-EuroSys 2027 · [Download PDF](docs/paper/routewise.pdf?raw=true)
-
-<sub>Camera-ready · September 27, 2026</sub>
+[Download PDF](docs/paper/routewise.pdf?raw=true)
 
 ## Installation
 
