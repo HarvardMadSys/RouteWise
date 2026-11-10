@@ -17,10 +17,12 @@ from threading import Lock
 
 @dataclass(frozen=True)
 class _CacheLocalityEvidence:
-    """One observation of cache reuse for a provider+affinity pair.
+    """Blended cache-reuse evidence for a provider+affinity pair.
 
     This is NOT authoritative cache state. It records what was observed
-    for one specific completed attempt.
+    for one specific completed attempt. After a miss the entry holds
+    blended state: the last positive observation's cached tokens and
+    timestamp, scaled down by the accumulated confidence penalty.
     """
 
     last_cached_tokens: int
@@ -136,7 +138,9 @@ class _CacheLocalityEstimator:
             if ev is None:
                 return 0
 
-            age = now - ev.observed_at
+            # A clock that steps backwards gives a negative age, which would
+            # make the decay factor above 1.0 and inflate the confidence.
+            age = max(0.0, now - ev.observed_at)
             # Confidence decay using exponential half-life
             decayed_confidence = ev.confidence * (0.5 ** (age / self._half_life_sec))
             if decayed_confidence < self._min_confidence:
@@ -147,7 +151,7 @@ class _CacheLocalityEstimator:
             estimated = int(ev.last_cached_tokens * decayed_confidence)
 
             # Conservative: never exceed observed or current input
-            return min(estimated, ev.last_cached_tokens, current_input_tokens)
+            return max(0, min(estimated, ev.last_cached_tokens, current_input_tokens))
 
     def invalidate(self, provider: str, affinity_key: str) -> None:
         """Invalidate specific evidence entry."""
