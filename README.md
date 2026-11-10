@@ -30,6 +30,8 @@
 </p>
 
 <p align="center">
+  <a href="docs/paper/routewise.pdf">Paper PDF</a>
+  ·
   <a href="https://harvardmadsys.github.io/RouteWise/">Documentation</a>
   ·
   <a href="https://harvardmadsys.github.io/RouteWise/reference/api/">English API</a>
@@ -65,6 +67,10 @@ environment remain self-contained.
 - **August 2026:** Our paper, *RouteWise: Latency–Cost Optimization for
   Multi-Provider LLM Routing*, has been accepted to
   [EuroSys 2027](https://2027.eurosys.org/)! 🎉
+
+## Paper
+
+[Download PDF](docs/paper/routewise.pdf?raw=true)
 
 ## Installation
 
@@ -176,4 +182,4 @@ If you use RouteWise in your research, please cite [our paper](https://doi.org/1
 
 ## License
 
-MIT. See the [license](https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE).
+Code: [MIT](LICENSE). Paper: CC BY 4.0.
