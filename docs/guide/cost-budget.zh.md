@@ -35,6 +35,45 @@ decision = router.route(
 
 缓存预期只移动决策中的成本一侧；延迟一侧来自你回报的结果。
 
+## 学习到的缓存局部性 {#learned-cache-locality}
+
+提供 `affinity_key` 时，RouteWise 可以从实际完成观测中学习目的地局部缓存证据。
+`decision.completed(...)` 报告正数 `cached_tokens` 时，RouteWise 记录将 affinity
+身份与选中 provider 关联的证据。后续相同 `affinity_key` 的请求会将学习到的证据纳入路由。
+
+关键特性：
+
+- **证据是概率性的**：观测随时间（TTL/half-life）和负观测（miss）衰减。不是权威缓存状态。
+- **调用方估计优先**：显式 `estimated_cached_tokens` 始终优先于学习到的证据。
+- **Provider 是最细粒度**：RouteWise 在 `provider.name` 级别保持局部性。如果 provider
+  在内部负载均衡器后隐藏多个副本，RouteWise 无法保持副本局部状态，除非副本可单独寻址。
+- **可选**：不提供 `affinity_key` 时禁用缓存局部性学习。现有调用方提供的显式缓存
+  估计仍会用于计算计费回退；学习到的估计只用于路由。
+
+!!! warning "单独使用凭证身份无法表示前缀局部性"
+
+    一个 API 凭证可能服务于多个互不相关的对话。若将凭证哈希用作 `affinity_key`，
+    这些对话会共享学习到的 provider 缓存证据。应使用对话或前缀级身份。若应用已有
+    独立验证过的端点级估计，可直接传入这些估计。
+
+学习到的值会成为 `Decision._estimated_cached_tokens` 并影响路由成本，但不会被视为
+权威用量。输出 token 已知而 `cached_tokens` 与 `cost_usd` 均不可用时，计算计费回退
+优先使用显式调用方估计，否则按未缓存请求计算。尽可能报告实际 `cached_tokens` 以确保计费准确。
+
+### 通用证据与应用级局部性
+
+RouteWise 管理通用的实际复用证据：命中、未命中和未知观测、TTL 与指数衰减、缓存 token
+估计，以及它们对路由和成本的影响；调用方提供的估计优先。RouteWise 只知道
+`provider.name` 和不透明的 `affinity_key`。应用可以维护更细粒度的对话、前缀或端点局部性
+模型，并使用 RouteWise 的观测，但不应把这类粗粒度证据当作权威缓存状态。仅凭凭证哈希
+无法区分互不相关的提示。
+
+### 对下游应用的意义
+
+HybridInference 是一个具体的下游消费者。它维护更细粒度的会话、前缀、provider 和端点
+级前缀缓存模型，并可在路由优化前调整有效成本。这种模型说明成功 dispatch 与实际观测到的
+缓存复用必须保持为不同的证据状态；RouteWise 的通用证据不会取代应用专属的局部性模型。
+
 ## 预算
 
 设可选供应商的成本极值为 `C_min` 和 `C_max`，预算为：

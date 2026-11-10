@@ -161,8 +161,9 @@ rw.Provider(
 | `cooldown_after=3` | 进入 cooldown 前允许的连续 health failure 次数 |
 | `hedge_min_samples=5` | primary 和 backup 参与 hedging 前各自需要的成功 TTFT 样本数 |
 | `exploration_lease_sec=60.0` | 避免重复并发探索未建档 provider 的最长秒数 |
+| `cache_locality_ttl_sec=300.0` | 学习到的缓存局部性证据的生存时间（秒） |
 
-`hedge_target`、`penalty_ms`、`window_min` 和 `exploration_lease_sec` 必须为正数；
+`hedge_target`、`penalty_ms`、`window_min`、`exploration_lease_sec` 和 `cache_locality_ttl_sec` 必须为正数；
 `cooldown_sec` 必须非负；两个计数参数必须为正整数。`Tuning` 创建后不可变。
 
 ## `Router`
@@ -199,27 +200,71 @@ decision = router.route(
     *,
     input_tokens: int,
     estimated_output_tokens: float | None = None,
-    estimated_cached_tokens: int | Mapping[str, int] = 0,
+    estimated_cached_tokens: int | Mapping[str, int] | None = None,
     alpha: float | None = None,
     exclude: Iterable[str] = (),
+    affinity_key: str | None = None,
 ) -> rw.Decision
 ```
 
 - `input_tokens`：本次请求的非负整数输入 token 数。
 - `estimated_output_tokens`：调用方可选提供的有限、非负输出 token 点估计；为 `None`
   时使用 RouteWise 内部的在线输出长度估计。
-- `estimated_cached_tokens`：一个非负整数时应用于所有 provider；mapping 时按 provider
-  指定，缺失名称按 `0`，未知名称报错。超过 `input_tokens` 的值按 `input_tokens`
-  计算。
+- `estimated_cached_tokens`：调用方提供的缓存估计。省略时，若提供了 `affinity_key`，
+  则由学习到的 locality 证据填充，否则按 `0` 处理；标量时应用于所有 provider；mapping
+  时按 provider 指定，缺失名称在提供 `affinity_key` 时由学习到的 locality 证据填充
+  （否则按 `0` 处理），未知名称报错。超过 `input_tokens` 的值按 `input_tokens` 计算。
+  显式值（包括 `0`）优先于学习到的证据。
 - `alpha`：仅覆盖本次请求；`None` 使用构造时的默认值。
 - `exclude`：本次请求排除的 provider 名称。未知名称报错；成本上下界会在剩余 eligible
   provider 上重新计算。
+- `affinity_key`：可选的稳定身份标识，用于缓存局部性学习。
 
 RouteWise 使用当前输出长度估计和 provider 价格计算候选费用。调用方提供的估计只影响
 本次请求的路由成本和 hedge 成本；它不是生成长度上限，也不代表实际 usage。被采用的
 attempt 完成时，应报告真实的 `output_tokens`，或用显式 `cost_usd` 直接结算；只有真实的
-正数 `output_tokens` 才会更新后续请求的内部输出长度估计。返回的
-`expected_cost_usd` 是 mixture 的预测期望费用；实际费用以调用方报告为准。
+正数 `output_tokens` 才会更新后续请求的内部输出长度估计。提供 `affinity_key` 时，RouteWise
+会从实际 `cached_tokens` 观测中学习，以改进后续相关请求的路由。
+
+### 缓存局部性学习
+
+提供 `affinity_key` 时，RouteWise 从实际完成观测中学习目的地局部缓存证据。
+`decision.completed(...)` 报告正数 `cached_tokens` 时，RouteWise 记录将 affinity
+身份与选中 provider 关联的证据。后续相同 `affinity_key` 的请求会将学习到的证据纳入路由。
+证据以完成时间记账：稍后通过 `settle(...)` 报告的 `cached_tokens` 从完成时刻起计算年龄；
+若在完成之后超过 `cache_locality_ttl_sec` 才到达，则只用于计费，不用于学习。比同一
+provider 与 `affinity_key` 已记录的最新观测更旧的观测会被忽略。
+
+关键特性：
+
+- **证据是概率性的**：观测随时间（TTL/half-life）和负观测（miss）衰减。不是权威缓存状态。
+- **调用方估计优先**：显式 `estimated_cached_tokens` 始终优先于学习到的证据。
+- **Provider 是最细粒度**：RouteWise 在 `provider.name` 级别保持局部性。如果 provider
+  在内部负载均衡器后隐藏多个副本，RouteWise 无法保持副本局部状态，除非副本可单独寻址。
+- **可选**：不提供 `affinity_key` 时禁用缓存局部性学习。现有调用方提供的显式缓存
+  估计仍会用于计算计费回退；学习到的估计只用于路由。
+
+学习到的值会成为 `Decision._estimated_cached_tokens` 并影响路由成本，但不会被视为
+权威用量。输出 token 已知而 `cached_tokens` 与 `cost_usd` 均不可用时，计算计费回退
+优先使用显式调用方估计，否则按未缓存请求计算。尽可能报告实际 `cached_tokens` 以确保计费准确。
+
+`affinity_key` 应表示稳定的可重用前缀或请求身份（例如对话 ID 或系统提示的哈希）。
+不应是原始 prompt 文本或包含敏感数据。空字符串、仅空白字符或超过 1,024 个字符的 key
+都会被拒绝。
+
+!!! warning "单独使用凭证身份无法表示前缀局部性"
+
+    一个 API 凭证可能服务于多个互不相关的对话。若将凭证哈希用作 `affinity_key`，
+    这些对话会共享学习到的 provider 缓存证据。应使用对话或前缀级身份。若应用已有
+    独立验证过的端点级估计，可直接传入这些估计。
+
+### 通用证据与应用级局部性
+
+RouteWise 管理通用的实际复用证据：命中、未命中和未知观测、TTL 与指数衰减、缓存 token
+估计，以及它们对路由和成本的影响；调用方提供的估计优先。RouteWise 只知道
+`provider.name` 和不透明的 `affinity_key`。应用可以维护更细粒度的对话、前缀或端点局部性
+模型，并使用 RouteWise 的观测，但不应把这类粗粒度证据当作权威缓存状态。仅凭凭证哈希
+无法区分互不相关的提示。
 
 ### `observe()`
 
