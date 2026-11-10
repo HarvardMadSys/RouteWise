@@ -62,6 +62,12 @@ class TestCacheLocalityEstimator:
         est.record("a", "prefix_X", cached_tokens=100, input_tokens=100, now=clock.now)
         assert est.estimate("a", "prefix_X", 50, clock.now) == 50
 
+    def test_estimate_is_not_negative_for_negative_current_input(self) -> None:
+        clock = DeterministicClock()
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est.record("a", "prefix_X", cached_tokens=100, input_tokens=100, now=clock.now)
+        assert est.estimate("a", "prefix_X", -5, clock.now) == 0
+
     def test_invalidate_specific(self) -> None:
         clock = DeterministicClock()
         est = _CacheLocalityEstimator(ttl_sec=300.0)
